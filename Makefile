@@ -9,6 +9,10 @@ test: vendor check-encoding
 covhtml:
 	open .cover/coverage.html
 
+.PHONY: acceptance
+acceptance:
+	./scripts/acceptance.sh
+
 .PHONY: clean
 clean:
 	git status --ignored --short | grep '^!! ' | sed 's/!! //' | xargs rm -rf
