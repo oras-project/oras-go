@@ -1,4 +1,5 @@
-TARGET_OBJS ?= a.txt b.txt
+# TODO: use this for fetch-dist
+TARGET_OBJS ?= todo1.txt todo2.txt
 
 .PHONY: test
 test: vendor check-encoding
@@ -26,6 +27,7 @@ fix-encoding:
 vendor:
 	GO111MODULE=on go mod vendor
 
+# TODO: use this
 .PHONY: fetch-dist
 fetch-dist:
 	mkdir -p _dist
@@ -34,8 +36,20 @@ fetch-dist:
 		curl -sSL -o oras_${VERSION}_$${obj} https://github.com/oras-project/oras-go/releases/download/v${VERSION}/oras_${VERSION}_$${obj} ; \
 	done
 
+# 1. mkdir _dist/
+# 2. manually download .zip / .tar.gz from release page
+# 3. move files into _dist/
+# 4. make sign
+# 5. upload .asc files back to release page
 .PHONY: sign
 sign:
-	for f in $$(ls _dist/*.{gz,txt} 2>/dev/null) ; do \
+	for f in $$(ls _dist/*.{zip,tar.gz} 2>/dev/null) ; do \
 		gpg --armor --detach-sign $${f} ; \
+	done
+
+.PHONY: checksums
+checksums:
+	cd _dist/ && \
+	for f in $$(ls *.{zip,tar.gz} 2>/dev/null) ; do \
+		shasum -a 256 $${f} ; \
 	done
