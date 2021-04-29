@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/containerd/containerd/images"
-	orascontent "github.com/deislabs/oras/pkg/content"
+	orascontent "github.com/oras-project/oras-go/pkg/content"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"

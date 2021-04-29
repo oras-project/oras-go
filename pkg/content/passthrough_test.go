@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	ctrcontent "github.com/containerd/containerd/content"
-	"github.com/deislabs/oras/pkg/content"
+	"github.com/oras-project/oras-go/pkg/content"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )

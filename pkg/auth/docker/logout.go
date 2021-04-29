@@ -3,7 +3,7 @@ package docker
 import (
 	"context"
 
-	"github.com/deislabs/oras/pkg/auth"
+	"github.com/oras-project/oras-go/pkg/auth"
 
 	"github.com/docker/cli/cli/config/configfile"
 )

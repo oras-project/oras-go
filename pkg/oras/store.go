@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	orascontent "github.com/deislabs/oras/pkg/content"
+	orascontent "github.com/oras-project/oras-go/pkg/content"
 
 	"github.com/containerd/containerd/content"
 	"github.com/opencontainers/go-digest"
