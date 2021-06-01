@@ -1,6 +1,6 @@
 # OCI Registry As Storage
 
-:construction: **This project is currently under active development. The API may and will change incompatibly from one commit to another.** :construction:
+:construction: **This project is currently under active development. The API is expected to change incompatibly from one commit to another.** :construction:
 
 [![GitHub Actions status](https://github.com/oras-project/oras-go/workflows/build/badge.svg)](https://github.com/oras-project/oras-go/actions?query=workflow%3Abuild)
 [![Go Report Card](https://goreportcard.com/badge/github.com/oras-project/oras-go)](https://goreportcard.com/report/github.com/oras-project/oras-go)
