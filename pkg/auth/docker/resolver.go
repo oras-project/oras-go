@@ -23,6 +23,7 @@ import (
 	"github.com/containerd/containerd/remotes/docker"
 	ctypes "github.com/docker/cli/cli/config/types"
 	"github.com/docker/docker/registry"
+
 	iface "github.com/oras-project/oras-go/pkg/auth"
 )
 

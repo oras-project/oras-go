@@ -32,6 +32,8 @@ import (
 	"github.com/phayes/freeport"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/crypto/bcrypt"
+
+	iface "github.com/oras-project/oras-go/pkg/auth"
 )
 
 var (
@@ -128,6 +130,29 @@ func (suite *DockerClientTestSuite) Test_0_Login() {
 	err = suite.Client.Login(newContext(), suite.DockerRegistryHost, testUsername, testPassword, false)
 	suite.Nil(err, "no error logging into registry with valid credentials")
 }
+
+func (suite *DockerClientTestSuite) Test_1_LoginWithOpts() {
+	var err error
+
+	opts := []iface.LoginOption{
+		iface.WithLoginContext(newContext()),
+		iface.WithLoginHostname(suite.DockerRegistryHost),
+		iface.WithLoginUsername("oscar"),
+		iface.WithLoginSecret("opponent"),
+	}
+	err = suite.Client.LoginWithOpts(opts...)
+	suite.NotNil(err, "error logging into registry with invalid credentials (LoginWithOpts)")
+
+	opts = []iface.LoginOption{
+		iface.WithLoginContext(newContext()),
+		iface.WithLoginHostname(suite.DockerRegistryHost),
+		iface.WithLoginUsername(testUsername),
+		iface.WithLoginSecret(testPassword),
+	}
+	err = suite.Client.LoginWithOpts(opts...)
+	suite.Nil(err, "no error logging into registry with valid credentials (LoginWithOpts)")
+}
+
 func (suite *DockerClientTestSuite) Test_2_Logout() {
 	var err error
 
