@@ -13,7 +13,7 @@ require (
 	github.com/containerd/containerd v1.5.2
 	github.com/docker/cli v20.10.7+incompatible
 	github.com/docker/distribution v2.7.1+incompatible
-	github.com/docker/docker v0.0.0-00010101000000-000000000000
+	github.com/docker/docker v17.12.0-ce-rc1.0.20200618181300-9dc6525e6118+incompatible
 	github.com/docker/docker-credential-helpers v0.6.3 // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
