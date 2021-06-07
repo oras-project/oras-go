@@ -26,27 +26,27 @@ type ClientSuite struct {
 	suite.Suite
 }
 
-func (suite *ClientSuite) TestResolverOptClient() {
+func (suite *ClientSuite) TestWithResolverClient() {
 	settings := &ResolverSettings{}
 	suite.Nil(settings.Client, "settings.Client is nil by default")
 
 	defaultClient := http.DefaultClient
-	opt := ResolverOptClient(defaultClient)
+	opt := WithResolverClient(defaultClient)
 	opt(settings)
 	suite.Equal(defaultClient, settings.Client, "Able to override settings.Client")
 }
 
-func (suite *ClientSuite) TestResolverOptPlainHTTP() {
+func (suite *ClientSuite) TestWithResolverPlainHTTP() {
 	settings := &ResolverSettings{}
 	suite.Equal(false, settings.PlainHTTP, "settings.PlainHTTP is false by default")
 
 	plainHTTP := true
-	opt := ResolverOptPlainHTTP(plainHTTP)
+	opt := WithResolverPlainHTTP()
 	opt(settings)
 	suite.Equal(plainHTTP, settings.PlainHTTP, "Able to override settings.PlainHTTP")
 }
 
-func (suite *ClientSuite) TestResolverOptHeaders() {
+func (suite *ClientSuite) TestWithResolverHeaders() {
 	settings := &ResolverSettings{}
 	suite.Nil(settings.Headers, "settings.Headers is nil by default")
 
@@ -54,7 +54,7 @@ func (suite *ClientSuite) TestResolverOptHeaders() {
 	value := "oras-go/test"
 	headers := http.Header{}
 	headers.Set(key, value)
-	opt := ResolverOptHeaders(headers)
+	opt := WithResolverHeaders(headers)
 	opt(settings)
 	suite.Equal(settings.Headers.Get(key), value, "Able to override settings.Headers")
 }

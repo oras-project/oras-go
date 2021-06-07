@@ -56,22 +56,22 @@ type Client interface {
 	ResolverWithOpts(options ...ResolverOption) (remotes.Resolver, error)
 }
 
-// ResolverOptClient returns a function that sets the Client setting on resolver.
-func ResolverOptClient(client *http.Client) ResolverOption {
+// WithResolverClient returns a function that sets the Client setting on resolver.
+func WithResolverClient(client *http.Client) ResolverOption {
 	return func(settings *ResolverSettings) {
 		settings.Client = client
 	}
 }
 
-// ResolverOptPlainHTTP returns a function that sets the PlainHTTP setting on resolver.
-func ResolverOptPlainHTTP(plainHTTP bool) ResolverOption {
+// WithResolverPlainHTTP returns a function that sets the PlainHTTP setting to true on resolver.
+func WithResolverPlainHTTP() ResolverOption {
 	return func(settings *ResolverSettings) {
-		settings.PlainHTTP = plainHTTP
+		settings.PlainHTTP = true
 	}
 }
 
-// ResolverOptHeaders returns a function that sets the Headers setting on resolver.
-func ResolverOptHeaders(headers http.Header) ResolverOption {
+// WithResolverHeaders returns a function that sets the Headers setting on resolver.
+func WithResolverHeaders(headers http.Header) ResolverOption {
 	return func(settings *ResolverSettings) {
 		settings.Headers = headers
 	}
