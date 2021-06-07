@@ -23,14 +23,30 @@ import (
 	"github.com/containerd/containerd/remotes/docker"
 	ctypes "github.com/docker/cli/cli/config/types"
 	"github.com/docker/docker/registry"
+	iface "github.com/oras-project/oras-go/pkg/auth"
 )
 
 // Resolver returns a new authenticated resolver.
+// Deprecated: use ResolverWithOpts
 func (c *Client) Resolver(_ context.Context, client *http.Client, plainHTTP bool) (remotes.Resolver, error) {
 	return docker.NewResolver(docker.ResolverOptions{
 		Credentials: c.Credential,
 		Client:      client,
 		PlainHTTP:   plainHTTP,
+	}), nil
+}
+
+// ResolverWithOpts returns a new authenticated resolver with custom options.
+func (c *Client) ResolverWithOpts(options ...iface.ResolverOption) (remotes.Resolver, error) {
+	settings := &iface.ResolverSettings{}
+	for _, option := range options {
+		option(settings)
+	}
+	return docker.NewResolver(docker.ResolverOptions{
+		Credentials: c.Credential,
+		Client:      settings.Client,
+		PlainHTTP:   settings.PlainHTTP,
+		Headers:     settings.Headers,
 	}), nil
 }
 
