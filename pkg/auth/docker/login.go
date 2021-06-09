@@ -21,24 +21,47 @@ import (
 	ctypes "github.com/docker/cli/cli/config/types"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/registry"
+
+	iface "github.com/oras-project/oras-go/pkg/auth"
 )
 
 // Login logs in to a docker registry identified by the hostname.
+// Deprecated: use LoginWithOpts
 func (c *Client) Login(ctx context.Context, hostname, username, secret string, insecure bool) error {
-	hostname = resolveHostname(hostname)
+	settings := &iface.LoginSettings{
+		Context:  ctx,
+		Hostname: hostname,
+		Username: username,
+		Secret:   secret,
+		Insecure: insecure,
+	}
+	return c.login(settings)
+}
+
+// LoginWithOpts logs in to a docker registry identified by the hostname with custom options.
+func (c *Client) LoginWithOpts(options ...iface.LoginOption) error {
+	settings := &iface.LoginSettings{}
+	for _, option := range options {
+		option(settings)
+	}
+	return c.login(settings)
+}
+
+func (c *Client) login(settings *iface.LoginSettings) error {
+	hostname := resolveHostname(settings.Hostname)
 	cred := types.AuthConfig{
-		Username:      username,
+		Username:      settings.Username,
 		ServerAddress: hostname,
 	}
-	if username == "" {
-		cred.IdentityToken = secret
+	if settings.Username == "" {
+		cred.IdentityToken = settings.Secret
 	} else {
-		cred.Password = secret
+		cred.Password = settings.Secret
 	}
 
 	opts := registry.ServiceOptions{}
 
-	if insecure {
+	if settings.Insecure {
 		opts.InsecureRegistries = []string{hostname}
 	}
 
@@ -47,7 +70,15 @@ func (c *Client) Login(ctx context.Context, hostname, username, secret string, i
 	if err != nil {
 		return err
 	}
-	if _, token, err := remote.Auth(ctx, &cred, "oras"); err != nil {
+	ctx := settings.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	userAgent := settings.UserAgent
+	if userAgent == "" {
+		userAgent = "oras"
+	}
+	if _, token, err := remote.Auth(ctx, &cred, userAgent); err != nil {
 		return err
 	} else if token != "" {
 		cred.Username = ""
