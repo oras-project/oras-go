@@ -12,7 +12,7 @@
 
 Using the ORAS Go library, you can develop your own push/pull experience: `myclient push artifacts.azurecr.io/myartifact:1.0 ./mything.thang`
 
-The package `github.com/oras-project/oras-go/pkg/oras` can quickly be imported in other Go-based tools that
+The package `oras.land/oras-go` can quickly be imported in other Go-based tools that
 wish to benefit from the ability to store arbitrary content in container registries.
 
 ### ORAS Go Library Example
@@ -26,11 +26,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/oras-project/oras-go/pkg/content"
-	"github.com/oras-project/oras-go/pkg/oras"
-
 	"github.com/containerd/containerd/remotes/docker"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
+	"oras.land/oras-go/pkg/content"
+	"oras.land/oras-go/pkg/oras"
 )
 
 func check(e error) {

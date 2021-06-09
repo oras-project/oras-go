@@ -1,4 +1,4 @@
-module github.com/oras-project/oras-go
+module oras.land/oras-go
 
 go 1.16
 

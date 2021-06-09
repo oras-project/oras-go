@@ -22,7 +22,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/registry"
 
-	iface "github.com/oras-project/oras-go/pkg/auth"
+	iface "oras.land/oras-go/pkg/auth"
 )
 
 // Login logs in to a docker registry identified by the hostname.

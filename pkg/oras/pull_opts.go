@@ -21,12 +21,12 @@ import (
 	"io"
 	"sync"
 
-	orascontent "github.com/oras-project/oras-go/pkg/content"
-
 	"github.com/containerd/containerd/images"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/semaphore"
+
+	orascontent "oras.land/oras-go/pkg/content"
 )
 
 type pullOpts struct {

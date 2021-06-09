@@ -20,11 +20,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/oras-project/oras-go/pkg/content"
-	"github.com/oras-project/oras-go/pkg/oras"
-
 	"github.com/containerd/containerd/remotes/docker"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
+	"oras.land/oras-go/pkg/content"
+	"oras.land/oras-go/pkg/oras"
 )
 
 func check(e error) {
