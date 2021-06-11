@@ -24,7 +24,7 @@ import (
 	ctypes "github.com/docker/cli/cli/config/types"
 	"github.com/docker/docker/registry"
 
-	iface "github.com/oras-project/oras-go/pkg/auth"
+	iface "oras.land/oras-go/pkg/auth"
 )
 
 // Resolver returns a new authenticated resolver.

@@ -18,9 +18,9 @@ package docker
 import (
 	"context"
 
-	"github.com/oras-project/oras-go/pkg/auth"
-
 	"github.com/docker/cli/cli/config/configfile"
+
+	"oras.land/oras-go/pkg/auth"
 )
 
 // Logout logs out from a docker registry identified by the hostname.

@@ -33,7 +33,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/crypto/bcrypt"
 
-	iface "github.com/oras-project/oras-go/pkg/auth"
+	iface "oras.land/oras-go/pkg/auth"
 )
 
 var (

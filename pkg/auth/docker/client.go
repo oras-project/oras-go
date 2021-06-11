@@ -18,12 +18,12 @@ package docker
 import (
 	"os"
 
-	"github.com/oras-project/oras-go/pkg/auth"
-
 	"github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
 	"github.com/docker/cli/cli/config/credentials"
 	"github.com/pkg/errors"
+
+	"oras.land/oras-go/pkg/auth"
 )
 
 // Client provides authentication operations for docker registries.

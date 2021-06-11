@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	orascontent "github.com/oras-project/oras-go/pkg/content"
+	orascontent "oras.land/oras-go/pkg/content"
 
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/remotes"

@@ -21,12 +21,12 @@ import (
 	"io"
 	"time"
 
-	orascontent "github.com/oras-project/oras-go/pkg/content"
-
 	"github.com/containerd/containerd/content"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
+
+	orascontent "oras.land/oras-go/pkg/content"
 )
 
 // ensure interface

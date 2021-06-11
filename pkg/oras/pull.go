@@ -19,8 +19,6 @@ import (
 	"context"
 	"sync"
 
-	orascontent "github.com/oras-project/oras-go/pkg/content"
-
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/log"
@@ -28,6 +26,8 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/semaphore"
+
+	orascontent "oras.land/oras-go/pkg/content"
 )
 
 // Pull pull files from the remote
