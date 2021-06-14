@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/remotes"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/suite"
@@ -31,8 +31,8 @@ import (
 
 type ContentTestSuite struct {
 	suite.Suite
-	TestMemoryStore *Memorystore
-	TestFileStore   *FileStore
+	TestMemoryStore *Memory
+	TestFileStore   *File
 }
 
 var (
@@ -57,40 +57,46 @@ var (
 )
 
 func (suite *ContentTestSuite) SetupSuite() {
-	testMemoryStore := NewMemoryStore()
-	testMemoryStore.Add(testRef, "", testContent)
+	testMemoryStore := NewMemory()
+	desc, err := testMemoryStore.Add(testRef, "", testContent)
+	suite.Nil(err, "no error adding testContent to memory store")
+	_, err = testMemoryStore.GenerateManifest(testRef, nil, desc)
+	suite.Nil(err, "no error adding ref to memory store")
 	suite.TestMemoryStore = testMemoryStore
 
 	os.Remove(testFileName)
-	err := ioutil.WriteFile(testFileName, testContent, 0644)
+	err = ioutil.WriteFile(testFileName, testContent, 0644)
 	suite.Nil(err, "no error creating test file on disk")
-	testFileStore := NewFileStore(testDirRoot, WithErrorOnNoName())
-	_, err = testFileStore.Add(testRef, "", testFileName)
+	testFileStore := NewFile(testDirRoot, WithErrorOnNoName())
+	desc, err = testFileStore.Add(testRef, "", testFileName)
 	suite.Nil(err, "no error adding item to file store")
+	_, err = testFileStore.GenerateManifest(testRef, nil, desc)
+	suite.Nil(err, "no error adding ref to file store")
 	suite.TestFileStore = testFileStore
 }
 
 // Tests all Writers (Ingesters)
 func (suite *ContentTestSuite) Test_0_Ingesters() {
-	ingesters := map[string]content.Ingester{
-		"memory": suite.TestMemoryStore,
-		"file":   suite.TestFileStore,
+
+	ctx := context.Background()
+	memPusher, _ := suite.TestMemoryStore.Pusher(ctx, "")
+	filePusher, _ := suite.TestFileStore.Pusher(ctx, "")
+	ingesters := map[string]remotes.Pusher{
+		"memory": memPusher,
+		"file":   filePusher,
 	}
 
 	for key, ingester := range ingesters {
 
 		// Bad ref
-		ctx := context.Background()
-		refOpt := content.WithDescriptor(testBadDescriptor)
-		writer, err := ingester.Writer(ctx, refOpt)
+		writer, err := ingester.Push(ctx, testBadDescriptor)
 		if key == "file" {
 			suite.NotNil(err, fmt.Sprintf("no error getting writer w bad ref for %s store", key))
 		}
 
 		// Good ref
 		ctx = context.Background()
-		refOpt = content.WithDescriptor(testDescriptor)
-		writer, err = ingester.Writer(ctx, refOpt)
+		writer, err = ingester.Push(ctx, testDescriptor)
 		suite.Nil(err, fmt.Sprintf("no error getting writer w good ref for %s store", key))
 		_, err = writer.Write(testContent)
 		suite.Nil(err, fmt.Sprintf("no error using writer.Write w good ref for %s store", key))
@@ -110,7 +116,7 @@ func (suite *ContentTestSuite) Test_0_Ingesters() {
 		suite.NotNil(err, fmt.Sprintf("error using writer.Commit when closed w good ref for %s store", key))
 
 		// re-init writer after closing
-		writer, _ = ingester.Writer(ctx, refOpt)
+		writer, _ = ingester.Push(ctx, testDescriptor)
 		writer.Write(testContent)
 
 		// invalid truncate size
@@ -129,7 +135,6 @@ func (suite *ContentTestSuite) Test_0_Ingesters() {
 		suite.NotNil(err, fmt.Sprintf("error using writer.Commit w bad size, good ref for %s store", key))
 
 		// bad digest
-		writer, _ = ingester.Writer(ctx, refOpt)
 		err = writer.Commit(ctx, 0, testBadDescriptor.Digest)
 		suite.NotNil(err, fmt.Sprintf("error using writer.Commit w bad digest, good ref for %s store", key))
 	}
@@ -137,9 +142,12 @@ func (suite *ContentTestSuite) Test_0_Ingesters() {
 
 // Tests all Readers (Providers)
 func (suite *ContentTestSuite) Test_1_Providers() {
-	providers := map[string]content.Provider{
-		"memory": suite.TestMemoryStore,
-		"file":   suite.TestFileStore,
+	ctx := context.Background()
+	memFetcher, _ := suite.TestMemoryStore.Fetcher(ctx, testRef)
+	fileFetcher, _ := suite.TestFileStore.Fetcher(ctx, testRef)
+	providers := map[string]remotes.Fetcher{
+		"memory": memFetcher,
+		"file":   fileFetcher,
 	}
 
 	// Readers (Providers)
@@ -147,26 +155,23 @@ func (suite *ContentTestSuite) Test_1_Providers() {
 
 		// Bad ref
 		ctx := context.Background()
-		_, err := provider.ReaderAt(ctx, testBadDescriptor)
+		_, err := provider.Fetch(ctx, testBadDescriptor)
 		suite.NotNil(err, fmt.Sprintf("error with bad ref for %s store", key))
 
 		// Good ref
 		ctx = context.Background()
-		readerAt, err := provider.ReaderAt(ctx, testDescriptor)
+		reader, err := provider.Fetch(ctx, testDescriptor)
 		suite.Nil(err, fmt.Sprintf("no error with good ref for %s store", key))
 
-		// readerat Size()
-		suite.Equal(testDescriptor.Size, readerAt.Size(), fmt.Sprintf("readerat size matches for %s store", key))
-
 		// readerat Close()
-		err = readerAt.Close()
-		suite.Nil(err, fmt.Sprintf("no error closing readerat for %s store", key))
+		err = reader.Close()
+		suite.Nil(err, fmt.Sprintf("no error closing reader for %s store", key))
 
 		// file missing
 		if key == "file" {
 			os.Remove(testFileName)
 			ctx := context.Background()
-			_, err := provider.ReaderAt(ctx, testDescriptor)
+			_, err := provider.Fetch(ctx, testDescriptor)
 			suite.NotNil(err, fmt.Sprintf("error with good ref for %s store (file missing)", key))
 		}
 	}

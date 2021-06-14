@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"testing"
 
-	ctrcontent "github.com/containerd/containerd/content"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -50,10 +49,11 @@ func TestDecompressStore(t *testing.T) {
 			Size:      int64(len(gzipContent)),
 		}
 
-		memStore := content.NewMemoryStore()
-		decompressStore := content.NewDecompressStore(memStore, content.WithBlocksize(0))
+		memStore := content.NewMemory()
 		ctx := context.Background()
-		decompressWriter, err := decompressStore.Writer(ctx, ctrcontent.WithDescriptor(gzipDescriptor))
+		memPusher, _ := memStore.Pusher(ctx, "")
+		decompressStore := content.NewDecompress(memPusher, content.WithBlocksize(0))
+		decompressWriter, err := decompressStore.Push(ctx, gzipDescriptor)
 		if err != nil {
 			t.Fatalf("unable to get a decompress writer: %v", err)
 		}

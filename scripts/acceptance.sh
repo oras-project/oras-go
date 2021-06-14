@@ -21,11 +21,12 @@ LOCAL_REGISTRY_HOSTNAME="${LOCAL_REGISTRY_HOSTNAME:-localhost}"
 
 # Cleanup from previous runs
 rm -f hello.txt
-rm -f bin/oras-acceptance || true
+rm -f bin/oras-acceptance-* || true
 docker rm -f oras-acceptance-registry || true
 
-# Build the example into a binary
-CGO_ENABLED=0 go build -v -o bin/oras-acceptance ./examples/
+# Build the examples into binaries
+CGO_ENABLED=0 go build -v -o bin/oras-acceptance-simple ./examples/simple
+CGO_ENABLED=0 go build -v -o bin/oras-acceptance-advanced ./examples/advanced
 
 # Run a test registry and expose at localhost:5000
 trap "docker rm -f oras-acceptance-registry" EXIT
@@ -54,7 +55,7 @@ done
 sleep 5
 
 # Run the example binary
-bin/oras-acceptance
+bin/oras-acceptance-simple
 
 # Ensure hello.txt exists and contains expected content
 grep '^Hello World!$' hello.txt

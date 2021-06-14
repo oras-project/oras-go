@@ -21,19 +21,21 @@ import (
 	"strings"
 
 	ctrcontent "github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/remotes"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// DecompressStore store to decompress content and extract from tar, if needed, wrapping
+// Decompress store to decompress content and extract from tar, if needed, wrapping
 // another store. By default, a FileStore will simply take each artifact and write it to
 // a file, as a MemoryStore will do into memory. If the artifact is gzipped or tarred,
 // you might want to store the actual object inside tar or gzip. Wrap your Store
-// with DecompressStore, and it will check the media-type and, if relevant,
+// with Decompress, and it will check the media-type and, if relevant,
 // gunzip and/or untar.
 //
 // For example:
 //
 //        fileStore := NewFileStore(rootPath)
-//        decompressStore := store.NewDecompressStore(fileStore, WithBlocksize(blocksize))
+//        Decompress := store.NewDecompress(fileStore, WithBlocksize(blocksize))
 //
 // The above example works if there is no tar, i.e. each artifact is just a single file, perhaps gzipped,
 // or if there is only one file in each tar archive. In other words, when each content.Writer has only one target output stream.
@@ -42,15 +44,15 @@ import (
 // target output stream. In that case, use the following example:
 //
 //        multiStore := NewMultiStore(rootPath) // some store that can handle different filenames
-//        decompressStore := store.NewDecompressStore(multiStore, WithBlocksize(blocksize), WithMultiWriterIngester())
+//        Decompress := store.NewDecompress(multiStore, WithBlocksize(blocksize), WithMultiWriterIngester())
 //
-type DecompressStore struct {
-	ingester            ctrcontent.Ingester
+type Decompress struct {
+	pusher              remotes.Pusher
 	blocksize           int
 	multiWriterIngester bool
 }
 
-func NewDecompressStore(ingester ctrcontent.Ingester, opts ...WriterOpt) DecompressStore {
+func NewDecompress(pusher remotes.Pusher, opts ...WriterOpt) Decompress {
 	// we have to reprocess the opts to find the blocksize
 	var wOpts WriterOpts
 	for _, opt := range opts {
@@ -60,50 +62,41 @@ func NewDecompressStore(ingester ctrcontent.Ingester, opts ...WriterOpt) Decompr
 		}
 	}
 
-	return DecompressStore{ingester, wOpts.Blocksize, wOpts.MultiWriterIngester}
+	return Decompress{pusher, wOpts.Blocksize, wOpts.MultiWriterIngester}
 }
 
-// Writer get a writer
-func (d DecompressStore) Writer(ctx context.Context, opts ...ctrcontent.WriterOpt) (ctrcontent.Writer, error) {
+// Push get a content.Writer
+func (d Decompress) Push(ctx context.Context, desc ocispec.Descriptor) (ctrcontent.Writer, error) {
 	// the logic is straightforward:
 	// - if there is a desc in the opts, and the mediatype is tar or tar+gzip, then pass the correct decompress writer
 	// - else, pass the regular writer
 	var (
 		writer        ctrcontent.Writer
 		err           error
-		multiIngester MultiWriterIngester
+		multiIngester MultiWriterPusher
 		ok            bool
 	)
 
 	// check to see if we are supposed to use a MultiWriterIngester
 	if d.multiWriterIngester {
-		multiIngester, ok = d.ingester.(MultiWriterIngester)
+		multiIngester, ok = d.pusher.(MultiWriterPusher)
 		if !ok {
 			return nil, errors.New("configured to use multiwriter ingester, but ingester does not implement multiwriter")
 		}
 	}
 
-	// we have to reprocess the opts to find the desc
-	var wOpts ctrcontent.WriterOpts
-	for _, opt := range opts {
-		if err := opt(&wOpts); err != nil {
-			return nil, err
-		}
-	}
 	// figure out if compression and/or archive exists
-	desc := wOpts.Desc
 	// before we pass it down, we need to strip anything we are removing here
 	// and possibly update the digest, since the store indexes things by digest
 	hasGzip, hasTar, modifiedMediaType := checkCompression(desc.MediaType)
-	wOpts.Desc.MediaType = modifiedMediaType
-	opts = append(opts, ctrcontent.WithDescriptor(wOpts.Desc))
+	desc.MediaType = modifiedMediaType
 	// determine if we pass it blocksize, only if positive
 	writerOpts := []WriterOpt{}
 	if d.blocksize > 0 {
 		writerOpts = append(writerOpts, WithBlocksize(d.blocksize))
 	}
 
-	writer, err = d.ingester.Writer(ctx, opts...)
+	writer, err = d.pusher.Push(ctx, desc)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +107,7 @@ func (d DecompressStore) Writer(ctx context.Context, opts ...ctrcontent.WriterOp
 		if multiIngester == nil {
 			writer = NewUntarWriter(writer, writerOpts...)
 		} else {
-			writers, err := multiIngester.Writers(ctx, opts...)
+			writers, err := multiIngester.Pushers(ctx, desc)
 			if err != nil {
 				return nil, err
 			}
@@ -123,7 +116,7 @@ func (d DecompressStore) Writer(ctx context.Context, opts ...ctrcontent.WriterOp
 	}
 	if hasGzip {
 		if writer == nil {
-			writer, err = d.ingester.Writer(ctx, opts...)
+			writer, err = d.pusher.Push(ctx, desc)
 			if err != nil {
 				return nil, err
 			}
