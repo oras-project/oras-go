@@ -53,7 +53,7 @@ type FileStore struct {
 	ignoreNoName bool
 }
 
-// NewFileStore creats a new file store
+// NewFileStore creates a new file store
 func NewFileStore(rootPath string, opts ...WriterOpt) *FileStore {
 	// we have to process the opts to find if they told us to change defaults
 	wOpts := DefaultWriterOpts()
