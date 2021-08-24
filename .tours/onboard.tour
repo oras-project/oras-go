@@ -1,0 +1,245 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "onboard",
+  "steps": [
+    {
+      "file": "README.md",
+      "description": "ORAS with version prior to `v0.12.0` contains the command line tools and the library code. Since the ORAS is designed to be used as an library and integrated into other projects like Helm, the ORAS command line tools and the library code are decoupled since version `v0.12.0`. This repo presents the ORAS go library.",
+      "line": 1
+    },
+    {
+      "file": "README.md",
+      "description": "This library repo is still in a WIP state. One on-going work is the [Copy API](https://github.com/oras-project/oras-go/pull/8), which unifies the pull, push API. Another is the `containerd` removal. Basically, coders do not want the full containerd and unrelated modules imported and just want to make ORAS as simple as possible like other primitive libraries.",
+      "line": 3
+    },
+    {
+      "file": "OWNERS.md",
+      "description": "The ORAS project is currently maintained by following owners.",
+      "line": 1
+    },
+    {
+      "file": "examples/simple_push_pull.go",
+      "description": "Before digging into how the ORAS is implemented, we go through an example of how to use ORAS first.",
+      "line": 44
+    },
+    {
+      "file": "examples/simple_push_pull.go",
+      "description": "Since ORAS needs to contact the remote registry server, ORAS leverages the `remotes` package from the `containerd` project for all communications to the registry server.\r\n\r\nIn this case, we are connecting to an OCI-compatible docker registry server. Thus we use the `docker.NewResolver()` as the content resolver. If the remote server requires authentication, login credentials can be specified in the `docker.ResovlerOptions`.\r\n\r\nBesides, it is possible that you implement a customized resolver to pull or push artifacts to other storage such as filesystem or memory.",
+      "line": 51
+    },
+    {
+      "file": "examples/simple_push_pull.go",
+      "description": "Let's try pushing an artifact to the remote registry.\r\n\r\nIn an abstract view, we are copying files from one storage to another. In this example, we create an `content.MemoryStore`, which implements the `content.Provider` interface, and push an artifact from that store.",
+      "line": 54
+    },
+    {
+      "file": "examples/simple_push_pull.go",
+      "description": "Add an artifact to the memory store.",
+      "line": 55
+    },
+    {
+      "file": "examples/simple_push_pull.go",
+      "description": "Select the content we want to push from the storage.",
+      "line": 56
+    },
+    {
+      "file": "examples/simple_push_pull.go",
+      "description": "Invoke `oras.Push` to push the selected content from the memory store to the remote registry.",
+      "line": 58
+    },
+    {
+      "file": "examples/simple_push_pull.go",
+      "description": "Then we try pulling artifacts from the remote registry.\r\n\r\nInstead of a memory store, we use a `content.FileStore`, which implements the `content.Ingester` interface, to hold the downloaded artifact.",
+      "line": 64
+    },
+    {
+      "file": "examples/simple_push_pull.go",
+      "description": "We need to specified the media type of the artifact as we don't want to download arbitrary artifact from the remote registry.",
+      "line": 66
+    },
+    {
+      "file": "examples/simple_push_pull.go",
+      "description": "Invoke `oras.Pull` to pull the artifacts. The descriptors of pulled artifact blobs are returned. The actual blobs are stored in the `FileStore`.",
+      "line": 67
+    },
+    {
+      "file": "pkg/oras/push.go",
+      "description": "Now we focus on how the core functionalities of ORAS, i.e. `oras.Push` and `oras.Pull`, work. Let's start with `oras.Push`.",
+      "line": 33
+    },
+    {
+      "file": "pkg/oras/push.go",
+      "selection": {
+        "start": {
+          "line": 33,
+          "character": 132
+        },
+        "end": {
+          "line": 33,
+          "character": 147
+        }
+      },
+      "description": "Besides the standard parameters, `oras.Push` can also take additional `PushOpt` options."
+    },
+    {
+      "file": "pkg/oras/push_opts.go",
+      "description": "All push options are specified in `push_opts.go`. By combining different options, we can customize oras to achieve advanced features like showing a progress bar.",
+      "line": 50
+    },
+    {
+      "file": "pkg/oras/push.go",
+      "description": "Back to the `oras.Push` function. Since only blobs are passed in, we need to generate a manifest for those artifact.",
+      "line": 56,
+      "selection": {
+        "start": {
+          "line": 33,
+          "character": 132
+        },
+        "end": {
+          "line": 33,
+          "character": 147
+        }
+      }
+    },
+    {
+      "file": "pkg/oras/push.go",
+      "description": "To comply with the OCI image specification, we need a config file in the manifest.\r\n\r\nHowever, we cannot store the additional files such as the config and the manifest in the content provider. Therefore, we create a middleware on top of the content provider so that additional files are stored in the memory and others are loaded from the content provider as it is.",
+      "line": 76
+    },
+    {
+      "file": "pkg/oras/push.go",
+      "description": "By default, we use an empty JSON object `{}` as the config content. Since it is a valid JSON object, most registry implementation should not complain and treat it as an error.",
+      "line": 79
+    },
+    {
+      "file": "pkg/oras/push.go",
+      "description": "Then we generate the OCI manifest according to the config and other blobs.",
+      "line": 106
+    },
+    {
+      "file": "pkg/oras/push.go",
+      "description": "Finally, return the manifest descriptor as the root node of the Directed Acyclic Graph (DAG).",
+      "line": 125
+    },
+    {
+      "file": "pkg/oras/push.go",
+      "description": "Once we have the manifest and all related files of the DAG, `oras` relies on the `remotes.PushContent` function from the `containerd` to push the files to the remote.",
+      "line": 68
+    },
+    {
+      "file": "pkg/oras/pull.go",
+      "description": "`oras.Pull` is similar to the `oras.Push`. It also can accept additional `PullOpt` options to enhance its functionalities.",
+      "line": 34,
+      "selection": {
+        "start": {
+          "line": 112,
+          "character": 15
+        },
+        "end": {
+          "line": 112,
+          "character": 36
+        }
+      }
+    },
+    {
+      "file": "pkg/oras/pull_opts.go",
+      "description": "All pull options are defined in `pull_opts`. Options can be combined to implement various features.",
+      "line": 43
+    },
+    {
+      "file": "pkg/oras/pull.go",
+      "description": "Like `oras.Push`, the `oras.Pull` function also relies on the `containerd` package.",
+      "line": 92,
+      "selection": {
+        "start": {
+          "line": 112,
+          "character": 15
+        },
+        "end": {
+          "line": 112,
+          "character": 36
+        }
+      }
+    },
+    {
+      "file": "pkg/oras/pull_opts.go",
+      "description": "By default, `oras.Pull` invokes `images.Dispatch` from the `containerd` to pull images.",
+      "line": 47,
+      "selection": {
+        "start": {
+          "line": 47,
+          "character": 1
+        },
+        "end": {
+          "line": 48,
+          "character": 1
+        }
+      }
+    },
+    {
+      "file": "pkg/context/context.go",
+      "description": "As `oras.Pull` and `oras.Push` rely on the `containerd` package and the `containerd` outputs logs by default. It is more convenient to disable the logging for `containerd` by default. ",
+      "line": 23
+    },
+    {
+      "file": "pkg/content/memory.go",
+      "description": "ORAS does not only provide `Push` and `Pull` methods but also provide lots of utilities like various stores and auth client.\r\n\r\nStarting with `MemoryStore`, it provides a memory-based store. It is good for ephemeral usage or testing purposes.",
+      "line": 38,
+      "selection": {
+        "start": {
+          "line": 146,
+          "character": 61
+        },
+        "end": {
+          "line": 146,
+          "character": 76
+        }
+      }
+    },
+    {
+      "file": "pkg/content/file.go",
+      "description": "Another important store is `FileStore`.",
+      "line": 42
+    },
+    {
+      "file": "pkg/content/file.go",
+      "description": "You can add a regular file or a directory to the file store. Optionally, set a `name` alias.",
+      "line": 75
+    },
+    {
+      "file": "pkg/content/file.go",
+      "description": "If a directory is added, it will be compressed via `tar+gzip`.",
+      "line": 125
+    },
+    {
+      "file": "pkg/content/file.go",
+      "description": "Since `tar` is involved, we need to consider general decompression vulnerabilities. `DisableOverwrite` and `AllowPathTraversalOnWrite` are two major security options.",
+      "line": 44,
+      "selection": {
+        "start": {
+          "line": 43,
+          "character": 2
+        },
+        "end": {
+          "line": 43,
+          "character": 18
+        }
+      }
+    },
+    {
+      "file": "pkg/auth/client.go",
+      "description": "Besides the data stores, `oras` also provides auth clients.",
+      "line": 32
+    },
+    {
+      "file": "pkg/auth/docker/client.go",
+      "description": "`oras` provide `docker.Client` as it is a common client. In addition to the `resolver` functionality, docker client in `oras` also integrates the `login` and `logout` functionalities. Hence, the user experience is consistent with the docker cli.",
+      "line": 30
+    },
+    {
+      "file": "README.md",
+      "description": "More docs are available.\r\n\r\nWelcome to adopt and / or contribute to ORAS. 😀",
+      "line": 14
+    }
+  ]
+}
