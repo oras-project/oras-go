@@ -42,7 +42,7 @@ type Memorystore struct {
 	lock       *sync.Mutex
 }
 
-// NewMemoryStore creats a new memory store
+// NewMemoryStore creates a new memory store
 func NewMemoryStore() *Memorystore {
 	return &Memorystore{
 		descriptor: make(map[digest.Digest]ocispec.Descriptor),
