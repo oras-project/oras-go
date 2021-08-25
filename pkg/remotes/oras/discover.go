@@ -9,6 +9,7 @@ import (
 	v1 "github.com/oras-project/artifacts-spec/specs-go/v1"
 )
 
+// TODO: WIP, probably need to discuss this API since it is new
 type DiscoveredArtifact struct {
 	Digest   digest.Digest
 	Manifest v1.Descriptor
@@ -24,7 +25,6 @@ func (r resolver) Discoverer(ctx context.Context, ref string) (Discoverer, error
 	if r.discoverer == nil {
 		return nil, fmt.Errorf("Discoverer is disabled")
 	}
-
 	return r, nil
 }
 

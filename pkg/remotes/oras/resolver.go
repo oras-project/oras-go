@@ -5,7 +5,6 @@ import (
 
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	v1 "github.com/oras-project/artifacts-spec/specs-go/v1"
 )
 
 type resolver struct {
@@ -13,6 +12,7 @@ type resolver struct {
 	desc       ocispec.Descriptor
 	fetcher    remotes.FetcherFunc
 	pusher     remotes.PusherFunc
+	resolver   ResolverFunc
 	discoverer DiscoverFunc
 }
 
@@ -28,17 +28,11 @@ type resolver struct {
 //
 // If the resolution fails, an error will be returned.
 func (r resolver) Resolve(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error) {
+	if r.resolver != nil {
+		return r.resolver(ctx, ref)
+	}
+
 	return ref, r.desc, nil
 }
 
-// TODO
-func AdaptOCISpec(desc ocispec.Descriptor) v1.Descriptor {
-	next := v1.Descriptor{}
-	next.Annotations = desc.Annotations
-	next.Digest = desc.Digest
-	next.MediaType = desc.MediaType
-	next.Size = desc.Size
-	next.URLs = desc.URLs
-
-	return next
-}
+type ResolverFunc = func(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error)
