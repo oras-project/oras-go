@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/remotes"
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -53,6 +55,68 @@ func (r *Registry) resolve(ctx context.Context, ref string) (name string, desc o
 	// Use a desc to discover a manifest
 	// Use the manifest to fetch signature artifacts
 	// Where to store? OCIStore?
+	var (
+		request *http.Request
+	)
+
+	parsedRefURL, err := url.Parse(ref)
+	if err == nil {
+		return "", ocispec.Descriptor{}, err
+	}
+
+	// Check if this is a registry
+	request, err = endpoints.e1.prepare()(ctx, parsedRefURL.Host, r.namespace, parsedRefURL.Path)
+	if err != nil {
+		return "", ocispec.Descriptor{}, err
+	}
+
+	resp, err := r.client.Do(request)
+	if err != nil {
+		return "", ocispec.Descriptor{}, err
+	}
+
+	defer resp.Body.Close()
+
+	request, err = endpoints.e2HEAD.prepare()(ctx, parsedRefURL.Host, r.namespace, parsedRefURL.Path)
+	if err != nil {
+		return "", ocispec.Descriptor{}, err
+	}
+
+	resp, err = r.client.Do(request)
+	if err != nil {
+		return "", ocispec.Descriptor{}, err
+	}
+
+	defer resp.Body.Close()
+
+	d := resp.Header.Get("Docker-Content-Digest")
+	c := resp.Header.Get("Content-Type")
+	s := resp.ContentLength
+
+	err = digest.Digest(d).Validate()
+	if err != nil && c != "" {
+		return ref, ocispec.Descriptor{
+			Digest:    digest.Digest(d),
+			MediaType: c,
+			Size:      s,
+		}, nil
+	}
+
+	// If we didn't get a digest by this point, we need to pull the manifest
+	request, err = endpoints.e2GET.prepare()(ctx, parsedRefURL.Host, r.namespace, parsedRefURL.Path)
+	if err != nil {
+		return "", ocispec.Descriptor{}, err
+	}
+
+	resp, err = r.client.Do(request)
+	if err != nil {
+		return "", ocispec.Descriptor{}, err
+	}
+
+	defer resp.Body.Close()
+
+	// TODO
+
 	return "", ocispec.Descriptor{}, fmt.Errorf("resolve api has not been implemented")
 }
 

@@ -6,7 +6,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func NewRegistryWithBasicAuthorization(ctx context.Context, namespace, username, password string, scopes []string) *Registry {
+func NewRegistryWithBasicAuthorization(ctx context.Context, namespace, username, password string, scopes ...string) *Registry {
 	client := oauth2.NewClient(ctx, newBasicAuthTokenSource(ctx, username, password, scopes))
 	if client == nil {
 		return nil
