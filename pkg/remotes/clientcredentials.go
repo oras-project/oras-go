@@ -1,4 +1,4 @@
-package oras
+package remotes
 
 import (
 	"context"

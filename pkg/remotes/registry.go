@@ -1,4 +1,4 @@
-package oras
+package remotes
 
 import (
 	"context"
@@ -77,6 +77,7 @@ func (r *Registry) resolve(ctx context.Context, ref string) (name string, desc o
 
 	defer resp.Body.Close()
 
+	// Check to see if we can get the digest early
 	request, err = endpoints.e3HEAD.prepare()(ctx, parsedRefURL.Host, r.namespace, parsedRefURL.Path)
 	if err != nil {
 		return "", ocispec.Descriptor{}, err
