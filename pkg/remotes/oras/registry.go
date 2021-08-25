@@ -77,7 +77,7 @@ func (r *Registry) resolve(ctx context.Context, ref string) (name string, desc o
 
 	defer resp.Body.Close()
 
-	request, err = endpoints.e2HEAD.prepare()(ctx, parsedRefURL.Host, r.namespace, parsedRefURL.Path)
+	request, err = endpoints.e3HEAD.prepare()(ctx, parsedRefURL.Host, r.namespace, parsedRefURL.Path)
 	if err != nil {
 		return "", ocispec.Descriptor{}, err
 	}
@@ -103,7 +103,7 @@ func (r *Registry) resolve(ctx context.Context, ref string) (name string, desc o
 	}
 
 	// If we didn't get a digest by this point, we need to pull the manifest
-	request, err = endpoints.e2GET.prepare()(ctx, parsedRefURL.Host, r.namespace, parsedRefURL.Path)
+	request, err = endpoints.e3GET.prepare()(ctx, parsedRefURL.Host, r.namespace, parsedRefURL.Path)
 	if err != nil {
 		return "", ocispec.Descriptor{}, err
 	}
