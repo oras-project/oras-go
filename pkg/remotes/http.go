@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Table of endpoints for OCI v2
@@ -27,16 +30,62 @@ import (
 // <name>		- is the namespace of the repository, must match [a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*
 // <reference>  - is either a digest or a tag, must match [a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}
 
-func validateNamespace(namespace string) bool {
-	re := regexp.MustCompile(`[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*`)
+var (
+	namespaceRegex = regexp.MustCompile(`[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*`)
+	referenceRegex = regexp.MustCompile(`[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}`)
+)
 
-	return re.FindString(namespace) == namespace
+func validate(reference string) (string, string, string, error) {
+	matches := referenceRegex.FindAllString(reference, -1)
+
+	// Technically a namespace is allowed to have "/"'s, while a reference is not allowed to
+	// That means if you string match the reference regex, then you should end up with basically the first segment being the host
+	// the middle part being the namespace
+	// and the last part should be the tag
+
+	if len(matches) == 3 {
+		return matches[0], matches[1], matches[2], nil
+	}
+
+	host := matches[0]
+	namespace := strings.Join(matches[1:len(matches)-1], "")
+	ref := matches[len(matches)-1]
+
+	return host, namespace, ref, nil
 }
 
-func validateReference(reference string) bool {
-	re := regexp.MustCompile(`[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}`)
+func validateNamespace(namespace string) (string, error) {
+	matches := namespaceRegex.FindAllString(namespace, -1)
 
-	return re.FindString(reference) == reference
+	if len(matches) <= 0 {
+		return "", fmt.Errorf("Either the reference was empty, or it contained no characters")
+	}
+
+	root := matches[0]
+	// Check to see if it's in a {host}/{image} format, '/' is a valid character for a reference
+	matches = referenceRegex.FindAllString(root, 1)
+	if len(matches) > 0 {
+		return matches[0], nil
+	}
+
+	return "", fmt.Errorf("Malformed reference, a reference should be in the form of {host}/{namespace}:{tag}")
+}
+
+func validateReference(reference string) (string, error) {
+	matches := referenceRegex.FindAllString(reference, -1)
+
+	if len(matches) <= 0 {
+		return "", fmt.Errorf("Either the reference was empty, or it contained no characters")
+	}
+
+	maybe := matches[len(matches)-1]
+
+	endsWith := strings.HasSuffix(reference, ":"+maybe)
+	if endsWith {
+		return maybe, nil
+	}
+
+	return "", fmt.Errorf("Malformed reference, a reference should be in the form of {host}/{namespace}:{tag}")
 }
 
 // Resolving & Fetching
@@ -48,8 +97,8 @@ func validateReference(reference string) bool {
 
 const (
 	userAgent          string = "pkg/oras-go"
-	manifetV2json      string = "manifest.v2+json"
-	manifestlistV2json string = "manifest.list.v2+json"
+	manifetV2json      string = "application/vnd.docker.distribution.manifest.v2+json"
+	manifestlistV2json string = "application/vnd.docker.distribution.manifest.list.v2+json"
 	end2APIFormat      string = "/v2/%s/blobs/%s"
 	end3APIFormat      string = "/v2/%s/manifests/%s"
 	end8aAPIFormat     string = "/v2/%s/tags/list"
@@ -64,7 +113,17 @@ type req struct {
 
 func (r req) prepare() func(context.Context, string, string, string) (*http.Request, error) {
 	return func(c context.Context, host, ns, ref string) (*http.Request, error) {
-		path := fmt.Sprintf(r.format, ns, ref)
+		var (
+			path string
+		)
+
+		// Special case if this is e1 since there are no parameters for that call
+		if r.format == endpoints.e1.format {
+			path = r.format
+		} else {
+			path = fmt.Sprintf(r.format, ns, ref)
+		}
+
 		url, err := url.Parse("https://" + host + path)
 		if err != nil {
 			return nil, err
@@ -75,6 +134,34 @@ func (r req) prepare() func(context.Context, string, string, string) (*http.Requ
 		}
 
 		req.Header.Add("Accept", r.accept)
+
+		return req, nil
+	}
+}
+
+func (r req) prepareWithDescriptor() func(context.Context, string, string, ocispec.Descriptor) (*http.Request, error) {
+	return func(c context.Context, host, ns string, desc ocispec.Descriptor) (*http.Request, error) {
+		var (
+			path string
+		)
+
+		// Special case if this is e1 since there are no parameters for that call
+		if r.format == endpoints.e1.format {
+			path = r.format
+		} else {
+			path = fmt.Sprintf(r.format, ns, desc.Digest)
+		}
+
+		url, err := url.Parse("https://" + host + path)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(c, r.method, url.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Add("Accept", desc.MediaType)
 
 		return req, nil
 	}
@@ -101,25 +188,34 @@ func (r req) prepare() func(context.Context, string, string, string) (*http.Requ
 
 var endpoints = struct {
 	e1     req
-	e2HEAD req
-	e2GET  req
 	e3HEAD req
 	e3GET  req
+	e2HEAD req
+	e2GET  req
 	e8a    req
 	e8b    req
 }{
-	req{"GET", "v2", manifetV2json},
-	req{"HEAD", end2APIFormat, manifetV2json},
-	req{"GET", end2APIFormat, manifetV2json},
+	req{"GET", "/v2", manifetV2json},
 	req{"HEAD", end3APIFormat, manifetV2json},
 	req{"GET", end3APIFormat, manifetV2json},
+	req{"HEAD", end2APIFormat, manifetV2json},
+	req{"GET", end2APIFormat, manifetV2json},
 	req{"GET", end8aAPIFormat, manifetV2json},
 	req{"GET", end8bAPIFormat + end8bAPIFormat, manifetV2json},
 }
 
 func newHttpClient() *http.Client {
-	// TODO fix this later
-	return http.DefaultClient
+	client := &http.Client{}
+	// See basicauth for details on this
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && req.URL.Host != via[0].Host && req.Header.Get("Authorization") == via[0].Header.Get("Authorization") {
+			req.Header.Del("Authorization") // if it doesn't exist this is a no-op
+			return nil
+		}
+		return nil
+	}
+
+	return client
 }
 
 // Error & Validation

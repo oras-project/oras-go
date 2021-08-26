@@ -16,7 +16,8 @@ func NewRegistryWithClientCredentials(ctx context.Context, namespace string, oau
 		namespace: namespace,
 	}
 
-	if validateNamespace(namespace) {
+	namespace, err := validateNamespace(namespace)
+	if err != nil {
 		return registry
 	}
 
