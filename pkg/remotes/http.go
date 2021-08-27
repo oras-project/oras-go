@@ -31,18 +31,17 @@ import (
 // <reference>  - is either a digest or a tag, must match [a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}
 
 var (
-	namespaceRegex = regexp.MustCompile(`[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*`)
 	referenceRegex = regexp.MustCompile(`[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}`)
 )
 
 func validate(reference string) (string, string, string, error) {
 	matches := referenceRegex.FindAllString(reference, -1)
-
 	// Technically a namespace is allowed to have "/"'s, while a reference is not allowed to
 	// That means if you string match the reference regex, then you should end up with basically the first segment being the host
 	// the middle part being the namespace
 	// and the last part should be the tag
 
+	// This should be the case most of the time
 	if len(matches) == 3 {
 		return matches[0], matches[1], matches[2], nil
 	}
@@ -54,28 +53,11 @@ func validate(reference string) (string, string, string, error) {
 	return host, namespace, ref, nil
 }
 
-func validateNamespace(namespace string) (string, error) {
-	matches := namespaceRegex.FindAllString(namespace, -1)
-
-	if len(matches) <= 0 {
-		return "", fmt.Errorf("Either the reference was empty, or it contained no characters")
-	}
-
-	root := matches[0]
-	// Check to see if it's in a {host}/{image} format, '/' is a valid character for a reference
-	matches = referenceRegex.FindAllString(root, 1)
-	if len(matches) > 0 {
-		return matches[0], nil
-	}
-
-	return "", fmt.Errorf("Malformed reference, a reference should be in the form of {host}/{namespace}:{tag}")
-}
-
 func validateReference(reference string) (string, error) {
 	matches := referenceRegex.FindAllString(reference, -1)
 
 	if len(matches) <= 0 {
-		return "", fmt.Errorf("Either the reference was empty, or it contained no characters")
+		return "", fmt.Errorf("either the reference was empty, or it contained no characters")
 	}
 
 	maybe := matches[len(matches)-1]
@@ -85,10 +67,10 @@ func validateReference(reference string) (string, error) {
 		return maybe, nil
 	}
 
-	return "", fmt.Errorf("Malformed reference, a reference should be in the form of {host}/{namespace}:{tag}")
+	return "", fmt.Errorf("malformed reference, a reference should be in the form of {host}/{namespace}:{tag}")
 }
 
-// Resolving & Fetching
+// # Resolving & Fetching Endpoints
 // end-1	GET			/v2/														200	404/401
 // end-2	GET / HEAD	/v2/<name>/blobs/<digest>									200	404
 // end-3	GET / HEAD	/v2/<name>/manifests/<reference>							200	404
@@ -111,7 +93,15 @@ type req struct {
 	accept string
 }
 
-func (r req) prepare() func(context.Context, string, string, string) (*http.Request, error) {
+// # Useful Monads
+// referencePrepareFunc - This is the signature for preparing an http request by reference
+type referencePrepareFunc func(ctx context.Context, host, ns, reference string) (*http.Request, error)
+
+// digestPrepareFunc - This is the the signature for preparing an http request with a descriptor
+type digestPrepareFunc func(ctx context.Context, host, ns string, descriptor ocispec.Descriptor) (*http.Request, error)
+
+// prepare - is a function used by the requests in the table `Resolving & Fetching Endpoints` above this line
+func (r req) prepare() referencePrepareFunc {
 	return func(c context.Context, host, ns, ref string) (*http.Request, error) {
 		var (
 			path string
@@ -139,13 +129,14 @@ func (r req) prepare() func(context.Context, string, string, string) (*http.Requ
 	}
 }
 
-func (r req) prepareWithDescriptor() func(context.Context, string, string, ocispec.Descriptor) (*http.Request, error) {
+// prepareWithDescriptor - is a function that prepares a blob url with a descriptor
+func (r req) prepareWithDescriptor() digestPrepareFunc {
 	return func(c context.Context, host, ns string, desc ocispec.Descriptor) (*http.Request, error) {
 		var (
 			path string
 		)
 
-		// Special case if this is e1 since there are no parameters for that call
+		// Special case: if this is e1 since there are no parameters for that call
 		if r.format == endpoints.e1.format {
 			path = r.format
 		} else {

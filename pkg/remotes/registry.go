@@ -23,8 +23,15 @@ type Registry struct {
 	manifest  *ocispec.Manifest
 }
 
+type reference {
+	host string 
+	ns string 
+	ref string 
+	desc ocispec.Descriptor
+}
+
 // Resolve creates a resolver that can resolve, fetch, and discover
-func (r *Registry) Resolve(ctx context.Context, reference string) (remotes.Resolver, error) {
+func (r *Registry) DiscoverFetch(ctx context.Context, reference string) (remotes.Resolver, error) {
 	if r == nil {
 		return nil, fmt.Errorf("reference is nil")
 	}
@@ -111,118 +118,8 @@ func (r *Registry) ping(ctx context.Context) error {
 	return nil
 }
 
-// getDescriptor tries to resolve the reference to a descriptor using the headers
-func (r *Registry) getDescriptor(ctx context.Context) (ocispec.Descriptor, error) {
-	if r == nil {
-		return ocispec.Descriptor{}, fmt.Errorf("reference is nil")
-	}
-
-	request, err := endpoints.e3HEAD.prepare()(ctx, r.host, r.namespace, r.ref)
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-
-	resp, err := r.client.Do(request)
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return ocispec.Descriptor{}, fmt.Errorf("non successful error code %d", resp.StatusCode)
-	}
-
-	d := resp.Header.Get("Docker-Content-Digest")
-	c := resp.Header.Get("Content-Type")
-	s := resp.ContentLength
-
-	err = digest.Digest(d).Validate()
-	if err == nil && c != "" && s > 0 {
-		// TODO: Write annotations
-		return ocispec.Descriptor{
-			Digest:    digest.Digest(d),
-			MediaType: c,
-			Size:      s,
-		}, nil
-	}
-
-	return ocispec.Descriptor{}, err
-}
-
-// getDescriptorWithManifest tries to resolve the reference by fetching the manifest
-func (r *Registry) getDescriptorWithManifest(ctx context.Context) (*ocispec.Manifest, error) {
-	if r == nil {
-		return nil, fmt.Errorf("reference to this registry pointer is nil")
-	}
-
-	// If we didn't get a digest by this point, we need to pull the manifest
-	request, err := endpoints.e3GET.prepare()(ctx, r.host, r.namespace, r.ref)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := r.client.Do(request)
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-
-	manifest := &ocispec.Manifest{}
-	err = json.NewDecoder(resp.Body).Decode(manifest)
-	if err != nil {
-		return nil, err
-	}
-
-	return manifest, nil
-}
-
 func (r *Registry) fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
-	if r == nil {
-		return nil, fmt.Errorf("reference is nil")
-	}
-
-	err := r.prefetch(ctx, desc)
-	if err != nil {
-		return nil, err
-	}
-
-	request, err := endpoints.e2GET.prepareWithDescriptor()(ctx, r.host, r.namespace, desc)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := r.client.Do(request)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("Could not fetch content")
-	}
-
-	return resp.Body, nil
-}
-
-func (r *Registry) prefetch(ctx context.Context, desc ocispec.Descriptor) error {
-	if r == nil {
-		return fmt.Errorf("reference is nil")
-	}
-
-	request, err := endpoints.e2HEAD.prepareWithDescriptor()(ctx, r.host, r.namespace, desc)
-	if err != nil {
-		return err
-	}
-
-	resp, err := r.client.Do(request)
-	if err != nil {
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	return nil
+	return blobs{desc}.resolve(ctx, r.client)
 }
 
 func (r *Registry) discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) ([]DiscoveredArtifact, error) {

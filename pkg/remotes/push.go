@@ -14,7 +14,7 @@ import (
 // to push the same blob using the Ingester API should result in ErrUnavailable.
 func (r resolver) Pusher(ctx context.Context, ref string) (remotes.Pusher, error) {
 	if r.pusher == nil {
-		return nil, fmt.Errorf("Pusher is disabled")
+		return nil, fmt.Errorf("pusher is disabled")
 	}
 
 	return r, nil
