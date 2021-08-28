@@ -15,10 +15,14 @@ type DiscoveredArtifact struct {
 	Manifest v1.Descriptor
 }
 
-type DiscoverFunc func(ctx context.Context, desc ocispec.Descriptor, artifactType string) ([]DiscoveredArtifact, error)
+type Artifacts struct {
+	Artifacts []DiscoveredArtifact
+}
+
+type DiscoverFunc func(ctx context.Context, desc ocispec.Descriptor, artifactType string) (*Artifacts, error)
 
 type Discoverer interface {
-	Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) ([]DiscoveredArtifact, error)
+	Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) (*Artifacts, error)
 }
 
 func (r resolver) Discoverer(ctx context.Context, ref string) (Discoverer, error) {
@@ -28,6 +32,6 @@ func (r resolver) Discoverer(ctx context.Context, ref string) (Discoverer, error
 	return r, nil
 }
 
-func (r resolver) Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) ([]DiscoveredArtifact, error) {
+func (r resolver) Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) (*Artifacts, error) {
 	return r.discoverer(ctx, desc, artifactType)
 }

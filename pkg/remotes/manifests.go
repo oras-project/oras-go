@@ -1,16 +1,22 @@
 package remotes
 
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+)
+
 type manifests struct {
 	ref reference
 }
 
 // getDescriptor tries to resolve the reference to a descriptor using the headers
 func (m manifests) getDescriptor(ctx context.Context, client *http.Client) (ocispec.Descriptor, error) {
-	if r == nil {
-		return ocispec.Descriptor{}, fmt.Errorf("reference is nil")
-	}
-
-	request, err := endpoints.e3HEAD.prepare()(ctx, r.host, r.namespace, r.ref)
+	request, err := endpoints.e3HEAD.prepare()(ctx, m.ref.add.host, m.ref.add.ns, m.ref.add.loc)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -44,18 +50,14 @@ func (m manifests) getDescriptor(ctx context.Context, client *http.Client) (ocis
 }
 
 // getDescriptorWithManifest tries to resolve the reference by fetching the manifest
-func (r *Registry) getDescriptorWithManifest(ctx context.Context) (*ocispec.Manifest, error) {
-	if r == nil {
-		return nil, fmt.Errorf("reference to this registry pointer is nil")
-	}
-
+func (m manifests) getDescriptorWithManifest(ctx context.Context, client *http.Client) (*ocispec.Manifest, error) {
 	// If we didn't get a digest by this point, we need to pull the manifest
-	request, err := endpoints.e3GET.prepare()(ctx, r.host, r.namespace, r.ref)
+	request, err := endpoints.e3GET.prepare()(ctx, m.ref.add.host, m.ref.add.ns, m.ref.add.loc)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := r.client.Do(request)
+	resp, err := client.Do(request)
 	if err != nil {
 		return nil, err
 	}

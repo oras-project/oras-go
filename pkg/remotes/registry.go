@@ -2,7 +2,6 @@ package remotes
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,20 +13,25 @@ import (
 )
 
 // Registry is an opaqueish type which represents an OCI V2 API registry
-// Note: It is exported intentionally
 type Registry struct {
-	client    *http.Client
-	host      string
-	namespace string
-	ref       string
-	manifest  *ocispec.Manifest
+	client      *http.Client
+	host        string
+	namespace   string
+	descriptors map[reference]*ocispec.Descriptor
+	manifest    map[reference]*ocispec.Manifest
 }
 
-type reference {
-	host string 
-	ns string 
-	ref string 
-	desc ocispec.Descriptor
+type address struct {
+	host string
+	ns   string
+	loc  string
+}
+
+type reference struct {
+	add   address
+	media string
+	digst digest.Digest
+	sig   digest.Digest
 }
 
 // Resolve creates a resolver that can resolve, fetch, and discover
@@ -68,38 +72,13 @@ func (r *Registry) PushPull(ctx context.Context, desc ocispec.Descriptor) (remot
 	return nil, fmt.Errorf("invalid digest")
 }
 
-// resolve resolves a reference to a descriptor
-func (r *Registry) resolve(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error) {
-	if r == nil {
-		return "", ocispec.Descriptor{}, fmt.Errorf("reference is nil")
-	}
-
-	err = r.ping(ctx)
-	if err != nil {
-		return "", ocispec.Descriptor{}, err
-	}
-
-	// desc, err = r.getDescriptor(ctx)
-	// if err == nil && desc.Digest != "" {
-	// 	return ref, desc, nil
-	// }
-
-	manifest, err := r.getDescriptorWithManifest(ctx)
-	if err != nil {
-		return "", ocispec.Descriptor{}, err
-	}
-
-	r.manifest = manifest
-	return ref, manifest.Config, nil
-}
-
-// ping ensures that the registry is alive and valid
+// ping ensures that the registry is alive and a registry
 func (r *Registry) ping(ctx context.Context) error {
 	if r == nil {
 		return fmt.Errorf("reference is nil")
 	}
 
-	request, err := endpoints.e1.prepare()(ctx, r.host, r.namespace, r.ref)
+	request, err := endpoints.e1.prepare()(ctx, r.host, r.namespace, "")
 	if err != nil {
 		return err
 	}
@@ -118,12 +97,100 @@ func (r *Registry) ping(ctx context.Context) error {
 	return nil
 }
 
-func (r *Registry) fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
-	return blobs{desc}.resolve(ctx, r.client)
+// resolve resolves a reference to a descriptor
+func (r *Registry) resolve(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error) {
+	if r == nil {
+		return "", ocispec.Descriptor{}, fmt.Errorf("reference is nil")
+	}
+
+	// ensure the registry is running
+	err = r.ping(ctx)
+	if err != nil {
+		return "", ocispec.Descriptor{}, err
+	}
+
+	// format the reference
+	manifestRef := reference{
+		add: address{
+			host: r.host,
+			ns:   r.namespace,
+			loc:  ref,
+		},
+		digst: "",
+	}
+
+	// format the manifests request
+	m := manifests{ref: manifestRef}
+
+	// Return early if we can get the manifest early
+	desc, err = m.getDescriptor(ctx, r.client)
+	if err == nil && desc.Digest != "" {
+		manifestRef.digst = desc.Digest
+		r.descriptors[manifestRef] = &desc
+
+		return ref, desc, nil
+	}
+
+	// Get the manifest to retrieve the desc
+	manifest, err := m.getDescriptorWithManifest(ctx, r.client)
+	if err != nil {
+		return "", ocispec.Descriptor{}, err
+	}
+
+	manifestRef.digst = desc.Digest
+	r.descriptors[manifestRef] = &manifest.Config
+	r.manifest[manifestRef] = manifest
+
+	return ref, manifest.Config, nil
 }
 
-func (r *Registry) discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) ([]DiscoveredArtifact, error) {
-	return nil, fmt.Errorf("discover api has not been implemented") // TODO
+func (r *Registry) fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
+	if r == nil {
+		return nil, fmt.Errorf("reference is nil")
+	}
+
+	// ensure the registry is running
+	err := r.ping(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return blob{
+		ref: reference{
+			add: address{
+				host: r.host,
+				ns:   r.namespace,
+				loc:  "",
+			},
+			digst: desc.Digest,
+			media: desc.MediaType,
+		},
+	}.fetch(ctx, r.client)
+}
+
+func (r *Registry) discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) (*Artifacts, error) {
+	if r == nil {
+		return nil, fmt.Errorf("reference is nil")
+	}
+
+	// ensure the registry is running
+	err := r.ping(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return artifacts{
+		artifactType: artifactType,
+		ref: reference{
+			add: address{
+				host: r.host,
+				ns:   r.namespace,
+				loc:  "",
+			},
+			digst: desc.Digest,
+			media: desc.MediaType,
+		},
+	}.discover(ctx, r.client)
 }
 
 func (r *Registry) push(ctx context.Context, desc ocispec.Descriptor) (content.Writer, error) {

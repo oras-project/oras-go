@@ -1,7 +1,10 @@
 package remotes
 
 import (
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"context"
+	"fmt"
+	"io"
+	"net/http"
 )
 
 type blob struct {
@@ -9,25 +12,29 @@ type blob struct {
 }
 
 func (b blob) fetch(ctx context.Context, client *http.Client) (io.ReadCloser, error) {
-	request, err := endpoints.e2HEAD.prepareWithDescriptor()(ctx, r.host, r.namespace, desc)
-	if err != nil {
-		return err
-	}
-
-	resp, err := r.client.Do(request)
+	request, err := endpoints.e2HEAD.prepareWithDescriptor()(ctx, b.ref.add.host, b.ref.add.ns, b.ref.digst.String(), b.ref.media)
 	if err != nil {
 		return nil, err
 	}
 
-	request, err = endpoints.e2GET.prepareWithDescriptor()(ctx, r.host, r.namespace, desc)
+	resp, err := client.Do(request)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err = r.client.Do(request)
+	defer resp.Body.Close()
+
+	request, err = endpoints.e2GET.prepareWithDescriptor()(ctx, b.ref.add.host, b.ref.add.ns, b.ref.digst.String(), b.ref.media)
 	if err != nil {
 		return nil, err
 	}
+
+	resp, err = client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("could not fetch content")

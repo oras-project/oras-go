@@ -7,8 +7,6 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
-
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Table of endpoints for OCI v2
@@ -26,9 +24,14 @@ import (
 // end-10	DELETE		/v2/<name>/blobs/<digest>									202	404/405
 // end-11	POST		/v2/<name>/blobs/uploads/?mount=<digest>&from=<other_name>	201	404
 
+// ORAS
+// get-signatures	GET		/oras/artifacts/v1/<name>/manifests/<digest>											200 404/401
+// list-referrers	GET		/oras/artifacts/v1/<name>/manifests/<digest>/referrers?artifactType=<artifacttype>		200 404/401
+
 // 	# Value conformance
-// <name>		- is the namespace of the repository, must match [a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*
-// <reference>  - is either a digest or a tag, must match [a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}
+// <name>		   - is the namespace of the repository, must match [a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*
+// <reference>     - is either a digest or a tag, must match [a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}
+// <artifacttype>  - analagous to refernce except that it allows for symbols
 
 var (
 	referenceRegex = regexp.MustCompile(`[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}`)
@@ -71,20 +74,24 @@ func validateReference(reference string) (string, error) {
 }
 
 // # Resolving & Fetching Endpoints
-// end-1	GET			/v2/														200	404/401
-// end-2	GET / HEAD	/v2/<name>/blobs/<digest>									200	404
-// end-3	GET / HEAD	/v2/<name>/manifests/<reference>							200	404
-// end-8a	GET			/v2/<name>/tags/list										200	404
-// end-8b	GET			/v2/<name>/tags/list?n=<integer>&last=<integer>				200	404
+// end-1			GET			/v2/																					200	404/401
+// end-2			GET / HEAD	/v2/<name>/blobs/<digest>																200	404
+// end-3			GET / HEAD	/v2/<name>/manifests/<reference>														200	404
+// end-8a			GET			/v2/<name>/tags/list																	200	404
+// end-8b			GET			/v2/<name>/tags/list?n=<integer>&last=<integer>											200	404
+// list-referrers	GET			/oras/artifacts/v1/<name>/manifests/<digest>/referrers?artifactType=<artifacttype>		200 404/401
+// get-signatures	GET			/oras/artifacts/v1/<name>/manifests/<digest>											200 404/401
 
 const (
-	userAgent          string = "pkg/oras-go"
-	manifetV2json      string = "application/vnd.docker.distribution.manifest.v2+json"
-	manifestlistV2json string = "application/vnd.docker.distribution.manifest.list.v2+json"
-	end2APIFormat      string = "/v2/%s/blobs/%s"
-	end3APIFormat      string = "/v2/%s/manifests/%s"
-	end8aAPIFormat     string = "/v2/%s/tags/list"
-	end8bAPIFormat     string = "?n=%d&last=%d"
+	userAgent               string = "pkg/oras-go"
+	manifestV2json          string = "application/vnd.docker.distribution.manifest.v2+json"
+	manifestlistV2json      string = "application/vnd.docker.distribution.manifest.list.v2+json"
+	v2blobs                 string = "/v2/%s/blobs/%s"
+	v2Manifests             string = "/v2/%s/manifests/%s"
+	v2TagsList              string = "/v2/%s/tags/list"
+	v2TagsFilterListQuery   string = "?n=%d&last=%d"
+	orasListReferrersFormat string = "/oras/artifacts/v1/%s/manifests/%s/referrers?artifactType=%s"
+	orasGetSignatures       string = "/oras/artifacts/v1/%s/manifests/%s"
 )
 
 type req struct {
@@ -98,7 +105,10 @@ type req struct {
 type referencePrepareFunc func(ctx context.Context, host, ns, reference string) (*http.Request, error)
 
 // digestPrepareFunc - This is the the signature for preparing an http request with a descriptor
-type digestPrepareFunc func(ctx context.Context, host, ns string, descriptor ocispec.Descriptor) (*http.Request, error)
+type contentPrepareFunc func(ctx context.Context, host, ns, digest, mediaType string) (*http.Request, error)
+
+// artifactPrepareFunc - This is the the signature for preparing an http request with a descriptor and artifactType
+type artifactPrepareFunc func(ctx context.Context, host, ns, digest, mediaType, artifactType string) (*http.Request, error)
 
 // prepare - is a function used by the requests in the table `Resolving & Fetching Endpoints` above this line
 func (r req) prepare() referencePrepareFunc {
@@ -107,8 +117,7 @@ func (r req) prepare() referencePrepareFunc {
 			path string
 		)
 
-		// Special case if this is e1 since there are no parameters for that call
-		if r.format == endpoints.e1.format {
+		if ref == "" {
 			path = r.format
 		} else {
 			path = fmt.Sprintf(r.format, ns, ref)
@@ -130,8 +139,8 @@ func (r req) prepare() referencePrepareFunc {
 }
 
 // prepareWithDescriptor - is a function that prepares a blob url with a descriptor
-func (r req) prepareWithDescriptor() digestPrepareFunc {
-	return func(c context.Context, host, ns string, desc ocispec.Descriptor) (*http.Request, error) {
+func (r req) prepareWithDescriptor() contentPrepareFunc {
+	return func(c context.Context, host, ns, digest, mediaType string) (*http.Request, error) {
 		var (
 			path string
 		)
@@ -140,7 +149,7 @@ func (r req) prepareWithDescriptor() digestPrepareFunc {
 		if r.format == endpoints.e1.format {
 			path = r.format
 		} else {
-			path = fmt.Sprintf(r.format, ns, desc.Digest)
+			path = fmt.Sprintf(r.format, ns, digest)
 		}
 
 		url, err := url.Parse("https://" + host + path)
@@ -152,7 +161,32 @@ func (r req) prepareWithDescriptor() digestPrepareFunc {
 			return nil, err
 		}
 
-		req.Header.Add("Accept", desc.MediaType)
+		req.Header.Add("Accept", mediaType)
+
+		return req, nil
+	}
+}
+
+func (r req) prepareWithArtifactType() artifactPrepareFunc {
+	return func(c context.Context, host, ns, digest, mediaType, artifactType string) (*http.Request, error) {
+		var (
+			path string
+		)
+
+		// Special case: if this is e1 since there are no parameters for that call
+		path = fmt.Sprintf(r.format, ns, digest, artifactType)
+
+		url, err := url.Parse("https://" + host + path)
+		if err != nil {
+			return nil, err
+		}
+
+		req, err := http.NewRequestWithContext(c, r.method, url.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Add("Accept", mediaType)
 
 		return req, nil
 	}
@@ -178,21 +212,25 @@ func (r req) prepareWithDescriptor() digestPrepareFunc {
 // }
 
 var endpoints = struct {
-	e1     req
-	e3HEAD req
-	e3GET  req
-	e2HEAD req
-	e2GET  req
-	e8a    req
-	e8b    req
+	e1            req
+	e3HEAD        req
+	e3GET         req
+	e2HEAD        req
+	e2GET         req
+	e8a           req
+	e8b           req
+	listReferrers req
+	getSignatures req
 }{
-	req{"GET", "/v2", manifetV2json},
-	req{"HEAD", end3APIFormat, manifetV2json},
-	req{"GET", end3APIFormat, manifetV2json},
-	req{"HEAD", end2APIFormat, manifetV2json},
-	req{"GET", end2APIFormat, manifetV2json},
-	req{"GET", end8aAPIFormat, manifetV2json},
-	req{"GET", end8bAPIFormat + end8bAPIFormat, manifetV2json},
+	req{"GET", "/v2", manifestV2json},
+	req{"HEAD", v2Manifests, manifestV2json},
+	req{"GET", v2Manifests, manifestV2json},
+	req{"HEAD", v2blobs, manifestV2json},
+	req{"GET", v2blobs, manifestV2json},
+	req{"GET", v2TagsList, manifestV2json},
+	req{"GET", v2TagsFilterListQuery + v2TagsFilterListQuery, manifestV2json},
+	req{"GET", orasListReferrersFormat, ""},
+	req{"GET", orasGetSignatures, ""},
 }
 
 func newHttpClient() *http.Client {
