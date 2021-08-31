@@ -19,7 +19,6 @@ func NewRegistryWithClientCredentials(ctx context.Context, ref string, oauth cli
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, newHttpClient())
 
 	c := oauth.Client(ctx)
-	prepareOAuth2Client(c)
 
 	registry := &Registry{
 		client:      c,

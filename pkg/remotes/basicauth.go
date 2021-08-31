@@ -16,15 +16,18 @@ func NewRegistryWithBasicAuthorization(ctx context.Context, ref, username, passw
 		return nil
 	}
 
-	// Will be used by the token source when retrieving new tokens, this is different then the client below this line
-	ctx = context.WithValue(ctx, oauth2.HTTPClient, newHttpClient())
-
 	client := oauth2.NewClient(ctx, newBasicAuthTokenSource(ctx, host, username, password, scopes))
 	if client == nil {
 		return nil
 	}
 
-	prepareOAuth2Client(client)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && req.URL.Host != via[0].Host && req.Header.Get("Authorization") == via[0].Header.Get("Authorization") {
+			req.Header.Del("Authorization")
+			return &redirectRequest{req: req}
+		}
+		return nil
+	}
 
 	registry := &Registry{
 		client:      client,
@@ -35,6 +38,11 @@ func NewRegistryWithBasicAuthorization(ctx context.Context, ref, username, passw
 	}
 
 	return registry
+}
+
+type redirectRequest struct {
+	req *http.Request
+	error
 }
 
 type basicAuthTokenSource struct {

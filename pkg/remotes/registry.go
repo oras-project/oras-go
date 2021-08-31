@@ -31,7 +31,6 @@ type reference struct {
 	add   address
 	media string
 	digst digest.Digest
-	sig   digest.Digest
 }
 
 // Resolve creates a resolver that can resolve, fetch, and discover
@@ -100,7 +99,7 @@ func (r *Registry) ping(ctx context.Context) error {
 // resolve resolves a reference to a descriptor
 func (r *Registry) resolve(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error) {
 	if r == nil {
-		return "", ocispec.Descriptor{}, fmt.Errorf("reference is nil")
+		return "", ocispec.Descriptor{}, fmt.Errorf("registry is nil")
 	}
 
 	// ensure the registry is running
@@ -109,12 +108,25 @@ func (r *Registry) resolve(ctx context.Context, ref string) (name string, desc o
 		return "", ocispec.Descriptor{}, err
 	}
 
+	host, ns, loc, err := validate(ref)
+	if err != nil {
+		return "", ocispec.Descriptor{}, fmt.Errorf("reference is is not valid")
+	}
+
+	if ns != r.namespace {
+		return "", ocispec.Descriptor{}, fmt.Errorf("namespace does not match current registry context")
+	}
+
+	if host != r.host {
+		return "", ocispec.Descriptor{}, fmt.Errorf("host does not match current registry context")
+	}
+
 	// format the reference
 	manifestRef := reference{
 		add: address{
 			host: r.host,
 			ns:   r.namespace,
-			loc:  ref,
+			loc:  loc,
 		},
 		digst: "",
 	}
@@ -126,6 +138,7 @@ func (r *Registry) resolve(ctx context.Context, ref string) (name string, desc o
 	desc, err = m.getDescriptor(ctx, r.client)
 	if err == nil && desc.Digest != "" {
 		manifestRef.digst = desc.Digest
+		manifestRef.media = desc.MediaType
 		r.descriptors[manifestRef] = &desc
 
 		return ref, desc, nil

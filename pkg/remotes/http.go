@@ -141,16 +141,7 @@ func (r req) prepare() referencePrepareFunc {
 // prepareWithDescriptor - is a function that prepares a blob url with a descriptor
 func (r req) prepareWithDescriptor() contentPrepareFunc {
 	return func(c context.Context, host, ns, digest, mediaType string) (*http.Request, error) {
-		var (
-			path string
-		)
-
-		// Special case: if this is e1 since there are no parameters for that call
-		if r.format == endpoints.e1.format {
-			path = r.format
-		} else {
-			path = fmt.Sprintf(r.format, ns, digest)
-		}
+		path := fmt.Sprintf(r.format, ns, digest)
 
 		url, err := url.Parse("https://" + host + path)
 		if err != nil {
