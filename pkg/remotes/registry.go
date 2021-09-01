@@ -20,6 +20,37 @@ type Registry struct {
 	manifest    map[reference]*ocispec.Manifest
 }
 
+type RegistryFunctions struct {
+	fetcher    func(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error)
+	pusher     func(ctx context.Context, desc ocispec.Descriptor) (*content.PassthroughWriter, error)
+	resolver   func(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error)
+	discoverer func(ctx context.Context, desc ocispec.Descriptor, artifactType string) (*Artifacts, error)
+}
+
+func (r *Registry) AsFunctions() *RegistryFunctions {
+	return &RegistryFunctions{
+		fetcher:    r.fetch,
+		pusher:     r.push,
+		resolver:   r.resolve,
+		discoverer: r.discover,
+	}
+}
+
+func (r *RegistryFunctions) Pusher() func(ctx context.Context, desc ocispec.Descriptor) (*content.PassthroughWriter, error) {
+	return r.pusher
+}
+func (r *RegistryFunctions) Fetcher() func(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
+	return r.fetcher
+}
+
+func (r *RegistryFunctions) Resolver() func(ctx context.Context, ref string) (name string, desc ocispec.Descriptor, err error) {
+	return r.resolver
+}
+
+func (r *RegistryFunctions) Discoverer() func(ctx context.Context, desc ocispec.Descriptor, artifactType string) (*Artifacts, error) {
+	return r.discoverer
+}
+
 type address struct {
 	host string
 	ns   string
@@ -167,6 +198,6 @@ func (r *Registry) discover(ctx context.Context, desc ocispec.Descriptor, artifa
 	}.discover(ctx, r.client)
 }
 
-func (r *Registry) push(ctx context.Context, desc ocispec.Descriptor) (content.IoContentWriter, error) {
-	return content.IoContentWriter{}, fmt.Errorf("push api has not been implemented") // TODO
+func (r *Registry) push(ctx context.Context, desc ocispec.Descriptor) (*content.PassthroughWriter, error) {
+	return &content.PassthroughWriter{}, fmt.Errorf("push api has not been implemented") // TODO
 }

@@ -6,6 +6,7 @@ import (
 
 	orasRemotes "oras.land/oras-go/pkg/remotes"
 
+	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -17,6 +18,18 @@ type resolver struct {
 	pusher     remotes.PusherFunc
 	resolver   ResolverFunc
 	discoverer orasRemotes.DiscoverFunc
+}
+
+func containerdPusher(registryFuncs *orasRemotes.RegistryFunctions) remotes.PusherFunc {
+	return func(ctx context.Context, desc ocispec.Descriptor) (content.Writer, error) {
+
+		writer, err := registryFuncs.Pusher()(ctx, desc)
+		if err != nil {
+			return nil, err
+		}
+
+		return writer, nil
+	}
 }
 
 // Resolve creates a resolver that can resolve, fetch, and discover
