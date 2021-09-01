@@ -2,6 +2,9 @@ package remotes
 
 import (
 	"context"
+	"fmt"
+
+	orasRemotes "oras.land/oras-go/pkg/remotes"
 
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -13,7 +16,37 @@ type resolver struct {
 	fetcher    remotes.FetcherFunc
 	pusher     remotes.PusherFunc
 	resolver   ResolverFunc
-	discoverer DiscoverFunc
+	discoverer orasRemotes.DiscoverFunc
+}
+
+// Resolve creates a resolver that can resolve, fetch, and discover
+func DiscoverFetch(ctx context.Context, fetcher remotes.FetcherFunc, resolverfunc ResolverFunc, discoverer orasRemotes.DiscoverFunc, reference string) (remotes.Resolver, error) {
+	_, err := orasRemotes.ValidateReference(reference)
+	if err == nil {
+		return resolver{
+			ref:        reference,
+			resolver:   resolverfunc,
+			fetcher:    fetcher,
+			discoverer: discoverer,
+			pusher:     nil}, nil
+	}
+
+	return nil, err
+}
+
+// PushPull creates a resolver that can do everything above and also push to the registry as well
+func PushPull(ctx context.Context, fetcher remotes.FetcherFunc, pusher remotes.PusherFunc, resolverfunc ResolverFunc, discoverer orasRemotes.DiscoverFunc, desc ocispec.Descriptor) (remotes.Resolver, error) {
+	if desc.Digest != "" {
+		return resolver{
+			desc:       desc,
+			resolver:   resolverfunc,
+			fetcher:    fetcher,
+			discoverer: discoverer,
+			pusher:     pusher,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("invalid digest")
 }
 
 // Resolve attempts to resolve the reference into a name and descriptor.

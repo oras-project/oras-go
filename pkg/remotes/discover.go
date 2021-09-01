@@ -2,7 +2,6 @@ package remotes
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -23,15 +22,4 @@ type DiscoverFunc func(ctx context.Context, desc ocispec.Descriptor, artifactTyp
 
 type Discoverer interface {
 	Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) (*Artifacts, error)
-}
-
-func (r resolver) Discoverer(ctx context.Context, ref string) (Discoverer, error) {
-	if r.discoverer == nil {
-		return nil, fmt.Errorf("Discoverer is disabled")
-	}
-	return r, nil
-}
-
-func (r resolver) Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) (*Artifacts, error) {
-	return r.discoverer(ctx, desc, artifactType)
 }

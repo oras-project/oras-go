@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"oras-go/pkg/content"
 
-	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/remotes"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -31,44 +30,6 @@ type reference struct {
 	add   address
 	media string
 	digst digest.Digest
-}
-
-// Resolve creates a resolver that can resolve, fetch, and discover
-func (r *Registry) DiscoverFetch(ctx context.Context, reference string) (remotes.Resolver, error) {
-	if r == nil {
-		return nil, fmt.Errorf("reference is nil")
-	}
-
-	_, err := validateReference(reference)
-	if err == nil {
-		return resolver{
-			ref:        reference,
-			resolver:   r.resolve,
-			fetcher:    r.fetch,
-			discoverer: r.discover,
-			pusher:     nil}, nil
-	}
-
-	return nil, err
-}
-
-// PushPull creates a resolver that can do everything above and also push to the registry as well
-func (r *Registry) PushPull(ctx context.Context, desc ocispec.Descriptor) (remotes.Resolver, error) {
-	if r == nil {
-		return nil, fmt.Errorf("reference is nil")
-	}
-
-	if desc.Digest != "" {
-		return resolver{
-			desc:       desc,
-			resolver:   r.resolve,
-			fetcher:    r.fetch,
-			discoverer: r.discover,
-			pusher:     r.push,
-		}, nil
-	}
-
-	return nil, fmt.Errorf("invalid digest")
 }
 
 // ping ensures that the registry is alive and a registry
@@ -206,6 +167,6 @@ func (r *Registry) discover(ctx context.Context, desc ocispec.Descriptor, artifa
 	}.discover(ctx, r.client)
 }
 
-func (r *Registry) push(ctx context.Context, desc ocispec.Descriptor) (content.Writer, error) {
-	return nil, fmt.Errorf("push api has not been implemented") // TODO
+func (r *Registry) push(ctx context.Context, desc ocispec.Descriptor) (content.IoContentWriter, error) {
+	return content.IoContentWriter{}, fmt.Errorf("push api has not been implemented") // TODO
 }

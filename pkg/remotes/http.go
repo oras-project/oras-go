@@ -56,7 +56,7 @@ func validate(reference string) (string, string, string, error) {
 	return host, namespace, ref, nil
 }
 
-func validateReference(reference string) (string, error) {
+func ValidateReference(reference string) (string, error) {
 	matches := referenceRegex.FindAllString(reference, -1)
 
 	if len(matches) <= 0 {
