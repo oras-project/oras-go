@@ -21,7 +21,6 @@ import (
 	"os"
 	"testing"
 
-	ctrcontent "github.com/containerd/containerd/content"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -50,10 +49,10 @@ func TestFileStoreNoName(t *testing.T) {
 			t.Fatalf("error creating tempdir: %v", err)
 		}
 		defer os.RemoveAll(rootPath)
-		fileStore := content.NewFileStore(rootPath, tt.opts...)
+		fileStore := content.NewFile(rootPath, tt.opts...)
 		ctx := context.Background()
-		refOpt := ctrcontent.WithDescriptor(descriptor)
-		if _, err := fileStore.Writer(ctx, refOpt); err != tt.err {
+		pusher, _ := fileStore.Pusher(ctx, "")
+		if _, err := pusher.Push(ctx, descriptor); err != tt.err {
 			t.Errorf("mismatched error, actual '%v', expected '%v'", err, tt.err)
 		}
 

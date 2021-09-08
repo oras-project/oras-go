@@ -100,8 +100,9 @@ func TestPassthroughWriter(t *testing.T) {
 
 	for _, tt := range tests {
 		ctx := context.Background()
-		mem := content.NewMemoryStore()
-		memw, err := mem.Writer(ctx, ctrcontent.WithDescriptor(modifiedDescriptor))
+		mem := content.NewMemory()
+		pusher, _ := mem.Pusher(ctx, "")
+		memw, err := pusher.Push(ctx, modifiedDescriptor)
 		if err != nil {
 			t.Fatalf("unexpected error getting the memory store writer: %v", err)
 		}

@@ -20,7 +20,6 @@ import (
 	"io/ioutil"
 	"testing"
 
-	ctrcontent "github.com/containerd/containerd/content"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
@@ -45,18 +44,18 @@ var (
 )
 
 func TestMultiReader(t *testing.T) {
-	mem1, mem2 := content.NewMemoryStore(), content.NewMemoryStore()
+	mem1, mem2 := content.NewMemory(), content.NewMemory()
 	mem1.Add("a", ocispec.MediaTypeImageConfig, testContentA)
 	mem2.Add("b", ocispec.MediaTypeImageConfig, testContentB)
 	multiReader := content.MultiReader{}
 	multiReader.AddStore(mem1, mem2)
 
 	ctx := context.Background()
-	contentA, err := multiReader.ReaderAt(ctx, testDescriptorA)
+	contentA, err := multiReader.Fetch(ctx, testDescriptorA)
 	if err != nil {
 		t.Fatalf("failed to get a reader for descriptor A: %v", err)
 	}
-	outputA, err := ioutil.ReadAll(ctrcontent.NewReader(contentA))
+	outputA, err := ioutil.ReadAll(contentA)
 	if err != nil {
 		t.Fatalf("failed to read content for descriptor A: %v", err)
 	}
@@ -64,11 +63,11 @@ func TestMultiReader(t *testing.T) {
 		t.Errorf("mismatched content for A, actual '%s', expected '%s'", outputA, testContentA)
 	}
 
-	contentB, err := multiReader.ReaderAt(ctx, testDescriptorB)
+	contentB, err := multiReader.Fetch(ctx, testDescriptorB)
 	if err != nil {
 		t.Fatalf("failed to get a reader for descriptor B: %v", err)
 	}
-	outputB, err := ioutil.ReadAll(ctrcontent.NewReader(contentB))
+	outputB, err := ioutil.ReadAll(contentB)
 	if err != nil {
 		t.Fatalf("failed to read content for descriptor B: %v", err)
 	}
