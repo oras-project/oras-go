@@ -21,9 +21,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+
+	"oras.land/oras-go/pkg/artifact"
 	"oras.land/oras-go/pkg/content"
 	"oras.land/oras-go/pkg/oras"
 	"oras.land/oras-go/pkg/target"
@@ -89,27 +92,22 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 				fromFile := content.NewFile("")
 				descs, err := loadFiles(fromFile, args[1:]...)
 				if err != nil {
-					return fmt.Errorf("unable to load files: %v", err)
+					return fmt.Errorf("unable to load files: %w", err)
+				}
+				configDesc := ocispec.Descriptor{
+					MediaType: artifact.UnknownConfigMediaType,
+					Digest:    digest.FromBytes([]byte(`{}`)),
 				}
 				// parse the manifest config
-				manifestConfigParts := strings.SplitN(manifestConfig, ":", 2)
-				var manifestConfigPath, manifestConfigMediaType string
-				switch len(manifestConfigParts) {
-				case 1:
-					manifestConfigPath = manifestConfigParts[0]
-				case 2:
-					manifestConfigPath = manifestConfigParts[0]
-					manifestConfigMediaType = manifestConfigParts[1]
-				}
-				if err != nil {
-					return fmt.Errorf("error reading manifest config at %s: %v", manifestConfigPath, err)
-				}
-				configDesc, err := fromFile.Add("", manifestConfigMediaType, manifestConfigPath)
-				if err != nil {
-					return fmt.Errorf("unable to load manifest config: %v", err)
+				if manifestConfig != "" {
+					manifestConfigPath, manifestConfigMediaType := parseFileRef(manifestConfig, artifact.UnknownConfigMediaType)
+					configDesc, err = fromFile.Add("", manifestConfigMediaType, manifestConfigPath)
+					if err != nil {
+						return fmt.Errorf("unable to load manifest config: %w", err)
+					}
 				}
 				if _, err := fromFile.GenerateManifest(ref, &configDesc, descs...); err != nil {
-					return fmt.Errorf("unable to generate root manifest: %s", err)
+					return fmt.Errorf("unable to generate root manifest: %w", err)
 				}
 				rootDesc, rootManifest, err := fromFile.Ref(ref)
 				if err != nil {
@@ -120,12 +118,12 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 			case "registry":
 				from, err = content.NewRegistry(opts)
 				if err != nil {
-					return fmt.Errorf("could not create registry target: %v", err)
+					return fmt.Errorf("could not create registry target: %w", err)
 				}
 			case "oci":
 				from, err = content.NewOCI(fromParts[1])
 				if err != nil {
-					return fmt.Errorf("could not read OCI layout at %s: %v", fromParts[1], err)
+					return fmt.Errorf("could not read OCI layout at %s: %w", fromParts[1], err)
 				}
 			default:
 				return fmt.Errorf("unknown from argyment: %s", from)
@@ -137,7 +135,7 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 			case "registry":
 				to, err = content.NewRegistry(opts)
 				if err != nil {
-					return fmt.Errorf("could not create registry target: %v", err)
+					return fmt.Errorf("could not create registry target: %w", err)
 				}
 			case "oci":
 				to, err = content.NewOCI(toParts[1])
