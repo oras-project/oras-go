@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,6 +31,11 @@ import (
 	"oras.land/oras-go/pkg/content"
 	"oras.land/oras-go/pkg/oras"
 	"oras.land/oras-go/pkg/target"
+)
+
+const (
+	annotationConfig   = "$config"
+	annotationManifest = "$manifest"
 )
 
 func main() {
@@ -53,9 +59,10 @@ func main() {
 
 func copyCmd() *cobra.Command {
 	var (
-		fromStr, toStr string
-		manifestConfig string
-		opts           content.RegistryOptions
+		fromStr, toStr      string
+		manifestConfig      string
+		manifestAnnotations string
+		opts                content.RegistryOptions
 	)
 	cmd := &cobra.Command{
 		Use:   "copy <name:tag|name@digest>",
@@ -80,9 +87,10 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var (
-				ref      = args[0]
-				err      error
-				from, to target.Target
+				ref         = args[0]
+				err         error
+				from, to    target.Target
+				annotations map[string]map[string]string
 			)
 			// get the fromStr; it might also have a ':' to add options
 			fromParts := strings.SplitN(fromStr, ":", 2)
@@ -90,10 +98,6 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 			switch fromParts[0] {
 			case "files":
 				fromFile := content.NewFile("")
-				descs, err := loadFiles(fromFile, args[1:]...)
-				if err != nil {
-					return fmt.Errorf("unable to load files: %w", err)
-				}
 				configDesc := ocispec.Descriptor{
 					MediaType: artifact.UnknownConfigMediaType,
 					Digest:    digest.FromBytes([]byte(`{}`)),
@@ -106,12 +110,33 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 						return fmt.Errorf("unable to load manifest config: %w", err)
 					}
 				}
+				// parse manifest annotations
+				if manifestAnnotations != "" {
+					if err := decodeJSON(manifestAnnotations, &annotations); err != nil {
+						return err
+					}
+				}
+				if annotations == nil {
+					annotations = make(map[string]map[string]string)
+				}
+				if value, ok := annotations[annotationConfig]; ok {
+					configDesc.Annotations = value
+					fmt.Printf("Config annotation: %v\n", value)
+				}
+				descs, err := loadFiles(fromFile, annotations, args[1:]...)
+				if err != nil {
+					return fmt.Errorf("unable to load files: %w", err)
+				}
 				if _, err := fromFile.GenerateManifest(ref, &configDesc, descs...); err != nil {
 					return fmt.Errorf("unable to generate root manifest: %w", err)
 				}
 				rootDesc, rootManifest, err := fromFile.Ref(ref)
 				if err != nil {
 					return err
+				}
+				if value, ok := annotations[annotationManifest]; ok {
+					rootDesc.Annotations = value
+					fmt.Printf("Manifest annotation: %v\n", value)
 				}
 				log.Debugf("root manifest: %s %v %s", ref, rootDesc, rootManifest)
 				from = fromFile
@@ -162,20 +187,31 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 	cmd.Flags().BoolVarP(&opts.Insecure, "insecure", "", false, "allow connections to SSL registry without certs")
 	cmd.Flags().BoolVarP(&opts.PlainHTTP, "plain-http", "", false, "use plain http and not https")
 	cmd.Flags().StringVar(&manifestConfig, "manifest-config", "", "path to manifest config and its media type, e.g. path/to/file.json:application/vnd.oci.image.config.v1+json")
+	cmd.Flags().StringVar(&manifestAnnotations, "manifest-annotations", "", "path to manifest annotations and its media type, e.g. path/to/file.json")
 	return cmd
 }
 
-func runCopy(ref string, from, to target.Target) error {
-	desc, err := oras.Copy(context.Background(), from, ref, to, "")
+func runCopy(ref string, from, to target.Target, opts ...oras.CopyOpt) error {
+	desc, err := oras.Copy(context.Background(), from, ref, to, "", opts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v", err)
 		os.Exit(1)
 	}
-	fmt.Printf("%#v\n", desc)
+	fmt.Printf("Copied: %#v\n", desc)
+	fmt.Printf("\t%#v\n", desc.Annotations)
 	return nil
 }
 
-func loadFiles(store *content.File, files ...string) ([]ocispec.Descriptor, error) {
+func decodeJSON(filename string, v interface{}) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return json.NewDecoder(file).Decode(v)
+}
+
+func loadFiles(store *content.File, annotations map[string]map[string]string, files ...string) ([]ocispec.Descriptor, error) {
 	var descs []ocispec.Descriptor
 	for _, fileRef := range files {
 		filename, mediaType := parseFileRef(fileRef, "")
@@ -188,6 +224,19 @@ func loadFiles(store *content.File, files ...string) ([]ocispec.Descriptor, erro
 		if err != nil {
 			return nil, err
 		}
+		if annotations != nil {
+			if value, ok := annotations[filename]; ok {
+				if desc.Annotations == nil {
+					desc.Annotations = value
+				} else {
+					for k, v := range value {
+						desc.Annotations[k] = v
+					}
+				}
+			}
+		}
+		fmt.Printf("Adding: %#v\n", desc)
+		fmt.Printf("\t%#v\n", desc.Annotations)
 		descs = append(descs, desc)
 	}
 	return descs, nil
