@@ -15,6 +15,7 @@ limitations under the License.
 package oras
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -105,7 +106,7 @@ func transferContent(ctx context.Context, desc ocispec.Descriptor, fetcher remot
 	}
 
 	// fetchHandler pushes to the *store*, which may or may not cache it
-	baseFetchHandler := func(p remotes.Pusher) images.HandlerFunc {
+	baseFetchHandler := func(p remotes.Pusher, f remotes.Fetcher) images.HandlerFunc {
 		return images.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 			cw, err := p.Push(ctx, desc)
 			if err != nil {
@@ -117,7 +118,7 @@ func transferContent(ctx context.Context, desc ocispec.Descriptor, fetcher remot
 			}
 			defer cw.Close()
 
-			rc, err := fetcher.Fetch(ctx, desc)
+			rc, err := f.Fetch(ctx, desc)
 			if err != nil {
 				return nil, err
 			}
@@ -133,7 +134,7 @@ func transferContent(ctx context.Context, desc ocispec.Descriptor, fetcher remot
 			defer lock.Unlock()
 			manifests = append(manifests, desc)
 		}
-		return baseFetchHandler(store)(ctx, desc)
+		return baseFetchHandler(store, fetcher)(ctx, desc)
 	})
 
 	handlers := []images.Handler{
@@ -151,13 +152,33 @@ func transferContent(ctx context.Context, desc ocispec.Descriptor, fetcher remot
 		return err
 	}
 
-	// finally, we cached all of the manifests, so push those out
+	// we cached all of the manifests, so push those out
 	// Iterate in reverse order as seen, parent always uploaded after child
 	for i := len(manifests) - 1; i >= 0; i-- {
-		_, err := baseFetchHandler(pusher)(ctx, manifests[i])
+		_, err := baseFetchHandler(pusher, store)(ctx, manifests[i])
 		if err != nil {
 			return err
 		}
+	}
+
+	// if the option to request the root manifest was passed, accommodate it
+	if opts.saveManifest != nil && len(manifests) > 0 {
+		rc, err := store.Fetch(ctx, manifests[0])
+		if err != nil {
+			return fmt.Errorf("could not get root manifest to save based on CopyOpt: %v", err)
+		}
+		defer rc.Close()
+		buf := new(bytes.Buffer)
+		if _, err := buf.ReadFrom(rc); err != nil {
+			return fmt.Errorf("unable to read data for root manifest to save based on CopyOpt: %v", err)
+		}
+		// get the root manifest from the store
+		opts.saveManifest(buf.Bytes())
+	}
+
+	// if the option to request the layers was passed, accommodate it
+	if opts.saveLayers != nil && len(descriptors) > 0 {
+		opts.saveLayers(descriptors)
 	}
 	return nil
 }
