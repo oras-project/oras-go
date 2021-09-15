@@ -52,11 +52,12 @@ func main() {
 
 func copyCmd() *cobra.Command {
 	var (
-		fromStr, toStr      string
-		manifestConfig      string
-		manifestAnnotations map[string]string
-		configAnnotations   map[string]string
-		opts                content.RegistryOptions
+		fromStr, toStr               string
+		manifestConfig               string
+		manifestAnnotations          map[string]string
+		configAnnotations            map[string]string
+		showRootManifest, showLayers bool
+		opts                         content.RegistryOptions
 	)
 	cmd := &cobra.Command{
 		Use:   "copy <name:tag|name@digest>",
@@ -186,6 +187,8 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 	cmd.Flags().StringVar(&manifestConfig, "manifest-config", "", "path to manifest config and its media type, e.g. path/to/file.json:application/vnd.oci.image.config.v1+json")
 	cmd.Flags().StringToStringVar(&manifestAnnotations, "manifest-annotations", nil, "key-value pairs of annotations to set on the manifest, e.g. 'annotation=foo,other=bar'")
 	cmd.Flags().StringToStringVar(&configAnnotations, "config-annotations", nil, "key-value pairs of annotations to set on the config, only if config is not passed explicitly, e.g. 'annotation=foo,other=bar'")
+	cmd.Flags().BoolVarP(&showRootManifest, "show-manifest", "", false, "when copying, show the root manifest")
+	cmd.Flags().BoolVarP(&showLayers, "show-layers", "", false, "when copying, show the descriptors for the layers")
 	return cmd
 }
 
