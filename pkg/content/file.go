@@ -20,13 +20,11 @@ import (
 	"compress/gzip"
 	"context"
 	_ "crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -35,10 +33,8 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/remotes"
 	digest "github.com/opencontainers/go-digest"
-	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
-	artifact "oras.land/oras-go/pkg/artifact"
 )
 
 // File provides content via files from the file system
@@ -175,7 +171,8 @@ func (s *filePusher) Push(ctx context.Context, desc ocispec.Descriptor) (content
 	}, nil
 }
 
-// Add adds a file reference, updating the root
+// Add adds a file reference from a path, either directory or single file,
+// and returns the reference descriptor.
 func (s *File) Add(name, mediaType, path string) (ocispec.Descriptor, error) {
 	if path == "" {
 		path = name
@@ -203,6 +200,18 @@ func (s *File) Add(name, mediaType, path string) (ocispec.Descriptor, error) {
 
 	s.set(desc)
 	return desc, nil
+}
+
+// Load is a lower-level memory-only version of Add. Rather than taking a path,
+// generating a descriptor and creating a reference, it takes raw data and a descriptor
+// that describes that data and stores it in memory. It will disappear at process
+// termination.
+//
+// It is especially useful for adding ephemeral data, such as config, that must
+// exist in order to walk a manifest.
+func (s *File) Load(desc ocispec.Descriptor, data []byte) error {
+	s.memoryMap.Store(desc.Digest, data)
+	return nil
 }
 
 // Ref gets a reference's descriptor and content
@@ -413,30 +422,16 @@ func (s *File) getRef(ref string) (ocispec.Descriptor, bool) {
 	return desc, ok
 }
 
-func (s *File) GenerateManifest(ref string, config *ocispec.Descriptor, descs ...ocispec.Descriptor) ([]byte, error) {
-	var (
-		desc     ocispec.Descriptor
-		manifest []byte
-		err      error
-	)
-	// Config
-	// Config - either it was set, or we have to set it
-	if config == nil {
-		configBytes := []byte("{}")
-		dig := digest.FromBytes(configBytes)
-		config = &ocispec.Descriptor{
-			MediaType: artifact.UnknownConfigMediaType,
-			Digest:    dig,
-			Size:      int64(len(configBytes)),
-		}
-		s.memoryMap.Store(dig, configBytes)
-	}
-	if manifest, desc, err = pack(*config, descs); err != nil {
-		return nil, err
-	}
+// StoreManifest stores a manifest linked to by the provided ref. The children of the
+// manifest, such as layers and config, should already exist in the file store, either
+// as files linked via Add(), or via Load(). If they do not exist, then a typical
+// Fetcher that walks the manifest will hit an unresolved hash.
+//
+// StoreManifest does *not* validate their presence.
+func (s *File) StoreManifest(ref string, desc ocispec.Descriptor, manifest []byte) error {
 	s.refMap.Store(ref, desc)
 	s.memoryMap.Store(desc.Digest, manifest)
-	return manifest, nil
+	return nil
 }
 
 type fileWriter struct {
@@ -533,33 +528,4 @@ func (w *fileWriter) Truncate(size int64) error {
 		return err
 	}
 	return w.file.Truncate(0)
-}
-
-// pack given a bunch of descriptors, create a manifest that references all of them
-func pack(config ocispec.Descriptor, descriptors []ocispec.Descriptor) ([]byte, ocispec.Descriptor, error) {
-	if descriptors == nil {
-		descriptors = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
-	}
-	// sort descriptors alphanumerically by sha hash so it always is consistent
-	sort.Slice(descriptors, func(i, j int) bool {
-		return descriptors[i].Digest < descriptors[j].Digest
-	})
-	manifest := ocispec.Manifest{
-		Versioned: specs.Versioned{
-			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
-		},
-		Config: config,
-		Layers: descriptors,
-	}
-	manifestBytes, err := json.Marshal(manifest)
-	if err != nil {
-		return nil, ocispec.Descriptor{}, err
-	}
-	manifestDescriptor := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(manifestBytes),
-		Size:      int64(len(manifestBytes)),
-	}
-
-	return manifestBytes, manifestDescriptor, nil
 }

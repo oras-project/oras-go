@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -53,9 +52,11 @@ func main() {
 
 func copyCmd() *cobra.Command {
 	var (
-		fromStr, toStr string
-		manifestConfig string
-		opts           content.RegistryOptions
+		fromStr, toStr      string
+		manifestConfig      string
+		manifestAnnotations map[string]string
+		configAnnotations   map[string]string
+		opts                content.RegistryOptions
 	)
 	cmd := &cobra.Command{
 		Use:   "copy <name:tag|name@digest>",
@@ -80,9 +81,10 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var (
-				ref      = args[0]
-				err      error
-				from, to target.Target
+				ref        = args[0]
+				err        error
+				from, to   target.Target
+				configDesc ocispec.Descriptor
 			)
 			// get the fromStr; it might also have a ':' to add options
 			fromParts := strings.SplitN(fromStr, ":", 2)
@@ -94,10 +96,6 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 				if err != nil {
 					return fmt.Errorf("unable to load files: %w", err)
 				}
-				configDesc := ocispec.Descriptor{
-					MediaType: artifact.UnknownConfigMediaType,
-					Digest:    digest.FromBytes([]byte(`{}`)),
-				}
 				// parse the manifest config
 				if manifestConfig != "" {
 					manifestConfigPath, manifestConfigMediaType := parseFileRef(manifestConfig, artifact.UnknownConfigMediaType)
@@ -105,8 +103,21 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 					if err != nil {
 						return fmt.Errorf("unable to load manifest config: %w", err)
 					}
+				} else {
+					var config []byte
+					config, configDesc, err = content.GenerateConfig(configAnnotations)
+					if err != nil {
+						return fmt.Errorf("unable to create new manifest config: %w", err)
+					}
+					if err := fromFile.Load(configDesc, config); err != nil {
+						return fmt.Errorf("unable to load new manifest config: %w", err)
+					}
 				}
-				if _, err := fromFile.GenerateManifest(ref, &configDesc, descs...); err != nil {
+				manifest, manifestDesc, err := content.GenerateManifest(&configDesc, manifestAnnotations, descs...)
+				if err != nil {
+					return fmt.Errorf("unable to create manifest: %w", err)
+				}
+				if err := fromFile.StoreManifest(ref, manifestDesc, manifest); err != nil {
 					return fmt.Errorf("unable to generate root manifest: %w", err)
 				}
 				rootDesc, rootManifest, err := fromFile.Ref(ref)
@@ -162,6 +173,8 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 	cmd.Flags().BoolVarP(&opts.Insecure, "insecure", "", false, "allow connections to SSL registry without certs")
 	cmd.Flags().BoolVarP(&opts.PlainHTTP, "plain-http", "", false, "use plain http and not https")
 	cmd.Flags().StringVar(&manifestConfig, "manifest-config", "", "path to manifest config and its media type, e.g. path/to/file.json:application/vnd.oci.image.config.v1+json")
+	cmd.Flags().StringToStringVar(&manifestAnnotations, "manifest-annotations", nil, "key-value pairs of annotations to set on the manifest, e.g. 'annotation=foo,other=bar'")
+	cmd.Flags().StringToStringVar(&configAnnotations, "config-annotations", nil, "key-value pairs of annotations to set on the config, only if config is not passed explicitly, e.g. 'annotation=foo,other=bar'")
 	return cmd
 }
 

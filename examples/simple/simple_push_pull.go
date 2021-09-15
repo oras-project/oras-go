@@ -50,7 +50,11 @@ func main() {
 	memoryStore := content.NewMemory()
 	desc, err := memoryStore.Add(fileName, customMediaType, fileContent)
 	check(err)
-	_, err = memoryStore.GenerateManifest(ref, nil, desc)
+
+	manifest, manifestDesc, config, configDesc, err := content.GenerateManifestAndConfig(nil, nil, desc)
+	check(err)
+	memoryStore.Set(configDesc, config)
+	err = memoryStore.StoreManifest(ref, manifestDesc, manifest)
 	check(err)
 	registry, err := content.NewRegistry(content.RegistryOptions{PlainHTTP: true})
 	fmt.Printf("Pushing %s to %s...\n", fileName, ref)
