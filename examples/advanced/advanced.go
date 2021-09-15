@@ -52,11 +52,12 @@ func main() {
 
 func copyCmd() *cobra.Command {
 	var (
-		fromStr, toStr      string
-		manifestConfig      string
-		manifestAnnotations map[string]string
-		configAnnotations   map[string]string
-		opts                content.RegistryOptions
+		fromStr, toStr               string
+		manifestConfig               string
+		manifestAnnotations          map[string]string
+		configAnnotations            map[string]string
+		showRootManifest, showLayers bool
+		opts                         content.RegistryOptions
 	)
 	cmd := &cobra.Command{
 		Use:   "copy <name:tag|name@digest>",
@@ -160,7 +161,18 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 			if manifestConfig != "" && fromParts[0] != "files" {
 				return fmt.Errorf("only specify --manifest-config when using --from files")
 			}
-			return runCopy(ref, from, to)
+			var copyOpts []oras.CopyOpt
+			if showRootManifest {
+				copyOpts = append(copyOpts, oras.WithRootManifest(func(b []byte) {
+					fmt.Printf("root: %s\n", b)
+				}))
+			}
+			if showLayers {
+				copyOpts = append(copyOpts, oras.WithLayerDescriptors(func(layers []ocispec.Descriptor) {
+					fmt.Printf("%#v\n", layers)
+				}))
+			}
+			return runCopy(ref, from, to, copyOpts...)
 		},
 	}
 	cmd.Flags().StringVar(&fromStr, "from", "", "source type and possible options")
@@ -175,11 +187,13 @@ application/vnd.unknown.config.v1+json. You can override it by setting the path,
 	cmd.Flags().StringVar(&manifestConfig, "manifest-config", "", "path to manifest config and its media type, e.g. path/to/file.json:application/vnd.oci.image.config.v1+json")
 	cmd.Flags().StringToStringVar(&manifestAnnotations, "manifest-annotations", nil, "key-value pairs of annotations to set on the manifest, e.g. 'annotation=foo,other=bar'")
 	cmd.Flags().StringToStringVar(&configAnnotations, "config-annotations", nil, "key-value pairs of annotations to set on the config, only if config is not passed explicitly, e.g. 'annotation=foo,other=bar'")
+	cmd.Flags().BoolVarP(&showRootManifest, "show-manifest", "", false, "when copying, show the root manifest")
+	cmd.Flags().BoolVarP(&showLayers, "show-layers", "", false, "when copying, show the descriptors for the layers")
 	return cmd
 }
 
-func runCopy(ref string, from, to target.Target) error {
-	desc, err := oras.Copy(context.Background(), from, ref, to, "")
+func runCopy(ref string, from, to target.Target, copyOpts ...oras.CopyOpt) error {
+	desc, err := oras.Copy(context.Background(), from, ref, to, "", copyOpts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v", err)
 		os.Exit(1)

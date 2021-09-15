@@ -51,12 +51,9 @@ type copyOpts struct {
 	filterName                          func(ocispec.Descriptor) bool
 	cachedMediaTypes                    []string
 
-	config              *ocispec.Descriptor
-	configMediaType     string
-	configAnnotations   map[string]string
-	manifest            *ocispec.Descriptor
-	manifestAnnotations map[string]string
-	validateName        func(desc ocispec.Descriptor) error
+	saveManifest func([]byte)
+	saveLayers   func([]ocispec.Descriptor)
+	validateName func(desc ocispec.Descriptor) error
 
 	userAgent string
 }
@@ -224,46 +221,6 @@ func pullStatusTrack(writer io.Writer) images.Handler {
 	})
 }
 
-// WithConfig overrides the config - setting this will ignore WithConfigMediaType and WithConfigAnnotations
-func WithConfig(config ocispec.Descriptor) CopyOpt {
-	return func(o *copyOpts) error {
-		o.config = &config
-		return nil
-	}
-}
-
-// WithConfigMediaType overrides the config media type
-func WithConfigMediaType(mediaType string) CopyOpt {
-	return func(o *copyOpts) error {
-		o.configMediaType = mediaType
-		return nil
-	}
-}
-
-// WithConfigAnnotations overrides the config annotations
-func WithConfigAnnotations(annotations map[string]string) CopyOpt {
-	return func(o *copyOpts) error {
-		o.configAnnotations = annotations
-		return nil
-	}
-}
-
-// WithManifest overrides the manifest - setting this will ignore WithManifestConfigAnnotations
-func WithManifest(manifest ocispec.Descriptor) CopyOpt {
-	return func(o *copyOpts) error {
-		o.manifest = &manifest
-		return nil
-	}
-}
-
-// WithManifestAnnotations overrides the manifest annotations
-func WithManifestAnnotations(annotations map[string]string) CopyOpt {
-	return func(o *copyOpts) error {
-		o.manifestAnnotations = annotations
-		return nil
-	}
-}
-
 // WithNameValidation validates the image title in the descriptor.
 // Pass nil to disable name validation.
 func WithNameValidation(validate func(desc ocispec.Descriptor) error) CopyOpt {
@@ -277,6 +234,30 @@ func WithNameValidation(validate func(desc ocispec.Descriptor) error) CopyOpt {
 func WithUserAgent(agent string) CopyOpt {
 	return func(o *copyOpts) error {
 		o.userAgent = agent
+		return nil
+	}
+}
+
+// WithLayerDescriptors passes the slice of Descriptors for layers to the
+// provided func. If the passed parameter is nil, returns an error.
+func WithLayerDescriptors(save func([]ocispec.Descriptor)) CopyOpt {
+	return func(o *copyOpts) error {
+		if save == nil {
+			return errors.New("layers save func must be non-nil")
+		}
+		o.saveLayers = save
+		return nil
+	}
+}
+
+// WithRootManifest passes the root manifest for the artifacts to the provided
+// func. If the passed parameter is nil, returns an error.
+func WithRootManifest(save func(b []byte)) CopyOpt {
+	return func(o *copyOpts) error {
+		if save == nil {
+			return errors.New("manifest save func must be non-nil")
+		}
+		o.saveManifest = save
 		return nil
 	}
 }
