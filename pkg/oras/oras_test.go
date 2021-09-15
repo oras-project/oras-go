@@ -108,7 +108,13 @@ func (suite *ORASTestSuite) Test_0_Copy() {
 	ref = fmt.Sprintf("%s/empty:test", suite.DockerRegistryHost)
 
 	memStore = orascontent.NewMemory()
-	_, _ = memStore.GenerateManifest(ref, nil)
+	config, configDesc, err := orascontent.GenerateConfig(nil)
+	suite.Nil(err, "no error generating config")
+	memStore.Set(configDesc, config)
+	emptyManifest, emptyManifestDesc, err := orascontent.GenerateManifest(&configDesc, nil)
+	suite.Nil(err, "no error creating manifest with empty descriptors")
+	err = memStore.StoreManifest(ref, emptyManifestDesc, emptyManifest)
+	suite.Nil(err, "no error pushing manifest with empty descriptors")
 	_, err = Copy(newContext(), memStore, ref, newResolver(), "")
 	suite.Nil(err, "no error pushing with empty descriptors")
 
@@ -116,11 +122,16 @@ func (suite *ORASTestSuite) Test_0_Copy() {
 	ref = fmt.Sprintf("%s/chart-tgz:test", suite.DockerRegistryHost)
 
 	store = orascontent.NewFile("")
+	err = store.Load(configDesc, config)
+	suite.Nil(err, "no error loading config for test chart")
 	basename := filepath.Base(testTarball)
 	desc, err = store.Add(basename, "", testTarball)
 	suite.Nil(err, "no error loading test chart")
-	manifest, _ := store.GenerateManifest(ref, nil, desc)
-	fmt.Printf("%s\n", manifest)
+	testChartManifest, testChartManifestDesc, err := orascontent.GenerateManifest(&configDesc, nil, desc)
+	suite.Nil(err, "no error creating manifest with test chart descriptor")
+	err = store.StoreManifest(ref, testChartManifestDesc, testChartManifest)
+	suite.Nil(err, "no error pushing manifest with test chart descriptor")
+	fmt.Printf("%s\n", testChartManifest)
 
 	_, err = Copy(newContext(), store, ref, newResolver(), "")
 	suite.Nil(err, "no error pushing test chart tgz (as single layer)")
@@ -129,6 +140,8 @@ func (suite *ORASTestSuite) Test_0_Copy() {
 	testDirAbs, err := filepath.Abs(testDir)
 	suite.Nil(err, "no error parsing test directory")
 	store = orascontent.NewFile(testDirAbs)
+	err = store.Load(configDesc, config)
+	suite.Nil(err, "no error saving config for test dir")
 	descriptors = []ocispec.Descriptor{}
 	var ff = func(pathX string, infoX os.FileInfo, errX error) error {
 		if !infoX.IsDir() {
@@ -149,7 +162,10 @@ func (suite *ORASTestSuite) Test_0_Copy() {
 	os.Chdir(cwd)
 
 	ref = fmt.Sprintf("%s/chart-dir:test", suite.DockerRegistryHost)
-	store.GenerateManifest(ref, nil, descriptors...)
+	testChartDirManifest, testChartDirManifestDesc, err := orascontent.GenerateManifest(&configDesc, nil, descriptors...)
+	suite.Nil(err, "no error creating manifest with test chart dir (each file as layer)")
+	err = store.StoreManifest(ref, testChartDirManifestDesc, testChartDirManifest)
+	suite.Nil(err, "no error pushing manifest with test chart dir (each file as layer)")
 	_, err = Copy(newContext(), store, ref, newResolver(), "")
 	suite.Nil(err, "no error pushing test chart dir (each file as layer)")
 }
@@ -229,12 +245,20 @@ func (suite *ORASTestSuite) Test_2_MediaType() {
 		descriptors = append(descriptors, desc)
 	}
 	ref = fmt.Sprintf("%s/media-type:test", suite.DockerRegistryHost)
-	_, _ = store.GenerateManifest(ref, nil, descriptors...)
+	config, configDesc, err := orascontent.GenerateConfig(nil)
+	suite.Nil(err, "no error generating config")
+	store.Set(configDesc, config)
+	emptyManifest, emptyManifestDesc, err := orascontent.GenerateManifest(&configDesc, nil, descriptors...)
+	suite.Nil(err, "no error creating manifest with empty descriptors")
+	err = store.StoreManifest(ref, emptyManifestDesc, emptyManifest)
+	suite.Nil(err, "no error pushing manifest with empty descriptors")
+
 	_, err = Copy(newContext(), store, ref, newResolver(), ref)
 	suite.Nil(err, "no error pushing test data with customized media type")
 
 	// Pull with all media types
 	store = orascontent.NewMemory()
+	store.Set(configDesc, config)
 	ref = fmt.Sprintf("%s/media-type:test", suite.DockerRegistryHost)
 	_, err = Copy(newContext(), newResolver(), ref, store, ref)
 	suite.Nil(err, "no error pulling media-type ref")
@@ -247,6 +271,7 @@ func (suite *ORASTestSuite) Test_2_MediaType() {
 
 	// Pull with specified media type
 	store = orascontent.NewMemory()
+	store.Set(configDesc, config)
 	ref = fmt.Sprintf("%s/media-type:test", suite.DockerRegistryHost)
 	_, err = Copy(newContext(), newResolver(), ref, store, ref, WithAllowedMediaType(testData[0][1]))
 	suite.Nil(err, "no error pulling media-type ref")
@@ -259,6 +284,7 @@ func (suite *ORASTestSuite) Test_2_MediaType() {
 
 	// Pull with non-existing media type, so only should do root manifest
 	store = orascontent.NewMemory()
+	store.Set(configDesc, config)
 	ref = fmt.Sprintf("%s/media-type:test", suite.DockerRegistryHost)
 	_, err = Copy(newContext(), newResolver(), ref, store, ref, WithAllowedMediaType("non.existing.media.type"))
 	suite.Nil(err, "no error pulling media-type ref")
@@ -286,12 +312,19 @@ func (suite *ORASTestSuite) Test_3_Conditional_Pull() {
 		descriptors = append(descriptors, desc)
 	}
 	ref = fmt.Sprintf("%s/conditional-pull:test", suite.DockerRegistryHost)
-	store.GenerateManifest(ref, nil, descriptors...)
+	config, configDesc, err := orascontent.GenerateConfig(nil)
+	suite.Nil(err, "no error generating config")
+	store.Set(configDesc, config)
+	testManifest, testManifestDesc, err := orascontent.GenerateManifest(&configDesc, nil, descriptors...)
+	suite.Nil(err, "no error creating manifest with test descriptors")
+	err = store.StoreManifest(ref, testManifestDesc, testManifest)
+	suite.Nil(err, "no error pushing manifest with test descriptors")
 	_, err = Copy(newContext(), store, ref, newResolver(), ref)
 	suite.Nil(err, "no error pushing test data")
 
 	// Pull all contents in sequence
 	store = orascontent.NewMemory()
+	store.Set(configDesc, config)
 	ref = fmt.Sprintf("%s/conditional-pull:test", suite.DockerRegistryHost)
 	_, err = Copy(newContext(), newResolver(), ref, store, ref, WithPullByBFS)
 	suite.Nil(err, "no error pulling ref")
@@ -306,6 +339,7 @@ func (suite *ORASTestSuite) Test_3_Conditional_Pull() {
 
 	// Selective pull contents: stop at the very beginning
 	store = orascontent.NewMemory()
+	store.Set(configDesc, config)
 	ref = fmt.Sprintf("%s/conditional-pull:test", suite.DockerRegistryHost)
 	_, err = Copy(newContext(), newResolver(), ref, store, ref, WithPullByBFS,
 		WithPullBaseHandler(images.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
@@ -318,6 +352,7 @@ func (suite *ORASTestSuite) Test_3_Conditional_Pull() {
 
 	// Selective pull contents: stop in the middle
 	store = orascontent.NewMemory()
+	store.Set(configDesc, config)
 	ref = fmt.Sprintf("%s/conditional-pull:test", suite.DockerRegistryHost)
 	stop = false
 	_, err = Copy(newContext(), newResolver(), ref, store, ref, WithPullByBFS,
@@ -373,7 +408,14 @@ func (suite *ORASTestSuite) Test_4_GHSA_g5v4_5x39_vwhx() {
 		memoryStore := orascontent.NewMemory()
 		memoryStore.Set(evilDesc, buf.Bytes())
 		ref := fmt.Sprintf("%s/evil:%s", suite.DockerRegistryHost, tag)
-		memoryStore.GenerateManifest(ref, nil, evilDesc)
+
+		config, configDesc, err := orascontent.GenerateConfig(nil)
+		suite.Nil(err, "no error generating config")
+		memoryStore.Set(configDesc, config)
+		testManifest, testManifestDesc, err := orascontent.GenerateManifest(&configDesc, nil, evilDesc)
+		suite.Nil(err, "no error creating manifest with evil descriptors")
+		err = memoryStore.StoreManifest(ref, testManifestDesc, testManifest)
+		suite.Nil(err, "no error pushing manifest with evil descriptors")
 		_, err = Copy(newContext(), memoryStore, ref, newResolver(), ref)
 		suite.Nil(err, "no error pushing test data")
 
@@ -385,6 +427,8 @@ func (suite *ORASTestSuite) Test_4_GHSA_g5v4_5x39_vwhx() {
 		defer os.RemoveAll(tempDir)
 		store := orascontent.NewFile(tempDir)
 		defer store.Close()
+		err = store.Load(configDesc, config)
+		suite.Nil(err, "no error saving config")
 		ref = fmt.Sprintf("%s/evil:%s", suite.DockerRegistryHost, tag)
 		_, err = Copy(newContext(), newResolver(), ref, store, ref)
 		suite.NotNil(err, "error expected pulling malicious tar")

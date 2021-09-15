@@ -60,7 +60,10 @@ func (suite *ContentTestSuite) SetupSuite() {
 	testMemoryStore := NewMemory()
 	desc, err := testMemoryStore.Add(testRef, "", testContent)
 	suite.Nil(err, "no error adding testContent to memory store")
-	_, err = testMemoryStore.GenerateManifest(testRef, nil, desc)
+	manifest, manifestDesc, config, configDesc, err := GenerateManifestAndConfig(nil, nil, desc)
+	suite.Nil(err, "no error creating config and manifest")
+	testMemoryStore.Set(configDesc, config)
+	err = testMemoryStore.StoreManifest(testRef, manifestDesc, manifest)
 	suite.Nil(err, "no error adding ref to memory store")
 	suite.TestMemoryStore = testMemoryStore
 
@@ -70,7 +73,9 @@ func (suite *ContentTestSuite) SetupSuite() {
 	testFileStore := NewFile(testDirRoot, WithErrorOnNoName())
 	desc, err = testFileStore.Add(testRef, "", testFileName)
 	suite.Nil(err, "no error adding item to file store")
-	_, err = testFileStore.GenerateManifest(testRef, nil, desc)
+	err = testFileStore.Load(configDesc, config)
+	suite.Nil(err, "no error adding config to file store")
+	err = testFileStore.StoreManifest(testRef, manifestDesc, manifest)
 	suite.Nil(err, "no error adding ref to file store")
 	suite.TestFileStore = testFileStore
 }

@@ -31,7 +31,6 @@ import (
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
-	artifact "oras.land/oras-go/pkg/artifact"
 )
 
 // Memory provides content from the memory
@@ -125,7 +124,7 @@ func (s *memoryPusher) Push(ctx context.Context, desc ocispec.Descriptor) (conte
 	}, nil
 }
 
-// Add adds content
+// Add adds content, generating a descriptor and returning it.
 func (s *Memory) Add(name, mediaType string, content []byte) (ocispec.Descriptor, error) {
 	var annotations map[string]string
 	if name != "" {
@@ -188,29 +187,16 @@ func (s *Memory) GetByName(name string) (ocispec.Descriptor, []byte, bool) {
 	return desc, content, ok
 }
 
-func (s *Memory) GenerateManifest(ref string, config *ocispec.Descriptor, descs ...ocispec.Descriptor) ([]byte, error) {
-	var (
-		desc     ocispec.Descriptor
-		manifest []byte
-		err      error
-	)
-	// Config
-	// Config - either it was set, or we have to set it
-	if config == nil {
-		configBytes := []byte("{}")
-		s.Add("", artifact.UnknownConfigMediaType, configBytes)
-		config = &ocispec.Descriptor{
-			MediaType: artifact.UnknownConfigMediaType,
-			Digest:    digest.FromBytes(configBytes),
-			Size:      int64(len(configBytes)),
-		}
-	}
-	if manifest, desc, err = pack(*config, descs); err != nil {
-		return nil, err
-	}
+// StoreManifest stores a manifest linked to by the provided ref. The children of the
+// manifest, such as layers and config, should already exist in the file store, either
+// as files linked via Add(), or via Set(). If they do not exist, then a typical
+// Fetcher that walks the manifest will hit an unresolved hash.
+//
+// StoreManifest does *not* validate their presence.
+func (s *Memory) StoreManifest(ref string, desc ocispec.Descriptor, manifest []byte) error {
 	s.refMap[ref] = desc
 	s.Add("", desc.MediaType, manifest)
-	return manifest, nil
+	return nil
 }
 
 func descFromBytes(b []byte, mediaType string) (ocispec.Descriptor, error) {
