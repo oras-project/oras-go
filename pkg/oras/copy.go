@@ -26,6 +26,7 @@ import (
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	orasimages "oras.land/oras-go/pkg/images"
 	"oras.land/oras-go/pkg/target"
 )
 
@@ -105,6 +106,8 @@ func transferContent(ctx context.Context, desc ocispec.Descriptor, fetcher remot
 		store = newHybridStoreFromPusher(pusher, opts.cachedMediaTypes, true)
 	}
 
+	contentProvider := &ProviderWrapper{Fetcher: store}
+
 	// fetchHandler pushes to the *store*, which may or may not cache it
 	baseFetchHandler := func(p remotes.Pusher, f remotes.Fetcher) images.HandlerFunc {
 		return images.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
@@ -144,7 +147,8 @@ func transferContent(ctx context.Context, desc ocispec.Descriptor, fetcher remot
 	handlers = append(handlers,
 		fetchHandler,
 		picker,
-		images.ChildrenHandler(&ProviderWrapper{Fetcher: store}),
+		images.ChildrenHandler(contentProvider),
+		orasimages.AppendArtifactsHandler(contentProvider),
 	)
 	handlers = append(handlers, opts.callbackHandlers...)
 

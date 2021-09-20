@@ -23,8 +23,8 @@ func AppendArtifactsHandler(provider content.Provider) images.Handler {
 				return nil, err
 			}
 
-			var artifact artifactspec.Manifest
-			if err := json.Unmarshal(p, &artifact); err != nil {
+			artifact := &artifactspec.Manifest{}
+			if err := json.Unmarshal(p, artifact); err != nil {
 				return nil, err
 			}
 
