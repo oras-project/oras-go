@@ -64,7 +64,7 @@ func testArtifactsManifest() *artifactspec.Manifest {
 }
 
 func TestAppendArtifactsHandler(t *testing.T) {
-	handler := AppendArtifactsHandler(&testContentProvider{})
+	handler := AppendArtifactsHandler("", "", &testContentProvider{}, nil)
 
 	subdescs, err := handler.Handle(context.Background(), ocispec.Descriptor{MediaType: artifactspec.MediaTypeArtifactManifest})
 	if err != nil {

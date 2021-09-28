@@ -27,6 +27,7 @@ import (
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	orasimages "oras.land/oras-go/pkg/images"
+	orasremotes "oras.land/oras-go/pkg/remotes"
 	"oras.land/oras-go/pkg/target"
 )
 
@@ -76,6 +77,12 @@ func Copy(ctx context.Context, from target.Target, fromRef string, to target.Tar
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
+
+	disc, ok := from.(orasremotes.Discoverer)
+	if ok {
+		opt.discoverer = disc
+	}
+	opt.fromRef = fromRef
 
 	if err := transferContent(ctx, desc, fetcher, pusher, opt); err != nil {
 		return ocispec.Descriptor{}, err
@@ -148,8 +155,12 @@ func transferContent(ctx context.Context, desc ocispec.Descriptor, fetcher remot
 		fetchHandler,
 		picker,
 		images.ChildrenHandler(contentProvider),
-		orasimages.AppendArtifactsHandler(contentProvider),
 	)
+
+	if opts.discoverer != nil {
+		handlers = append(handlers, orasimages.AppendArtifactsHandler(opts.fromRef, opts.allowedArtifactType, contentProvider, opts.discoverer, opts.artifactFilters...))
+	}
+
 	handlers = append(handlers, opts.callbackHandlers...)
 
 	if err := opts.dispatch(ctx, images.Handlers(handlers...), nil, desc); err != nil {

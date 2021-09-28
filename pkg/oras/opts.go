@@ -28,7 +28,9 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/semaphore"
+	"oras.land/oras-go/pkg/artifact"
 	orascontent "oras.land/oras-go/pkg/content"
+	"oras.land/oras-go/pkg/remotes"
 )
 
 func copyOptsDefaults() *copyOpts {
@@ -43,6 +45,10 @@ func copyOptsDefaults() *copyOpts {
 type CopyOpt func(o *copyOpts) error
 
 type copyOpts struct {
+	artifactFilters                     []artifact.Filter
+	discoverer                          remotes.Discoverer
+	fromRef                             string
+	allowedArtifactType                 string
 	allowedMediaTypes                   []string
 	dispatch                            func(context.Context, images.Handler, *semaphore.Weighted, ...ocispec.Descriptor) error
 	baseHandlers                        []images.Handler
@@ -120,6 +126,23 @@ func dispatchBFS(ctx context.Context, handler images.Handler, weighted *semaphor
 func filterName(desc ocispec.Descriptor) bool {
 	// needs to be filled in
 	return true
+}
+
+// WithArtifactFilters will set an array of artifact.Filter functions that will be called on an artifact spec descriptor
+// during discovery. If the filter returns false, the descriptor is skipped
+func WithArtifactFilters(filters ...artifact.Filter) CopyOpt {
+	return func(o *copyOpts) error {
+		o.artifactFilters = filters
+		return nil
+	}
+}
+
+// WithAllowedArtifactTypes sets the artifact type to look for when discovery is enabled. If left blank it will allow all artifacts.
+func WithAllowedArtifactTypes(artifactType string) CopyOpt {
+	return func(o *copyOpts) error {
+		o.allowedArtifactType = artifactType
+		return nil
+	}
 }
 
 // WithAdditionalCachedMediaTypes adds media types normally cached in memory when pulling.
