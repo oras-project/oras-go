@@ -27,3 +27,4 @@ dist/
 *.tar.gz
 vendor/
 _dist/
+examples/discover/net-monitor/

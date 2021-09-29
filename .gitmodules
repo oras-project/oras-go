@@ -1,0 +1,5 @@
+[submodule "examples/discover/oras-examples"]
+	path = examples/discover/oras-examples
+	url = https://github.com/juliusl/oras-examples.git
+	shallow = true
+	
