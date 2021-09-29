@@ -39,8 +39,9 @@ import (
 	"golang.org/x/net/context/ctxhttp"
 )
 
+// WithDiscover adds a discoverer interface to a remotes.Resolver
 func WithDiscover(ref string, resolver remotes.Resolver, opts *docker.ResolverOptions) (remotes.Resolver, error) {
-	opts = NewOpts(opts)
+	opts = InitializeOptions(opts)
 
 	r, err := reference.Parse(ref)
 	if err != nil {
@@ -84,6 +85,8 @@ func (d *dockerDiscoverer) filterHosts(caps docker.HostCapabilities) (hosts []do
 	return hosts, nil
 }
 
+// Discover is a function that calls the referrers api and returns a list of references. If artifact type is set then it will filter
+// the references to the specified artifact type. This parameter can be left blank.
 func (d *dockerDiscoverer) Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) ([]artifactspec.Descriptor, error) {
 	ctx = log.WithLogger(ctx, log.G(ctx).WithField("digest", desc.Digest))
 
@@ -331,6 +334,7 @@ func (r *request) retryRequest(ctx context.Context, responses []*http.Response) 
 	return false, nil
 }
 
+// String retuns the url string
 func (r *request) String() string {
 	return r.host.Scheme + "://" + r.host.Host + r.path
 }

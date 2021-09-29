@@ -1,3 +1,18 @@
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package main
 
 import (
@@ -79,7 +94,7 @@ func initExampleState(e *exampleState) {
 
 	am := content.GenerateArtifactsManifest(
 		"sbom/example",
-		content.ConvertV1DescriptorToV2(imageDesc, ""),
+		content.ConvertImageDescriptorToArtifactDescriptor(imageDesc, ""),
 		make(map[string]string),
 		sbomd)
 
@@ -97,7 +112,7 @@ func initExampleState(e *exampleState) {
 
 	am = content.GenerateArtifactsManifest(
 		"signature/example",
-		content.ConvertV1DescriptorToV2(imageDesc, ""),
+		content.ConvertImageDescriptorToArtifactDescriptor(imageDesc, ""),
 		make(map[string]string),
 		signatured)
 
@@ -108,8 +123,8 @@ func initExampleState(e *exampleState) {
 	fail(err, "could not store manifest")
 
 	e.example_references = []artifactspec.Descriptor{
-		content.ConvertV1DescriptorToV2(sbomd, "sbom/example"),
-		content.ConvertV1DescriptorToV2(signatured, "signature/example"),
+		content.ConvertImageDescriptorToArtifactDescriptor(sbomd, "sbom/example"),
+		content.ConvertImageDescriptorToArtifactDescriptor(signatured, "signature/example"),
 	}
 
 	// Create mock server handlers

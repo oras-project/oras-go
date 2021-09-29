@@ -1,3 +1,33 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package docker
 
 import (
@@ -5,7 +35,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/containerd/containerd/content"
@@ -19,11 +48,16 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Pusher is a function that returns a remotes.Pusher
 func (d *dockerDiscoverer) Pusher(ctx context.Context, ref string) (remotes.Pusher, error) {
 	d.reference = ref
 	return d, nil
 }
 
+// Push is a function that pushes content. This is a variant of that function, which first checks to see if this is an artifact-spec manifest
+// if it is an artifact-spec manifest, this code will branch to an artifact spec specific implementation of the push algo
+// This works pretty much the same as the original docker pusher, however since this is specifically for a manifest. We have the luxury of not having
+// to decide whether or not this is a manifest, and can directly call the manifest api.
 func (d *dockerDiscoverer) Push(ctx context.Context, desc ocispec.Descriptor) (content.Writer, error) {
 	switch desc.MediaType {
 	case artifactspec.MediaTypeArtifactManifest:
@@ -54,6 +88,7 @@ func (d *dockerDiscoverer) Push(ctx context.Context, desc ocispec.Descriptor) (c
 	return pusher.Push(ctx, desc)
 }
 
+// PreparePutManifest is a function that returns a content.Writer for pushing that artifact manifest
 func (d *dockerDiscoverer) PreparePutManifest(ctx context.Context, host docker.RegistryHost, desc ocispec.Descriptor) (content.Writer, error) {
 	d.tracker.SetStatus(d.reference, docker.Status{
 		Status: content.Status{
@@ -65,10 +100,6 @@ func (d *dockerDiscoverer) PreparePutManifest(ctx context.Context, host docker.R
 	})
 
 	req := d.request(host, http.MethodPut, "manifests", desc.Digest.String())
-	if req == nil {
-		return nil, errors.New("not implemented")
-	}
-
 	req.header.Set("Content-Type", desc.MediaType)
 
 	pr, pw := io.Pipe()
@@ -113,36 +144,31 @@ func (d *dockerDiscoverer) PreparePutManifest(ctx context.Context, host docker.R
 	}, nil
 }
 
+// CheckManifest is a function that checks to see if the manifest has already been pushed. If the manifest exists it returns ErrAlreadyExists
+// If the manifest has not been pushed this function returns nil. In all other cases it returns the appropriate error
 func (d *dockerDiscoverer) CheckManifest(ctx context.Context, host docker.RegistryHost, desc ocispec.Descriptor) error {
-	// Check if the manifest exists
 	req := d.request(host, http.MethodHead, "manifests", desc.Digest.String())
-	if req == nil {
-		return errors.New("not implemented")
-	}
-
 	req.header.Set("Accept", desc.MediaType)
 
 	resp, err := req.doWithRetries(ctx, nil)
 	if err != nil {
-		if !errors.Is(err, docker.ErrInvalidAuthorization) {
-			return err
-		}
-	} else {
-		if resp.StatusCode == http.StatusOK && resp.Header.Get("Docker-Content-Digest") == desc.Digest.String() {
-			d.tracker.SetStatus(d.reference, docker.Status{
-				Committed: true,
-				Status: content.Status{
-					Ref:    d.reference,
-					Total:  desc.Size,
-					Offset: desc.Size,
-				}})
+		return err
+	}
 
-			return errdefs.ErrAlreadyExists
-		} else if resp.StatusCode != http.StatusNotFound {
-			err := remoteserrors.NewUnexpectedStatusErr(resp)
-			resp.Body.Close()
-			return err
-		}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK && resp.Header.Get("Docker-Content-Digest") == desc.Digest.String() {
+		d.tracker.SetStatus(d.reference, docker.Status{
+			Committed: true,
+			Status: content.Status{
+				Ref:    d.reference,
+				Total:  desc.Size,
+				Offset: desc.Size,
+			}})
+
+		return errdefs.ErrAlreadyExists
+	} else if resp.StatusCode != http.StatusNotFound {
+		err := remoteserrors.NewUnexpectedStatusErr(resp)
+		return err
 	}
 
 	return nil
@@ -152,6 +178,8 @@ type response struct {
 	*http.Response
 	err error
 }
+
+var _ (content.Writer) = (*artifactsManifest)(nil)
 
 type artifactsManifest struct {
 	ref       string
@@ -183,7 +211,6 @@ func (pw *artifactsManifest) Status() (content.Status, error) {
 		return content.Status{}, err
 	}
 	return status.Status, nil
-
 }
 
 func (pw *artifactsManifest) Digest() digest.Digest {
@@ -248,19 +275,5 @@ func (pw *artifactsManifest) Commit(ctx context.Context, size int64, expected di
 }
 
 func (pw *artifactsManifest) Truncate(size int64) error {
-
 	return errors.New("cannot truncate remote upload")
-}
-
-func requestWithMountFrom(req *request, mount, from string) *request {
-	creq := *req
-
-	sep := "?"
-	if strings.Contains(creq.path, sep) {
-		sep = "&"
-	}
-
-	creq.path = creq.path + sep + "mount=" + mount + "&from=" + from
-
-	return &creq
 }

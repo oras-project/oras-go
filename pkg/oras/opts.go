@@ -22,7 +22,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/images"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -174,14 +173,6 @@ func WithAllowedMediaTypes(allowedMediaTypes []string) CopyOpt {
 func WithPullByBFS(o *copyOpts) error {
 	o.dispatch = dispatchBFS
 	return nil
-}
-
-// WithImageHandlerWrapper wraps the handlers to be called on dispatch.
-func WithPullBaseImageHandlerWrapper(w func(images.Handler) images.Handler) containerd.RemoteOpt {
-	return func(client *containerd.Client, c *containerd.RemoteContext) error {
-		c.HandlerWrapper = w
-		return nil
-	}
 }
 
 // WithPullBaseHandler provides base handlers, which will be called before

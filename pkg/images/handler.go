@@ -1,3 +1,18 @@
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package images
 
 import (
@@ -7,18 +22,18 @@ import (
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/images"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/pkg/artifact"
 	orasremotes "oras.land/oras-go/pkg/remotes"
 )
 
-// AppendArtifactsHandler will append artifacts desc to descs
+// AppendArtifactsHandler is an images.Handler that will recursibly search for artifact-spec descriptors by calling the list referrers api
 func AppendArtifactsHandler(ref, artifactType string, provider content.Provider, discoverer orasremotes.Discoverer, filters ...artifact.Filter) images.Handler {
-	return images.HandlerFunc(func(ctx context.Context, desc v1.Descriptor) ([]v1.Descriptor, error) {
-		descs := make([]v1.Descriptor, 0)
+	return images.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		descs := make([]ocispec.Descriptor, 0)
 		switch desc.MediaType {
-		case v1.MediaTypeImageManifest:
+		case ocispec.MediaTypeImageManifest:
 			// Recursively find all artifacts starting with the image manifest
 			refs, err := findMore(ctx, desc, artifactType, discoverer, filters...)
 			if err != nil {
@@ -38,7 +53,7 @@ func AppendArtifactsHandler(ref, artifactType string, provider content.Provider,
 
 			appendDesc := func(artifacts ...artifactspec.Descriptor) {
 				for _, desc := range artifacts {
-					c := v1.Descriptor{
+					c := ocispec.Descriptor{
 						MediaType:   desc.MediaType,
 						Digest:      desc.Digest,
 						Size:        desc.Size,
@@ -61,7 +76,7 @@ func AppendArtifactsHandler(ref, artifactType string, provider content.Provider,
 	})
 }
 
-func findMore(ctx context.Context, desc v1.Descriptor, artifactType string, discoverer orasremotes.Discoverer, artifactFilter ...artifact.Filter) ([]v1.Descriptor, error) {
+func findMore(ctx context.Context, desc ocispec.Descriptor, artifactType string, discoverer orasremotes.Discoverer, artifactFilters ...artifact.Filter) ([]ocispec.Descriptor, error) {
 	if discoverer == nil {
 		return nil, errors.New("discoverer is nil")
 	}
@@ -75,10 +90,10 @@ func findMore(ctx context.Context, desc v1.Descriptor, artifactType string, disc
 		return nil, nil
 	}
 
-	out := make([]v1.Descriptor, 0)
+	out := make([]ocispec.Descriptor, 0)
 	for _, r := range refs {
-		if test(r, artifactFilter...) {
-			adesc := v1.Descriptor{
+		if test(r, artifactFilters...) {
+			adesc := ocispec.Descriptor{
 				MediaType:   r.MediaType,
 				Size:        r.Size,
 				Annotations: r.Annotations,
@@ -87,10 +102,15 @@ func findMore(ctx context.Context, desc v1.Descriptor, artifactType string, disc
 			}
 			out = append(out, adesc)
 
-			more, err := findMore(ctx, adesc, artifactType, discoverer, artifactFilter...)
-			if err != nil || more == nil {
+			more, err := findMore(ctx, adesc, artifactType, discoverer, artifactFilters...)
+			if err != nil {
+				return nil, err
+			}
+
+			if more == nil {
 				continue
 			}
+
 			out = append(out, more...)
 		}
 	}

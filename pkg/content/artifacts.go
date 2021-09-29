@@ -5,26 +5,29 @@ import (
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 )
 
+// GenerateArtifactsManifest is a function that generates an artifact-spec Manifest
 func GenerateArtifactsManifest(artifactType string, subject artifactspec.Descriptor, annotations map[string]string, blobs ...ocispec.Descriptor) *artifactspec.Manifest {
-	m := &artifactspec.Manifest{}
-
-	m.ArtifactType = artifactType
-	m.Blobs = ConvertV1DescriptorsToV2(blobs, artifactType)
-	m.Annotations = annotations
-	m.Subject = subject
-
-	return m
+	return &artifactspec.Manifest{
+		ArtifactType: artifactType,
+		Blobs:        ConvertImageDescriptorsToArtifactDescriptors(blobs, artifactType),
+		Annotations:  annotations,
+		Subject:      subject,
+	}
 }
 
-func ConvertV1DescriptorsToV2(descs []ocispec.Descriptor, artifactType string) []artifactspec.Descriptor {
+// ConvertImageDescriptorsToArtifactDescriptors is a function that converts a list of image descriptors to an artifact descriptor
+// By default pushed artifacts/images to a registry are assigned an image descriptor. An artifact descriptor includes an artifact type field.
+func ConvertImageDescriptorsToArtifactDescriptors(descs []ocispec.Descriptor, artifactType string) []artifactspec.Descriptor {
 	results := make([]artifactspec.Descriptor, 0, len(descs))
 	for _, desc := range descs {
-		results = append(results, ConvertV1DescriptorToV2(desc, artifactType))
+		results = append(results, ConvertImageDescriptorToArtifactDescriptor(desc, artifactType))
 	}
 	return results
 }
 
-func ConvertV1DescriptorToV2(desc ocispec.Descriptor, artifactType string) artifactspec.Descriptor {
+// ConvertImageDescriptorToArtifactDescriptor is a function that converts an image descriptors to an artifact descriptor
+// By default pushed artifacts/images to a registry are assigned an image descriptor. An artifact descriptor includes an artifact type field.
+func ConvertImageDescriptorToArtifactDescriptor(desc ocispec.Descriptor, artifactType string) artifactspec.Descriptor {
 	return artifactspec.Descriptor{
 		ArtifactType: artifactType,
 		MediaType:    desc.MediaType,
