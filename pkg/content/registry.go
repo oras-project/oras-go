@@ -21,10 +21,10 @@ import (
 	"net/http"
 	"os"
 
-	auth "oras.land/oras-go/pkg/auth/docker"
-
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
+	auth "oras.land/oras-go/pkg/auth/docker"
+	orasdocker "oras.land/oras-go/pkg/target/docker"
 )
 
 // RegistryOptions provide configuration options to a Registry
@@ -47,6 +47,21 @@ func NewRegistry(opts RegistryOptions) (*Registry, error) {
 	return &Registry{
 		Resolver: newResolver(opts.Username, opts.Password, opts.Insecure, opts.PlainHTTP, opts.Configs...),
 	}, nil
+}
+
+func NewRegistryWithDiscover(targetRef string, opts RegistryOptions) (*Registry, error) {
+	registry, err := NewRegistry(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	resolver, err := orasdocker.WithDiscover(targetRef, registry.Resolver)
+	if err != nil {
+		return nil, err
+	}
+
+	registry.Resolver = resolver
+	return registry, nil
 }
 
 func newResolver(username, password string, insecure bool, plainHTTP bool, configs ...string) remotes.Resolver {

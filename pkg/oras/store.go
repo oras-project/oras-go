@@ -39,6 +39,14 @@ type hybridStore struct {
 	ingester         content.Ingester
 }
 
+func newHybridStoreFromIngester(ingester content.Ingester, cachedMediaTypes []string) *hybridStore {
+	return &hybridStore{
+		cache:            orascontent.NewMemory(),
+		cachedMediaTypes: cachedMediaTypes,
+		ingester:         ingester,
+	}
+}
+
 func newHybridStoreFromPusher(pusher remotes.Pusher, cachedMediaTypes []string, cacheOnly bool) *hybridStore {
 	// construct an ingester from a pusher
 	ingester := pusherIngester{
@@ -50,6 +58,18 @@ func newHybridStoreFromPusher(pusher remotes.Pusher, cachedMediaTypes []string, 
 		ingester:         ingester,
 		cacheOnly:        cacheOnly,
 	}
+}
+
+// ReaderAt provides contents
+func (s *hybridStore) ReaderAt(ctx context.Context, desc ocispec.Descriptor) (content.ReaderAt, error) {
+	readerAt, err := s.cache.ReaderAt(ctx, desc)
+	if err == nil {
+		return readerAt, nil
+	}
+	if s.provider != nil {
+		return s.provider.ReaderAt(ctx, desc)
+	}
+	return nil, err
 }
 
 func (s *hybridStore) Set(desc ocispec.Descriptor, content []byte) {

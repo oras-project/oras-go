@@ -22,4 +22,7 @@ require (
 	github.com/docker/docker-credential-helpers v0.6.4 // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
+	github.com/need-being/go-tree v0.1.0
+	github.com/oras-project/artifacts-spec v1.0.0-draft.1
+	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
 )
