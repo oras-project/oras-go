@@ -309,8 +309,8 @@ func copy_push(ctx context.Context, source content.Store, pusher remotes.Pusher,
 	return nil
 }
 
-func copy_source(opts pullOptions, destref string, ingester orascontent.ProvideIngester, recursiveOptions *copyRecursiveOptions) (ocispec.Descriptor, []ocispec.Descriptor, error) {
-	desc, pulled, err := copy_fetch(opts, ingester)
+func copy_source(opts pullOptions, destref string, store *orascontent.OCI, recursiveOptions *copyRecursiveOptions) (ocispec.Descriptor, []ocispec.Descriptor, error) {
+	desc, pulled, err := copy_fetch(opts, store)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -356,7 +356,7 @@ func copy_source(opts pullOptions, destref string, ingester orascontent.ProvideI
 				// The below logic does this by first checking if that is the case, restoring state to what it was before the call
 				// and caching the additional files in another array. The code then proceeds normally, until the end when I concatenate the array back
 				before := len(recursiveOptions.additionalFiles)
-				p, blobs, err := copy_source(opts, destRef, ingester, recursiveOptions)
+				p, blobs, err := copy_source(opts, destRef, store, recursiveOptions)
 				if err != nil {
 					return ocispec.Descriptor{}, nil, err
 				}
@@ -417,7 +417,7 @@ func copy_source(opts pullOptions, destref string, ingester orascontent.ProvideI
 	return desc, pulled, nil
 }
 
-func copy_fetch(opts pullOptions, store orascontent.ProvideIngester) (ocispec.Descriptor, []ocispec.Descriptor, error) {
+func copy_fetch(opts pullOptions, store *orascontent.OCI) (ocispec.Descriptor, []ocispec.Descriptor, error) {
 	ctx := context.Background()
 	if opts.debug {
 		logrus.SetLevel(logrus.DebugLevel)
@@ -442,20 +442,13 @@ func copy_fetch(opts pullOptions, store orascontent.ProvideIngester) (ocispec.De
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	pullOpts := []oras.CopyOpt{
-		oras.WithAllowedMediaTypes(opts.allowedMediaTypes),
-		oras.WithPullStatusTrack(os.Stdout),
+	pullOpts := []PullOpt{
+		WithAllowedMediaTypes(opts.allowedMediaTypes),
+		WithPullStatusTrack(os.Stdout),
+		WithPullEmptyNameAllowed(),
 	}
 
-	if store != nil {
-		pullOpts = append(pullOpts, oras.WithContentProvideIngester(store))
-	}
-
-	if opts.allowEmptyName {
-		pullOpts = append(pullOpts, oras.WithPullEmptyNameAllowed())
-	}
-
-	desc, artifacts, err := oras.Pull(ctx, registry.Resolver, opts.targetRef, store, pullOpts...)
+	desc, artifacts, err := Pull(ctx, registry.Resolver, opts.targetRef, store, pullOpts...)
 	if err != nil {
 		if err == reference.ErrObjectRequired {
 			return ocispec.Descriptor{}, nil, fmt.Errorf("image reference format is invalid. Please specify <name:tag|name@digest>")

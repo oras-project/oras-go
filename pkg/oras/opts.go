@@ -47,7 +47,6 @@ type copyOpts struct {
 	baseHandlers                        []images.Handler
 	callbackHandlers                    []images.Handler
 	contentProvideIngesterPusherFetcher orascontent.Store
-	contentProvideIngester              orascontent.ProvideIngester
 	filterName                          func(ocispec.Descriptor) bool
 	cachedMediaTypes                    []string
 
@@ -120,15 +119,6 @@ func dispatchBFS(ctx context.Context, handler images.Handler, weighted *semaphor
 func filterName(desc ocispec.Descriptor) bool {
 	// needs to be filled in
 	return true
-}
-
-// WithContentProvideIngester opt to the provided Provider and Ingester
-// for file system I/O, including caches.
-func WithContentProvideIngester(store orascontent.ProvideIngester) CopyOpt {
-	return func(o *copyOpts) error {
-		o.contentProvideIngester = store
-		return nil
-	}
 }
 
 // WithAdditionalCachedMediaTypes adds media types normally cached in memory when pulling.

@@ -13,27 +13,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package oras
+package main
 
 import (
 	"context"
 	"sync"
 
-	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
+	orascontent "oras.land/oras-go/pkg/content"
 	orasimages "oras.land/oras-go/pkg/images"
 )
 
 // Pull pull files from the remote
-func Pull(ctx context.Context, resolver remotes.Resolver, ref string, ingester content.Ingester, opts ...CopyOpt) (ocispec.Descriptor, []ocispec.Descriptor, error) {
+func Pull(ctx context.Context, resolver remotes.Resolver, ref string, store *orascontent.OCI, opts ...PullOpt) (ocispec.Descriptor, []ocispec.Descriptor, error) {
 	if resolver == nil {
 		return ocispec.Descriptor{}, nil, ErrResolverUndefined
 	}
-	opt := copyOptsDefaults()
+	opt := pullOptsDefaults()
 	for _, o := range opts {
 		if err := o(opt); err != nil {
 			return ocispec.Descriptor{}, nil, err
@@ -50,14 +50,14 @@ func Pull(ctx context.Context, resolver remotes.Resolver, ref string, ingester c
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	layers, err := fetchContent(ctx, fetcher, desc, ingester, opt)
+	layers, err := fetchContent(ctx, fetcher, desc, store, opt)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 	return desc, layers, nil
 }
 
-func fetchContent(ctx context.Context, fetcher remotes.Fetcher, desc ocispec.Descriptor, ingester content.Ingester, opts *copyOpts) ([]ocispec.Descriptor, error) {
+func fetchContent(ctx context.Context, fetcher remotes.Fetcher, desc ocispec.Descriptor, store *orascontent.OCI, opts *pullOpts) ([]ocispec.Descriptor, error) {
 	var descriptors []ocispec.Descriptor
 	lock := &sync.Mutex{}
 	picker := images.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
@@ -72,10 +72,6 @@ func fetchContent(ctx context.Context, fetcher remotes.Fetcher, desc ocispec.Des
 		return nil, nil
 	})
 
-	store := opts.contentProvideIngester
-	if store == nil {
-		store = newHybridStoreFromIngester(ingester, opts.cachedMediaTypes)
-	}
 	handlers := []images.Handler{
 		pullFilterHandler(opts, opts.allowedMediaTypes...),
 	}
@@ -95,7 +91,7 @@ func fetchContent(ctx context.Context, fetcher remotes.Fetcher, desc ocispec.Des
 	return descriptors, nil
 }
 
-func pullFilterHandler(opts *copyOpts, allowedMediaTypes ...string) images.HandlerFunc {
+func pullFilterHandler(opts *pullOpts, allowedMediaTypes ...string) images.HandlerFunc {
 	return func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		switch {
 		case isAllowedMediaType(desc.MediaType,
@@ -114,4 +110,16 @@ func pullFilterHandler(opts *copyOpts, allowedMediaTypes ...string) images.Handl
 		}
 		return nil, images.ErrStopHandler
 	}
+}
+
+func isAllowedMediaType(mediaType string, allowedMediaTypes ...string) bool {
+	if len(allowedMediaTypes) == 0 {
+		return true
+	}
+	for _, allowedMediaType := range allowedMediaTypes {
+		if mediaType == allowedMediaType {
+			return true
+		}
+	}
+	return false
 }
