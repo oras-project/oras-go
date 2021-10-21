@@ -1,3 +1,18 @@
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package docker
 
 import (
@@ -5,7 +20,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/containerd/containerd/content"
@@ -19,11 +33,13 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Pusher is a function that returns a remotes.Pusher interface
 func (d *dockerDiscoverer) Pusher(ctx context.Context, ref string) (remotes.Pusher, error) {
 	d.reference = ref
 	return d, nil
 }
 
+// Push is a function that returns a content.Writer
 func (d *dockerDiscoverer) Push(ctx context.Context, desc ocispec.Descriptor) (content.Writer, error) {
 	switch desc.MediaType {
 	case artifactspec.MediaTypeArtifactManifest:
@@ -54,6 +70,7 @@ func (d *dockerDiscoverer) Push(ctx context.Context, desc ocispec.Descriptor) (c
 	return pusher.Push(ctx, desc)
 }
 
+// PreparePutManifest is a function that prepares to put a manifest
 func (d *dockerDiscoverer) PreparePutManifest(ctx context.Context, host docker.RegistryHost, desc ocispec.Descriptor) (content.Writer, error) {
 	d.tracker.SetStatus(d.reference, docker.Status{
 		Status: content.Status{
@@ -113,6 +130,7 @@ func (d *dockerDiscoverer) PreparePutManifest(ctx context.Context, host docker.R
 	}, nil
 }
 
+// CheckManifest is a function that checks if a manifests exists by descriptor
 func (d *dockerDiscoverer) CheckManifest(ctx context.Context, host docker.RegistryHost, desc ocispec.Descriptor) error {
 	// Check if the manifest exists
 	req := d.request(host, http.MethodHead, "manifests", desc.Digest.String())
@@ -248,19 +266,5 @@ func (pw *artifactsManifest) Commit(ctx context.Context, size int64, expected di
 }
 
 func (pw *artifactsManifest) Truncate(size int64) error {
-
 	return errors.New("cannot truncate remote upload")
-}
-
-func requestWithMountFrom(req *request, mount, from string) *request {
-	creq := *req
-
-	sep := "?"
-	if strings.Contains(creq.path, sep) {
-		sep = "&"
-	}
-
-	creq.path = creq.path + sep + "mount=" + mount + "&from=" + from
-
-	return &creq
 }

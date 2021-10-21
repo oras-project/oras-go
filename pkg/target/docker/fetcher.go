@@ -30,11 +30,13 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Fetcher is a function that returns a remotes.Fetcher interface
 func (d *dockerDiscoverer) Fetcher(ctx context.Context, ref string) (remotes.Fetcher, error) {
 	d.reference = ref
 	return d, nil
 }
 
+// Fetch is a function that returns a io.ReadCloser interface
 func (d *dockerDiscoverer) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
 	hosts, err := d.filterHosts(docker.HostCapabilityPull)
 	if err != nil {

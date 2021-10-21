@@ -20,12 +20,13 @@ import (
 	"github.com/containerd/containerd/remotes"
 )
 
-// Store is the interface that groups the basic Read and Write methods.
+// Store is the interface that groups the basic Push and Fetch methods
 type Store interface {
 	remotes.Pusher
 	remotes.Fetcher
 }
 
+// ProvideIngester is an interface that groups the basic Read and Write methods
 type ProvideIngester interface {
 	content.Provider
 	content.Ingester
