@@ -25,8 +25,10 @@ rm -f bin/oras-acceptance-* || true
 docker rm -f oras-acceptance-registry || true
 
 # Build the examples into binaries
-CGO_ENABLED=0 go build -v -o bin/oras-acceptance-simple ./examples/simple
-CGO_ENABLED=0 go build -v -o bin/oras-acceptance-advanced ./examples/advanced
+cd examples
+CGO_ENABLED=0 go build -v -o ../bin/oras-acceptance-simple ./simple
+CGO_ENABLED=0 go build -v -o ../bin/oras-acceptance-advanced ./advanced
+cd ..
 
 # Run a test registry and expose at localhost:5000
 trap "docker rm -f oras-acceptance-registry" EXIT
