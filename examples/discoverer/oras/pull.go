@@ -19,17 +19,17 @@ import (
 	"context"
 	"sync"
 
+	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
-	orascontent "oras.land/oras-go/pkg/content"
 	orasimages "oras.land/oras-go/pkg/images"
 )
 
 // Pull pull files from the remote
-func Pull(ctx context.Context, resolver remotes.Resolver, ref string, store *orascontent.OCI, opts ...PullOpt) (ocispec.Descriptor, []ocispec.Descriptor, error) {
+func Pull(ctx context.Context, resolver remotes.Resolver, ref string, store content.Store, opts ...PullOpt) (ocispec.Descriptor, []ocispec.Descriptor, error) {
 	if resolver == nil {
 		return ocispec.Descriptor{}, nil, ErrResolverUndefined
 	}
@@ -57,7 +57,7 @@ func Pull(ctx context.Context, resolver remotes.Resolver, ref string, store *ora
 	return desc, layers, nil
 }
 
-func fetchContent(ctx context.Context, fetcher remotes.Fetcher, desc ocispec.Descriptor, store *orascontent.OCI, opts *pullOpts) ([]ocispec.Descriptor, error) {
+func fetchContent(ctx context.Context, fetcher remotes.Fetcher, desc ocispec.Descriptor, store content.Store, opts *pullOpts) ([]ocispec.Descriptor, error) {
 	var descriptors []ocispec.Descriptor
 	lock := &sync.Mutex{}
 	picker := images.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {

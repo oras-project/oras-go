@@ -309,7 +309,7 @@ func copy_push(ctx context.Context, source content.Store, pusher remotes.Pusher,
 	return nil
 }
 
-func copy_source(opts pullOptions, destref string, store *orascontent.OCI, recursiveOptions *copyRecursiveOptions) (ocispec.Descriptor, []ocispec.Descriptor, error) {
+func copy_source(opts pullOptions, destref string, store content.Store, recursiveOptions *copyRecursiveOptions) (ocispec.Descriptor, []ocispec.Descriptor, error) {
 	desc, pulled, err := copy_fetch(opts, store)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -417,7 +417,7 @@ func copy_source(opts pullOptions, destref string, store *orascontent.OCI, recur
 	return desc, pulled, nil
 }
 
-func copy_fetch(opts pullOptions, store *orascontent.OCI) (ocispec.Descriptor, []ocispec.Descriptor, error) {
+func copy_fetch(opts pullOptions, store content.Store) (ocispec.Descriptor, []ocispec.Descriptor, error) {
 	ctx := context.Background()
 	if opts.debug {
 		logrus.SetLevel(logrus.DebugLevel)

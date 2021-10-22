@@ -7,10 +7,6 @@ import (
 	"os"
 	"strings"
 
-	orascontent "oras.land/oras-go/pkg/content"
-	ctxo "oras.land/oras-go/pkg/context"
-	"oras.land/oras-go/pkg/oras"
-
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/remotes"
 	"github.com/need-being/go-tree"
@@ -19,6 +15,9 @@ import (
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	orascontent "oras.land/oras-go/pkg/content"
+	ctxo "oras.land/oras-go/pkg/context"
+	"oras.land/oras-go/pkg/oras"
 )
 
 type discoverOptions struct {
