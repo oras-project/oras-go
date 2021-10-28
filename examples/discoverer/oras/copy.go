@@ -17,23 +17,7 @@ import (
 	"oras.land/oras-go/pkg/target"
 )
 
-type pullOptions struct {
-	targetRef          string
-	allowedMediaTypes  []string
-	allowAllMediaTypes bool
-	allowEmptyName     bool
-	keepOldFiles       bool
-	verbose            bool
-
-	debug     bool
-	configs   []string
-	username  string
-	password  string
-	insecure  bool
-	plainHTTP bool
-}
-
-type pushOptions struct {
+type targetOptions struct {
 	targetRef string
 
 	debug     bool
@@ -45,9 +29,9 @@ type pushOptions struct {
 }
 
 type copyOptions struct {
-	from                   pullOptions
+	from                   targetOptions
 	fromDiscover           discoverOptions
-	to                     pushOptions
+	to                     targetOptions
 	rescursive             bool
 	keep                   bool
 	matchAnnotationInclude []string
@@ -91,8 +75,6 @@ func copyCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringArrayVar(&opts.from.allowedMediaTypes, "from-media-type", nil, "allowed media types to be pulled")
-	cmd.Flags().BoolVar(&opts.from.keepOldFiles, "from-keep-old-files", false, "do not replace existing files when pulling, treat them as errors")
 	cmd.Flags().BoolVar(&opts.from.debug, "from-debug", false, "debug mode")
 	cmd.Flags().StringArrayVar(&opts.from.configs, "from-config", nil, "auth config path")
 	cmd.Flags().StringVar(&opts.from.username, "from-username", "", "registry username")
