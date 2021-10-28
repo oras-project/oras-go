@@ -24,50 +24,47 @@ import (
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
 	remoteserrors "github.com/containerd/containerd/remotes/errors"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
 
-// Pusher is a function that returns a remotes.Pusher interface
-func (d *dockerDiscoverer) Pusher(ctx context.Context, ref string) (remotes.Pusher, error) {
-	d.reference = ref
-	return d, nil
-}
-
-// Push is a function that returns a content.Writer
-func (d *dockerDiscoverer) Push(ctx context.Context, desc ocispec.Descriptor) (content.Writer, error) {
-	switch desc.MediaType {
-	case artifactspec.MediaTypeArtifactManifest:
-		h, err := d.filterHosts(docker.HostCapabilityPush)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(h) == 0 {
-			return nil, errors.New("no host with push")
-		}
-
-		host := h[0]
-
-		err = d.CheckManifest(ctx, host, desc)
-		if err != nil {
-			return nil, err
-		}
-
-		return d.PreparePutManifest(ctx, host, desc)
+// CheckManifest is a function that checks if a manifests exists by descriptor
+func (d *dockerDiscoverer) CheckManifest(ctx context.Context, host docker.RegistryHost, desc ocispec.Descriptor) error {
+	// Check if the manifest exists
+	req := d.request(host, http.MethodHead, "manifests", desc.Digest.String())
+	if req == nil {
+		return errors.New("not implemented")
 	}
 
-	pusher, err := d.Resolver.Pusher(ctx, d.reference)
+	req.header.Set("Accept", desc.MediaType)
+
+	resp, err := req.doWithRetries(ctx, nil)
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, docker.ErrInvalidAuthorization) {
+			return err
+		}
+	} else {
+		if resp.StatusCode == http.StatusOK && resp.Header.Get("Docker-Content-Digest") == desc.Digest.String() {
+			d.tracker.SetStatus(d.reference, docker.Status{
+				Committed: true,
+				Status: content.Status{
+					Ref:    d.reference,
+					Total:  desc.Size,
+					Offset: desc.Size,
+				}})
+
+			return errdefs.ErrAlreadyExists
+		} else if resp.StatusCode != http.StatusNotFound {
+			err := remoteserrors.NewUnexpectedStatusErr(resp)
+			resp.Body.Close()
+			return err
+		}
 	}
 
-	return pusher.Push(ctx, desc)
+	return nil
 }
 
 // PreparePutManifest is a function that prepares to put a manifest
@@ -130,47 +127,7 @@ func (d *dockerDiscoverer) PreparePutManifest(ctx context.Context, host docker.R
 	}, nil
 }
 
-// CheckManifest is a function that checks if a manifests exists by descriptor
-func (d *dockerDiscoverer) CheckManifest(ctx context.Context, host docker.RegistryHost, desc ocispec.Descriptor) error {
-	// Check if the manifest exists
-	req := d.request(host, http.MethodHead, "manifests", desc.Digest.String())
-	if req == nil {
-		return errors.New("not implemented")
-	}
-
-	req.header.Set("Accept", desc.MediaType)
-
-	resp, err := req.doWithRetries(ctx, nil)
-	if err != nil {
-		if !errors.Is(err, docker.ErrInvalidAuthorization) {
-			return err
-		}
-	} else {
-		if resp.StatusCode == http.StatusOK && resp.Header.Get("Docker-Content-Digest") == desc.Digest.String() {
-			d.tracker.SetStatus(d.reference, docker.Status{
-				Committed: true,
-				Status: content.Status{
-					Ref:    d.reference,
-					Total:  desc.Size,
-					Offset: desc.Size,
-				}})
-
-			return errdefs.ErrAlreadyExists
-		} else if resp.StatusCode != http.StatusNotFound {
-			err := remoteserrors.NewUnexpectedStatusErr(resp)
-			resp.Body.Close()
-			return err
-		}
-	}
-
-	return nil
-}
-
-type response struct {
-	*http.Response
-	err error
-}
-
+// artifactsManifest is an internal type that implements the content.Writer interface
 type artifactsManifest struct {
 	ref       string
 	expected  digest.Digest

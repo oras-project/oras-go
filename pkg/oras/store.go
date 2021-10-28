@@ -39,14 +39,6 @@ type hybridStore struct {
 	ingester         content.Ingester
 }
 
-func newHybridStoreFromIngester(ingester content.Ingester, cachedMediaTypes []string) *hybridStore {
-	return &hybridStore{
-		cache:            orascontent.NewMemory(),
-		cachedMediaTypes: cachedMediaTypes,
-		ingester:         ingester,
-	}
-}
-
 func newHybridStoreFromPusher(pusher remotes.Pusher, cachedMediaTypes []string, cacheOnly bool) *hybridStore {
 	// construct an ingester from a pusher
 	ingester := pusherIngester{

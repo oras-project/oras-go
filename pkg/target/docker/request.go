@@ -40,6 +40,12 @@ type request struct {
 	size   int64
 }
 
+// response is an internal type to facilitate incoming http responses from the registry
+type response struct {
+	*http.Response
+	err error
+}
+
 func (r *request) authorize(ctx context.Context, req *http.Request) error {
 	// Check if has header for host
 	if r.host.Authorizer != nil {

@@ -33,10 +33,11 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/pkg/errors"
+	"oras.land/oras-go/pkg/target"
 )
 
 // WithDiscover extends an existing resolver to include the discoverer interface in the underlying type
-func WithDiscover(ref string, resolver remotes.Resolver) (remotes.Resolver, error) {
+func WithDiscover(ref string, resolver remotes.Resolver) (target.Target, error) {
 	opts := NewOpts(nil)
 
 	r, err := reference.Parse(ref)
@@ -54,6 +55,10 @@ func WithDiscover(ref string, resolver remotes.Resolver) (remotes.Resolver, erro
 		Resolver:   resolver}, nil
 }
 
+type Discoverer interface {
+	Discover(ctx context.Context, subject ocispec.Descriptor, artifactType string) ([]artifactspec.Descriptor, error)
+}
+
 type dockerDiscoverer struct {
 	hosts      docker.RegistryHosts
 	header     http.Header
@@ -64,25 +69,13 @@ type dockerDiscoverer struct {
 	remotes.Resolver
 }
 
-var localhostRegex = regexp.MustCompile(`(?:^localhost$)|(?:^localhost:\\d{0,5}$)|(?:^127\.0\.0\.1$)`)
-
-func (d *dockerDiscoverer) filterHosts(caps docker.HostCapabilities) (hosts []docker.RegistryHost, err error) {
-	h, err := d.hosts(d.refspec.Hostname())
-	if err != nil {
-		return nil, err
-	}
-
-	for _, host := range h {
-		if host.Capabilities.Has(caps) || localhostRegex.MatchString(host.Host) {
-			hosts = append(hosts, host)
-		}
-	}
-
-	return hosts, nil
-}
-
-func (d *dockerDiscoverer) Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) ([]artifactspec.Descriptor, error) {
-	ctx = log.WithLogger(ctx, log.G(ctx).WithField("digest", desc.Digest))
+// Discover is a function that returns all artifacts that reference the target subject
+// The following process is involved in the discover function
+// First the an artifact manifest is found whose contents container an array of "Blobs" (analagous to target.Object)
+// Contents of the array can point to additional manifests  and so on and so forth
+// The result is a graph of Objects that start from the subject, and whose leaves will be artifacts
+func (d *dockerDiscoverer) Discover(ctx context.Context, subject ocispec.Descriptor, artifactType string) ([]artifactspec.Descriptor, error) {
+	ctx = log.WithLogger(ctx, log.G(ctx).WithField("digest", subject.Digest))
 
 	hosts, err := d.filterHosts(docker.HostCapabilityResolve)
 	if err != nil {
@@ -107,7 +100,7 @@ func (d *dockerDiscoverer) Discover(ctx context.Context, desc ocispec.Descriptor
 		host := originalHost
 		host.Path = strings.TrimSuffix(host.Path, "/v2") + "/oras/artifacts/v1"
 
-		req := d.request(host, http.MethodGet, "manifests", desc.Digest.String(), "referrers")
+		req := d.request(host, http.MethodGet, "manifests", subject.Digest.String(), "referrers")
 		req.path += query
 		if err := req.addNamespace(d.refspec.Hostname()); err != nil {
 			return nil, err
@@ -126,6 +119,23 @@ func (d *dockerDiscoverer) Discover(ctx context.Context, desc ocispec.Descriptor
 	}
 
 	return nil, firstErr
+}
+
+var localhostRegex = regexp.MustCompile(`(?:^localhost$)|(?:^localhost:\\d{0,5}$)|(?:^127\.0\.0\.1$)`)
+
+func (d *dockerDiscoverer) filterHosts(caps docker.HostCapabilities) (hosts []docker.RegistryHost, err error) {
+	h, err := d.hosts(d.refspec.Hostname())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, host := range h {
+		if host.Capabilities.Has(caps) || localhostRegex.MatchString(host.Host) {
+			hosts = append(hosts, host)
+		}
+	}
+
+	return hosts, nil
 }
 
 func (d *dockerDiscoverer) discover(ctx context.Context, req *request) ([]artifactspec.Descriptor, error) {

@@ -12,11 +12,11 @@ import (
 // Discover discovers artifacts referencing the specified artifact
 func Discover(ctx context.Context, resolver remotes.Resolver, ref, artifactType string) (ocispec.Descriptor, []artifactspec.Descriptor, error) {
 	discoverer, ok := resolver.(interface {
-		Discover(ctx context.Context, desc ocispec.Descriptor, artifactType string) ([]artifactspec.Descriptor, error)
+		Discover(ctx context.Context, subject ocispec.Descriptor, artifactType string) ([]artifactspec.Descriptor, error)
 	})
 
 	if !ok {
-		return ocispec.Descriptor{}, nil, errors.New("not implemented")
+		return ocispec.Descriptor{}, nil, errors.New("resolver does not implement discover extension method")
 	}
 
 	_, desc, err := resolver.Resolve(ctx, ref)
