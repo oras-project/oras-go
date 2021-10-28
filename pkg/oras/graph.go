@@ -14,8 +14,8 @@ type GraphWalkFunc func(artifactspec.Descriptor, artifactspec.Manifest, []target
 
 // Graph is a function that resolves the immediate children of the subject from a source
 // The first element of what is returned will always be the subject descriptor
-func Graph(ctx context.Context, subject string, source target.Target, walkfn GraphWalkFunc) ([]target.Object, error) {
-	desc, discovered, err := Discover(ctx, source, subject, "")
+func Graph(ctx context.Context, subject string, artifactType string, source target.Target, walkfn GraphWalkFunc) ([]target.Object, error) {
+	desc, discovered, err := Discover(ctx, source, subject, artifactType)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func Graph(ctx context.Context, subject string, source target.Target, walkfn Gra
 			return nil, err
 		}
 
-		additional, err := Graph(ctx, fmt.Sprintf("%s/%s@%s", host, namespace, m.Digest), source, walkfn)
+		additional, err := Graph(ctx, fmt.Sprintf("%s/%s@%s", host, namespace, m.Digest), artifactType, source, walkfn)
 		if err != nil {
 			return nil, err
 		}

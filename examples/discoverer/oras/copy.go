@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"regexp"
-	"strings"
 
 	"github.com/containerd/containerd/errdefs"
-	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/spf13/cobra"
@@ -37,10 +34,7 @@ type pullOptions struct {
 }
 
 type pushOptions struct {
-	targetRef    string
-	artifactType string
-	artifactRefs string
-	verbose      bool
+	targetRef string
 
 	debug     bool
 	configs   []string
@@ -58,23 +52,6 @@ type copyOptions struct {
 	keep                   bool
 	matchAnnotationInclude []string
 	matchAnnotationExclude []string
-}
-
-type copyObject struct {
-	manifest     *ocispec.Descriptor
-	digest       digest.Digest
-	name         string
-	subject      string
-	artifactType string
-	mediaType    string
-	size         int64
-	annotations  map[string]string
-}
-
-type copyRecursiveOptions struct {
-	additionalFiles []copyObject
-	filter          func(artifactspec.Descriptor) bool
-	artifactType    string
 }
 
 func copyCmd() *cobra.Command {
@@ -163,33 +140,14 @@ func runCopy(opts copyOptions) error {
 		return err
 	}
 
-	var recursiveOptions *copyRecursiveOptions
-	if opts.rescursive {
-		recursiveOptions = &copyRecursiveOptions{
-			artifactType: opts.fromDiscover.artifactType,
-		}
-
-		if opts.matchAnnotationInclude != nil || opts.matchAnnotationExclude != nil {
-			recursiveOptions.filter = build_match_filter(opts.matchAnnotationInclude, opts.matchAnnotationExclude)
-		}
-	}
-
-	opts.from.allowAllMediaTypes = true
-	opts.from.allowEmptyName = true
-
 	ctx := context.Background()
-
 	if !opts.fromDiscover.verbose {
 		ctx = ctxo.WithLoggerDiscarded(ctx)
 	}
 
-	source, subject, references, err := copy_graph(ctx, opts.from.targetRef, cached, opts)
+	source, subject, references, err := cloneGraph(ctx, opts.from.targetRef, cached, opts)
 	if err != nil {
 		return err
-	}
-
-	for _, r := range references {
-		r.List(os.Stdout)
 	}
 
 	// Setting up destination
@@ -249,7 +207,7 @@ func runCopy(opts copyOptions) error {
 			}
 		}
 
-		err = config.Move(ctx, cached, destination, opts.to.targetRef, false)
+		err = config.Move(ctx, cached, destination, opts.to.targetRef)
 		if err != nil {
 			if !errors.Is(err, errdefs.ErrAlreadyExists) {
 				return err
@@ -258,7 +216,7 @@ func runCopy(opts copyOptions) error {
 
 		for _, l := range manifest.Layers {
 			layer := target.FromOCIDescriptor(opts.from.targetRef, l, "", nil)
-			err = layer.Move(ctx, cached, destination, opts.to.targetRef, false)
+			err = layer.Move(ctx, cached, destination, opts.to.targetRef)
 			if err != nil {
 				if !errors.Is(err, errdefs.ErrAlreadyExists) {
 					return err
@@ -266,7 +224,7 @@ func runCopy(opts copyOptions) error {
 			}
 		}
 
-		err = subject.Move(ctx, cached, destination, opts.to.targetRef, false)
+		err = subject.Move(ctx, cached, destination, opts.to.targetRef)
 		if err != nil {
 			if !errors.Is(err, errdefs.ErrAlreadyExists) {
 				return err
@@ -278,7 +236,7 @@ func runCopy(opts copyOptions) error {
 
 	if opts.rescursive {
 		for _, r := range references {
-			err := r.Move(ctx, cached, destination, opts.to.targetRef, true)
+			err := r.Move(ctx, cached, destination, opts.to.targetRef)
 			if err != nil {
 				if !errors.Is(err, errdefs.ErrAlreadyExists) {
 					return err
@@ -298,7 +256,7 @@ func runCopy(opts copyOptions) error {
 	return nil
 }
 
-func copy_graph(ctx context.Context, subject string, artifact target.Artifact, opts copyOptions) (target.Target, *target.Object, []target.Object, error) {
+func cloneGraph(ctx context.Context, subject string, artifact target.Artifact, opts copyOptions) (target.Target, *target.Object, []target.Object, error) {
 	registry, err := orascontent.NewRegistryWithDiscover(opts.from.targetRef, orascontent.RegistryOptions{
 		Configs:   opts.from.configs,
 		Username:  opts.from.username,
@@ -314,7 +272,7 @@ func copy_graph(ctx context.Context, subject string, artifact target.Artifact, o
 		ctx = ctxo.WithLoggerDiscarded(ctx)
 	}
 
-	objects, err := oras.Graph(ctx, opts.from.targetRef, registry.Resolver,
+	objects, err := oras.Graph(ctx, opts.from.targetRef, opts.fromDiscover.artifactType, registry.Resolver,
 		func(parent artifactspec.Descriptor, parentManifest artifactspec.Manifest, objects []target.Object) error {
 			parentObject := target.FromArtifactDescriptor(opts.from.targetRef, parent.ArtifactType, parent, nil)
 
@@ -341,55 +299,4 @@ func copy_graph(ctx context.Context, subject string, artifact target.Artifact, o
 	}
 
 	return registry, &objects[0], objects[1:], nil
-}
-
-func build_match_filter(matchInclude []string, matchExclude []string) func(a artifactspec.Descriptor) bool {
-	var (
-		includes map[string]*regexp.Regexp = make(map[string]*regexp.Regexp)
-		excludes map[string]*regexp.Regexp = make(map[string]*regexp.Regexp)
-	)
-
-	for _, m := range matchInclude {
-		args := strings.Split(m, " ")
-		if len(args) > 0 {
-			annotationTitle := args[0]
-			annotationFilter := args[1]
-			includes[annotationTitle] = regexp.MustCompile(strings.Trim(annotationFilter, "/"))
-		}
-	}
-
-	for _, m := range matchExclude {
-		args := strings.Split(m, " ")
-		if len(args) > 0 {
-			annotationTitle := args[0]
-			annotationFilter := args[1]
-			excludes[annotationTitle] = regexp.MustCompile(strings.Trim(annotationFilter, "/"))
-		}
-	}
-
-	return func(a artifactspec.Descriptor) bool {
-		if a.Annotations == nil {
-			return len(includes) <= 0
-		}
-
-		result := true
-		for k, v := range a.Annotations {
-			matchFn, ok := includes[k]
-			if ok {
-				result = result && matchFn.MatchString(v)
-			}
-
-			matchFn, ok = excludes[k]
-			if ok {
-				result = result && !matchFn.MatchString(v)
-			}
-
-			// If it already should be filtered just return, otherwise continue to check all annotations
-			if !result {
-				return result
-			}
-		}
-
-		return result
-	}
 }

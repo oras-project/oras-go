@@ -95,12 +95,21 @@ func (o Object) List(writer io.Writer) {
 	writer.Write([]byte("\n"))
 }
 
-// Move is a function that moves this object from an artifact to a Target
-func (o Object) Move(ctx context.Context, from Artifact, to Target, toLocator string, digestOnly bool) error {
+// Move is a function that moves this object from an artifact to a target
+func (o Object) Move(ctx context.Context, from Artifact, to Target, toLocator string) error {
 	// toLocator is a reference spec, parse the host and namespace portion to construct the new reference spec
-	_, host, namespace, object, err := parse(toLocator)
+	_, host, namespace, _, err := parse(toLocator)
 	if err != nil {
 		return err
+	}
+
+	_, _, _, object, err := parse(o.reference)
+	if err != nil {
+		return err
+	}
+
+	if o.subject != nil {
+		defer o.subject.Move(ctx, from, to, toLocator)
 	}
 
 	desc := o.Descriptor()
@@ -119,19 +128,7 @@ func (o Object) Move(ctx context.Context, from Artifact, to Target, toLocator st
 		}
 	}
 
-	if object == "" {
-		_, _, _, object, err = parse(o.reference)
-		if err != nil {
-			return err
-		}
-	}
-
-	var ref string
-	if digestOnly {
-		ref = fmt.Sprintf("%s/%s@%s", host, namespace, o.digest)
-	} else {
-		ref = fmt.Sprintf("%s/%s%s", host, namespace, object)
-	}
+	ref := fmt.Sprintf("%s/%s%s", host, namespace, object)
 
 	pusher, err := to.Pusher(ctx, ref)
 	if err != nil {
@@ -149,13 +146,6 @@ func (o Object) Move(ctx context.Context, from Artifact, to Target, toLocator st
 	}
 
 	fmt.Printf("Moved %s %s to %s\n", o.mediaType, o.reference, ref)
-
-	if o.subject != nil {
-		err := o.subject.Move(ctx, from, to, toLocator, digestOnly)
-		if err != nil {
-			return err
-		}
-	}
 
 	return nil
 }
