@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
@@ -35,6 +36,12 @@ func Discover(ctx context.Context, resolver remotes.Resolver, subjectReference, 
 
 	_, desc, err := resolver.Resolve(ctx, subjectReference)
 	if err != nil {
+		// 404 in this case means that the subject doesn't currently exist
+		// therfore no artifacts are discovered
+		if errdefs.IsNotFound(err) {
+			return ocispec.Descriptor{}, nil, nil
+		}
+
 		return ocispec.Descriptor{}, nil, err
 	}
 
