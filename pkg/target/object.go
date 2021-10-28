@@ -1,3 +1,17 @@
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package target
 
 import (
@@ -84,13 +98,15 @@ func (o Object) ResolveSubject(ctx context.Context, target Target, withRef strin
 	return FromOCIDescriptor(o.subject.reference, desc, o.subject.artifactType, nil), nil
 }
 
-func (o Object) List(writer io.Writer) {
+// List is a function that writes records associated to this object, starting from the root
+// The fields that are written are mediatype and reference
+func (o Object) List(fieldSeperator []byte, writer io.Writer) {
 	if o.subject != nil {
-		o.subject.List(writer)
+		o.subject.List(fieldSeperator, writer)
 	}
 
 	writer.Write([]byte(fmt.Sprint(o.mediaType)))
-	writer.Write([]byte("\n"))
+	writer.Write(fieldSeperator)
 	writer.Write([]byte(fmt.Sprint(o.reference)))
 	writer.Write([]byte("\n"))
 }
@@ -118,6 +134,7 @@ func (o Object) Move(ctx context.Context, from Artifact, to Target, toLocator st
 	if err != nil {
 		return err
 	}
+	defer reader.Close()
 
 	// Optionally the locator can omit the namespace portion and include just a new host
 	// the current namespace will be reused
@@ -163,11 +180,13 @@ func (o Object) Download(ctx context.Context, from Target, to Artifact) error {
 	if err != nil {
 		return err
 	}
+	defer writer.Close()
 
 	reader, err := fetcher.Fetch(ctx, desc)
 	if err != nil {
 		return err
 	}
+	defer reader.Close()
 
 	err = content.Copy(ctx, writer, reader, desc.Size, desc.Digest)
 	if err != nil {

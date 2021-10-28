@@ -1,17 +1,16 @@
 /*
-   Copyright The containerd Authors.
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
 
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 
 package docker
@@ -55,7 +54,10 @@ func WithDiscover(ref string, resolver remotes.Resolver) (target.Target, error) 
 		Resolver:   resolver}, nil
 }
 
+// Discoverer is an interface that provides methods for discovering references
 type Discoverer interface {
+	// Discover is a function that looks for references of the specified artifact type who share the subject descriptor as their root
+	// if artifact type is left blank then all artifactTypes will be searched
 	Discover(ctx context.Context, subject ocispec.Descriptor, artifactType string) ([]artifactspec.Descriptor, error)
 }
 
@@ -91,9 +93,12 @@ func (d *dockerDiscoverer) Discover(ctx context.Context, subject ocispec.Descrip
 		return nil, err
 	}
 
-	v := url.Values{}
-	v.Set("artifactType", artifactType)
-	query := "?" + v.Encode()
+	var query string
+	if artifactType != "" {
+		v := url.Values{}
+		v.Set("artifactType", artifactType)
+		query = "?" + v.Encode()
+	}
 
 	var firstErr error
 	for _, originalHost := range hosts {
@@ -121,7 +126,7 @@ func (d *dockerDiscoverer) Discover(ctx context.Context, subject ocispec.Descrip
 	return nil, firstErr
 }
 
-var localhostRegex = regexp.MustCompile(`(?:^localhost$)|(?:^localhost:\\d{0,5}$)|(?:^127\.0\.0\.1$)`)
+var localhostRegex = regexp.MustCompile(`(?:^localhost$)|(?:^localhost:\\d{0,5}$)|(?:^127\.0\.0\.1$)|(?:^127\.0\.0\.1:\\d{0,5}$)`)
 
 func (d *dockerDiscoverer) filterHosts(caps docker.HostCapabilities) (hosts []docker.RegistryHost, err error) {
 	h, err := d.hosts(d.refspec.Hostname())
