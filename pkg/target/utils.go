@@ -34,6 +34,28 @@ func FromOCIDescriptor(reference string, desc ocispec.Descriptor, artifactType s
 	}
 }
 
+// FromImageManifest is a function that returns an array of Objects parsed from an image style manifest
+func FromImageManifest(reference, artifactType string, desc ocispec.Descriptor, manifest struct {
+	Version   int                  `json:"schemaVersion"`
+	MediaType string               `json:"mediaType"`
+	Config    ocispec.Descriptor   `json:"config"`
+	Layers    []ocispec.Descriptor `json:"layers"`
+}) ([]Object, error) {
+	objects := make([]Object, len(manifest.Layers)+2)
+
+	// Manifest
+	objects[0] = FromOCIDescriptor(reference, desc, artifactType, nil)
+	// Config
+	objects[1] = FromOCIDescriptor(reference, manifest.Config, "image/config", nil)
+
+	// Layers
+	for i, l := range manifest.Layers {
+		objects[i+2] = FromOCIDescriptor(reference, l, "image/layer", nil)
+	}
+
+	return objects, nil
+}
+
 // FromArtifactDescriptor is a function that returns an object from an artifact spec descriptor
 func FromArtifactDescriptor(reference string, artifactType string, desc artifactspec.Descriptor, subject *Object) Object {
 	return Object{
