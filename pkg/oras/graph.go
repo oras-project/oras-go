@@ -17,6 +17,7 @@ package oras
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -83,15 +84,19 @@ func Graph(ctx context.Context, subject, artifactType string, source target.Targ
 			return nil, err
 		}
 
-		// Skip the first element because it is the root of the tree
-		output = append(output, objects[1:]...)
-
 		if walkfn != nil {
 			err := walkfn(artifactDescriptor, artifactManifest, objects)
 			if err != nil {
+				// If the walk function returns back ErrSkipObjects, further processing stops
+				if errors.Is(err, ErrSkipObjects) {
+					continue
+				}
 				return nil, err
 			}
 		}
+
+		// Skip the first element because it is the root of the tree
+		output = append(output, objects[1:]...)
 
 		// Get the locator from the root so we can call Graph on the current child
 		_, host, namespace, _, err := objects[0].ReferenceSpec()
@@ -104,7 +109,7 @@ func Graph(ctx context.Context, subject, artifactType string, source target.Targ
 			return nil, err
 		}
 
-		if len(additional) > 1 {
+		if len(additional) > 1 && err == nil {
 			output = append(output, additional[1:]...)
 		}
 	}
