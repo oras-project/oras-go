@@ -16,6 +16,7 @@ package target
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -189,6 +190,39 @@ func (o Object) Download(ctx context.Context, from Target, to Artifact) error {
 	defer reader.Close()
 
 	err = content.Copy(ctx, writer, reader, desc.Size, desc.Digest)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// MarshalJson is a function that deserializes the content of this object as json
+func (o Object) MarshalJson(ctx context.Context, source Target, out interface{}) error {
+	err := o.MarshalObject(ctx, source, func(r io.Reader) error {
+		return json.NewDecoder(r).Decode(out)
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// MarshalObject is a function that provides a general purpose marshalling entrypoint
+func (o Object) MarshalObject(ctx context.Context, source Target, marshaller func(io.Reader) error) error {
+	fetcher, err := source.Fetcher(ctx, o.reference)
+	if err != nil {
+		return err
+	}
+
+	reader, err := fetcher.Fetch(ctx, o.Descriptor())
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	err = marshaller(reader)
 	if err != nil {
 		return err
 	}
