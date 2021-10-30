@@ -2,18 +2,16 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"os"
 
 	"github.com/containerd/containerd/errdefs"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/spf13/cobra"
 	orascontent "oras.land/oras-go/pkg/content"
 	ctxo "oras.land/oras-go/pkg/context"
 	"oras.land/oras-go/pkg/oras"
+	"oras.land/oras-go/pkg/oras/graph"
 	"oras.land/oras-go/pkg/target"
 )
 
@@ -147,22 +145,20 @@ func runCopy(opts copyOptions) error {
 		return err
 	}
 
-	// Download the image manifest of the root/subject to do a deep-copy
-	err = subject.Download(ctx, source, cached)
-	if err != nil {
-		if !errors.Is(err, errdefs.ErrAlreadyExists) {
-			return err
-		}
+	var manifest struct {
+		Version   int                  `json:"schemaVersion"`
+		MediaType string               `json:"mediaType"`
+		Config    ocispec.Descriptor   `json:"config"`
+		Layers    []ocispec.Descriptor `json:"layers"`
 	}
 
-	reader, err := cached.Fetch(ctx, subject.Descriptor())
+	err = subject.MarshalJson(ctx, source, &manifest)
 	if err != nil {
 		return err
 	}
-	defer reader.Close()
 
 	// Deep-copy the image, i.e A -> B, where A = source, -> = cached, B = destination
-	deepCopyImage(ctx, subject, reader, opts, source, cached, destination)
+	deepCopyImage(ctx, subject, manifest, opts, source, cached, destination)
 
 	// If recursive also move objects that share the subject as their root
 	if opts.rescursive {
@@ -190,7 +186,12 @@ func runCopy(opts copyOptions) error {
 // deepCopyImage is an internal function that copies a subject and it's contents from a source target.Target to a destination target.Target
 // The vector that connects the two is represented by the cached target.Artifact
 // i.e A -> B, where `A` = `source`, `->`` = `cached`, `B` = `destination`
-func deepCopyImage(ctx context.Context, subject *target.Object, reader io.Reader, opts copyOptions, source target.Target, cached target.Artifact, destination target.Target) error {
+func deepCopyImage(ctx context.Context, subject *target.Object, manifest struct {
+	Version   int                  `json:"schemaVersion"`
+	MediaType string               `json:"mediaType"`
+	Config    ocispec.Descriptor   `json:"config"`
+	Layers    []ocispec.Descriptor `json:"layers"`
+}, opts copyOptions, source target.Target, cached target.Artifact, destination target.Target) error {
 	// Images all share a common format, so instead of referencing one or the other,
 	// declare what we are expecting/need to deserialize
 	switch subject.Descriptor().MediaType {
@@ -198,17 +199,6 @@ func deepCopyImage(ctx context.Context, subject *target.Object, reader io.Reader
 	// They both share this common format
 	// If we cannot deserialize the manifest into this format, then we do not have logic that can handle that format, in which case a new case must be added to this switch statement
 	default:
-		var manifest struct {
-			Version   int                  `json:"schemaVersion"`
-			MediaType string               `json:"mediaType"`
-			Config    ocispec.Descriptor   `json:"config"`
-			Layers    []ocispec.Descriptor `json:"layers"`
-		}
-		err := json.NewDecoder(reader).Decode(&manifest)
-		if err != nil {
-			return err
-		}
-
 		objects, err := target.FromImageManifest(opts.from.targetRef, "", subject.Descriptor(), manifest)
 		if err != nil {
 			return err
@@ -259,28 +249,11 @@ func cloneGraph(ctx context.Context, subject string, local target.Artifact, opts
 		ctx = ctxo.WithLoggerDiscarded(ctx)
 	}
 
-	objects, err := oras.Graph(ctx, opts.from.targetRef, opts.fromDiscover.artifactType, registry.Resolver,
-		func(parent artifactspec.Descriptor, parentManifest artifactspec.Manifest, objects []target.Object) error {
-			parentObject := target.FromArtifactDescriptor(opts.from.targetRef, parent.ArtifactType, parent, nil)
-
-			for _, o := range objects {
-				err := o.Download(ctx, registry, local)
-				if err != nil {
-					if !errors.Is(err, errdefs.ErrAlreadyExists) {
-						return err
-					}
-				}
-			}
-
-			err := parentObject.Download(ctx, registry, local)
-			if err != nil {
-				if !errors.Is(err, errdefs.ErrAlreadyExists) {
-					return err
-				}
-			}
-
-			return nil
-		})
+	objects, err := oras.Graph(ctx,
+		opts.from.targetRef,
+		opts.fromDiscover.artifactType,
+		registry.Resolver,
+		graph.DownloadToArtifact(ctx, opts.from.targetRef, registry, local))
 	if err != nil {
 		return nil, nil, nil, err
 	}
