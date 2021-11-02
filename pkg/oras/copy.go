@@ -144,7 +144,7 @@ func transferContent(ctx context.Context, desc ocispec.Descriptor, fetcher remot
 	handlers = append(handlers,
 		fetchHandler,
 		picker,
-		images.ChildrenHandler(&ProviderWrapper{Fetcher: store}),
+		newProviderHandler(store),
 	)
 	handlers = append(handlers, opts.callbackHandlers...)
 

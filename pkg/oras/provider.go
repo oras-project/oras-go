@@ -20,22 +20,27 @@ import (
 	"io"
 
 	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// ProviderWrapper wraps a remote.Fetcher to make a content.Provider, which is useful for things
-type ProviderWrapper struct {
-	Fetcher remotes.Fetcher
+func newProviderHandler(store remotes.Fetcher) images.HandlerFunc {
+	return images.ChildrenHandler(&providerWrapper{fetcher: store})
 }
 
-func (p *ProviderWrapper) ReaderAt(ctx context.Context, desc ocispec.Descriptor) (content.ReaderAt, error) {
-	if p.Fetcher == nil {
+// providerWrapper wraps a remote.Fetcher and ReaderAt
+type providerWrapper struct {
+	fetcher remotes.Fetcher
+}
+
+func (p *providerWrapper) ReaderAt(ctx context.Context, desc ocispec.Descriptor) (content.ReaderAt, error) {
+	if p.fetcher == nil {
 		return nil, errors.New("no Fetcher provided")
 	}
 	return &fetcherReaderAt{
 		ctx:     ctx,
-		fetcher: p.Fetcher,
+		fetcher: p.fetcher,
 		desc:    desc,
 		offset:  0,
 	}, nil
