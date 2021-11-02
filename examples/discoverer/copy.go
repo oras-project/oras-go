@@ -133,14 +133,6 @@ func runCopy(opts copyOptions) error {
 		return err
 	}
 
-	// Setting up destination
-	destination, err := orascontent.NewRegistryWithDiscover(opts.to.targetRef, orascontent.RegistryOptions{
-		Configs:   opts.to.configs,
-		Username:  opts.to.username,
-		Password:  opts.to.password,
-		Insecure:  opts.to.insecure,
-		PlainHTTP: opts.to.plainHTTP,
-	})
 	if err != nil {
 		return err
 	}
@@ -152,7 +144,19 @@ func runCopy(opts copyOptions) error {
 		Layers    []ocispec.Descriptor `json:"layers"`
 	}
 
-	err = subject.MarshalJson(ctx, source, &manifest)
+	err = subject.MarshalJsonFromArtifact(ctx, cached, &manifest)
+	if err != nil {
+		return err
+	}
+
+	// Setting up destination
+	destination, err := orascontent.NewRegistryWithDiscover(opts.to.targetRef, orascontent.RegistryOptions{
+		Configs:   opts.to.configs,
+		Username:  opts.to.username,
+		Password:  opts.to.password,
+		Insecure:  opts.to.insecure,
+		PlainHTTP: opts.to.plainHTTP,
+	})
 	if err != nil {
 		return err
 	}
@@ -258,5 +262,11 @@ func cloneGraph(ctx context.Context, subject string, local target.Artifact, opts
 		return nil, nil, nil, err
 	}
 
-	return registry, &objects[0], objects[1:], nil
+	sobj := &objects[0]
+	err = sobj.Download(ctx, registry, local)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return registry, sobj, objects[1:], nil
 }
