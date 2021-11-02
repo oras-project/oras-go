@@ -99,6 +99,11 @@ func (o Object) ResolveSubject(ctx context.Context, target Target, withRef strin
 	return FromOCIDescriptor(o.subject.reference, desc, o.subject.artifactType, nil), nil
 }
 
+// Subject is a function that returns this object's subject
+func (o Object) Subject() *Object {
+	return o.subject
+}
+
 // List is a function that writes records associated to this object, starting from the root
 // The fields that are written are mediatype and reference
 func (o Object) List(fieldSeperator []byte, writer io.Writer) {
@@ -230,6 +235,34 @@ func (o Object) MarshalObject(ctx context.Context, source Target, marshaller fun
 	return nil
 }
 
+// MarshalJsonFromArtifact is a function that marshals from an artifact as the source instead of a target
+func (o Object) MarshalJsonFromArtifact(ctx context.Context, source Artifact, out interface{}) error {
+	err := o.MarshalObjectFromArtifact(ctx, source, func(r io.Reader) error {
+		return json.NewDecoder(r).Decode(out)
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// MarshalObjectFromArtifact is a function that marshals an object from an artifact instead of a target
+func (o Object) MarshalObjectFromArtifact(ctx context.Context, source Artifact, marshaller func(io.Reader) error) error {
+	reader, err := source.ReaderAt(ctx, o.Descriptor())
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	err = marshaller(content.NewReader(reader))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 var (
 	// referenceRegex is a regular expression that parses and returns parts of a reference specification
 	// originally the reference specification is broken down into 2 parts, the Locator and Object
@@ -254,7 +287,7 @@ func parse(parsing string) (reference string, host string, namespace string, obj
 	// and the last part should be the tag
 
 	// This should be the case most of the time
-	if len(matches[0]) == 4 {
+	if len(matches) > 0 && len(matches[0]) == 4 {
 		return matches[0][0], matches[0][1], matches[0][2], matches[0][3], nil
 	}
 

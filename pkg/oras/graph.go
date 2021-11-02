@@ -16,7 +16,6 @@ package oras
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -41,11 +40,6 @@ func Graph(ctx context.Context, subject, artifactType string, source target.Targ
 		return nil, err
 	}
 
-	fetcher, err := source.Fetcher(ctx, subject)
-	if err != nil {
-		return nil, err
-	}
-
 	var output []target.Object
 
 	// the first element will always be the root
@@ -56,18 +50,13 @@ func Graph(ctx context.Context, subject, artifactType string, source target.Targ
 			artifactManifest   artifactspec.Manifest
 			artifactDescriptor artifactspec.Descriptor
 		)
-		reader, err := fetcher.Fetch(ctx, ocispec.Descriptor{
+
+		err = target.FromOCIDescriptor(subject, ocispec.Descriptor{
 			Digest:      m.Digest,
 			Size:        m.Size,
 			Annotations: m.Annotations,
 			MediaType:   m.MediaType,
-		})
-		if err != nil {
-			return nil, err
-		}
-		defer reader.Close()
-
-		err = json.NewDecoder(reader).Decode(&artifactManifest)
+		}, "", nil).MarshalJson(ctx, source, &artifactManifest)
 		if err != nil {
 			return nil, err
 		}
