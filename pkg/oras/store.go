@@ -18,7 +18,6 @@ package oras
 import (
 	"context"
 	"io"
-	"io/ioutil"
 	"time"
 
 	"github.com/containerd/containerd/content"
@@ -75,7 +74,7 @@ func (s *hybridStore) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.Re
 	}
 	if s.provider != nil {
 		rat, err := s.provider.ReaderAt(ctx, desc)
-		return ioutil.NopCloser(orascontent.NewReaderAtWrapper(rat)), err
+		return orascontent.NewReaderAtWrapper(rat, rat), err
 	}
 	return nil, err
 }

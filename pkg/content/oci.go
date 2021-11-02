@@ -27,10 +27,13 @@ import (
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/local"
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/remotes"
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
+	"oras.land/oras-go/pkg/target"
 )
 
 // OCI provides content from the file system with the OCI-Image layout.
@@ -150,7 +153,7 @@ func (s *OCI) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser
 		return nil, err
 	}
 	// just wrap the ReaderAt with a Reader
-	return ioutil.NopCloser(&ReaderAtWrapper{readerAt: readerAt}), nil
+	return NewReaderAtWrapper(readerAt, readerAt), nil
 }
 
 // Pusher get a remotes.Pusher for the given ref
@@ -164,7 +167,7 @@ func (s *OCI) Pusher(ctx context.Context, ref string) (remotes.Pusher, error) {
 	if len(parts) > 1 {
 		hash = parts[1]
 	}
-	return &ociPusher{oci: s, ref: baseRef, digest: hash}, nil
+	return &ociPusher{oci: s, locator: baseRef, digest: hash, ref: ref}, nil
 }
 
 // AddReference adds or updates an reference to index.
@@ -311,9 +314,10 @@ func (s *OCI) ReaderAt(ctx context.Context, desc ocispec.Descriptor) (content.Re
 // Needs to be able to recognize when a root manifest is being pushed and to create the tag
 // for it.
 type ociPusher struct {
-	oci    *OCI
-	ref    string
-	digest string
+	oci     *OCI
+	locator string
+	digest  string
+	ref     string
 }
 
 // Push get a writer for a single Descriptor
@@ -326,12 +330,49 @@ func (p *ociPusher) Push(ctx context.Context, desc ocispec.Descriptor) (content.
 			if err := p.oci.LoadIndex(); err != nil {
 				return nil, err
 			}
-			p.oci.nameMap[p.ref] = desc
+			p.oci.nameMap[p.locator] = desc
 			if err := p.oci.SaveIndex(); err != nil {
 				return nil, err
 			}
 		}
+	case artifactspec.MediaTypeArtifactManifest:
+		info, err := p.oci.Store.Info(ctx, desc.Digest)
+		if err != nil {
+			return nil, err
+		}
+
+		if info.Size <= 0 {
+			break
+		}
+
+		obj := target.FromOCIDescriptor(p.ref, desc, "", nil)
+
+		var manifest artifactspec.Manifest
+		err = obj.MarshalJsonFromArtifact(ctx, p.oci, &manifest)
+		if err != nil {
+			return nil, err
+		}
+
+		subject := target.FromArtifactDescriptor(fmt.Sprintf("%s@%s", p.locator, manifest.Subject.Digest), "", manifest.Subject, nil)
+		obj = target.FromOCIDescriptor(p.ref, desc, manifest.ArtifactType, &subject)
+
+		writer, err := p.oci.Store.Writer(ctx, content.WithDescriptor(desc), content.WithRef(p.ref))
+		if err != nil {
+			if !errors.Is(err, errdefs.ErrAlreadyExists) {
+				return nil, err
+			}
+
+			ext := &ociArtifactsExtension{Writer: writer, oci: p.oci, artifact: obj}
+			err = ext.Commit(ctx, desc.Size, desc.Digest)
+			if err != nil {
+				return nil, err
+			}
+
+			return nil, errdefs.ErrAlreadyExists
+		}
+
+		return &ociArtifactsExtension{Writer: writer, oci: p.oci, artifact: obj}, nil
 	}
 
-	return p.oci.Store.Writer(ctx, content.WithDescriptor(desc), content.WithRef(p.ref))
+	return p.oci.Store.Writer(ctx, content.WithDescriptor(desc), content.WithRef(p.locator))
 }
