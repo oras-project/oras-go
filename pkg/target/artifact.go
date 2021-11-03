@@ -12,15 +12,15 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
-package content
+package target
 
 import (
-	"github.com/containerd/containerd/remotes"
+	"github.com/containerd/containerd/content"
 )
 
-// Store is the interface that groups the basic Push and Fetch methods
-type Store interface {
-	remotes.Pusher
-	remotes.Fetcher
+// Artifact represents the object being transferred between targets
+// Anything that implements the Artifact interface can be used as an object that can be
+// sent or retrieved from a target
+type Artifact interface {
+	content.Store
 }

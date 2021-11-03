@@ -40,3 +40,7 @@ var (
 // ErrStopProcessing is used to stop processing an oras operation.
 // This error only makes sense in sequential pulling operation.
 var ErrStopProcessing = fmt.Errorf("stop processing")
+
+// ErrSkipObjects is an error that when returned by a graph walking function
+// will skip appending the objects to the output array
+var ErrSkipObjects = fmt.Errorf("skip object")

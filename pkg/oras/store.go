@@ -18,7 +18,6 @@ package oras
 import (
 	"context"
 	"io"
-	"io/ioutil"
 	"time"
 
 	"github.com/containerd/containerd/content"
@@ -52,6 +51,18 @@ func newHybridStoreFromPusher(pusher remotes.Pusher, cachedMediaTypes []string, 
 	}
 }
 
+// ReaderAt provides contents
+func (s *hybridStore) ReaderAt(ctx context.Context, desc ocispec.Descriptor) (content.ReaderAt, error) {
+	readerAt, err := s.cache.ReaderAt(ctx, desc)
+	if err == nil {
+		return readerAt, nil
+	}
+	if s.provider != nil {
+		return s.provider.ReaderAt(ctx, desc)
+	}
+	return nil, err
+}
+
 func (s *hybridStore) Set(desc ocispec.Descriptor, content []byte) {
 	s.cache.Set(desc, content)
 }
@@ -63,7 +74,7 @@ func (s *hybridStore) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.Re
 	}
 	if s.provider != nil {
 		rat, err := s.provider.ReaderAt(ctx, desc)
-		return ioutil.NopCloser(orascontent.NewReaderAtWrapper(rat)), err
+		return orascontent.NewReaderAtWrapper(rat, rat), err
 	}
 	return nil, err
 }

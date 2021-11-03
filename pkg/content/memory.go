@@ -53,6 +53,21 @@ func NewMemory() *Memory {
 	}
 }
 
+// ReaderAt provides contents
+func (s *Memory) ReaderAt(ctx context.Context, desc ocispec.Descriptor) (content.ReaderAt, error) {
+	desc, content, ok := s.Get(desc)
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	return sizeReaderAt{
+		readAtCloser: nopCloserAt{
+			ReaderAt: bytes.NewReader(content),
+		},
+		size: desc.Size,
+	}, nil
+}
+
 func (s *Memory) Resolver() remotes.Resolver {
 	return s
 }

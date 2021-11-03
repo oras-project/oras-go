@@ -53,6 +53,7 @@ func (n nopCloserAt) Close() error {
 
 // readerAtWrapper wraps a ReaderAt to give a Reader
 type ReaderAtWrapper struct {
+	io.Closer
 	offset   int64
 	readerAt io.ReaderAt
 }
@@ -63,6 +64,6 @@ func (r *ReaderAtWrapper) Read(p []byte) (n int, err error) {
 	return
 }
 
-func NewReaderAtWrapper(readerAt io.ReaderAt) *ReaderAtWrapper {
-	return &ReaderAtWrapper{readerAt: readerAt}
+func NewReaderAtWrapper(readerAt io.ReaderAt, closer io.Closer) *ReaderAtWrapper {
+	return &ReaderAtWrapper{readerAt: readerAt, Closer: closer}
 }
