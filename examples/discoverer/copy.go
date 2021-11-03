@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/containerd/containerd/errdefs"
@@ -16,8 +17,10 @@ import (
 )
 
 type targetOptions struct {
-	targetRef string
+	targetRef    string
+	artifactType string
 
+	verbose   bool
 	debug     bool
 	configs   []string
 	username  string
@@ -128,14 +131,35 @@ func runCopy(opts copyOptions) error {
 	// This will clone the objects starting from the targetReference as root
 	// it will return the source Target where these references were found, the subject's resolved Object,
 	// and an array of Objects that share the subject as a root
-	source, subject, references, err := cloneGraph(ctx, opts.from.targetRef, cached, opts)
+	source, subject, references, err := cloneGraph(ctx, opts.from.targetRef, cached, opts.from)
 	if err != nil {
 		return err
 	}
 
+	for _, r := range references {
+		err := r.Move(ctx, cached, cached, opts.from.targetRef)
+		if err != nil {
+			if !errors.Is(err, errdefs.ErrAlreadyExists) {
+				return err
+			}
+		}
+	}
+
+	artifacts, err := cached.Discover(ctx, subject.Descriptor(), "")
 	if err != nil {
 		return err
 	}
+
+	cached.LoadIndex()
+	cached.AddReference(opts.from.targetRef, subject.Descriptor())
+	cached.SaveIndex()
+
+	refs, err := oras.Graph(ctx, opts.from.targetRef, "", cached, nil)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(artifacts, refs)
 
 	var manifest struct {
 		Version   int                  `json:"schemaVersion"`
@@ -237,27 +261,27 @@ func deepCopyImage(ctx context.Context, subject *target.Object, manifest struct 
 
 // cloneGraph is an internal function that clones a graph of objects that share the subject reference as it's root
 // references that are found are downloaded into the local target.Artifact
-func cloneGraph(ctx context.Context, subject string, local target.Artifact, opts copyOptions) (target.Target, *target.Object, []target.Object, error) {
-	registry, err := orascontent.NewRegistryWithDiscover(opts.from.targetRef, orascontent.RegistryOptions{
-		Configs:   opts.from.configs,
-		Username:  opts.from.username,
-		Password:  opts.from.password,
-		Insecure:  opts.from.insecure,
-		PlainHTTP: opts.from.plainHTTP,
+func cloneGraph(ctx context.Context, subject string, local target.Artifact, opts targetOptions) (target.Target, *target.Object, []target.Object, error) {
+	registry, err := orascontent.NewRegistryWithDiscover(opts.targetRef, orascontent.RegistryOptions{
+		Configs:   opts.configs,
+		Username:  opts.username,
+		Password:  opts.password,
+		Insecure:  opts.insecure,
+		PlainHTTP: opts.plainHTTP,
 	})
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	if !opts.fromDiscover.verbose {
+	if !opts.verbose {
 		ctx = ctxo.WithLoggerDiscarded(ctx)
 	}
 
 	objects, err := oras.Graph(ctx,
-		opts.from.targetRef,
-		opts.fromDiscover.artifactType,
+		opts.targetRef,
+		opts.artifactType,
 		registry.Resolver,
-		graph.DownloadToArtifact(ctx, opts.from.targetRef, registry, local))
+		graph.DownloadToArtifact(ctx, opts.targetRef, registry, local))
 	if err != nil {
 		return nil, nil, nil, err
 	}

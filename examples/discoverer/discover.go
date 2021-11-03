@@ -18,6 +18,7 @@ import (
 	orascontent "oras.land/oras-go/pkg/content"
 	ctxo "oras.land/oras-go/pkg/context"
 	"oras.land/oras-go/pkg/oras"
+	"oras.land/oras-go/pkg/target"
 )
 
 type discoverOptions struct {
@@ -26,6 +27,7 @@ type discoverOptions struct {
 	outputType   string
 	verbose      bool
 
+	fromIndex bool
 	debug     bool
 	configs   []string
 	username  string
@@ -57,6 +59,7 @@ Example - Discover artifacts of type "" linked with the specified reference:
 	cmd.Flags().StringVarP(&opts.artifactType, "artifact-type", "", "", "artifact type")
 	cmd.Flags().StringVarP(&opts.outputType, "output", "o", "table", fmt.Sprintf("Format in which to display references (%s, %s, or %s). tree format will show all references including nested", "table", "json", "tree"))
 	cmd.Flags().BoolVarP(&opts.verbose, "verbose", "v", false, "verbose output")
+	cmd.Flags().BoolVar(&opts.fromIndex, "from-index", false, "discover from the .working index instead")
 
 	cmd.Flags().BoolVarP(&opts.debug, "debug", "d", false, "debug mode")
 	cmd.Flags().StringArrayVarP(&opts.configs, "config", "c", nil, "auth config path")
@@ -75,6 +78,81 @@ func runDiscover(opts *discoverOptions) error {
 		ctx = ctxo.WithLoggerDiscarded(ctx)
 	}
 
+	rootNode := tree.New(opts.targetRef)
+
+	if opts.fromIndex {
+		cached, err := orascontent.NewOCI(".working")
+		if err != nil {
+			return err
+		}
+
+		_, subjectd, err := cached.Resolve(ctx, opts.targetRef)
+		if err != nil {
+			return err
+		}
+
+		subject := target.FromOCIDescriptor(opts.targetRef, subjectd, "", nil)
+
+		artifacts, err := cached.Discover(ctx, subject.Descriptor(), "")
+		if err != nil {
+			return err
+		}
+
+		cached.LoadIndex()
+		cached.AddReference(opts.targetRef, subject.Descriptor())
+		cached.SaveIndex()
+
+		roots := make(map[digest.Digest]*tree.Node)
+
+		refs, err := oras.Graph(ctx, opts.targetRef, "", cached, func(d artifactspec.Descriptor, m artifactspec.Manifest, o []target.Object) error {
+			var r *tree.Node
+
+			if m.Subject.Digest == subject.ArtifactDescriptor().Digest {
+				r = rootNode
+			} else {
+				r = roots[m.Subject.Digest]
+				if r == nil {
+					return nil
+				}
+			}
+
+			branch := r.AddPath(fmt.Sprintf("%s (artifact-type)", d.ArtifactType), d.Digest)
+			for _, c := range o[1:] {
+				adesc := c.ArtifactDescriptor()
+
+				switch adesc.MediaType {
+				case artifactspec.MediaTypeArtifactManifest:
+					branch.AddPath(fmt.Sprintf("%s (artifact-type)", adesc.ArtifactType), adesc.Digest)
+				default:
+					branch.AddPath(adesc.MediaType, adesc.Digest)
+				}
+			}
+			roots[d.Digest] = branch
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		switch opts.outputType {
+		case "tree":
+			tree.Print(rootNode)
+		case "json":
+			printDiscoveredReferencesJSON(subject.Descriptor(), artifacts)
+		default:
+			fmt.Println("Discovered", len(refs), "artifacts referencing", opts.targetRef)
+			fmt.Println("Digest:", subject.Descriptor().Digest)
+
+			if len(refs) != 0 {
+				fmt.Println()
+				printDiscoveredReferencesTable(artifacts, opts.verbose)
+			}
+		}
+
+		return nil
+	}
+
 	registry, err := orascontent.NewRegistryWithDiscover(opts.targetRef, orascontent.RegistryOptions{
 		Configs:   opts.configs,
 		Username:  opts.username,
@@ -86,7 +164,6 @@ func runDiscover(opts *discoverOptions) error {
 		return err
 	}
 
-	rootNode := tree.New(opts.targetRef)
 	desc, refs, err := getAllReferences(ctx, registry.Resolver, opts.targetRef, opts.artifactType, rootNode, opts.outputType == "tree")
 	if err != nil {
 		return err
