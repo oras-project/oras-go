@@ -8,7 +8,7 @@
 
 The objective of ORAS is simple as transferring artifacts from one place to another.
 
-In the conventional [client-server model](https://en.wikipedia.org/wiki/Client%E2%80%93server_model), the operation of downloading artifacts from the remote registries is referred to as **pull**, and the operation of uploading artifacts from the remote registry is referred to as **push**.
+In the conventional [client-server model](https://en.wikipedia.org/wiki/Client%E2%80%93server_model), the operation of downloading artifacts from the remote registries is referred to as **pull**, and the operation of uploading artifacts to the remote registry is referred to as **push**.
 
 This model can be generalized by abstracting the client and the server as **targets** so that pull and push can be viewed as **copying** from one target to another (see [**Copy API** oras-project/oras-go#8](https://github.com/oras-project/oras-go/pull/8)). For instances,
 
