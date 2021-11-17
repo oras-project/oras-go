@@ -14,6 +14,7 @@ func main() {
 	cmd.AddCommand(
 		copyCmd(),
 		discoverCmd(),
+		viewCmd(),
 	)
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
