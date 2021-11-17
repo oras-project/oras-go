@@ -19,19 +19,20 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
 
 // Fetcher is a function that returns a remotes.Fetcher interface
 func (d *dockerDiscoverer) Fetcher(ctx context.Context, ref string) (remotes.Fetcher, error) {
 	d.reference = ref
+
 	return d, nil
 }
 
@@ -45,46 +46,46 @@ func (d *dockerDiscoverer) Fetch(ctx context.Context, desc ocispec.Descriptor) (
 		return nil, errors.Wrap(errdefs.ErrNotFound, "no pull hosts")
 	}
 
-	switch desc.MediaType {
-	case artifactspec.MediaTypeArtifactManifest:
-		var errs []error
-		for _, host := range hosts {
-			req := d.request(host, http.MethodGet, "manifests", desc.Digest.String())
-			if err := req.addNamespace(d.refspec.Hostname()); err != nil {
-				errs = append(errs, err)
-				continue
-			}
+	var errs []error
+	for _, host := range hosts {
+		var url string
 
-			resp, err := req.doWithRetries(ctx, nil)
+		if strings.Contains(desc.MediaType, "manifest") {
+			url, err = d.FormatManifestAPI(host, desc.Digest.String())
 			if err != nil {
-				errs = append(errs, err)
-				continue
+				return nil, err
 			}
-
-			if resp.StatusCode > 299 {
-				resp.Body.Close()
-				continue
+		} else {
+			url, err = d.FormatBlobAPI(host, desc.Digest.String())
+			if err != nil {
+				return nil, err
 			}
-
-			return resp.Body, nil
 		}
 
-		if len(errs) > 1 {
-			for _, e := range errs {
-				log.G(ctx).WithError(e).Errorf("error fetching artifact manifest")
-			}
-			return nil, errs[0]
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
 		}
 
-		log.G(ctx).WithField("media-type", desc.MediaType).WithField("digest", desc.Digest).Warnf("Could not fetch artifacts manifest")
+		req.Header.Set("Accept", desc.MediaType)
 
-		// Since we couldn't get the manifest, fallback to the original resolver behavior to allow any error handling to happen
+		resp, err := d.client.Do(ctx, req)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+
+		return resp.Body, nil
 	}
 
-	fetcher, err := d.Resolver.Fetcher(ctx, d.reference)
-	if err != nil {
-		return nil, err
+	if len(errs) > 1 {
+		for _, e := range errs {
+			log.G(ctx).WithError(e).Errorf("error fetching artifact manifest")
+		}
+		return nil, errs[0]
 	}
 
-	return fetcher.Fetch(ctx, desc)
+	log.G(ctx).WithField("media-type", desc.MediaType).WithField("digest", desc.Digest).Warnf("Could not fetch artifacts manifest")
+
+	return nil, errdefs.ErrNotFound
 }

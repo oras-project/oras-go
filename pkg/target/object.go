@@ -26,6 +26,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
+	"oras.land/oras-go/pkg/remotes"
 )
 
 // Object is an opaque type that implements functions to locate and reference objects
@@ -168,7 +169,9 @@ func (o Object) Move(ctx context.Context, from Artifact, to Target, toLocator st
 		return err
 	}
 
-	fmt.Printf("Moved %s %s to %s\n", o.mediaType, o.reference, ref)
+	_, _, oldns, _, _ := o.ReferenceSpec()
+
+	fmt.Printf("Moved %s %s to:\n \t->%s\n", o.mediaType, oldns, ref)
 
 	return nil
 }
@@ -261,6 +264,15 @@ func (o Object) MarshalObjectFromArtifact(ctx context.Context, source Artifact, 
 	}
 
 	return nil
+}
+
+func (o Object) GetRegistry(access remotes.AccessProvider) (*remotes.Registry, error) {
+	_, host, ns, _, err := o.ReferenceSpec()
+	if err != nil {
+		return nil, err
+	}
+
+	return remotes.NewRegistry(host, ns, access), nil
 }
 
 var (

@@ -24,5 +24,5 @@ require (
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/need-being/go-tree v0.1.0
 	github.com/oras-project/artifacts-spec v1.0.0-draft.1
-	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
+	golang.org/x/oauth2 v0.0.0-20210402161424-2e8d93401602
 )

@@ -19,8 +19,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/url"
-	"path"
 	"regexp"
 	"strings"
 
@@ -32,6 +30,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/pkg/errors"
+	orasremotesclient "oras.land/oras-go/pkg/remotes"
 	"oras.land/oras-go/pkg/target"
 )
 
@@ -45,6 +44,7 @@ func WithDiscover(ref string, resolver remotes.Resolver) (target.Target, error) 
 	}
 
 	return &dockerDiscoverer{
+
 		header:     opts.Headers,
 		hosts:      opts.Hosts,
 		refspec:    r,
@@ -52,6 +52,26 @@ func WithDiscover(ref string, resolver remotes.Resolver) (target.Target, error) 
 		repository: strings.TrimPrefix(r.Locator, r.Hostname()+"/"),
 		tracker:    docker.NewInMemoryTracker(),
 		Resolver:   resolver}, nil
+}
+
+// WithDiscover extends an existing resolver to include the discoverer interface in the underlying type
+func FromRemotesRegistry(ref string, client *orasremotesclient.Registry, fallback remotes.Resolver) (target.Target, error) {
+	opts := NewOpts(nil)
+
+	r, err := reference.Parse(ref)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dockerDiscoverer{
+		client:     client,
+		header:     opts.Headers,
+		hosts:      opts.Hosts,
+		refspec:    r,
+		reference:  ref,
+		repository: strings.TrimPrefix(r.Locator, r.Hostname()+"/"),
+		tracker:    docker.NewInMemoryTracker(),
+		Resolver:   fallback}, nil
 }
 
 // Discoverer is an interface that provides methods for discovering references
@@ -62,13 +82,14 @@ type Discoverer interface {
 }
 
 type dockerDiscoverer struct {
+	remotes.Resolver
+	client     *orasremotesclient.Registry
 	hosts      docker.RegistryHosts
 	header     http.Header
 	refspec    reference.Spec
 	reference  string
 	repository string
 	tracker    docker.StatusTracker
-	remotes.Resolver
 }
 
 // Discover is a function that returns all artifacts that reference the target subject
@@ -78,7 +99,6 @@ type dockerDiscoverer struct {
 // The result is a graph of Objects that start from the subject, and whose leaves will be artifacts
 func (d *dockerDiscoverer) Discover(ctx context.Context, subject ocispec.Descriptor, artifactType string) ([]artifactspec.Descriptor, error) {
 	ctx = log.WithLogger(ctx, log.G(ctx).WithField("digest", subject.Digest))
-
 	hosts, err := d.filterHosts(docker.HostCapabilityResolve)
 	if err != nil {
 		return nil, err
@@ -93,23 +113,19 @@ func (d *dockerDiscoverer) Discover(ctx context.Context, subject ocispec.Descrip
 		return nil, err
 	}
 
-	var query string
-	if artifactType != "" {
-		v := url.Values{}
-		v.Set("artifactType", artifactType)
-		query = "?" + v.Encode()
-	}
-
 	var firstErr error
 	for _, originalHost := range hosts {
-		host := originalHost
-		host.Path = strings.TrimSuffix(host.Path, "/v2") + "/oras/artifacts/v1"
-
-		req := d.request(host, http.MethodGet, "manifests", subject.Digest.String(), "referrers")
-		req.path += query
-		if err := req.addNamespace(d.refspec.Hostname()); err != nil {
+		url, err := d.FormatReferrersAPI(originalHost, subject.Digest.String(), artifactType)
+		if err != nil {
 			return nil, err
 		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Accept", subject.MediaType)
 
 		refs, err := d.discover(ctx, req)
 		if err != nil {
@@ -126,7 +142,7 @@ func (d *dockerDiscoverer) Discover(ctx context.Context, subject ocispec.Descrip
 	return nil, firstErr
 }
 
-var localhostRegex = regexp.MustCompile(`(?:^localhost$)|(?:^localhost:\\d{0,5}$)|(?:^127\.0\.0\.1$)|(?:^127\.0\.0\.1:\\d{0,5}$)`)
+var localhostRegex = regexp.MustCompile(`(?:^localhost)|(?:^localhost:[0-9]{1,5})|(?:^127\.0\.0\.1)|(?:^127\.0\.0\.1:\\d{0,5})`)
 
 func (d *dockerDiscoverer) filterHosts(caps docker.HostCapabilities) (hosts []docker.RegistryHost, err error) {
 	h, err := d.hosts(d.refspec.Hostname())
@@ -143,8 +159,8 @@ func (d *dockerDiscoverer) filterHosts(caps docker.HostCapabilities) (hosts []do
 	return hosts, nil
 }
 
-func (d *dockerDiscoverer) discover(ctx context.Context, req *request) ([]artifactspec.Descriptor, error) {
-	resp, err := req.doWithRetries(ctx, nil)
+func (d *dockerDiscoverer) discover(ctx context.Context, req *http.Request) ([]artifactspec.Descriptor, error) {
+	resp, err := d.client.Do(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -153,9 +169,9 @@ func (d *dockerDiscoverer) discover(ctx context.Context, req *request) ([]artifa
 	if resp.StatusCode != http.StatusOK {
 		var registryErr docker.Errors
 		if err := json.NewDecoder(resp.Body).Decode(&registryErr); err != nil || registryErr.Len() < 1 {
-			return nil, errors.Errorf("unexpected status code %v: %v", req.String(), resp.Status)
+			return nil, errors.Errorf("unexpected status code %v: %v", req.URL.String(), resp.Status)
 		}
-		return nil, errors.Errorf("unexpected status code %v: %s - Server message: %s", req.String(), resp.Status, registryErr.Error())
+		return nil, errors.Errorf("unexpected status code %v: %s - Server message: %s", req.URL.String(), resp.Status, registryErr.Error())
 	}
 
 	result := &struct {
@@ -166,59 +182,4 @@ func (d *dockerDiscoverer) discover(ctx context.Context, req *request) ([]artifa
 	}
 
 	return result.References, nil
-}
-
-func isProxy(myhost, refhost string) bool {
-	if refhost != myhost {
-		if refhost != "docker.io" || myhost != "registry-1.docker.io" {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *request) addNamespace(ns string) (err error) {
-	if !isProxy(r.host.Host, ns) {
-		return nil
-	}
-	var q url.Values
-	// Parse query
-	if i := strings.IndexByte(r.path, '?'); i > 0 {
-		r.path = r.path[:i+1]
-		q, err = url.ParseQuery(r.path[i+1:])
-		if err != nil {
-			return
-		}
-	} else {
-		r.path = r.path + "?"
-		q = url.Values{}
-	}
-	q.Add("ns", ns)
-
-	r.path = r.path + q.Encode()
-
-	return
-}
-
-func (d *dockerDiscoverer) request(host docker.RegistryHost, method string, ps ...string) *request {
-	header := d.header.Clone()
-	if header == nil {
-		header = http.Header{}
-	}
-
-	for key, value := range host.Header {
-		header[key] = append(header[key], value...)
-	}
-	parts := append([]string{"/", host.Path, d.repository}, ps...)
-	p := path.Join(parts...)
-	// Join strips trailing slash, re-add ending "/" if included
-	if len(parts) > 0 && strings.HasSuffix(parts[len(parts)-1], "/") {
-		p = p + "/"
-	}
-	return &request{
-		method: method,
-		path:   p,
-		header: header,
-		host:   host,
-	}
 }

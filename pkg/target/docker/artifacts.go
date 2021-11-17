@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/remotes/docker"
 	remoteserrors "github.com/containerd/containerd/remotes/errors"
 	"github.com/opencontainers/go-digest"
@@ -33,38 +32,30 @@ import (
 
 // CheckManifest is a function that checks if a manifests exists by descriptor
 func (d *dockerDiscoverer) CheckManifest(ctx context.Context, host docker.RegistryHost, desc ocispec.Descriptor) error {
-	// Check if the manifest exists
-	req := d.request(host, http.MethodHead, "manifests", desc.Digest.String())
-	if req == nil {
-		return errors.New("not implemented")
-	}
-
-	req.header.Set("Accept", desc.MediaType)
-
-	resp, err := req.doWithRetries(ctx, nil)
+	url, err := d.FormatManifestAPI(host, desc.Digest.String())
 	if err != nil {
-		if !errors.Is(err, docker.ErrInvalidAuthorization) {
-			return err
-		}
-	} else {
-		if resp.StatusCode == http.StatusOK && resp.Header.Get("Docker-Content-Digest") == desc.Digest.String() {
-			d.tracker.SetStatus(d.reference, docker.Status{
-				Committed: true,
-				Status: content.Status{
-					Ref:    d.reference,
-					Total:  desc.Size,
-					Offset: desc.Size,
-				}})
-
-			return errdefs.ErrAlreadyExists
-		} else if resp.StatusCode != http.StatusNotFound {
-			err := remoteserrors.NewUnexpectedStatusErr(resp)
-			resp.Body.Close()
-			return err
-		}
+		return err
 	}
 
-	return nil
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", desc.MediaType)
+
+	resp, err := d.client.Do(ctx, req)
+	if err != nil {
+		if err.Error() == "HTTP 404" {
+			return nil
+		}
+		return err
+	}
+
+	if resp.StatusCode <= 299 {
+		return nil
+	}
+
+	return remoteserrors.NewUnexpectedStatusErr(resp)
 }
 
 // PreparePutManifest is a function that prepares to put a manifest
@@ -78,33 +69,32 @@ func (d *dockerDiscoverer) PreparePutManifest(ctx context.Context, host docker.R
 		},
 	})
 
-	req := d.request(host, http.MethodPut, "manifests", desc.Digest.String())
-	if req == nil {
-		return nil, errors.New("not implemented")
+	url, err := d.FormatManifestAPI(host, desc.Digest.String())
+	if err != nil {
+		return nil, err
 	}
-
-	req.header.Set("Content-Type", desc.MediaType)
 
 	pr, pw := io.Pipe()
-	respC := make(chan response, 1)
+	respC := make(chan *http.Response, 1)
+
 	body := ioutil.NopCloser(pr)
 
-	req.body = func() (io.ReadCloser, error) {
-		if body == nil {
-			return nil, errors.New("retry request, cannot reset the stream")
-		}
-
-		readout := body
-		body = nil
-		return readout, nil
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, body)
+	if err != nil {
+		return nil, err
 	}
-	req.size = desc.Size
+
+	req.Header.Set("Content-Type", desc.MediaType)
 
 	go func() {
 		defer close(respC)
-		resp, err := req.doWithRetries(ctx, nil)
+		resp, err := d.client.Do(ctx, req)
 		if err != nil {
-			respC <- response{err: err}
+			respC <- &http.Response{
+				Status:     err.Error(),
+				StatusCode: http.StatusNotModified,
+				Request:    req,
+			}
 			pr.CloseWithError(err)
 			return
 		}
@@ -115,7 +105,7 @@ func (d *dockerDiscoverer) PreparePutManifest(ctx context.Context, host docker.R
 			err := remoteserrors.NewUnexpectedStatusErr(resp)
 			pr.CloseWithError(err)
 		}
-		respC <- response{Response: resp}
+		respC <- resp
 	}()
 
 	return &artifactsManifest{
@@ -133,7 +123,7 @@ type artifactsManifest struct {
 	expected  digest.Digest
 	pipe      *io.PipeWriter
 	tracker   docker.StatusTracker
-	responseC <-chan response
+	responseC <-chan *http.Response
 }
 
 func (pw *artifactsManifest) Write(p []byte) (n int, err error) {
@@ -179,17 +169,17 @@ func (pw *artifactsManifest) Commit(ctx context.Context, size int64, expected di
 	case <-ctx.Done():
 		return ctx.Err()
 	case resp := <-pw.responseC:
-		if resp.err != nil {
-			return resp.err
+		if resp != nil && resp.StatusCode > 299 {
+			return remoteserrors.NewUnexpectedStatusErr(resp)
 		}
-		defer resp.Response.Body.Close()
+		defer resp.Body.Close()
 
 		// 201 is specified return status, some registries return
 		// 200, 202 or 204.
 		switch resp.StatusCode {
 		case http.StatusOK, http.StatusCreated, http.StatusNoContent, http.StatusAccepted:
 		default:
-			return remoteserrors.NewUnexpectedStatusErr(resp.Response)
+			return remoteserrors.NewUnexpectedStatusErr(resp)
 		}
 
 		status, err := pw.tracker.GetStatus(pw.ref)
