@@ -15,12 +15,10 @@ import (
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"oras.land/oras-go/pkg/auth/docker"
 	orascontent "oras.land/oras-go/pkg/content"
 	ctxo "oras.land/oras-go/pkg/context"
 	"oras.land/oras-go/pkg/oras"
 	"oras.land/oras-go/pkg/target"
-	orasdocker "oras.land/oras-go/pkg/target/docker"
 )
 
 type discoverOptions struct {
@@ -155,24 +153,14 @@ func runDiscover(opts *discoverOptions) error {
 		return nil
 	}
 
-	obj := target.FromOCIDescriptor(opts.targetRef, ocispec.Descriptor{}, "", nil)
-
-	_, host, ns, _, err := obj.ReferenceSpec()
-	if err != nil {
-		return err
-	}
-
-	client, err := docker.NewRegistryWithAccessProvider(host, ns, opts.configs)
-	if err != nil {
-		return err
-	}
-
-	resolver, err := orascontent.NewRegistry(orascontent.RegistryOptions{})
-	if err != nil {
-		return err
-	}
-
-	target, err := orasdocker.FromRemotesRegistry(opts.targetRef, client, resolver)
+	target, err := orascontent.NewRegistryWithDiscover(opts.targetRef, orascontent.RegistryOptions{
+		Configs:   opts.configs,
+		Username:  opts.username,
+		Password:  opts.password,
+		Insecure:  opts.insecure,
+		PlainHTTP: opts.plainHTTP,
+		UserAgent: "oras-go-discoverer",
+	})
 	if err != nil {
 		return err
 	}

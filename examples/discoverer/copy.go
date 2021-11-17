@@ -8,13 +8,11 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
-	"oras.land/oras-go/pkg/auth/docker"
 	orascontent "oras.land/oras-go/pkg/content"
 	ctxo "oras.land/oras-go/pkg/context"
 	"oras.land/oras-go/pkg/oras"
 	"oras.land/oras-go/pkg/oras/graph"
 	"oras.land/oras-go/pkg/target"
-	orasdocker "oras.land/oras-go/pkg/target/docker"
 )
 
 type targetOptions struct {
@@ -36,6 +34,7 @@ type copyOptions struct {
 	to                     targetOptions
 	rescursive             bool
 	keep                   bool
+	index                  bool
 	matchAnnotationInclude []string
 	matchAnnotationExclude []string
 }
@@ -102,6 +101,7 @@ func copyCmd() *cobra.Command {
 
 	cmd.Flags().BoolVarP(&opts.rescursive, "recursive", "r", false, "recursively copy artifacts that reference the artifact being copied")
 	cmd.Flags().BoolVarP(&opts.keep, "keep", "k", false, "keep source that is being copied")
+	cmd.Flags().BoolVarP(&opts.index, "index", "i", false, "indexes the oci store with the source as the reference. (implicitly will keep the source)")
 	cmd.Flags().StringArrayVarP(&opts.matchAnnotationInclude, "match-annotation-include", "m", nil, "provide an annotation name and regular expression, matches will be included (only applicable with --recursive and -r)")
 	cmd.Flags().StringArrayVarP(&opts.matchAnnotationExclude, "match-annotation-exclude", "x", nil, "provide an annotation name and regular expression, matches will be excluded (only applicable with --recursive and -r)")
 
@@ -146,21 +146,11 @@ func runCopy(opts copyOptions) error {
 		}
 	}
 
-	// artifacts, err := cached.Discover(ctx, subject.Descriptor(), "")
-	// if err != nil {
-	// 	return err
-	// }
-
-	// cached.LoadIndex()
-	// cached.AddReference(opts.from.targetRef, subject.Descriptor())
-	// cached.SaveIndex()
-
-	// refs, err := oras.Graph(ctx, opts.from.targetRef, "", cached, nil)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// fmt.Println(artifacts, refs)
+	if opts.index {
+		cached.LoadIndex()
+		cached.AddReference(opts.from.targetRef, subject.Descriptor())
+		cached.SaveIndex()
+	}
 
 	var manifest struct {
 		Version   int                  `json:"schemaVersion"`
@@ -174,25 +164,13 @@ func runCopy(opts copyOptions) error {
 		return err
 	}
 
-	// Setting up destination
-	obj := target.FromOCIDescriptor(opts.to.targetRef, ocispec.Descriptor{}, "", nil)
-
-	_, host, ns, _, err := obj.ReferenceSpec()
-	if err != nil {
-		return err
-	}
-
-	client, err := docker.NewRegistryWithAccessProvider(host, ns, opts.to.configs)
-	if err != nil {
-		return err
-	}
-
-	resolver, err := orascontent.NewRegistry(orascontent.RegistryOptions{})
-	if err != nil {
-		return err
-	}
-
-	destination, err := orasdocker.FromRemotesRegistry(opts.to.targetRef, client, resolver)
+	destination, err := orascontent.NewRegistryWithDiscover(opts.to.targetRef, orascontent.RegistryOptions{
+		Configs:   opts.to.configs,
+		Username:  opts.to.username,
+		Password:  opts.to.password,
+		Insecure:  opts.to.insecure,
+		PlainHTTP: opts.to.plainHTTP,
+	})
 	if err != nil {
 		return err
 	}
@@ -224,7 +202,7 @@ func runCopy(opts copyOptions) error {
 		}
 	}
 
-	if !opts.keep {
+	if !opts.keep && !opts.index {
 		os.RemoveAll(".working")
 	}
 
@@ -292,24 +270,14 @@ func deepCopyImage(ctx context.Context, subject *target.Object, manifest struct 
 // cloneGraph is an internal function that clones a graph of objects that share the subject reference as it's root
 // references that are found are downloaded into the local target.Artifact
 func cloneGraph(ctx context.Context, subject string, local target.Artifact, opts targetOptions) (target.Target, *target.Object, []target.Object, error) {
-	obj := target.FromOCIDescriptor(opts.targetRef, ocispec.Descriptor{}, "", nil)
-
-	_, host, ns, _, err := obj.ReferenceSpec()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	client, err := docker.NewRegistryWithAccessProvider(host, ns, opts.configs)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	resolver, err := orascontent.NewRegistry(orascontent.RegistryOptions{})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	target, err := orasdocker.FromRemotesRegistry(opts.targetRef, client, resolver)
+	target, err := orascontent.NewRegistryWithDiscover(opts.targetRef, orascontent.RegistryOptions{
+		Configs:   opts.configs,
+		Username:  opts.username,
+		Password:  opts.password,
+		Insecure:  opts.insecure,
+		PlainHTTP: opts.plainHTTP,
+		UserAgent: "oras-go-discoverer",
+	})
 	if err != nil {
 		return nil, nil, nil, err
 	}
