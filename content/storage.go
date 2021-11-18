@@ -19,6 +19,7 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/internal/ioutil"
 )
 
 // Fetcher fetches content.
@@ -45,4 +46,15 @@ type Storage interface {
 
 	// Exists returns true if the described content exists.
 	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
+}
+
+// FetchAll safely fetches the content described by the descriptor.
+// The fetched content is verified against the size and the digest.
+func FetchAll(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) ([]byte, error) {
+	rc, err := fetcher.Fetch(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return ioutil.ReadAll(rc, desc)
 }
