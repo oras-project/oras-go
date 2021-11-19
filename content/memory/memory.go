@@ -1,13 +1,11 @@
 package memory
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"sync"
 
-	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/content"
 	"oras.land/oras-go/errdef"
@@ -80,17 +78,6 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		return fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrNotFound)
 	}
 	return s.resolver.Tag(ctx, desc, reference)
-}
-
-// Put stores the content of the specified media type in the memory.
-// A descriptor is returned for describing the given content.
-func (s *Store) Put(mediaType string, content []byte) (ocispec.Descriptor, error) {
-	desc := ocispec.Descriptor{
-		MediaType: mediaType,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}
-	return desc, s.Push(context.Background(), desc, bytes.NewReader(content))
 }
 
 // UpEdges returns the nodes directly pointing to the current node.
