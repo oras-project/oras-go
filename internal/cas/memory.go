@@ -49,11 +49,18 @@ func (m *Memory) Fetch(_ context.Context, target ocispec.Descriptor) (io.ReadClo
 
 // Push pushes the content, matching the expected descriptor.
 func (m *Memory) Push(_ context.Context, expected ocispec.Descriptor, content io.Reader) error {
+	key := descriptor.FromOCI(expected)
+
+	// check if the content exists in advance to avoid reading from the content.
+	if _, exists := m.content.Load(key); exists {
+		return fmt.Errorf("%s: %s: %w", key.Digest, key.MediaType, errdef.ErrAlreadyExists)
+	}
+
+	// read and try to store the content.
 	value, err := ioutil.ReadAll(content, expected)
 	if err != nil {
 		return err
 	}
-	key := descriptor.FromOCI(expected)
 	if _, exists := m.content.LoadOrStore(key, value); exists {
 		return fmt.Errorf("%s: %s: %w", key.Digest, key.MediaType, errdef.ErrAlreadyExists)
 	}
