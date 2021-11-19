@@ -20,6 +20,7 @@ import (
 	_ "crypto/sha256"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -133,5 +134,44 @@ func TestMemoryBadPush(t *testing.T) {
 	err := s.Push(ctx, desc, strings.NewReader("foobar"))
 	if err == nil {
 		t.Errorf("Memory.Push() error = %v, wantErr %v", err, true)
+	}
+}
+
+func TestMemory_Put(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	s := NewMemory()
+	ctx := context.Background()
+
+	gotDesc, err := s.Put("test", content)
+	if err != nil {
+		t.Fatal("Memory.Put() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Memory.Put() = %v, want %v", gotDesc, desc)
+	}
+
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Memory.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Memory.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Memory.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
+	}
+	if got := len(s.Map()); got != 1 {
+		t.Errorf("Memory.Map() = %v, want %v", got, 1)
 	}
 }

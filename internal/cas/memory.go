@@ -21,6 +21,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/errdef"
 	"oras.land/oras-go/internal/descriptor"
@@ -49,11 +50,18 @@ func (m *Memory) Fetch(_ context.Context, target ocispec.Descriptor) (io.ReadClo
 
 // Push pushes the content, matching the expected descriptor.
 func (m *Memory) Push(_ context.Context, expected ocispec.Descriptor, content io.Reader) error {
+	key := descriptor.FromOCI(expected)
+
+	// check if the content exists in advance to avoid reading from the content.
+	if _, exists := m.content.Load(key); exists {
+		return fmt.Errorf("%s: %s: %w", key.Digest, key.MediaType, errdef.ErrAlreadyExists)
+	}
+
+	// read and try store the content.
 	value, err := ioutil.ReadAll(content, expected)
 	if err != nil {
 		return err
 	}
-	key := descriptor.FromOCI(expected)
 	if _, exists := m.content.LoadOrStore(key, value); exists {
 		return fmt.Errorf("%s: %s: %w", key.Digest, key.MediaType, errdef.ErrAlreadyExists)
 	}
@@ -77,4 +85,21 @@ func (m *Memory) Map() map[descriptor.Descriptor][]byte {
 		return true
 	})
 	return res
+}
+
+// Put stores the content of the specified media type in the memory.
+// A descriptor is returned for describing the given content.
+func (m *Memory) Put(mediaType string, content []byte) (ocispec.Descriptor, error) {
+	value := make([]byte, len(content))
+	copy(value, content)
+	desc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(value),
+		Size:      int64(len(value)),
+	}
+	key := descriptor.FromOCI(desc)
+	if _, exists := m.content.LoadOrStore(key, value); exists {
+		return desc, fmt.Errorf("%s: %s: %w", key.Digest, key.MediaType, errdef.ErrAlreadyExists)
+	}
+	return desc, nil
 }
