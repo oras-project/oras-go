@@ -29,6 +29,7 @@ import (
 // In other words, returns the "parents" of the current descriptor.
 // UpEdgeFinder is an extension of Storage.
 type UpEdgeFinder interface {
+	// UpEdges returns the nodes directly pointing to the current node.
 	UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
