@@ -34,7 +34,7 @@ func TestMemorySuccess(t *testing.T) {
 		t.Fatal("Memory.Resolve() error =", err)
 	}
 	if !reflect.DeepEqual(got, desc) {
-		t.Errorf("Memory.Resolve() = %v, want %v", got, content)
+		t.Errorf("Memory.Resolve() = %v, want %v", got, desc)
 	}
 	if got := len(s.Map()); got != 1 {
 		t.Errorf("Memory.Map() = %v, want %v", got, 1)
