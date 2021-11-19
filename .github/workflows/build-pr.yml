@@ -3,7 +3,7 @@ name: build-pr
 on:
   pull_request:
     branches:
-      - main
+      - v1
 
 jobs:
   build:
@@ -14,7 +14,7 @@ jobs:
       - name: setup go environment
         uses: actions/setup-go@v1
         with:
-          go-version: '1.16.4'
+          go-version: '1.17.3'
       - name: run unit tests
         run: make test
       - name: run acceptance tests
