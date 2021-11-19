@@ -29,8 +29,7 @@ is where all new feature development will occur. Since ORAS is a
 primary staging ground for the
 [ORAS Artifacts Specification](https://github.com/oras-project/artifacts-spec),
 changes are expected to occur regularly to meet new requirements.
-This will likely introduce backward-incompatible changes, resulting in
-a new major version of the library (`2`).
+Any backward-incompatible changes will follow our [versioning policy](#versioning) and be reserved for the next major version of the library (`2`), which users may opt into.
 
 If you are seeking new features over stability, you should use the
 `main` branch (or a specific commit hash) when including the ORAS
