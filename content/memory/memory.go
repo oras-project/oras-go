@@ -50,8 +50,8 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 	}
 	for _, downEdge := range downEdges {
 		downEdgeKey := descriptor.FromOCI(downEdge)
-		upEdgesValue, _ := s.upEdges.LoadOrStore(downEdgeKey, sync.Map{})
-		upEdges := upEdgesValue.(sync.Map)
+		upEdgesValue, _ := s.upEdges.LoadOrStore(downEdgeKey, &sync.Map{})
+		upEdges := upEdgesValue.(*sync.Map)
 		upEdges.Store(upEdgeKey, expected)
 	}
 	return nil
@@ -81,13 +81,21 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 }
 
 // UpEdges returns the nodes directly pointing to the current node.
+// UpEdges returns nil without error if the node does not exists in the store.
 // Like other operations, calling UpEdges() is go-routine safe. However, it does
 // not necessarily correspond to any consistent snapshot of the stored contents.
 func (s *Store) UpEdges(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	var upEdges []ocispec.Descriptor
-	s.upEdges.Range(func(key, value interface{}) bool {
-		upEdges = append(upEdges, value.(ocispec.Descriptor))
+	key := descriptor.FromOCI(node)
+	upEdgesValue, exists := s.upEdges.Load(key)
+	if !exists {
+		return nil, nil
+	}
+	upEdges := upEdgesValue.(*sync.Map)
+
+	var res []ocispec.Descriptor
+	upEdges.Range(func(key, value interface{}) bool {
+		res = append(res, value.(ocispec.Descriptor))
 		return true
 	})
-	return upEdges, nil
+	return res, nil
 }

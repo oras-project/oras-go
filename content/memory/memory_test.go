@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	_ "crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -12,10 +14,13 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
+	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go"
 	"oras.land/oras-go/content"
 	"oras.land/oras-go/errdef"
 	"oras.land/oras-go/internal/cas"
+	"oras.land/oras-go/internal/descriptor"
 	"oras.land/oras-go/internal/resolver"
 )
 
@@ -273,4 +278,134 @@ func TestStoreRepeatTag(t *testing.T) {
 	if got := len(internalResolver.Map()); got != 1 {
 		t.Errorf("resolver.Map() = %v, want %v", got, 1)
 	}
+}
+
+func TestStoreUpEdges(t *testing.T) {
+	s := New()
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
+		var manifest artifactspec.Manifest
+		manifest.Subject = descriptor.OCIToArtifact(subject)
+		for _, blob := range blobs {
+			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))   // Blob 3
+	generateManifest(descs[0], descs[1:3]...)                  // Blob 4
+	generateManifest(descs[0], descs[3])                       // Blob 5
+	generateManifest(descs[0], descs[1:4]...)                  // Blob 6
+	generateIndex(descs[4:6]...)                               // Blob 7
+	generateIndex(descs[6])                                    // Blob 8
+	generateIndex()                                            // Blob 9
+	generateIndex(descs[7:10]...)                              // Blob 10
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("sig_1"))   // Blob 11
+	generateArtifactManifest(descs[6], descs[11])              // Blob 12
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("sig_2"))   // Blob 13
+	generateArtifactManifest(descs[10], descs[13])             // Blob 14
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	for i := range blobs {
+		eg.Go(func(i int) func() error {
+			return func() error {
+				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
+				if err != nil {
+					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
+				}
+				return nil
+			}
+		}(i))
+	}
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify up edges
+	wants := [][]ocispec.Descriptor{
+		descs[4:7],            // Blob 0
+		{descs[4], descs[6]},  // Blob 1
+		{descs[4], descs[6]},  // Blob 2
+		{descs[5], descs[6]},  // Blob 3
+		{descs[7]},            // Blob 4
+		{descs[7]},            // Blob 5
+		{descs[8], descs[12]}, // Blob 6
+		{descs[10]},           // Blob 7
+		{descs[10]},           // Blob 8
+		{descs[10]},           // Blob 9
+		{descs[14]},           // Blob 10
+		{descs[12]},           // Blob 11
+		nil,                   // Blob 12
+		{descs[14]},           // Blob 13
+		nil,                   // Blob 14
+	}
+	for i, want := range wants {
+		upEdges, err := s.UpEdges(ctx, descs[i])
+		if err != nil {
+			t.Errorf("Store.UpEdges(%d) error = %v", i, err)
+		}
+		if !equalDescriptorSet(upEdges, want) {
+			t.Errorf("Store.UpEdges(%d) = %v, want %v", i, upEdges, want)
+		}
+	}
+}
+
+func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	contains := func(node ocispec.Descriptor) bool {
+		for _, candidate := range actual {
+			if reflect.DeepEqual(candidate, node) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, node := range expected {
+		if !contains(node) {
+			return false
+		}
+	}
+	return true
 }
