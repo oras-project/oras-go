@@ -26,10 +26,9 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go"
-	"oras.land/oras-go/content"
-	"oras.land/oras-go/content/memory"
-	"oras.land/oras-go/internal/cas"
+	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/cas"
 )
 
 // storageTracker tracks storage API counts.

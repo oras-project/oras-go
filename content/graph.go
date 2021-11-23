@@ -20,8 +20,8 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
-	"oras.land/oras-go/internal/descriptor"
-	"oras.land/oras-go/internal/docker"
+	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/docker"
 )
 
 // UpEdgeFinder finds out the parent nodes of a given node of a directed acyclic

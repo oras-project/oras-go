@@ -19,7 +19,7 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/internal/ioutil"
+	"oras.land/oras-go/v2/internal/ioutil"
 )
 
 // Fetcher fetches content.

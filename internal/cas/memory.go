@@ -22,9 +22,9 @@ import (
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/errdef"
-	"oras.land/oras-go/internal/descriptor"
-	"oras.land/oras-go/internal/ioutil"
+	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/ioutil"
 )
 
 // Memory is a memory based CAS.
