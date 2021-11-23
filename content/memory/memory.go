@@ -7,11 +7,11 @@ import (
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/content"
-	"oras.land/oras-go/errdef"
-	"oras.land/oras-go/internal/cas"
-	"oras.land/oras-go/internal/descriptor"
-	"oras.land/oras-go/internal/resolver"
+	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/cas"
+	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/resolver"
 )
 
 // Store represents a memory based store, which implements `oras.Target`.
