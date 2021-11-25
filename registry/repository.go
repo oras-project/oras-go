@@ -35,7 +35,9 @@ type Repository interface {
 	// Note: When implemented by a remote registry, the tags API is called.
 	// However, not all registries supports pagination or conforms the
 	// specification.
-	// Reference: https://docs.docker.com/registry/spec/api/#tags
+	// References:
+	// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#content-discovery
+	// - https://docs.docker.com/registry/spec/api/#tags
 	// See also `Tags()` in this package.
 	Tags(ctx context.Context, fn func(tags []string) error) error
 }
