@@ -37,7 +37,7 @@ type Reference struct {
 func ParseReference(raw string) (Reference, error) {
 	parts := strings.SplitN(raw, "/", 2)
 	if len(parts) == 1 {
-		return Reference{}, errdef.ErrInvalidReference
+		return Reference{}, fmt.Errorf("%w: missing repository", errdef.ErrInvalidReference)
 	}
 	registry, path := parts[0], parts[1]
 	var repository string
@@ -70,14 +70,37 @@ func ParseReference(raw string) (Reference, error) {
 	return res, nil
 }
 
-// Validate validates the reference.
+// Validate validates the entire reference.
 func (r Reference) Validate() error {
+	err := r.ValidateRegistry()
+	if err != nil {
+		return err
+	}
+	err = r.ValidateRepository()
+	if err != nil {
+		return err
+	}
+	return r.ValidateReference()
+}
+
+// ValidateRegistry validates the registry.
+func (r Reference) ValidateRegistry() error {
 	if !registryRegexp.MatchString(r.Registry) {
 		return fmt.Errorf("%w: invalid registry", errdef.ErrInvalidReference)
 	}
+	return nil
+}
+
+// ValidateRepository validates the repository.
+func (r Reference) ValidateRepository() error {
 	if !repositoryRegexp.MatchString(r.Repository) {
 		return fmt.Errorf("%w: invalid repository", errdef.ErrInvalidReference)
 	}
+	return nil
+}
+
+// ValidateReference validates the reference.
+func (r Reference) ValidateReference() error {
 	if r.Reference == "" {
 		return nil
 	}
@@ -112,7 +135,11 @@ func (r Reference) Digest() (digest.Digest, error) {
 }
 
 // String implements `fmt.Stringer` and returns the reference string.
+// The resulted string is meaningful only if the reference is valid.
 func (r Reference) String() string {
+	if r.Repository == "" {
+		return r.Registry
+	}
 	ref := r.Registry + "/" + r.Repository
 	if r.Reference == "" {
 		return ref
