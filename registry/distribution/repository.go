@@ -11,8 +11,8 @@ import (
 
 // Repository is a HTTP client to a remote repository.
 type Repository struct {
-	// Transport specifies the mechanism by which individual requests are made.
-	Transport http.RoundTripper
+	// Client is the underlying HTTP client used to access the remtoe registry.
+	Client *http.Client
 
 	// Reference references the remote repository.
 	Reference registry.Reference
@@ -36,7 +36,7 @@ func NewRepository(reference string) (*Repository, error) {
 		return nil, err
 	}
 	return &Repository{
-		Transport: http.DefaultTransport,
+		Client:    http.DefaultClient,
 		Reference: ref,
 	}, nil
 }
