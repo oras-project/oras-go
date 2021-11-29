@@ -8,6 +8,8 @@ import (
 	"net/http"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
+	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -43,19 +45,43 @@ func NewRepository(reference string) (*Repository, error) {
 	}, nil
 }
 
+// blobStore detects the blob store for the given descriptor.
+func (r *Repository) blobStore(desc ocispec.Descriptor) registry.BlobStore {
+	if isManifest(desc) {
+		return r.Manifests()
+	}
+	return r.Blobs()
+}
+
 // Fetch fetches the content identified by the descriptor.
 func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	panic("not implemented") // TODO: Implement
+	return r.blobStore(target).Fetch(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
 func (r *Repository) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	panic("not implemented") // TODO: Implement
+	return r.blobStore(expected).Push(ctx, expected, content)
 }
 
 // Exists returns true if the described content exists.
 func (r *Repository) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	panic("not implemented") // TODO: Implement
+	return r.blobStore(target).Exists(ctx, target)
+}
+
+// Delete removes the content identified by the descriptor.
+func (r *Repository) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	return r.blobStore(target).Delete(ctx, target)
+}
+
+// Blobs provides access to the blob CAS only, which contains config blobs,
+// layers, and other generic blobs.
+func (r *Repository) Blobs() registry.BlobStore {
+	return &blobStore{repo: r}
+}
+
+// Manifests provides access to the manifest CAS only.
+func (r *Repository) Manifests() registry.BlobStore {
+	return &manifestStore{repo: r}
 }
 
 // Resolve resolves a reference to a descriptor.
@@ -65,22 +91,6 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 
 // Tag tags a descriptor with a reference string.
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	panic("not implemented") // TODO: Implement
-}
-
-// Delete removes the content identified by the descriptor.
-func (r *Repository) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	panic("not implemented") // TODO: Implement
-}
-
-// Blobs provides access to the blob CAS only, which contains config blobs,
-// layers, and other generic blobs.
-func (r *Repository) Blobs() registry.BlobStore {
-	panic("not implemented") // TODO: Implement
-}
-
-// Manifests provides access to the manifest CAS only.
-func (r *Repository) Manifests() registry.BlobStore {
 	panic("not implemented") // TODO: Implement
 }
 
@@ -137,4 +147,63 @@ func (r *Repository) endpoint() string {
 		scheme = "http"
 	}
 	return fmt.Sprintf("%s://%s/v2/%s", scheme, r.Reference.Host(), r.Reference.Repository)
+}
+
+type blobStore struct {
+	repo *Repository
+}
+
+// Fetch fetches the content identified by the descriptor.
+func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	panic("not implemented") // TODO: Implement
+}
+
+// Push pushes the content, matching the expected descriptor.
+func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
+	panic("not implemented") // TODO: Implement
+}
+
+// Exists returns true if the described content exists.
+func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	panic("not implemented") // TODO: Implement
+}
+
+// Delete removes the content identified by the descriptor.
+func (s *blobStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	panic("not implemented") // TODO: Implement
+}
+
+type manifestStore struct {
+	repo *Repository
+}
+
+// Fetch fetches the content identified by the descriptor.
+func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	panic("not implemented") // TODO: Implement
+}
+
+// Push pushes the content, matching the expected descriptor.
+func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
+	panic("not implemented") // TODO: Implement
+}
+
+// Exists returns true if the described content exists.
+func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	panic("not implemented") // TODO: Implement
+}
+
+// Delete removes the content identified by the descriptor.
+func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	panic("not implemented") // TODO: Implement
+}
+
+// isManifest determines if the given descriptor points to a manifest.
+func isManifest(desc ocispec.Descriptor) bool {
+	switch desc.MediaType {
+	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest,
+		docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
+		artifactspec.MediaTypeArtifactManifest:
+		return true
+	}
+	return false
 }
