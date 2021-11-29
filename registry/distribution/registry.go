@@ -63,15 +63,13 @@ func (r *Registry) Repositories(ctx context.Context, fn func(repos []string) err
 	}
 
 	var err error
-	for {
+	for err == nil {
 		url, err = r.repositories(ctx, fn, url)
-		if err != nil {
-			if err == errNoLink {
-				return nil
-			}
-			return err
-		}
 	}
+	if err != errNoLink {
+		return err
+	}
+	return nil
 }
 
 // repositories returns a single page of repository list with the next link.

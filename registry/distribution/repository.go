@@ -2,6 +2,8 @@ package distribution
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -84,5 +86,55 @@ func (r *Repository) Manifests() registry.BlobStore {
 
 // Tags lists the tags available in the repository.
 func (r *Repository) Tags(ctx context.Context, fn func(tags []string) error) error {
-	panic("not implemented") // TODO: Implement
+	url := fmt.Sprintf("%s/tags/list", r.endpoint())
+	if r.TagListPageSize > 0 {
+		url = fmt.Sprintf("%s?n=%d", url, r.TagListPageSize)
+	}
+
+	var err error
+	for err == nil {
+		url, err = r.tags(ctx, fn, url)
+	}
+	if err != errNoLink {
+		return err
+	}
+	return nil
+}
+
+// tags returns a single page of tag list with the next link.
+func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := r.Client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", parseErrorResponse(resp)
+	}
+	var list struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		return "", err
+	}
+	if err := fn(list.Tags); err != nil {
+		return "", err
+	}
+
+	return parseLink(resp)
+}
+
+// endpoint returns the base endpoint of the remote registry.
+func (r *Repository) endpoint() string {
+	scheme := "https"
+	if r.PlainHTTP {
+		scheme = "http"
+	}
+	return fmt.Sprintf("%s://%s/v2/%s", scheme, r.Reference.Host(), r.Reference.Repository)
 }
