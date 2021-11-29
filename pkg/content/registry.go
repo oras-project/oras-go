@@ -55,7 +55,9 @@ func NewRegistryWithDiscover(targetRef string, opts RegistryOptions) (*Registry,
 		return nil, err
 	}
 
-	resolver, err := orasdocker.WithDiscover(targetRef, registry.Resolver)
+	resolverOptions := newResolverOptions(opts.Username, opts.Password, opts.Insecure, opts.Insecure, opts.Configs...)
+
+	resolver, err := orasdocker.WithDiscover(targetRef, registry.Resolver, resolverOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -96,4 +98,38 @@ func newResolver(username, password string, insecure bool, plainHTTP bool, confi
 		resolver = docker.NewResolver(opts)
 	}
 	return resolver
+}
+
+func newResolverOptions(username, password string, insecure bool, plainHTTP bool, configs ...string) *docker.ResolverOptions {
+
+	opts := docker.ResolverOptions{
+		PlainHTTP: plainHTTP,
+	}
+
+	client := http.DefaultClient
+	if insecure {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+	}
+	opts.Client = client
+
+	if username != "" || password != "" {
+		opts.Credentials = func(hostName string) (string, string, error) {
+			return username, password, nil
+		}
+		return &opts
+	}
+	cli, err := auth.NewClient(configs...)
+	if err == nil {
+		// Workaround to get the creds with Docker config. The auth should be a separate interface that can let
+		// different implementations like Docker config, k8s chain
+		if authClient, ok := cli.(*auth.Client); ok {
+			opts.Credentials = authClient.Credential
+		}
+	}
+
+	return &opts
 }
