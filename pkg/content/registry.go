@@ -124,11 +124,11 @@ func newResolverOptions(username, password string, insecure bool, plainHTTP bool
 	}
 	cli, err := auth.NewClient(configs...)
 	if err == nil {
-		// Workaround to get the creds with Docker config
+		// Workaround to get the creds with Docker config. The auth should be a separate interface that can let
+		// different implementations like Docker config, k8s chain
 		if authClient, ok := cli.(*auth.Client); ok {
 			opts.Credentials = authClient.Credential
 		}
-		//fmt.Fprintf(os.Stderr, "WARNING: Error loading auth file: %v\n", err)
 	}
 
 	return &opts
