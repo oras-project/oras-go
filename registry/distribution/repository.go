@@ -236,7 +236,26 @@ type blobStore struct {
 
 // Fetch fetches the content identified by the descriptor.
 func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	panic("not implemented") // TODO: Implement
+	url := fmt.Sprintf("%s/blobs/%s", s.repo.endpoint(), target.Digest)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.repo.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusOK {
+		// TODO(shizhMSFT): it is better to have `io.Seeker` implemented.
+		return resp.Body, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
+	}
+	return nil, parseErrorResponse(resp)
 }
 
 // Push pushes the content, matching the expected descriptor.
@@ -246,7 +265,26 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 
 // Exists returns true if the described content exists.
 func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	panic("not implemented") // TODO: Implement
+	url := fmt.Sprintf("%s/blobs/%s", s.repo.endpoint(), target.Digest)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return false, err
+	}
+
+	resp, err := s.repo.Client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, err
+	case http.StatusNotFound:
+		return false, err
+	default:
+		return false, parseErrorResponse(resp)
+	}
 }
 
 // Delete removes the content identified by the descriptor.
