@@ -251,6 +251,11 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	if err != nil {
 		return err
 	}
+	if req.GetBody != nil && req.ContentLength != expected.Size {
+		// short circuit a size mismatch for built-in types.
+		return fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, expected.Size)
+	}
+	req.ContentLength = expected.Size
 	// the expected media type is ignored as in the API doc.
 	req.Header.Set("Content-Type", "application/octet-stream")
 	q := req.URL.Query()
