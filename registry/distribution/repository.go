@@ -374,8 +374,46 @@ type manifestStore struct {
 }
 
 // Fetch fetches the content identified by the descriptor.
-func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	panic("not implemented") // TODO: Implement
+func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
+	url := fmt.Sprintf("%s/manifests/%s", s.repo.endpoint(), target.Digest)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", target.MediaType)
+
+	resp, err := s.repo.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			resp.Body.Close()
+		}
+	}()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// no-op
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
+	default:
+		return nil, parseErrorResponse(resp)
+	}
+	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: invalid response Content-Type: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	if mediaType != target.MediaType {
+		return nil, fmt.Errorf("%s %q: mismatch response Content-Type %q: expect %q", resp.Request.Method, resp.Request.URL, mediaType, target.MediaType)
+	}
+	if size := resp.ContentLength; size != -1 && size != target.Size {
+		return nil, fmt.Errorf("%s %q: mismatch Content-Length", resp.Request.Method, resp.Request.URL)
+	}
+	if err := verifyContentDigest(resp, target.Digest); err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
 }
 
 // Push pushes the content, matching the expected descriptor.
