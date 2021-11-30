@@ -212,8 +212,56 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 }
 
 // Push pushes the content, matching the expected descriptor.
+// Existing content is not checked by Push() to minimize the number of out-going
+// requests.
+// Push is done by conventional 2-step monolithic upload to achieve maximum
+// compability.
+// Reference: https://docs.docker.com/registry/spec/api/#pushing-an-image
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	panic("not implemented") // TODO: Implement
+	// start an upload
+	url := fmt.Sprintf("%s/blobs/uploads/", s.repo.endpoint())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := s.repo.Client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusAccepted {
+		defer resp.Body.Close()
+		return parseErrorResponse(resp)
+	}
+	resp.Body.Close()
+
+	// monolithic upload
+	location, err := resp.Location()
+	if err != nil {
+		return err
+	}
+	url = location.String()
+	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, content)
+	if err != nil {
+		return err
+	}
+	// the expected media type is ignored as in the API doc.
+	req.Header.Set("Content-Type", "application/octet-stream")
+	q := req.URL.Query()
+	q.Add("digest", expected.Digest.String())
+	req.URL.RawQuery = q.Encode()
+
+	resp, err = s.repo.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return parseErrorResponse(resp)
+	}
+	return nil
 }
 
 // Exists returns true if the described content exists.
