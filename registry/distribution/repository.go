@@ -285,14 +285,8 @@ func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		if digestStr := resp.Header.Get("Docker-Content-Digest"); digestStr != "" {
-			contentDigest, err := digest.Parse(digestStr)
-			if err != nil {
-				return false, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
-			}
-			if contentDigest != target.Digest {
-				return false, fmt.Errorf("%s: mismatch digest: %s", target.Digest, contentDigest)
-			}
+		if err := verifyContentDigest(resp, target.Digest); err != nil {
+			return false, err
 		}
 		return true, nil
 	case http.StatusNotFound:
@@ -318,7 +312,7 @@ func (s *blobStore) Delete(ctx context.Context, target ocispec.Descriptor) error
 
 	switch resp.StatusCode {
 	case http.StatusAccepted:
-		return nil
+		return verifyContentDigest(resp, target.Digest)
 	case http.StatusNotFound:
 		return fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
 	default:
@@ -364,27 +358,12 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	if size == -1 {
 		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
 	}
-	digestStr := resp.Header.Get("Docker-Content-Digest")
-	if digestStr == "" {
-		// OCI distribution-spec states the Docker-Content-Digest header is
-		// optional.
-		// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
-		return ocispec.Descriptor{
-			MediaType: mediaType,
-			Digest:    refDigest,
-			Size:      size,
-		}, nil
-	}
-	contentDigest, err := digest.Parse(digestStr)
-	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
-	}
-	if contentDigest != refDigest {
-		return ocispec.Descriptor{}, fmt.Errorf("%s: mismatch digest: %s", ref, contentDigest)
+	if err := verifyContentDigest(resp, refDigest); err != nil {
+		return ocispec.Descriptor{}, err
 	}
 	return ocispec.Descriptor{
 		MediaType: mediaType,
-		Digest:    contentDigest,
+		Digest:    refDigest,
 		Size:      size,
 	}, nil
 }
@@ -449,32 +428,48 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	if size == -1 {
 		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
 	}
+
+	// validate digest if reference is a digest
+	if refDigest, err := ref.Digest(); err == nil {
+		if err = verifyContentDigest(resp, refDigest); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		return ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    refDigest,
+			Size:      size,
+		}, nil
+	}
+
 	digestStr := resp.Header.Get("Docker-Content-Digest")
 	if digestStr == "" {
-		// OCI distribution-spec states the Docker-Content-Digest header is
-		// optional.
-		// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
-		if refDigest, err := ref.Digest(); err == nil {
-			return ocispec.Descriptor{
-				MediaType: mediaType,
-				Digest:    refDigest,
-				Size:      size,
-			}, nil
-		}
 		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Docker-Content-Digest", resp.Request.Method, resp.Request.URL)
 	}
 	contentDigest, err := digest.Parse(digestStr)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
 	}
-
-	// validate digest if reference is a digest
-	if refDigest, err := ref.Digest(); err == nil && contentDigest != refDigest {
-		return ocispec.Descriptor{}, fmt.Errorf("%s: mismatch digest: %s", ref, contentDigest)
-	}
 	return ocispec.Descriptor{
 		MediaType: mediaType,
 		Digest:    contentDigest,
 		Size:      size,
 	}, nil
+}
+
+// verifyContentDigest verifies "Docker-Content-Digest" header if present.
+// OCI distribution-spec states the Docker-Content-Digest header is optional.
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
+func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
+	digestStr := resp.Header.Get("Docker-Content-Digest")
+	if digestStr == "" {
+		return nil
+	}
+	contentDigest, err := digest.Parse(digestStr)
+	if err != nil {
+		return fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
+	}
+	if contentDigest != expected {
+		return fmt.Errorf("%s: mismatch digest: %s", expected, contentDigest)
+	}
+	return nil
 }
