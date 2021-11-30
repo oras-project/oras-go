@@ -54,7 +54,7 @@ func (rsc *readSeekCloser) Seek(offset int64, whence int) (int64, error) {
 	}
 	if offset == rsc.size {
 		rsc.rc.Close()
-		rsc.rc = io.NopCloser(io.MultiReader())
+		rsc.rc = http.NoBody
 		rsc.offset = offset
 		return offset, nil
 	}
