@@ -183,8 +183,12 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 	if err != nil {
 		return nil, err
 	}
+
 	// probe server range request ability.
-	req.Header.Set("Range", "bytes=0-")
+	// Docker spec allows range header form of "Range: bytes=<start>-<end>".
+	// However, the remote server may still not RFC 7233 compliant.
+	// Reference: https://docs.docker.com/registry/spec/api/#blob
+	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", target.Size-1))
 
 	resp, err := s.repo.Client.Do(req)
 	if err != nil {
@@ -280,9 +284,9 @@ func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return true, err
+		return true, nil
 	case http.StatusNotFound:
-		return false, err
+		return false, nil
 	default:
 		return false, parseErrorResponse(resp)
 	}
@@ -290,7 +294,26 @@ func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool
 
 // Delete removes the content identified by the descriptor.
 func (s *blobStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	panic("not implemented") // TODO: Implement
+	url := fmt.Sprintf("%s/blobs/%s", s.repo.endpoint(), target.Digest)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := s.repo.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
+	default:
+		return parseErrorResponse(resp)
+	}
 }
 
 // Resolve resolves a reference to a descriptor.

@@ -60,7 +60,7 @@ func (rsc *readSeekCloser) Seek(offset int64, whence int) (int64, error) {
 	}
 
 	req := rsc.req.Clone(rsc.req.Context())
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, rsc.size-1))
 	resp, err := rsc.client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("seek: %w", err)
