@@ -86,67 +86,7 @@ func (r *Repository) Manifests() registry.BlobStore {
 
 // Resolve resolves a reference to a descriptor.
 func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
-	ref, err := r.parseReference(reference)
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-	url := fmt.Sprintf("%s/manifests/%s", r.endpoint(), ref.Reference)
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-	req.Header.Set("Accept", manifestAcceptHeader)
-
-	resp, err := r.Client.Do(req)
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		// no-op
-	case http.StatusNotFound:
-		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
-	default:
-		return ocispec.Descriptor{}, parseErrorResponse(resp)
-	}
-	mediaType := resp.Header.Get("Content-Type")
-	if mediaType == "" {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Content-Type", resp.Request.Method, resp.Request.URL)
-	}
-	size := resp.ContentLength
-	if size == -1 {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
-	}
-	digestStr := resp.Header.Get("Docker-Content-Digest")
-	if digestStr == "" {
-		// OCI distribution-spec states the Docker-Content-Digest header is
-		// optional.
-		// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
-		if contentDigest, err := ref.Digest(); err == nil {
-			return ocispec.Descriptor{
-				MediaType: mediaType,
-				Digest:    contentDigest,
-				Size:      size,
-			}, nil
-		}
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Docker-Content-Digest", resp.Request.Method, resp.Request.URL)
-	}
-	contentDigest, err := digest.Parse(digestStr)
-	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
-	}
-
-	// validate digest if reference is a digest
-	if expectedDigest, err := ref.Digest(); err == nil && contentDigest != expectedDigest {
-		return ocispec.Descriptor{}, fmt.Errorf("%s: mismatch digest: %s", ref, contentDigest)
-	}
-	return ocispec.Descriptor{
-		MediaType: mediaType,
-		Digest:    contentDigest,
-		Size:      size,
-	}, nil
+	return r.Manifests().Resolve(ctx, reference)
 }
 
 // Tag tags a descriptor with a reference string.
@@ -292,6 +232,69 @@ func (s *blobStore) Delete(ctx context.Context, target ocispec.Descriptor) error
 	panic("not implemented") // TODO: Implement
 }
 
+// Resolve resolves a reference to a descriptor.
+func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
+	ref, err := s.repo.parseReference(reference)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	refDigest, err := ref.Digest()
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	url := fmt.Sprintf("%s/blobs/%s", s.repo.endpoint(), refDigest)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	resp, err := s.repo.Client.Do(req)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// no-op
+	case http.StatusNotFound:
+		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
+	default:
+		return ocispec.Descriptor{}, parseErrorResponse(resp)
+	}
+	mediaType := resp.Header.Get("Content-Type")
+	if mediaType == "" {
+		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Content-Type", resp.Request.Method, resp.Request.URL)
+	}
+	size := resp.ContentLength
+	if size == -1 {
+		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
+	}
+	digestStr := resp.Header.Get("Docker-Content-Digest")
+	if digestStr == "" {
+		// OCI distribution-spec states the Docker-Content-Digest header is
+		// optional.
+		// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
+		return ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    refDigest,
+			Size:      size,
+		}, nil
+	}
+	contentDigest, err := digest.Parse(digestStr)
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
+	}
+	if contentDigest != refDigest {
+		return ocispec.Descriptor{}, fmt.Errorf("%s: mismatch digest: %s", ref, contentDigest)
+	}
+	return ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    contentDigest,
+		Size:      size,
+	}, nil
+}
+
 type manifestStore struct {
 	repo *Repository
 }
@@ -314,4 +317,69 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 // Delete removes the content identified by the descriptor.
 func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	panic("not implemented") // TODO: Implement
+}
+
+// Resolve resolves a reference to a descriptor.
+func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
+	ref, err := s.repo.parseReference(reference)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	url := fmt.Sprintf("%s/manifests/%s", s.repo.endpoint(), ref.Reference)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	req.Header.Set("Accept", manifestAcceptHeader)
+
+	resp, err := s.repo.Client.Do(req)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// no-op
+	case http.StatusNotFound:
+		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
+	default:
+		return ocispec.Descriptor{}, parseErrorResponse(resp)
+	}
+	mediaType := resp.Header.Get("Content-Type")
+	if mediaType == "" {
+		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Content-Type", resp.Request.Method, resp.Request.URL)
+	}
+	size := resp.ContentLength
+	if size == -1 {
+		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
+	}
+	digestStr := resp.Header.Get("Docker-Content-Digest")
+	if digestStr == "" {
+		// OCI distribution-spec states the Docker-Content-Digest header is
+		// optional.
+		// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
+		if refDigest, err := ref.Digest(); err == nil {
+			return ocispec.Descriptor{
+				MediaType: mediaType,
+				Digest:    refDigest,
+				Size:      size,
+			}, nil
+		}
+		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Docker-Content-Digest", resp.Request.Method, resp.Request.URL)
+	}
+	contentDigest, err := digest.Parse(digestStr)
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
+	}
+
+	// validate digest if reference is a digest
+	if refDigest, err := ref.Digest(); err == nil && contentDigest != refDigest {
+		return ocispec.Descriptor{}, fmt.Errorf("%s: mismatch digest: %s", ref, contentDigest)
+	}
+	return ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    contentDigest,
+		Size:      size,
+	}, nil
 }

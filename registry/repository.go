@@ -46,6 +46,7 @@ type Repository interface {
 type BlobStore interface {
 	content.Storage
 	content.Deleter
+	content.Resolver
 }
 
 // Tags lists the tags available in the repository.
