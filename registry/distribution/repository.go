@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 
 	"github.com/opencontainers/go-digest"
@@ -284,6 +285,15 @@ func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool
 
 	switch resp.StatusCode {
 	case http.StatusOK:
+		if digestStr := resp.Header.Get("Docker-Content-Digest"); digestStr != "" {
+			contentDigest, err := digest.Parse(digestStr)
+			if err != nil {
+				return false, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
+			}
+			if contentDigest != target.Digest {
+				return false, fmt.Errorf("%s: mismatch digest: %s", target.Digest, contentDigest)
+			}
+		}
 		return true, nil
 	case http.StatusNotFound:
 		return false, nil
@@ -346,9 +356,9 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	default:
 		return ocispec.Descriptor{}, parseErrorResponse(resp)
 	}
-	mediaType := resp.Header.Get("Content-Type")
+	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if mediaType == "" {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Content-Type", resp.Request.Method, resp.Request.URL)
+		mediaType = "application/octet-stream"
 	}
 	size := resp.ContentLength
 	if size == -1 {
@@ -431,9 +441,9 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	default:
 		return ocispec.Descriptor{}, parseErrorResponse(resp)
 	}
-	mediaType := resp.Header.Get("Content-Type")
-	if mediaType == "" {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Content-Type", resp.Request.Method, resp.Request.URL)
+	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Content-Type: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	size := resp.ContentLength
 	if size == -1 {
