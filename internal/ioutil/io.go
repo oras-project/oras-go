@@ -35,6 +35,17 @@ type ReaderUnwrapper interface {
 	Unwrap() io.Reader
 }
 
+// UnwrapReader recursively unwraps the reader if it is a ReaderUnwrapper.
+func UnwrapReader(r io.Reader) io.Reader {
+	for {
+		ru, ok := r.(ReaderUnwrapper)
+		if !ok {
+			return r
+		}
+		r = ru.Unwrap()
+	}
+}
+
 // NopCloser is the same as `io.NopCloser` but implements `ReaderUnwrapper`.
 func NopCloser(r io.Reader) io.ReadCloser {
 	return nopCloser{

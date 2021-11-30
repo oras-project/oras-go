@@ -14,7 +14,26 @@ limitations under the License.
 */
 package ioutil
 
-import "testing"
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func TestUnwrapReader(t *testing.T) {
+	base := strings.NewReader("test")
+	r := NopCloser(base)
+
+	if got := UnwrapReader(r); !reflect.DeepEqual(got, base) {
+		t.Errorf("UnwrapReader() = %v, want %v", got, base)
+	}
+
+	// wrap again
+	r = NopCloser(r)
+	if got := UnwrapReader(r); !reflect.DeepEqual(got, base) {
+		t.Errorf("UnwrapReader() = %v, want %v", got, base)
+	}
+}
 
 func TestNopCloserInterface(t *testing.T) {
 	if _, ok := NopCloser(nil).(ReaderUnwrapper); !ok {
