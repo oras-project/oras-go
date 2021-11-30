@@ -29,31 +29,6 @@ func (fn CloserFunc) Close() error {
 	return fn()
 }
 
-// ReaderUnwrapper unpacked the wrapped readers.
-type ReaderUnwrapper interface {
-	// Unwrap returns the wrapped reader.
-	Unwrap() io.Reader
-}
-
-// NopCloser is the same as `io.NopCloser` but implements `ReaderUnwrapper`.
-func NopCloser(r io.Reader) io.ReadCloser {
-	return nopCloser{
-		Reader: r,
-	}
-}
-
-type nopCloser struct {
-	io.Reader
-}
-
-func (nopCloser) Close() error {
-	return nil
-}
-
-func (n nopCloser) Unwrap() io.Reader {
-	return n.Reader
-}
-
 // ReadAll safely reads the content described by the descriptor.
 // The read content is verified against the size and the digest.
 func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
