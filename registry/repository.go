@@ -42,7 +42,7 @@ type Repository interface {
 	Tags(ctx context.Context, fn func(tags []string) error) error
 }
 
-// BlobStore is a CAS with the ability to delete its content.
+// BlobStore is a CAS with the ability to stat and delete its content.
 type BlobStore interface {
 	content.Storage
 	content.Deleter

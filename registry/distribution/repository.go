@@ -170,6 +170,7 @@ func (r *Repository) endpoint() string {
 	return fmt.Sprintf("%s://%s/v2/%s", scheme, r.Reference.Host(), r.Reference.Repository)
 }
 
+// blobStore accesses the manifest part of the repository.
 type blobStore struct {
 	repo *Repository
 }
@@ -295,6 +296,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	}, nil
 }
 
+// manifestStore accesses the manifest part of the repository.
 type manifestStore struct {
 	repo *Repository
 }
