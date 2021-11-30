@@ -44,7 +44,7 @@ func (m *Memory) Fetch(_ context.Context, target ocispec.Descriptor) (io.ReadClo
 	if !exists {
 		return nil, fmt.Errorf("%s: %s: %w", key.Digest, key.MediaType, errdef.ErrNotFound)
 	}
-	return ioutil.NopCloser(bytes.NewReader(content.([]byte))), nil
+	return io.NopCloser(bytes.NewReader(content.([]byte))), nil
 }
 
 // Push pushes the content, matching the expected descriptor.
