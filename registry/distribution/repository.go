@@ -10,6 +10,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -176,27 +177,38 @@ type blobStore struct {
 }
 
 // Fetch fetches the content identified by the descriptor.
-func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	url := fmt.Sprintf("%s/blobs/%s", s.repo.endpoint(), target.Digest)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
+	// probe server range request ability.
+	req.Header.Set("Range", "bytes=0-")
 
 	resp, err := s.repo.Client.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusOK {
-		// TODO(shizhMSFT): it is better to have `io.Seeker` implemented.
-		return resp.Body, nil
-	}
-	defer resp.Body.Close()
+	defer func() {
+		if err != nil {
+			resp.Body.Close()
+		}
+	}()
 
-	if resp.StatusCode == http.StatusNotFound {
+	switch resp.StatusCode {
+	case http.StatusOK: // server does not support seek as `Range` was ignored.
+		if size := resp.ContentLength; size != -1 && size != target.Size {
+			return nil, fmt.Errorf("%s %q: mismatch Content-Length", resp.Request.Method, resp.Request.URL)
+		}
+		return resp.Body, nil
+	case http.StatusPartialContent:
+		return httputil.NewReadSeekCloser(s.repo.Client, req, resp.Body, target.Size), nil
+	case http.StatusNotFound:
 		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
+	default:
+		return nil, parseErrorResponse(resp)
 	}
-	return nil, parseErrorResponse(resp)
 }
 
 // Push pushes the content, matching the expected descriptor.
