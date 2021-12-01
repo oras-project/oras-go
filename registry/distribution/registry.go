@@ -11,30 +11,21 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
+// RepositoryOptions is an alias of Repository to avoid name conflicts.
+// It also hides all methods associated with Repository.
+type RepositoryOptions Repository
+
 // Registry is a HTTP client to a remote registry.
 type Registry struct {
-	// Client is the underlying HTTP client used to access the remtoe registry.
-	Client *http.Client
-
-	// Reference references the remote registry.
-	// It is also used as a template for derived repository.
-	Reference registry.Reference
-
-	// PlainHTTP signals the transport to access the remote registry via HTTP
-	// instead of HTTPS.
-	PlainHTTP bool
+	// RepositoryOptions contains common options for Registry and Repository.
+	// It is also used as a template for derived repositories.
+	RepositoryOptions
 
 	// RepositoryListPageSize specifies the page size when invoking the catalog
 	// API.
 	// If zero, the page size is determined by the remote registry.
 	// Reference: https://docs.docker.com/registry/spec/api/#catalog
 	RepositoryListPageSize int
-
-	// TagListPageSize specifies the page size when invoking the tag list API.
-	// If zero, the page size is determined by the remote registry.
-	// Reference: https://docs.docker.com/registry/spec/api/#tags
-	// This option is used as a template for derived repository.
-	TagListPageSize int
 }
 
 // NewRegistry creates a client to the remote registry with the specified domain
@@ -48,8 +39,10 @@ func NewRegistry(name string) (*Registry, error) {
 		return nil, err
 	}
 	return &Registry{
-		Client:    http.DefaultClient,
-		Reference: ref,
+		RepositoryOptions: RepositoryOptions{
+			Client:    http.DefaultClient,
+			Reference: ref,
+		},
 	}, nil
 }
 
@@ -110,12 +103,10 @@ func (r *Registry) Repository(ctx context.Context, name string) (registry.Reposi
 	if err := ref.ValidateRepository(); err != nil {
 		return nil, err
 	}
-	return &Repository{
-		Client:          r.Client,
-		Reference:       ref,
-		PlainHTTP:       r.PlainHTTP,
-		TagListPageSize: r.TagListPageSize,
-	}, nil
+
+	repo := Repository(r.RepositoryOptions)
+	repo.Reference = ref
+	return &repo, nil
 }
 
 // endpoint returns the base endpoint of the remote registry.

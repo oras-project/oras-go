@@ -18,7 +18,7 @@ import (
 
 // Repository is a HTTP client to a remote repository.
 type Repository struct {
-	// Client is the underlying HTTP client used to access the remtoe registry.
+	// Client is the underlying HTTP client used to access the remote registry.
 	Client *http.Client
 
 	// Reference references the remote repository.
