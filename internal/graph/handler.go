@@ -34,7 +34,7 @@ var (
 	ErrSkipDesc = errors.New("skip descriptor")
 )
 
-// Handler processes conntents. This interface is equivalent to
+// Handler processes contents. This interface is equivalent to
 // github.com/containerd/containerd/images.Handler.
 type Handler interface {
 	// Handle handles the content described by the descriptor.
