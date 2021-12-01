@@ -11,7 +11,9 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/registry"
 )
@@ -32,6 +34,12 @@ type Repository struct {
 	// If zero, the page size is determined by the remote registry.
 	// Reference: https://docs.docker.com/registry/spec/api/#tags
 	TagListPageSize int
+
+	// ReferrerListPageSize specifies the page size when invoking the Referrers
+	// API.
+	// If zero, the page size is determined by the remote registry.
+	// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
+	ReferrerListPageSize int
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -214,16 +222,86 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 // manifest descriptor.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 func (r *Repository) UpEdges(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	panic("not implemented") // TODO: Implement
+	var res []ocispec.Descriptor
+	if err := r.Referrers(ctx, desc, func(referrers []artifactspec.Descriptor) error {
+		for _, referrer := range referrers {
+			res = append(res, descriptor.ArtifactToOCI(referrer))
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// Referrers returns the manifest descriptors directly referencing the given
+// manifest descriptor.
+// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
+func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error) error {
+	// TODO(shizhMSFT): filter artifact type
+	url := fmt.Sprintf("%s/manifests/%s/referrers", r.artifactEndpoint(), desc.Digest)
+	if r.ReferrerListPageSize > 0 {
+		url = fmt.Sprintf("%s?n=%d", url, r.ReferrerListPageSize)
+	}
+
+	var err error
+	for err == nil {
+		url, err = r.referrers(ctx, desc, fn, url)
+	}
+	if err != errNoLink {
+		return err
+	}
+	return nil
+}
+
+// referrers returns a single page of the manifest descriptors directly
+// referencing the given manifest descriptor with the next link.
+func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := r.Client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", parseErrorResponse(resp)
+	}
+
+	var page struct {
+		References []artifactspec.Descriptor `json:"references"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		return "", err
+	}
+	if err := fn(page.References); err != nil {
+		return "", err
+	}
+
+	return parseLink(resp)
+}
+
+// scheme returns HTTP scheme used to access the remote registry.
+func (r *Repository) scheme() string {
+	if r.PlainHTTP {
+		return "http"
+	}
+	return "https"
 }
 
 // endpoint returns the base endpoint of the remote registry.
 func (r *Repository) endpoint() string {
-	scheme := "https"
-	if r.PlainHTTP {
-		scheme = "http"
-	}
-	return fmt.Sprintf("%s://%s/v2/%s", scheme, r.Reference.Host(), r.Reference.Repository)
+	return fmt.Sprintf("%s://%s/v2/%s", r.scheme(), r.Reference.Host(), r.Reference.Repository)
+}
+
+// artifactEndpoint returns the base endpoint of the remote registry for ORAS
+// artifacts.
+func (r *Repository) artifactEndpoint() string {
+	return fmt.Sprintf("%s://%s/oras/artifacts/v1/%s", r.scheme(), r.Reference.Host(), r.Reference.Repository)
 }
 
 // delete removes the content identified by the descriptor in the entity "blobs"
