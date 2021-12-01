@@ -87,12 +87,12 @@ func (r *Repository) Manifests() registry.BlobStore {
 	return &manifestStore{repo: r}
 }
 
-// Resolve resolves a reference to a descriptor.
+// Resolve resolves a reference to a manifest descriptor.
 func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
 	return r.Manifests().Resolve(ctx, reference)
 }
 
-// Tag tags a descriptor with a reference string.
+// Tag tags a manifest descriptor with a reference string.
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	ref, err := r.parseReference(reference)
 	if err != nil {
@@ -208,6 +208,13 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 	}
 
 	return parseLink(resp)
+}
+
+// UpEdges returns the manifest descriptors directly referencing the given
+// manifest descriptor.
+// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
+func (r *Repository) UpEdges(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	panic("not implemented") // TODO: Implement
 }
 
 // endpoint returns the base endpoint of the remote registry.
