@@ -2,7 +2,9 @@ package registry
 
 import (
 	"context"
+	"io"
 
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 )
@@ -20,6 +22,7 @@ import (
 type Repository interface {
 	oras.Target
 	BlobStore
+	TagPusher
 
 	// Blobs provides access to the blob CAS only, which contains config blobs,
 	// layers, and other generic blobs.
@@ -47,6 +50,14 @@ type BlobStore interface {
 	content.Storage
 	content.Deleter
 	content.Resolver
+}
+
+// TagPusher provides advanced push with the tag service.
+type TagPusher interface {
+	// PushTag pushes the manifest with a reference tag.
+	// It is equivalent to call `Push()` and then `Tag()` but more efficient or
+	// equal.
+	PushTag(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error
 }
 
 // Tags lists the tags available in the repository.

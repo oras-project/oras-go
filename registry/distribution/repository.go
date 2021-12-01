@@ -94,7 +94,53 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 
 // Tag tags a descriptor with a reference string.
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	panic("not implemented") // TODO: Implement
+	ref, err := r.parseReference(reference)
+	if err != nil {
+		return err
+	}
+
+	rc, err := r.Manifests().Fetch(ctx, desc)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	return r.push(ctx, desc, rc, ref.Reference)
+}
+
+// PushTag pushes the manifest with a reference tag.
+func (r *Repository) PushTag(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
+	ref, err := r.parseReference(reference)
+	if err != nil {
+		return err
+	}
+	return r.push(ctx, expected, content, ref.Reference)
+}
+
+// push pushes the content, matching the expected descriptor.
+func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
+	url := fmt.Sprintf("%s/manifests/%s", r.endpoint(), reference)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content)
+	if err != nil {
+		return err
+	}
+	if req.GetBody != nil && req.ContentLength != expected.Size {
+		// short circuit a size mismatch for built-in types.
+		return fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, expected.Size)
+	}
+	req.ContentLength = expected.Size
+	req.Header.Set("Content-Type", expected.MediaType)
+
+	resp, err := r.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return parseErrorResponse(resp)
+	}
+	return verifyContentDigest(resp, expected.Digest)
 }
 
 // parseReference validates the reference.
@@ -415,28 +461,7 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 
 // Push pushes the content, matching the expected descriptor.
 func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	url := fmt.Sprintf("%s/manifests/%s", s.repo.endpoint(), expected.Digest)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content)
-	if err != nil {
-		return err
-	}
-	if req.GetBody != nil && req.ContentLength != expected.Size {
-		// short circuit a size mismatch for built-in types.
-		return fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, expected.Size)
-	}
-	req.ContentLength = expected.Size
-	req.Header.Set("Content-Type", expected.MediaType)
-
-	resp, err := s.repo.Client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		return parseErrorResponse(resp)
-	}
-	return nil
+	return s.repo.push(ctx, expected, content, expected.Digest.String())
 }
 
 // Exists returns true if the described content exists.
