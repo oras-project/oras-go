@@ -81,13 +81,14 @@ func (r *Registry) repositories(ctx context.Context, fn func(repos []string) err
 	if resp.StatusCode != http.StatusOK {
 		return "", parseErrorResponse(resp)
 	}
-	var catalog struct {
+	var page struct {
 		Repositories []string `json:"repositories"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&catalog); err != nil {
+	lr := limitReader(resp.Body, r.MaxMetadataBytes)
+	if err := json.NewDecoder(lr).Decode(&page); err != nil {
 		return "", err
 	}
-	if err := fn(catalog.Repositories); err != nil {
+	if err := fn(page.Repositories); err != nil {
 		return "", err
 	}
 

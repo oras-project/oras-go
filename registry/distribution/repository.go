@@ -40,6 +40,12 @@ type Repository struct {
 	// If zero, the page size is determined by the remote registry.
 	// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 	ReferrerListPageSize int
+
+	// MaxMetadataBytes specifies a limit on how many response bytes are allowed
+	// in the server's response to the metadata APIs, such as catalog list, tag
+	// list, and referrers list.
+	// If zero, a default (currently 4MiB) is used.
+	MaxMetadataBytes int64
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -205,13 +211,14 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 	if resp.StatusCode != http.StatusOK {
 		return "", parseErrorResponse(resp)
 	}
-	var list struct {
+	var page struct {
 		Tags []string `json:"tags"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+	lr := limitReader(resp.Body, r.MaxMetadataBytes)
+	if err := json.NewDecoder(lr).Decode(&page); err != nil {
 		return "", err
 	}
-	if err := fn(list.Tags); err != nil {
+	if err := fn(page.Tags); err != nil {
 		return "", err
 	}
 
@@ -275,7 +282,8 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	var page struct {
 		References []artifactspec.Descriptor `json:"references"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+	lr := limitReader(resp.Body, r.MaxMetadataBytes)
+	if err := json.NewDecoder(lr).Decode(&page); err != nil {
 		return "", err
 	}
 	if err := fn(page.References); err != nil {
