@@ -172,6 +172,59 @@ func (r *Repository) endpoint() string {
 	return fmt.Sprintf("%s://%s/v2/%s", scheme, r.Reference.Host(), r.Reference.Repository)
 }
 
+// exists returns true if the described content exists in the entity "blobs" or
+// "manifests".
+func (r *Repository) exists(ctx context.Context, entity string, target ocispec.Descriptor) (bool, error) {
+	url := fmt.Sprintf("%s/%s/%s", r.endpoint(), entity, target.Digest)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return false, err
+	}
+
+	resp, err := r.Client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		if err := verifyContentDigest(resp, target.Digest); err != nil {
+			return false, err
+		}
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, parseErrorResponse(resp)
+	}
+}
+
+// delete removes the content identified by the descriptor in the entity "blobs"
+// or "manifests".
+func (r *Repository) delete(ctx context.Context, entity string, target ocispec.Descriptor) error {
+	url := fmt.Sprintf("%s/%s/%s", r.endpoint(), entity, target.Digest)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := r.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusAccepted:
+		return verifyContentDigest(resp, target.Digest)
+	case http.StatusNotFound:
+		return fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
+	default:
+		return parseErrorResponse(resp)
+	}
+}
+
 // blobStore accesses the manifest part of the repository.
 type blobStore struct {
 	repo *Repository
@@ -276,53 +329,12 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 
 // Exists returns true if the described content exists.
 func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	url := fmt.Sprintf("%s/blobs/%s", s.repo.endpoint(), target.Digest)
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
-	if err != nil {
-		return false, err
-	}
-
-	resp, err := s.repo.Client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		if err := verifyContentDigest(resp, target.Digest); err != nil {
-			return false, err
-		}
-		return true, nil
-	case http.StatusNotFound:
-		return false, nil
-	default:
-		return false, parseErrorResponse(resp)
-	}
+	return s.repo.exists(ctx, "blobs", target)
 }
 
 // Delete removes the content identified by the descriptor.
 func (s *blobStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	url := fmt.Sprintf("%s/blobs/%s", s.repo.endpoint(), target.Digest)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := s.repo.Client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusAccepted:
-		return verifyContentDigest(resp, target.Digest)
-	case http.StatusNotFound:
-		return fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
-	default:
-		return parseErrorResponse(resp)
-	}
+	return s.repo.delete(ctx, "blobs", target)
 }
 
 // Resolve resolves a reference to a descriptor.
@@ -423,17 +435,38 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 
 // Push pushes the content, matching the expected descriptor.
 func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	panic("not implemented") // TODO: Implement
+	url := fmt.Sprintf("%s/manifests/%s", s.repo.endpoint(), expected.Digest)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content)
+	if err != nil {
+		return err
+	}
+	if req.GetBody != nil && req.ContentLength != expected.Size {
+		// short circuit a size mismatch for built-in types.
+		return fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, expected.Size)
+	}
+	req.ContentLength = expected.Size
+	req.Header.Set("Content-Type", expected.MediaType)
+
+	resp, err := s.repo.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return parseErrorResponse(resp)
+	}
+	return nil
 }
 
 // Exists returns true if the described content exists.
 func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	panic("not implemented") // TODO: Implement
+	return s.repo.exists(ctx, "manifests", target)
 }
 
 // Delete removes the content identified by the descriptor.
 func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	panic("not implemented") // TODO: Implement
+	return s.repo.delete(ctx, "manifests", target)
 }
 
 // Resolve resolves a reference to a descriptor.
