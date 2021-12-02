@@ -64,8 +64,8 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 	}
 	for _, downEdge := range downEdges {
 		downEdgeKey := descriptor.FromOCI(downEdge)
-		upEdgesValue, _ := s.upEdges.LoadOrStore(downEdgeKey, &sync.Map{})
-		upEdges := upEdgesValue.(*sync.Map)
+		value, _ := s.upEdges.LoadOrStore(downEdgeKey, &sync.Map{})
+		upEdges := value.(*sync.Map)
 		upEdges.Store(upEdgeKey, expected)
 	}
 	return nil
@@ -100,11 +100,11 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 // not necessarily correspond to any consistent snapshot of the stored contents.
 func (s *Store) UpEdges(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	key := descriptor.FromOCI(node)
-	upEdgesValue, exists := s.upEdges.Load(key)
+	value, exists := s.upEdges.Load(key)
 	if !exists {
 		return nil, nil
 	}
-	upEdges := upEdgesValue.(*sync.Map)
+	upEdges := value.(*sync.Map)
 
 	var res []ocispec.Descriptor
 	upEdges.Range(func(key, value interface{}) bool {
