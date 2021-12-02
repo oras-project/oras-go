@@ -3,10 +3,17 @@ package distribution
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"unicode"
 )
+
+// maxErrorBytes specifies the default limit on how many response bytes are
+// allowed in the server's error response.
+// A typical error message is around 200 bytes. Hence, 8 KiB should be
+// sufficient.
+var maxErrorBytes int64 = 8 * 1024 // 8 KiB
 
 // requestError contains a single error.
 type requestError struct {
@@ -52,7 +59,8 @@ func parseErrorResponse(resp *http.Response) error {
 	var body struct {
 		Errors requestErrors `json:"errors"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && len(body.Errors) > 0 {
+	lr := io.LimitReader(resp.Body, maxErrorBytes)
+	if err := json.NewDecoder(lr).Decode(&body); err == nil && len(body.Errors) > 0 {
 		errmsg = body.Errors.Error()
 	} else {
 		errmsg = http.StatusText(resp.StatusCode)
