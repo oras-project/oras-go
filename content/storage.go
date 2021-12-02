@@ -48,6 +48,13 @@ type Storage interface {
 	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
 }
 
+// Deleter removes content.
+// Deleter is an extension of Storage.
+type Deleter interface {
+	// Delete removes the content identified by the descriptor.
+	Delete(ctx context.Context, target ocispec.Descriptor) error
+}
+
 // FetchAll safely fetches the content described by the descriptor.
 // The fetched content is verified against the size and the digest.
 func FetchAll(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) ([]byte, error) {
