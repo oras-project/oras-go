@@ -18,6 +18,7 @@ import "errors"
 
 // Common errors used in ORAS
 var (
-	ErrNotFound      = errors.New("not found")
-	ErrAlreadyExists = errors.New("already exists")
+	ErrNotFound         = errors.New("not found")
+	ErrAlreadyExists    = errors.New("already exists")
+	ErrInvalidReference = errors.New("invalid reference")
 )
