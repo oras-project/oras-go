@@ -36,7 +36,7 @@ var (
 	repositoryRegexp = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)*$`)
 
 	// tagRegexp checks the tag name.
-	// The docker and OCI spec has the same regular expression.
+	// The docker and OCI spec have the same regular expression.
 	// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests
 	tagRegexp = regexp.MustCompile(`^[\w][\w.-]{0,127}$`)
 )
