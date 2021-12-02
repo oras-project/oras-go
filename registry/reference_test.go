@@ -168,6 +168,41 @@ func TestParseReference(t *testing.T) {
 			},
 		},
 		{
+			name: "basic reference with IPv6 and port",
+			raw:  "[::1]:5000/hello-world",
+			want: Reference{
+				Registry:   "[::1]:5000",
+				Repository: "hello-world",
+			},
+		},
+		{
+			name: "tag reference with IPv6 and port",
+			raw:  "[::1]:5000/hello-world:v1",
+			want: Reference{
+				Registry:   "[::1]:5000",
+				Repository: "hello-world",
+				Reference:  "v1",
+			},
+		},
+		{
+			name: "digest reference with IPv6 and port",
+			raw:  "[::1]:5000/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			want: Reference{
+				Registry:   "[::1]:5000",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+		},
+		{
+			name: "tag with digest with IPv6 and port",
+			raw:  "[::1]:5000/hello-world:v2@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			want: Reference{
+				Registry:   "[::1]:5000",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+		},
+		{
 			name:    "no repo name",
 			raw:     "localhost",
 			wantErr: true,
@@ -183,7 +218,7 @@ func TestParseReference(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "invalid ip",
+			name:    "invalid port",
 			raw:     "localhost:v1/hello-world",
 			wantErr: true,
 		},

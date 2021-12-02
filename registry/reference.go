@@ -16,6 +16,7 @@ package registry
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -25,9 +26,19 @@ import (
 
 // regular expressions for components.
 var (
-	registryRegexp   = regexp.MustCompile(`^(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*(?::[0-9]+)?$`)
+	// repositoryRegexp is adapted from the distribution implementation.
+	// The repository name set under OCI distribution spec is a subset of the
+	// the docker spec. For maximum compability, the docker spec is verified at
+	// the client side. Further check is left to the server side.
+	// References:
+	// - https://github.com/distribution/distribution/blob/v2.7.1/reference/regexp.go#L53
+	// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests
 	repositoryRegexp = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)*$`)
-	tagRegexp        = regexp.MustCompile(`^[\w][\w.-]{0,127}$`)
+
+	// tagRegexp checks the tag name.
+	// The docker and OCI spec has the same regular expression.
+	// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests
+	tagRegexp = regexp.MustCompile(`^[\w][\w.-]{0,127}$`)
 )
 
 // Reference references to a descriptor in the registry.
@@ -99,7 +110,8 @@ func (r Reference) Validate() error {
 
 // ValidateRegistry validates the registry.
 func (r Reference) ValidateRegistry() error {
-	if !registryRegexp.MatchString(r.Registry) {
+	uri, err := url.ParseRequestURI("dummy://" + r.Registry)
+	if err != nil || uri.Host != r.Registry {
 		return fmt.Errorf("%w: invalid registry", errdef.ErrInvalidReference)
 	}
 	return nil
