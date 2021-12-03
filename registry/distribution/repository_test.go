@@ -918,6 +918,138 @@ func Test_BlobStore_Fetch(t *testing.T) {
 	}
 }
 
+func Test_BlobStore_Fetch_Seek(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	seekable := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			rangeHeader := r.Header.Get("Range")
+			if !seekable || rangeHeader == "" {
+				w.WriteHeader(http.StatusOK)
+				if _, err := w.Write(blob); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+				return
+			}
+			if !strings.HasPrefix(rangeHeader, "bytes=") {
+				t.Errorf("invalid range header: %s", rangeHeader)
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			parts := strings.Split(rangeHeader[6:], "-")
+			if len(parts) != 2 {
+				t.Errorf("invalid range header: %s", rangeHeader)
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			start, err := strconv.Atoi(parts[0])
+			if err != nil {
+				t.Errorf("invalid range header: %s", rangeHeader)
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			end, err := strconv.Atoi(parts[1])
+			if err != nil {
+				t.Errorf("invalid range header: %s", rangeHeader)
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			if start < 0 || start > end || start >= int(blobDesc.Size) {
+				t.Errorf("invalid range: %s", rangeHeader)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			end++
+			if end > int(blobDesc.Size) {
+				end = int(blobDesc.Size)
+			}
+			w.WriteHeader(http.StatusPartialContent)
+			if _, err := w.Write(blob[start:end]); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	rc, err := store.Fetch(ctx, blobDesc)
+	if err != nil {
+		t.Fatalf("Blobs.Fetch() error = %v", err)
+	}
+	if _, ok := rc.(io.Seeker); ok {
+		t.Errorf("Blobs.Fetch() returns io.Seeker on non-seekable content")
+	}
+	buf := bytes.NewBuffer(nil)
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, blob) {
+		t.Errorf("Blobs.Fetch() = %v, want %v", got, blob)
+	}
+
+	seekable = true
+	rc, err = store.Fetch(ctx, blobDesc)
+	if err != nil {
+		t.Fatalf("Blobs.Fetch() error = %v", err)
+	}
+	s, ok := rc.(io.Seeker)
+	if !ok {
+		t.Fatalf("Blobs.Fetch() = %v, want io.Seeker", rc)
+	}
+	buf.Reset()
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, blob) {
+		t.Errorf("Blobs.Fetch() = %v, want %v", got, blob)
+	}
+
+	_, err = s.Seek(3, io.SeekStart)
+	if err != nil {
+		t.Errorf("fail to seek: %v", err)
+	}
+	buf.Reset()
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, blob[3:]) {
+		t.Errorf("Blobs.Fetch() = %v, want %v", got, blob[3:])
+	}
+
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+}
+
 func Test_BlobStore_Push(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
