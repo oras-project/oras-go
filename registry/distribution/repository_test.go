@@ -20,6 +20,7 @@ import (
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -634,53 +635,221 @@ func TestRepository_Tags(t *testing.T) {
 }
 
 func TestRepository_UpEdges(t *testing.T) {
-	type args struct {
-		ctx  context.Context
-		desc ocispec.Descriptor
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
 	}
-	tests := []struct {
-		name    string
-		r       *Repository
-		args    args
-		want    []ocispec.Descriptor
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	referrerSet := [][]artifactspec.Descriptor{
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         1,
+				Digest:       digest.FromString("1"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         2,
+				Digest:       digest.FromString("2"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         3,
+				Digest:       digest.FromString("3"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         4,
+				Digest:       digest.FromString("4"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         5,
+				Digest:       digest.FromString("5"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.r.UpEdges(tt.args.ctx, tt.args.desc)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Repository.UpEdges() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Repository.UpEdges() = %v, want %v", got, tt.want)
-			}
-		})
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/oras/artifacts/v1/test/manifests/" + manifestDesc.Digest.String() + "/referrers"
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 2 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var referrers []artifactspec.Descriptor
+		switch q.Get("test") {
+		case "foo":
+			referrers = referrerSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?n=2&test=bar>; rel="next"`, ts.URL, path))
+		case "bar":
+			referrers = referrerSet[2]
+		default:
+			referrers = referrerSet[0]
+			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
+		}
+		result := struct {
+			References []artifactspec.Descriptor `json:"references"`
+		}{
+			References: referrers,
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListPageSize = 2
+
+	ctx := context.Background()
+	got, err := repo.UpEdges(ctx, manifestDesc)
+	if err != nil {
+		t.Fatalf("Repository.UpEdges() error = %v", err)
+	}
+	var want []ocispec.Descriptor
+	for _, referrers := range referrerSet {
+		for _, referrer := range referrers {
+			want = append(want, descriptor.ArtifactToOCI(referrer))
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Repository.UpEdges() = %v, want %v", got, want)
 	}
 }
 
 func TestRepository_Referrers(t *testing.T) {
-	type args struct {
-		ctx  context.Context
-		desc ocispec.Descriptor
-		fn   func(referrers []artifactspec.Descriptor) error
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
 	}
-	tests := []struct {
-		name    string
-		r       *Repository
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	referrerSet := [][]artifactspec.Descriptor{
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         1,
+				Digest:       digest.FromString("1"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         2,
+				Digest:       digest.FromString("2"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         3,
+				Digest:       digest.FromString("3"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         4,
+				Digest:       digest.FromString("4"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         5,
+				Digest:       digest.FromString("5"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.r.Referrers(tt.args.ctx, tt.args.desc, tt.args.fn); (err != nil) != tt.wantErr {
-				t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/oras/artifacts/v1/test/manifests/" + manifestDesc.Digest.String() + "/referrers"
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 2 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var referrers []artifactspec.Descriptor
+		switch q.Get("test") {
+		case "foo":
+			referrers = referrerSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?n=2&test=bar>; rel="next"`, ts.URL, path))
+		case "bar":
+			referrers = referrerSet[2]
+		default:
+			referrers = referrerSet[0]
+			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
+		}
+		result := struct {
+			References []artifactspec.Descriptor `json:"references"`
+		}{
+			References: referrers,
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListPageSize = 2
+
+	ctx := context.Background()
+	index := 0
+	if err := repo.Referrers(ctx, manifestDesc, func(got []artifactspec.Descriptor) error {
+		if index > 2 {
+			t.Fatalf("out of index bound: %d", index)
+		}
+		referrers := referrerSet[index]
+		index++
+		if !reflect.DeepEqual(got, referrers) {
+			t.Errorf("Repository.Referrers() = %v, want %v", got, referrers)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("Repository.Referrers() error = %v", err)
 	}
 }
 
