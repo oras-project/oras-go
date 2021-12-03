@@ -384,9 +384,13 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 // Push pushes the content, matching the expected descriptor.
 // Existing content is not checked by Push() to minimize the number of out-going
 // requests.
-// Push is done by conventional 2-step monolithic upload to achieve maximum
-// compability.
-// Reference: https://docs.docker.com/registry/spec/api/#pushing-an-image
+// Push is done by conventional 2-step monolithic upload instead of a single
+// `POST` request for better overall performance. It also allows early fail on
+// authentication errors.
+// References:
+// - https://docs.docker.com/registry/spec/api/#pushing-an-image
+// - https://docs.docker.com/registry/spec/api/#initiate-blob-upload
+// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	// start an upload
 	url := fmt.Sprintf("%s/blobs/uploads/", s.repo.endpoint())
