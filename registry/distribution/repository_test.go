@@ -3,11 +3,13 @@ package distribution
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +17,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -47,34 +50,28 @@ func TestRepository_Fetch(t *testing.T) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		switch {
-		case strings.HasPrefix(r.URL.Path, "/v2/test/blobs/"):
-			ref := strings.TrimPrefix(r.URL.Path, "/v2/test/blobs/")
-			if ref == blobDesc.Digest.String() {
-				w.Header().Set("Content-Type", "application/octet-stream")
-				w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
-				if _, err := w.Write(blob); err != nil {
-					t.Errorf("failed to write %q: %v", r.URL, err)
-				}
-				return
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			if _, err := w.Write(blob); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
 			}
-		case strings.HasPrefix(r.URL.Path, "/v2/test/manifests/"):
+		case "/v2/test/manifests/" + indexDesc.Digest.String():
 			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
 				t.Errorf("manifest not convertable: %s", accept)
-				break
-			}
-			ref := strings.TrimPrefix(r.URL.Path, "/v2/test/manifests/")
-			if ref == indexDesc.Digest.String() {
-				w.Header().Set("Content-Type", indexDesc.MediaType)
-				w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
-				if _, err := w.Write(index); err != nil {
-					t.Errorf("failed to write %q: %v", r.URL, err)
-				}
+				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			if _, err := w.Write(index); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
 		}
-		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
@@ -159,16 +156,7 @@ func TestRepository_Push(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 			return
-		case strings.HasPrefix(r.URL.Path, "/v2/test/manifests/"):
-			if r.Method != http.MethodPut {
-				w.WriteHeader(http.StatusMethodNotAllowed)
-				break
-			}
-			ref := strings.TrimPrefix(r.URL.Path, "/v2/test/manifests/")
-			if ref != indexDesc.Digest.String() {
-				w.WriteHeader(http.StatusForbidden)
-				break
-			}
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
 			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
 				w.WriteHeader(http.StatusBadRequest)
 				break
@@ -217,80 +205,208 @@ func TestRepository_Push(t *testing.T) {
 }
 
 func TestRepository_Exists(t *testing.T) {
-	type args struct {
-		ctx    context.Context
-		target ocispec.Descriptor
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		r       *Repository
-		args    args
-		want    bool
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.r.Exists(tt.args.ctx, tt.args.target)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Repository.Exists() error = %v, wantErr %v", err, tt.wantErr)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(int(blobDesc.Size)))
+		case "/v2/test/manifests/" + indexDesc.Digest.String():
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if got != tt.want {
-				t.Errorf("Repository.Exists() = %v, want %v", got, tt.want)
-			}
-		})
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(int(indexDesc.Size)))
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	exists, err := repo.Exists(ctx, blobDesc)
+	if err != nil {
+		t.Fatalf("Repository.Exists() error = %v", err)
+	}
+	if !exists {
+		t.Errorf("Repository.Exists() = %v, want %v", exists, true)
+	}
+
+	exists, err = repo.Exists(ctx, indexDesc)
+	if err != nil {
+		t.Fatalf("Repository.Exists() error = %v", err)
+	}
+	if !exists {
+		t.Errorf("Repository.Exists() = %v, want %v", exists, true)
 	}
 }
 
 func TestRepository_Delete(t *testing.T) {
-	type args struct {
-		ctx    context.Context
-		target ocispec.Descriptor
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		r       *Repository
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	blobDeleted := false
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.r.Delete(tt.args.ctx, tt.args.target); (err != nil) != tt.wantErr {
-				t.Errorf("Repository.Delete() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	indexDeleted := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			blobDeleted = true
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.WriteHeader(http.StatusAccepted)
+		case "/v2/test/manifests/" + indexDesc.Digest.String():
+			indexDeleted = true
+			// no "Docker-Content-Digest" header for manifest deletion
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	err = repo.Delete(ctx, blobDesc)
+	if err != nil {
+		t.Fatalf("Repository.Delete() error = %v", err)
+	}
+	if !blobDeleted {
+		t.Errorf("Repository.Delete() = %v, want %v", blobDeleted, true)
+	}
+
+	err = repo.Delete(ctx, indexDesc)
+	if err != nil {
+		t.Fatalf("Repository.Delete() error = %v", err)
+	}
+	if !indexDeleted {
+		t.Errorf("Repository.Delete() = %v, want %v", indexDeleted, true)
 	}
 }
 
 func TestRepository_Resolve(t *testing.T) {
-	type args struct {
-		ctx       context.Context
-		reference string
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		r       *Repository
-		args    args
-		want    ocispec.Descriptor
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.r.Resolve(tt.args.ctx, tt.args.reference)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Repository.Resolve() error = %v, wantErr %v", err, tt.wantErr)
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/manifests/" + blobDesc.Digest.String():
+			w.WriteHeader(http.StatusNotFound)
+		case "/v2/test/manifests/" + indexDesc.Digest.String(),
+			"/v2/test/manifests/" + ref:
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Repository.Resolve() = %v, want %v", got, tt.want)
-			}
-		})
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(int(indexDesc.Size)))
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	_, err = repo.Resolve(ctx, blobDesc.Digest.String())
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("Repository.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	got, err := repo.Resolve(ctx, indexDesc.Digest.String())
+	if err != nil {
+		t.Fatalf("Repository.Resolve() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, indexDesc) {
+		t.Errorf("Repository.Resolve() = %v, want %v", got, indexDesc)
+	}
+
+	got, err = repo.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatalf("Repository.Resolve() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, indexDesc) {
+		t.Errorf("Repository.Resolve() = %v, want %v", got, indexDesc)
 	}
 }
 
