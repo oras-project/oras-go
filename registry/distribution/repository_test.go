@@ -3,7 +3,9 @@ package distribution
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -562,24 +564,72 @@ func TestRepository_PushTag(t *testing.T) {
 }
 
 func TestRepository_Tags(t *testing.T) {
-	type args struct {
-		ctx context.Context
-		fn  func(tags []string) error
+	tagSet := [][]string{
+		{"the", "quick", "brown", "fox"},
+		{"jumps", "over", "the", "lazy"},
+		{"dog"},
 	}
-	tests := []struct {
-		name    string
-		r       *Repository
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/test/tags/list" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 4 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var tags []string
+		switch q.Get("test") {
+		case "foo":
+			tags = tagSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s/v2/test/tags/list?n=4&test=bar>; rel="next"`, ts.URL))
+		case "bar":
+			tags = tagSet[2]
+		default:
+			tags = tagSet[0]
+			w.Header().Set("Link", `</v2/test/tags/list?n=4&test=foo>; rel="next"`)
+		}
+		result := struct {
+			Tags []string `json:"tags"`
+		}{
+			Tags: tags,
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.r.Tags(tt.args.ctx, tt.args.fn); (err != nil) != tt.wantErr {
-				t.Errorf("Repository.Tags() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.TagListPageSize = 4
+
+	ctx := context.Background()
+	index := 0
+	if err := repo.Tags(ctx, func(got []string) error {
+		if index > 2 {
+			t.Fatalf("out of index bound: %d", index)
+		}
+		tags := tagSet[index]
+		index++
+		if !reflect.DeepEqual(got, tags) {
+			t.Errorf("Repository.Tags() = %v, want %v", got, tags)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("Repository.Tags() error = %v", err)
 	}
 }
 
