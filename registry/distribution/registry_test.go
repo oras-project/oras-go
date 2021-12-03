@@ -10,7 +10,16 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+
+	"oras.land/oras-go/v2/registry"
 )
+
+func TestRegistryInterface(t *testing.T) {
+	var reg interface{} = &Registry{}
+	if _, ok := reg.(registry.Registry); !ok {
+		t.Error("&Registry{} does not conform registry.Registry")
+	}
+}
 
 func TestRegistry_TLS(t *testing.T) {
 	repos := []string{"the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}
