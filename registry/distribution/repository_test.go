@@ -393,7 +393,7 @@ func TestRepository_Resolve(t *testing.T) {
 
 	_, err = repo.Resolve(ctx, blobDesc.Digest.String())
 	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("Repository.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		t.Errorf("Repository.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 
 	got, err := repo.Resolve(ctx, indexDesc.Digest.String())
@@ -477,7 +477,7 @@ func TestRepository_Tag(t *testing.T) {
 
 	err = repo.Tag(ctx, blobDesc, ref)
 	if err == nil {
-		t.Fatalf("Repository.Tag() error = %v, wantErr %v", err, true)
+		t.Errorf("Repository.Tag() error = %v, wantErr %v", err, true)
 	}
 
 	err = repo.Tag(ctx, indexDesc, ref)
@@ -630,7 +630,7 @@ func TestRepository_Tags(t *testing.T) {
 		}
 		return nil
 	}); err != nil {
-		t.Fatalf("Repository.Tags() error = %v", err)
+		t.Errorf("Repository.Tags() error = %v", err)
 	}
 }
 
@@ -849,136 +849,310 @@ func TestRepository_Referrers(t *testing.T) {
 		}
 		return nil
 	}); err != nil {
-		t.Fatalf("Repository.Referrers() error = %v", err)
+		t.Errorf("Repository.Referrers() error = %v", err)
 	}
 }
 
 func Test_BlobStore_Fetch(t *testing.T) {
-	type args struct {
-		ctx    context.Context
-		target ocispec.Descriptor
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		s       *blobStore
-		args    args
-		wantRc  io.ReadCloser
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			if _, err := w.Write(blob); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotRc, err := tt.s.Fetch(tt.args.ctx, tt.args.target)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("blobStore.Fetch() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(gotRc, tt.wantRc) {
-				t.Errorf("blobStore.Fetch() = %v, want %v", gotRc, tt.wantRc)
-			}
-		})
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	rc, err := store.Fetch(ctx, blobDesc)
+	if err != nil {
+		t.Fatalf("Blobs.Fetch() error = %v", err)
+	}
+	buf := bytes.NewBuffer(nil)
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, blob) {
+		t.Errorf("Blobs.Fetch() = %v, want %v", got, blob)
+	}
+
+	content := []byte("foobar")
+	contentDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	_, err = store.Fetch(ctx, contentDesc)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Blobs.Fetch() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
 
 func Test_BlobStore_Push(t *testing.T) {
-	type args struct {
-		ctx      context.Context
-		expected ocispec.Descriptor
-		content  io.Reader
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		s       *blobStore
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.s.Push(tt.args.ctx, tt.args.expected, tt.args.content); (err != nil) != tt.wantErr {
-				t.Errorf("blobStore.Push() error = %v, wantErr %v", err, tt.wantErr)
+	var gotBlob []byte
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+			w.Header().Set("Location", "/v2/test/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/blobs/uploads/"+uuid:
+			if contentType := r.Header.Get("Content-Type"); contentType != "application/octet-stream" {
+				w.WriteHeader(http.StatusBadRequest)
+				break
 			}
-		})
+			if contentDigest := r.URL.Query().Get("digest"); contentDigest != blobDesc.Digest.String() {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotBlob = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("Blobs.Push() error = %v", err)
+	}
+	if !bytes.Equal(gotBlob, blob) {
+		t.Errorf("Blobs.Push() = %v, want %v", gotBlob, blob)
 	}
 }
 
 func Test_BlobStore_Exists(t *testing.T) {
-	type args struct {
-		ctx    context.Context
-		target ocispec.Descriptor
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		s       *blobStore
-		args    args
-		want    bool
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(int(blobDesc.Size)))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.s.Exists(tt.args.ctx, tt.args.target)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("blobStore.Exists() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("blobStore.Exists() = %v, want %v", got, tt.want)
-			}
-		})
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	exists, err := store.Exists(ctx, blobDesc)
+	if err != nil {
+		t.Fatalf("Blobs.Exists() error = %v", err)
+	}
+	if !exists {
+		t.Errorf("Blobs.Exists() = %v, want %v", exists, true)
+	}
+
+	content := []byte("foobar")
+	contentDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	exists, err = store.Exists(ctx, contentDesc)
+	if err != nil {
+		t.Fatalf("Blobs.Exists() error = %v", err)
+	}
+	if exists {
+		t.Errorf("Blobs.Exists() = %v, want %v", exists, false)
 	}
 }
 
 func Test_BlobStore_Delete(t *testing.T) {
-	type args struct {
-		ctx    context.Context
-		target ocispec.Descriptor
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		s       *blobStore
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	blobDeleted := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			blobDeleted = true
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.s.Delete(tt.args.ctx, tt.args.target); (err != nil) != tt.wantErr {
-				t.Errorf("blobStore.Delete() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	err = store.Delete(ctx, blobDesc)
+	if err != nil {
+		t.Fatalf("Blobs.Delete() error = %v", err)
+	}
+	if !blobDeleted {
+		t.Errorf("Blobs.Delete() = %v, want %v", blobDeleted, true)
+	}
+
+	content := []byte("foobar")
+	contentDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	err = store.Delete(ctx, contentDesc)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Blobs.Delete() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
 
 func Test_BlobStore_Resolve(t *testing.T) {
-	type args struct {
-		ctx       context.Context
-		reference string
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		s       *blobStore
-		args    args
-		want    ocispec.Descriptor
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(int(blobDesc.Size)))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.s.Resolve(tt.args.ctx, tt.args.reference)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("blobStore.Resolve() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("blobStore.Resolve() = %v, want %v", got, tt.want)
-			}
-		})
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	got, err := store.Resolve(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatalf("Blobs.Resolve() error = %v", err)
+	}
+	if got.Digest != blobDesc.Digest || got.Size != blobDesc.Size {
+		t.Errorf("Blobs.Resolve() = %v, want %v", got, blobDesc)
+	}
+
+	_, err = store.Resolve(ctx, ref)
+	if !errors.Is(err, digest.ErrDigestInvalidFormat) {
+		t.Errorf("Blobs.Resolve() error = %v, wantErr %v", err, digest.ErrDigestInvalidFormat)
+	}
+
+	content := []byte("foobar")
+	contentDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	_, err = store.Resolve(ctx, contentDesc.Digest.String())
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Blobs.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
 
