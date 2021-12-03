@@ -24,8 +24,8 @@ func TestRegistryInterface(t *testing.T) {
 func TestRegistry_TLS(t *testing.T) {
 	repos := []string{"the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v2/_catalog" {
-			t.Errorf("unexpected access: %s", r.URL)
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/_catalog" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -69,8 +69,8 @@ func TestRegistry_Repositories(t *testing.T) {
 	}
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v2/_catalog" {
-			t.Errorf("unexpected access: %s", r.URL)
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/_catalog" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
