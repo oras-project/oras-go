@@ -944,24 +944,8 @@ func Test_BlobStore_Fetch_Seek(t *testing.T) {
 				}
 				return
 			}
-			if !strings.HasPrefix(rangeHeader, "bytes=") {
-				t.Errorf("invalid range header: %s", rangeHeader)
-				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
-				return
-			}
-			parts := strings.Split(rangeHeader[6:], "-")
-			if len(parts) != 2 {
-				t.Errorf("invalid range header: %s", rangeHeader)
-				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
-				return
-			}
-			start, err := strconv.Atoi(parts[0])
-			if err != nil {
-				t.Errorf("invalid range header: %s", rangeHeader)
-				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
-				return
-			}
-			end, err := strconv.Atoi(parts[1])
+			var start, end int
+			_, err := fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end)
 			if err != nil {
 				t.Errorf("invalid range header: %s", rangeHeader)
 				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
@@ -969,7 +953,7 @@ func Test_BlobStore_Fetch_Seek(t *testing.T) {
 			}
 			if start < 0 || start > end || start >= int(blobDesc.Size) {
 				t.Errorf("invalid range: %s", rangeHeader)
-				w.WriteHeader(http.StatusBadRequest)
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 				return
 			}
 			end++
