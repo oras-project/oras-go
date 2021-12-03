@@ -1289,130 +1289,314 @@ func Test_BlobStore_Resolve(t *testing.T) {
 }
 
 func Test_ManifestStore_Fetch(t *testing.T) {
-	type args struct {
-		ctx    context.Context
-		target ocispec.Descriptor
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
 	}
-	tests := []struct {
-		name    string
-		s       *manifestStore
-		args    args
-		wantRc  io.ReadCloser
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotRc, err := tt.s.Fetch(tt.args.ctx, tt.args.target)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("manifestStore.Fetch() error = %v, wantErr %v", err, tt.wantErr)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/manifests/" + manifestDesc.Digest.String():
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if !reflect.DeepEqual(gotRc, tt.wantRc) {
-				t.Errorf("manifestStore.Fetch() = %v, want %v", gotRc, tt.wantRc)
+			w.Header().Set("Content-Type", manifestDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+			if _, err := w.Write(manifest); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
 			}
-		})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Manifests()
+	ctx := context.Background()
+
+	rc, err := store.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatalf("Manifests.Fetch() error = %v", err)
+	}
+	buf := bytes.NewBuffer(nil)
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
+		t.Errorf("Manifests.Fetch() = %v, want %v", got, manifest)
+	}
+
+	content := []byte(`{"manifests":[]}`)
+	contentDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	_, err = store.Fetch(ctx, contentDesc)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Manifests.Fetch() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
 
 func Test_ManifestStore_Push(t *testing.T) {
-	type args struct {
-		ctx      context.Context
-		expected ocispec.Descriptor
-		content  io.Reader
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
 	}
-	tests := []struct {
-		name    string
-		s       *manifestStore
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.s.Push(tt.args.ctx, tt.args.expected, tt.args.content); (err != nil) != tt.wantErr {
-				t.Errorf("manifestStore.Push() error = %v, wantErr %v", err, tt.wantErr)
+	var gotManifest []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+manifestDesc.Digest.String():
+			if contentType := r.Header.Get("Content-Type"); contentType != manifestDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
 			}
-		})
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotManifest = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Manifests()
+	ctx := context.Background()
+
+	err = store.Push(ctx, manifestDesc, bytes.NewReader(manifest))
+	if err != nil {
+		t.Fatalf("Manifests.Push() error = %v", err)
+	}
+	if !bytes.Equal(gotManifest, manifest) {
+		t.Errorf("Manifests.Push() = %v, want %v", gotManifest, manifest)
 	}
 }
 
 func Test_ManifestStore_Exists(t *testing.T) {
-	type args struct {
-		ctx    context.Context
-		target ocispec.Descriptor
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
 	}
-	tests := []struct {
-		name    string
-		s       *manifestStore
-		args    args
-		want    bool
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.s.Exists(tt.args.ctx, tt.args.target)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("manifestStore.Exists() error = %v, wantErr %v", err, tt.wantErr)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/manifests/" + manifestDesc.Digest.String():
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if got != tt.want {
-				t.Errorf("manifestStore.Exists() = %v, want %v", got, tt.want)
-			}
-		})
+			w.Header().Set("Content-Type", manifestDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(int(manifestDesc.Size)))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Manifests()
+	ctx := context.Background()
+
+	exists, err := store.Exists(ctx, manifestDesc)
+	if err != nil {
+		t.Fatalf("Manifests.Exists() error = %v", err)
+	}
+	if !exists {
+		t.Errorf("Manifests.Exists() = %v, want %v", exists, true)
+	}
+
+	content := []byte(`{"manifests":[]}`)
+	contentDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	exists, err = store.Exists(ctx, contentDesc)
+	if err != nil {
+		t.Fatalf("Manifests.Exists() error = %v", err)
+	}
+	if exists {
+		t.Errorf("Manifests.Exists() = %v, want %v", exists, false)
 	}
 }
 
 func Test_ManifestStore_Delete(t *testing.T) {
-	type args struct {
-		ctx    context.Context
-		target ocispec.Descriptor
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
 	}
-	tests := []struct {
-		name    string
-		s       *manifestStore
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	manifestDeleted := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/manifests/" + manifestDesc.Digest.String():
+			manifestDeleted = true
+			// no "Docker-Content-Digest" header for manifest deletion
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.s.Delete(tt.args.ctx, tt.args.target); (err != nil) != tt.wantErr {
-				t.Errorf("manifestStore.Delete() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Manifests()
+	ctx := context.Background()
+
+	err = store.Delete(ctx, manifestDesc)
+	if err != nil {
+		t.Fatalf("Manifests.Delete() error = %v", err)
+	}
+	if !manifestDeleted {
+		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
+	}
+
+	content := []byte(`{"manifests":[]}`)
+	contentDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	err = store.Delete(ctx, contentDesc)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Manifests.Delete() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
 
 func Test_ManifestStore_Resolve(t *testing.T) {
-	type args struct {
-		ctx       context.Context
-		reference string
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
 	}
-	tests := []struct {
-		name    string
-		s       *manifestStore
-		args    args
-		want    ocispec.Descriptor
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.s.Resolve(tt.args.ctx, tt.args.reference)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("manifestStore.Resolve() error = %v, wantErr %v", err, tt.wantErr)
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/manifests/" + manifestDesc.Digest.String(),
+			"/v2/test/manifests/" + ref:
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("manifestStore.Resolve() = %v, want %v", got, tt.want)
-			}
-		})
+			w.Header().Set("Content-Type", manifestDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(int(manifestDesc.Size)))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Manifests()
+	ctx := context.Background()
+
+	got, err := store.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatalf("Manifests.Resolve() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, manifestDesc) {
+		t.Errorf("Manifests.Resolve() = %v, want %v", got, manifestDesc)
+	}
+
+	got, err = store.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatalf("Manifests.Resolve() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, manifestDesc) {
+		t.Errorf("Manifests.Resolve() = %v, want %v", got, manifestDesc)
+	}
+
+	content := []byte(`{"manifests":[]}`)
+	contentDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	_, err = store.Resolve(ctx, contentDesc.Digest.String())
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Manifests.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
