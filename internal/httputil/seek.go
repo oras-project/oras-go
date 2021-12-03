@@ -14,6 +14,7 @@ type readSeekCloser struct {
 	rc     io.ReadCloser
 	size   int64
 	offset int64
+	closed bool
 }
 
 // NewReadSeekCloser returns a seeker to make the HTTP response seekable.
@@ -36,6 +37,9 @@ func (rsc *readSeekCloser) Read(p []byte) (n int, err error) {
 
 // Seek starts a new connection to the remote for reading if position changes.
 func (rsc *readSeekCloser) Seek(offset int64, whence int) (int64, error) {
+	if rsc.closed {
+		return 0, errors.New("seek: already closed")
+	}
 	switch whence {
 	case io.SeekCurrent:
 		offset += rsc.offset
@@ -44,15 +48,15 @@ func (rsc *readSeekCloser) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekEnd:
 		offset += rsc.size
 	default:
-		return 0, errors.New("invalid whence")
+		return 0, errors.New("seek: invalid whence")
 	}
-	if offset < 0 || offset > rsc.size {
-		return 0, fmt.Errorf("invalid offset: %d / %d", offset, rsc.size)
+	if offset < 0 {
+		return 0, errors.New("seek: an attempt was made to move the pointer before the beginning of the content")
 	}
 	if offset == rsc.offset {
 		return offset, nil
 	}
-	if offset == rsc.size {
+	if offset >= rsc.size {
 		rsc.rc.Close()
 		rsc.rc = http.NoBody
 		rsc.offset = offset
@@ -63,7 +67,7 @@ func (rsc *readSeekCloser) Seek(offset int64, whence int) (int64, error) {
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, rsc.size-1))
 	resp, err := rsc.client.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("seek: %w", err)
+		return 0, fmt.Errorf("seek: %s %q: %w", req.Method, req.URL, err)
 	}
 	if resp.StatusCode != http.StatusPartialContent {
 		resp.Body.Close()
@@ -78,5 +82,9 @@ func (rsc *readSeekCloser) Seek(offset int64, whence int) (int64, error) {
 
 // Close closes the content body.
 func (rsc *readSeekCloser) Close() error {
+	if rsc.closed {
+		return nil
+	}
+	rsc.closed = true
 	return rsc.rc.Close()
 }
