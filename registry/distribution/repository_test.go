@@ -139,7 +139,7 @@ func TestRepository_Push(t *testing.T) {
 			w.Header().Set("Location", "/v2/test/blobs/uploads/"+uuid)
 			w.WriteHeader(http.StatusAccepted)
 			return
-		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/v2/test/blobs/uploads/"+uuid):
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/blobs/uploads/"+uuid:
 			if contentType := r.Header.Get("Content-Type"); contentType != "application/octet-stream" {
 				w.WriteHeader(http.StatusBadRequest)
 				break
@@ -411,49 +411,153 @@ func TestRepository_Resolve(t *testing.T) {
 }
 
 func TestRepository_Tag(t *testing.T) {
-	type args struct {
-		ctx       context.Context
-		desc      ocispec.Descriptor
-		reference string
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		r       *Repository
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.r.Tag(tt.args.ctx, tt.args.desc, tt.args.reference); (err != nil) != tt.wantErr {
-				t.Errorf("Repository.Tag() error = %v, wantErr %v", err, tt.wantErr)
+	var gotIndex []byte
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+blobDesc.Digest.String():
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
 			}
-		})
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			if _, err := w.Write(index); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		case r.Method == http.MethodPut &&
+			r.URL.Path == "/v2/test/manifests/"+ref || r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
+			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	err = repo.Tag(ctx, blobDesc, ref)
+	if err == nil {
+		t.Fatalf("Repository.Tag() error = %v, wantErr %v", err, true)
+	}
+
+	err = repo.Tag(ctx, indexDesc, ref)
+	if err != nil {
+		t.Fatalf("Repository.Tag() error = %v", err)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("Repository.Tag() = %v, want %v", gotIndex, index)
+	}
+
+	gotIndex = nil
+	err = repo.Tag(ctx, indexDesc, indexDesc.Digest.String())
+	if err != nil {
+		t.Fatalf("Repository.Tag() error = %v", err)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("Repository.Tag() = %v, want %v", gotIndex, index)
 	}
 }
 
 func TestRepository_PushTag(t *testing.T) {
-	type args struct {
-		ctx       context.Context
-		expected  ocispec.Descriptor
-		content   io.Reader
-		reference string
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
 	}
-	tests := []struct {
-		name    string
-		r       *Repository
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.r.PushTag(tt.args.ctx, tt.args.expected, tt.args.content, tt.args.reference); (err != nil) != tt.wantErr {
-				t.Errorf("Repository.PushTag() error = %v, wantErr %v", err, tt.wantErr)
+	var gotIndex []byte
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+ref:
+			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
 			}
-		})
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %s", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	err = repo.PushTag(ctx, blobDesc, bytes.NewReader(blob), ref)
+	if err == nil {
+		t.Fatalf("Repository.PushTag() error = %v, wantErr %v", err, true)
+	}
+	if gotIndex != nil {
+		t.Errorf("Repository.PushTag() = %v, want %v", gotIndex, nil)
+	}
+
+	gotIndex = nil
+	err = repo.PushTag(ctx, indexDesc, bytes.NewReader(index), ref)
+	if err != nil {
+		t.Fatalf("Repository.PushTag() error = %v", err)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("Repository.PushTag() = %v, want %v", gotIndex, index)
 	}
 }
 
