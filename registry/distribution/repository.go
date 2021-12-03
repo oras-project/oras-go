@@ -424,7 +424,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	// the expected media type is ignored as in the API doc.
 	req.Header.Set("Content-Type", "application/octet-stream")
 	q := req.URL.Query()
-	q.Add("digest", expected.Digest.String())
+	q.Set("digest", expected.Digest.String())
 	req.URL.RawQuery = q.Encode()
 
 	resp, err = s.repo.Client.Do(req)
