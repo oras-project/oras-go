@@ -22,8 +22,8 @@ import (
 	"oras.land/oras-go/v2/internal/docker"
 )
 
-// manifestMediaTypes contains the media type of manifests.
-var manifestMediaTypes = []string{
+// defaultManifestMediaTypes contains the default set of manifests media types.
+var defaultManifestMediaTypes = []string{
 	docker.MediaTypeManifest,
 	docker.MediaTypeManifestList,
 	ocispec.MediaTypeImageManifest,
@@ -31,16 +31,28 @@ var manifestMediaTypes = []string{
 	artifactspec.MediaTypeArtifactManifest,
 }
 
-// manifestAcceptHeader is set in the `Accept` header for resolving the
-// manifest by the tag.
-var manifestAcceptHeader = strings.Join(manifestMediaTypes, ", ") + ", */*"
+// defaultManifestAcceptHeader is the default set in the `Accept` header for
+// resolving manifests from tags.
+var defaultManifestAcceptHeader = strings.Join(defaultManifestMediaTypes, ", ")
 
 // isManifest determines if the given descriptor points to a manifest.
-func isManifest(desc ocispec.Descriptor) bool {
+func isManifest(manifestMediaTypes []string, desc ocispec.Descriptor) bool {
+	if len(manifestMediaTypes) == 0 {
+		manifestMediaTypes = defaultManifestMediaTypes
+	}
 	for _, mediaType := range manifestMediaTypes {
 		if desc.MediaType == mediaType {
 			return true
 		}
 	}
 	return false
+}
+
+// manifestAcceptHeader generates the set in the `Accept` header for resolving
+// manifests from tags.
+func manifestAcceptHeader(manifestMediaTypes []string) string {
+	if len(manifestMediaTypes) == 0 {
+		return defaultManifestAcceptHeader
+	}
+	return strings.Join(manifestMediaTypes, ", ")
 }
