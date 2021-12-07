@@ -331,8 +331,13 @@ func (r *Repository) artifactEndpoint() string {
 
 // delete removes the content identified by the descriptor in the entity "blobs"
 // or "manifests".
-func (r *Repository) delete(ctx context.Context, entity string, target ocispec.Descriptor) error {
-	url := fmt.Sprintf("%s/%s/%s", r.endpoint(), entity, target.Digest)
+func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isManifest bool) error {
+	var url string
+	if isManifest {
+		url = fmt.Sprintf("%s/manifests/%s", r.endpoint(), target.Digest)
+	} else {
+		url = fmt.Sprintf("%s/blobs/%s", r.endpoint(), target.Digest)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return err
@@ -474,7 +479,7 @@ func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool
 
 // Delete removes the content identified by the descriptor.
 func (s *blobStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	return s.repo.delete(ctx, "blobs", target)
+	return s.repo.delete(ctx, target, false)
 }
 
 // Resolve resolves a reference to a descriptor.
@@ -592,7 +597,7 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 
 // Delete removes the content identified by the descriptor.
 func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	return s.repo.delete(ctx, "manifests", target)
+	return s.repo.delete(ctx, target, true)
 }
 
 // Resolve resolves a reference to a descriptor.
