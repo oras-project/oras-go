@@ -45,6 +45,12 @@ type Repository struct {
 	// instead of HTTPS.
 	PlainHTTP bool
 
+	// ManifestMediaTypes is used in `Accept` header for resolving manifests from
+	// references. It is also used in identifying manifests and blobs from
+	// descriptors.
+	// If an empty list is present, default manifest media types are used.
+	ManifestMediaTypes []string
+
 	// TagListPageSize specifies the page size when invoking the tag list API.
 	// If zero, the page size is determined by the remote registry.
 	// Reference: https://docs.docker.com/registry/spec/api/#tags
@@ -79,7 +85,7 @@ func NewRepository(reference string) (*Repository, error) {
 
 // blobStore detects the blob store for the given descriptor.
 func (r *Repository) blobStore(desc ocispec.Descriptor) registry.BlobStore {
-	if isManifest(desc) {
+	if isManifest(r.ManifestMediaTypes, desc) {
 		return r.Manifests()
 	}
 	return r.Blobs()
@@ -117,6 +123,7 @@ func (r *Repository) Manifests() registry.BlobStore {
 }
 
 // Resolve resolves a reference to a manifest descriptor.
+// See also `ManifestMediaTypes`.
 func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
 	return r.Manifests().Resolve(ctx, reference)
 }
@@ -601,6 +608,7 @@ func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) e
 }
 
 // Resolve resolves a reference to a descriptor.
+// See also `ManifestMediaTypes`.
 func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
 	ref, err := s.repo.parseReference(reference)
 	if err != nil {
@@ -611,7 +619,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	req.Header.Set("Accept", manifestAcceptHeader)
+	req.Header.Set("Accept", manifestAcceptHeader(s.repo.ManifestMediaTypes))
 
 	resp, err := s.repo.Client.Do(req)
 	if err != nil {
