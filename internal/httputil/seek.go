@@ -44,6 +44,9 @@ func NewReadSeekCloser(client *http.Client, req *http.Request, respBody io.ReadC
 
 // Read reads the content body and counts offset.
 func (rsc *readSeekCloser) Read(p []byte) (n int, err error) {
+	if rsc.closed {
+		return 0, errors.New("read: already closed")
+	}
 	n, err = rsc.rc.Read(p)
 	rsc.offset += int64(n)
 	return
