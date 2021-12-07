@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"oras.land/oras-go/v2/registry"
 )
@@ -65,10 +66,6 @@ func NewRegistry(name string) (*Registry, error) {
 // Reference: https://docs.docker.com/registry/spec/api/#catalog
 func (r *Registry) Repositories(ctx context.Context, fn func(repos []string) error) error {
 	url := fmt.Sprintf("%s/v2/_catalog", r.endpoint())
-	if r.RepositoryListPageSize > 0 {
-		url = fmt.Sprintf("%s?n=%d", url, r.RepositoryListPageSize)
-	}
-
 	var err error
 	for err == nil {
 		url, err = r.repositories(ctx, fn, url)
@@ -84,6 +81,11 @@ func (r *Registry) repositories(ctx context.Context, fn func(repos []string) err
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
+	}
+	if r.RepositoryListPageSize > 0 {
+		q := req.URL.Query()
+		q.Set("n", strconv.Itoa(r.RepositoryListPageSize))
+		req.URL.RawQuery = q.Encode()
 	}
 
 	resp, err := r.Client.Do(req)

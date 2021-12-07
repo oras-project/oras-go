@@ -22,6 +22,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -43,6 +44,12 @@ type Repository struct {
 	// PlainHTTP signals the transport to access the remote repository via HTTP
 	// instead of HTTPS.
 	PlainHTTP bool
+
+	// ManifestMediaTypes is used in `Accept` header for resolving manifests from
+	// references. It is also used in identifying manifests and blobs from
+	// descriptors.
+	// If an empty list is present, default manifest media types are used.
+	ManifestMediaTypes []string
 
 	// TagListPageSize specifies the page size when invoking the tag list API.
 	// If zero, the page size is determined by the remote registry.
@@ -78,7 +85,7 @@ func NewRepository(reference string) (*Repository, error) {
 
 // blobStore detects the blob store for the given descriptor.
 func (r *Repository) blobStore(desc ocispec.Descriptor) registry.BlobStore {
-	if isManifest(desc) {
+	if isManifest(r.ManifestMediaTypes, desc) {
 		return r.Manifests()
 	}
 	return r.Blobs()
@@ -116,6 +123,7 @@ func (r *Repository) Manifests() registry.BlobStore {
 }
 
 // Resolve resolves a reference to a manifest descriptor.
+// See also `ManifestMediaTypes`.
 func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
 	return r.Manifests().Resolve(ctx, reference)
 }
@@ -195,10 +203,6 @@ func (r *Repository) parseReference(reference string) (registry.Reference, error
 // Tags lists the tags available in the repository.
 func (r *Repository) Tags(ctx context.Context, fn func(tags []string) error) error {
 	url := fmt.Sprintf("%s/tags/list", r.endpoint())
-	if r.TagListPageSize > 0 {
-		url = fmt.Sprintf("%s?n=%d", url, r.TagListPageSize)
-	}
-
 	var err error
 	for err == nil {
 		url, err = r.tags(ctx, fn, url)
@@ -214,6 +218,11 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
+	}
+	if r.TagListPageSize > 0 {
+		q := req.URL.Query()
+		q.Set("n", strconv.Itoa(r.TagListPageSize))
+		req.URL.RawQuery = q.Encode()
 	}
 
 	resp, err := r.Client.Do(req)
@@ -261,10 +270,6 @@ func (r *Repository) UpEdges(ctx context.Context, desc ocispec.Descriptor) ([]oc
 func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error) error {
 	// TODO(shizhMSFT): filter artifact type
 	url := fmt.Sprintf("%s/manifests/%s/referrers", r.artifactEndpoint(), desc.Digest)
-	if r.ReferrerListPageSize > 0 {
-		url = fmt.Sprintf("%s?n=%d", url, r.ReferrerListPageSize)
-	}
-
 	var err error
 	for err == nil {
 		url, err = r.referrers(ctx, desc, fn, url)
@@ -281,6 +286,11 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
+	}
+	if r.ReferrerListPageSize > 0 {
+		q := req.URL.Query()
+		q.Set("n", strconv.Itoa(r.ReferrerListPageSize))
+		req.URL.RawQuery = q.Encode()
 	}
 
 	resp, err := r.Client.Do(req)
@@ -328,8 +338,13 @@ func (r *Repository) artifactEndpoint() string {
 
 // delete removes the content identified by the descriptor in the entity "blobs"
 // or "manifests".
-func (r *Repository) delete(ctx context.Context, entity string, target ocispec.Descriptor) error {
-	url := fmt.Sprintf("%s/%s/%s", r.endpoint(), entity, target.Digest)
+func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isManifest bool) error {
+	var url string
+	if isManifest {
+		url = fmt.Sprintf("%s/manifests/%s", r.endpoint(), target.Digest)
+	} else {
+		url = fmt.Sprintf("%s/blobs/%s", r.endpoint(), target.Digest)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return err
@@ -471,7 +486,7 @@ func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool
 
 // Delete removes the content identified by the descriptor.
 func (s *blobStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	return s.repo.delete(ctx, "blobs", target)
+	return s.repo.delete(ctx, target, false)
 }
 
 // Resolve resolves a reference to a descriptor.
@@ -589,10 +604,11 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 
 // Delete removes the content identified by the descriptor.
 func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	return s.repo.delete(ctx, "manifests", target)
+	return s.repo.delete(ctx, target, true)
 }
 
 // Resolve resolves a reference to a descriptor.
+// See also `ManifestMediaTypes`.
 func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
 	ref, err := s.repo.parseReference(reference)
 	if err != nil {
@@ -603,7 +619,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	req.Header.Set("Accept", manifestAcceptHeader)
+	req.Header.Set("Accept", manifestAcceptHeader(s.repo.ManifestMediaTypes))
 
 	resp, err := s.repo.Client.Do(req)
 	if err != nil {
