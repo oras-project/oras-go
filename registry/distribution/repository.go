@@ -155,7 +155,9 @@ func (r *Repository) PushTag(ctx context.Context, expected ocispec.Descriptor, c
 
 // push pushes the content, matching the expected descriptor.
 func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	url := fmt.Sprintf("%s/manifests/%s", r.endpoint(), reference)
+	ref := r.Reference
+	ref.Reference = reference
+	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content)
 	if err != nil {
 		return err
@@ -180,7 +182,8 @@ func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, cont
 }
 
 // parseReference validates the reference.
-// Both simplified or fully qualified references are accepted.
+// Both simplified or fully qualified references are accepted as input.
+// A fully qualified reference is returned on success.
 func (r *Repository) parseReference(reference string) (registry.Reference, error) {
 	ref, err := registry.ParseReference(reference)
 	if err != nil {
@@ -202,7 +205,7 @@ func (r *Repository) parseReference(reference string) (registry.Reference, error
 
 // Tags lists the tags available in the repository.
 func (r *Repository) Tags(ctx context.Context, fn func(tags []string) error) error {
-	url := fmt.Sprintf("%s/tags/list", r.endpoint())
+	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
 	var err error
 	for err == nil {
 		url, err = r.tags(ctx, fn, url)
@@ -269,7 +272,9 @@ func (r *Repository) UpEdges(ctx context.Context, desc ocispec.Descriptor) ([]oc
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error) error {
 	// TODO(shizhMSFT): filter artifact type
-	url := fmt.Sprintf("%s/manifests/%s/referrers", r.artifactEndpoint(), desc.Digest)
+	ref := r.Reference
+	ref.Reference = desc.Digest.String()
+	url := buildArtifactReferrerURL(r.PlainHTTP, ref)
 	var err error
 	for err == nil {
 		url, err = r.referrers(ctx, desc, fn, url)
@@ -317,34 +322,16 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	return parseLink(resp)
 }
 
-// scheme returns HTTP scheme used to access the remote registry.
-func (r *Repository) scheme() string {
-	if r.PlainHTTP {
-		return "http"
-	}
-	return "https"
-}
-
-// endpoint returns the base endpoint of the remote registry.
-func (r *Repository) endpoint() string {
-	return fmt.Sprintf("%s://%s/v2/%s", r.scheme(), r.Reference.Host(), r.Reference.Repository)
-}
-
-// artifactEndpoint returns the base endpoint of the remote registry for ORAS
-// artifacts.
-func (r *Repository) artifactEndpoint() string {
-	return fmt.Sprintf("%s://%s/oras/artifacts/v1/%s", r.scheme(), r.Reference.Host(), r.Reference.Repository)
-}
-
 // delete removes the content identified by the descriptor in the entity "blobs"
 // or "manifests".
 func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isManifest bool) error {
-	var url string
+	ref := r.Reference
+	ref.Reference = target.Digest.String()
+	buildURL := buildRepositoryBlobURL
 	if isManifest {
-		url = fmt.Sprintf("%s/manifests/%s", r.endpoint(), target.Digest)
-	} else {
-		url = fmt.Sprintf("%s/blobs/%s", r.endpoint(), target.Digest)
+		buildURL = buildRepositoryManifestURL
 	}
+	url := buildURL(r.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return err
@@ -373,7 +360,9 @@ type blobStore struct {
 
 // Fetch fetches the content identified by the descriptor.
 func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
-	url := fmt.Sprintf("%s/blobs/%s", s.repo.endpoint(), target.Digest)
+	ref := s.repo.Reference
+	ref.Reference = target.Digest.String()
+	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -422,7 +411,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 // - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	// start an upload
-	url := fmt.Sprintf("%s/blobs/uploads/", s.repo.endpoint())
+	url := buildRepositoryBlobUploadURL(s.repo.PlainHTTP, s.repo.Reference)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return err
@@ -499,7 +488,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	url := fmt.Sprintf("%s/blobs/%s", s.repo.endpoint(), refDigest)
+	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, err
@@ -544,7 +533,9 @@ type manifestStore struct {
 
 // Fetch fetches the content identified by the descriptor.
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
-	url := fmt.Sprintf("%s/manifests/%s", s.repo.endpoint(), target.Digest)
+	ref := s.repo.Reference
+	ref.Reference = target.Digest.String()
+	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -614,7 +605,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	url := fmt.Sprintf("%s/manifests/%s", s.repo.endpoint(), ref.Reference)
+	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, err
