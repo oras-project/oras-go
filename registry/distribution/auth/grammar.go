@@ -48,11 +48,12 @@ func parseChallenge(header string) (scheme string, params map[string]string) {
 			return
 		}
 
-		if rest[1] == '"' {
+		if rest[0] == '"' {
 			value, tail = parseQuotedString(rest)
 			if rest == tail {
 				return
 			}
+			rest = tail
 		} else {
 			value, rest = parseToken(rest)
 			if value == "" {
@@ -71,6 +72,7 @@ func parseChallenge(header string) (scheme string, params map[string]string) {
 		if rest == "" || rest[0] != ',' {
 			return
 		}
+		rest = rest[1:]
 	}
 }
 
@@ -84,8 +86,8 @@ func isNotTokenChar(r rune) bool {
 	switch {
 	case r >= 'A' && r <= 'Z',
 		r >= 'a' && r <= 'z',
-		r >= '0' && r <= '9':
-		strings.ContainsRune("!#$%&'*+-.^_`|~", r)
+		r >= '0' && r <= '9',
+		strings.ContainsRune("!#$%&'*+-.^_`|~", r):
 		return false
 	}
 	return true
@@ -93,15 +95,12 @@ func isNotTokenChar(r rune) bool {
 
 // parseToken finds the next token from the given string. If no token found,
 // an empty token is returned and the whole of the input is returned in rest.
+// Note: Since token = 1*tchar, empty string is not a valid token.
 func parseToken(s string) (token, rest string) {
-	// since token = 1*tchar, empty string is not a valid token.
-	if s == "" {
-		return "", ""
-	}
 	if i := strings.IndexFunc(s, isNotTokenChar); i != -1 {
 		return s[:i], s[i:]
 	}
-	return "", s
+	return s, ""
 }
 
 // skipSpace skips "bad" whitespace (BWS) defined in RFC 7230 section 3.2.3.
