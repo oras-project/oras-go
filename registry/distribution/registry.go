@@ -19,7 +19,6 @@ package distribution
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -65,7 +64,7 @@ func NewRegistry(name string) (*Registry, error) {
 // See also `RepositoryListPageSize`.
 // Reference: https://docs.docker.com/registry/spec/api/#catalog
 func (r *Registry) Repositories(ctx context.Context, fn func(repos []string) error) error {
-	url := fmt.Sprintf("%s/v2/_catalog", r.endpoint())
+	url := buildRegistryCatalogURL(r.PlainHTTP, r.Reference)
 	var err error
 	for err == nil {
 		url, err = r.repositories(ctx, fn, url)
@@ -124,13 +123,4 @@ func (r *Registry) Repository(ctx context.Context, name string) (registry.Reposi
 	repo := Repository(r.RepositoryOptions)
 	repo.Reference = ref
 	return &repo, nil
-}
-
-// endpoint returns the base endpoint of the remote registry.
-func (r *Registry) endpoint() string {
-	scheme := "https"
-	if r.PlainHTTP {
-		scheme = "http"
-	}
-	return fmt.Sprintf("%s://%s", scheme, r.Reference.Host())
 }
