@@ -88,10 +88,10 @@ func (a *Authorizer) fetchToken(ctx context.Context, host string, params map[str
 	if err != nil {
 		return "", nil, err
 	}
-	if creds.RefreshToken == "" {
+	if creds.IdentityToken == "" {
 		return a.fetchDistributionToken(ctx, params, &creds)
 	}
-	return a.fetchOAuth2Token(ctx, params, creds.RefreshToken)
+	return a.fetchOAuth2Token(ctx, params, creds.IdentityToken)
 }
 
 // fetchDistributionToken fetches an access token as defined by the distribution
