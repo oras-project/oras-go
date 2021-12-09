@@ -20,12 +20,17 @@ import (
 // References: https://docs.docker.com/registry/spec/auth/token/
 var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 
+// defaultClientID specifies the default client ID used in OAuth2.
+// See also `Authorizer.ClientID`.
 var defaultClientID = "oras-go"
 
 type Authorizer struct {
 	Transport  http.RoundTripper
 	Credential func(string) (Credential, error)
-	ClientID   string
+
+	// ClientID used in fetching OAuth2 token.
+	// If empty, a default client ID is used.
+	ClientID string
 }
 
 func (a *Authorizer) RoundTrip(originalReq *http.Request) (*http.Response, error) {
@@ -186,6 +191,8 @@ func (a *Authorizer) fetchOAuth2Token(ctx context.Context, params map[string]str
 	return "", nil, fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
 }
 
+// transport returns a HTTP transport used to access the remote server.
+// A default HTTP transport is return if the transport is not configured.
 func (a *Authorizer) transport() http.RoundTripper {
 	if a.Transport == nil {
 		return http.DefaultTransport
