@@ -25,7 +25,11 @@ var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 var defaultClientID = "oras-go"
 
 type Authorizer struct {
-	Transport  http.RoundTripper
+	// Transport is the underlying HTTP transport used to access the remote
+	// server.
+	// If nil, a default HTTP transport is used.
+	Transport http.RoundTripper
+
 	Credential func(string) (Credential, error)
 
 	// ClientID used in fetching OAuth2 token.
