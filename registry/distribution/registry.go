@@ -19,6 +19,7 @@ package distribution
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -54,10 +55,18 @@ func NewRegistry(name string) (*Registry, error) {
 	}
 	return &Registry{
 		RepositoryOptions: RepositoryOptions{
-			Client:    http.DefaultClient,
 			Reference: ref,
 		},
 	}, nil
+}
+
+// client returns a HTTP client used to access the remote registry.
+// A default HTTP client is return if the client is not configured.
+func (r *Registry) client() *http.Client {
+	if r.Client == nil {
+		return http.DefaultClient
+	}
+	return r.Client
 }
 
 // Repositories lists the name of repositories available in the registry.
@@ -87,7 +96,7 @@ func (r *Registry) repositories(ctx context.Context, fn func(repos []string) err
 		req.URL.RawQuery = q.Encode()
 	}
 
-	resp, err := r.Client.Do(req)
+	resp, err := r.client().Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -101,7 +110,7 @@ func (r *Registry) repositories(ctx context.Context, fn func(repos []string) err
 	}
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
-		return "", err
+		return "", fmt.Errorf("%s %q: failed to decode response: %v", resp.Request.Method, resp.Request.URL, err)
 	}
 	if err := fn(page.Repositories); err != nil {
 		return "", err
