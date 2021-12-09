@@ -19,6 +19,7 @@ package distribution
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -101,7 +102,7 @@ func (r *Registry) repositories(ctx context.Context, fn func(repos []string) err
 	}
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
-		return "", err
+		return "", fmt.Errorf("%s %q: failed to decode response: %v", resp.Request.Method, resp.Request.URL, err)
 	}
 	if err := fn(page.Repositories); err != nil {
 		return "", err
