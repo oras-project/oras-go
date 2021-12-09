@@ -83,14 +83,8 @@ func isNotTokenChar(r rune) bool {
 	//       / "+" / "-" / "." / "^" / "_" / "`" / "|" / "~"
 	//       / DIGIT / ALPHA
 	//       ; any VCHAR, except delimiters
-	switch {
-	case r >= 'A' && r <= 'Z',
-		r >= 'a' && r <= 'z',
-		r >= '0' && r <= '9',
-		strings.ContainsRune("!#$%&'*+-.^_`|~", r):
-		return false
-	}
-	return true
+	return (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') &&
+		(r < '0' || r > '9') && !strings.ContainsRune("!#$%&'*+-.^_`|~", r)
 }
 
 // parseToken finds the next token from the given string. If no token found,
@@ -142,11 +136,9 @@ func parseQuotedString(s string) (value, rest string) {
 			break
 		}
 	}
-	var err error
-	value, err = strconv.Unquote(s[:i])
+	value, err := strconv.Unquote(s[:i])
 	if err != nil {
 		return "", s
 	}
-	rest = s[i:]
-	return
+	return value, s[i:]
 }

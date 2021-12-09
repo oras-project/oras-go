@@ -66,7 +66,31 @@ func Test_parseChallenge(t *testing.T) {
 			},
 		},
 		{
-			name:       "bad bearer challenge",
+			name:       "bad bearer challenge (incomplete parameter with spaces)",
+			header:     `Bearer realm="https://auth.example.io/token",service`,
+			wantScheme: "bearer",
+			wantParams: map[string]string{
+				"realm": "https://auth.example.io/token",
+			},
+		},
+		{
+			name:       "bad bearer challenge (incomplete parameter with no value)",
+			header:     `Bearer realm="https://auth.example.io/token",service=`,
+			wantScheme: "bearer",
+			wantParams: map[string]string{
+				"realm": "https://auth.example.io/token",
+			},
+		},
+		{
+			name:       "bad bearer challenge (incomplete parameter with spaces)",
+			header:     `Bearer realm="https://auth.example.io/token",service= `,
+			wantScheme: "bearer",
+			wantParams: map[string]string{
+				"realm": "https://auth.example.io/token",
+			},
+		},
+		{
+			name:       "bad bearer challenge (incomplete quote)",
 			header:     `Bearer realm="https://auth.example.io/token",service="registry`,
 			wantScheme: "bearer",
 			wantParams: map[string]string{
