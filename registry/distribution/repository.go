@@ -36,6 +36,7 @@ import (
 // Repository is a HTTP client to a remote repository.
 type Repository struct {
 	// Client is the underlying HTTP client used to access the remote registry.
+	// If nil, a default HTTP client is used.
 	Client *http.Client
 
 	// Reference references the remote repository.
@@ -78,9 +79,17 @@ func NewRepository(reference string) (*Repository, error) {
 		return nil, err
 	}
 	return &Repository{
-		Client:    http.DefaultClient,
 		Reference: ref,
 	}, nil
+}
+
+// client returns a HTTP client used to access the remote repository.
+// A default HTTP client is return if the client is not configured.
+func (r *Repository) client() *http.Client {
+	if r.Client == nil {
+		return http.DefaultClient
+	}
+	return r.Client
 }
 
 // blobStore detects the blob store for the given descriptor.
@@ -169,7 +178,7 @@ func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, cont
 	req.ContentLength = expected.Size
 	req.Header.Set("Content-Type", expected.MediaType)
 
-	resp, err := r.Client.Do(req)
+	resp, err := r.client().Do(req)
 	if err != nil {
 		return err
 	}
@@ -228,7 +237,7 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 		req.URL.RawQuery = q.Encode()
 	}
 
-	resp, err := r.Client.Do(req)
+	resp, err := r.client().Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -298,7 +307,7 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 		req.URL.RawQuery = q.Encode()
 	}
 
-	resp, err := r.Client.Do(req)
+	resp, err := r.client().Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -337,7 +346,7 @@ func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isMa
 		return err
 	}
 
-	resp, err := r.Client.Do(req)
+	resp, err := r.client().Do(req)
 	if err != nil {
 		return err
 	}
@@ -374,7 +383,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 	// Reference: https://docs.docker.com/registry/spec/api/#blob
 	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", target.Size-1))
 
-	resp, err := s.repo.Client.Do(req)
+	resp, err := s.repo.client().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +400,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 		}
 		return resp.Body, nil
 	case http.StatusPartialContent:
-		return httputil.NewReadSeekCloser(s.repo.Client, req, resp.Body, target.Size), nil
+		return httputil.NewReadSeekCloser(s.repo.client(), req, resp.Body, target.Size), nil
 	case http.StatusNotFound:
 		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
 	default:
@@ -417,7 +426,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 		return err
 	}
 
-	resp, err := s.repo.Client.Do(req)
+	resp, err := s.repo.client().Do(req)
 	if err != nil {
 		return err
 	}
@@ -449,7 +458,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	q.Set("digest", expected.Digest.String())
 	req.URL.RawQuery = q.Encode()
 
-	resp, err = s.repo.Client.Do(req)
+	resp, err = s.repo.client().Do(req)
 	if err != nil {
 		return err
 	}
@@ -494,7 +503,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 		return ocispec.Descriptor{}, err
 	}
 
-	resp, err := s.repo.Client.Do(req)
+	resp, err := s.repo.client().Do(req)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -542,7 +551,7 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	}
 	req.Header.Set("Accept", target.MediaType)
 
-	resp, err := s.repo.Client.Do(req)
+	resp, err := s.repo.client().Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -612,7 +621,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	}
 	req.Header.Set("Accept", manifestAcceptHeader(s.repo.ManifestMediaTypes))
 
-	resp, err := s.repo.Client.Do(req)
+	resp, err := s.repo.client().Do(req)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
