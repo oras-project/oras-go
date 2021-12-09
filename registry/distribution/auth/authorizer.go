@@ -59,7 +59,10 @@ func (a *Authorizer) RoundTrip(originalReq *http.Request) (*http.Response, error
 
 		creds, err := a.Credential(req.Host)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s %q: failed to resolve credential: %v", resp.Request.Method, resp.Request.URL, err)
+		}
+		if creds.Username == "" {
+			return nil, fmt.Errorf("%s %q: basic credential required", resp.Request.Method, resp.Request.URL)
 		}
 
 		req = originalReq.Clone(ctx)
@@ -69,7 +72,7 @@ func (a *Authorizer) RoundTrip(originalReq *http.Request) (*http.Response, error
 
 		token, resp, err := a.fetchToken(ctx, req.Host, params)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s %q: failed to fetch token: %v", resp.Request.Method, resp.Request.URL, err)
 		}
 		if resp != nil {
 			return resp, nil
@@ -86,16 +89,16 @@ func (a *Authorizer) RoundTrip(originalReq *http.Request) (*http.Response, error
 
 func (a *Authorizer) fetchToken(ctx context.Context, host string, params map[string]string) (string, *http.Response, error) {
 	if a.Credential == nil {
-		return a.fetchDistributionToken(ctx, params, nil)
+		return a.fetchDistributionToken(ctx, params, "", "")
 	}
 	creds, err := a.Credential(host)
 	if err != nil {
 		return "", nil, err
 	}
-	if creds.IdentityToken == "" {
-		return a.fetchDistributionToken(ctx, params, &creds)
+	if creds.RefreshToken == "" {
+		return a.fetchDistributionToken(ctx, params, creds.Username, creds.Password)
 	}
-	return a.fetchOAuth2Token(ctx, params, creds.IdentityToken)
+	return a.fetchOAuth2Token(ctx, params, creds.RefreshToken)
 }
 
 // fetchDistributionToken fetches an access token as defined by the distribution
@@ -104,13 +107,13 @@ func (a *Authorizer) fetchToken(ctx context.Context, host string, params map[str
 // References:
 // - https://docs.docker.com/registry/spec/auth/jwt/
 // - https://docs.docker.com/registry/spec/auth/token/
-func (a *Authorizer) fetchDistributionToken(ctx context.Context, params map[string]string, creds *Credential) (string, *http.Response, error) {
+func (a *Authorizer) fetchDistributionToken(ctx context.Context, params map[string]string, username, password string) (string, *http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, params["realm"], nil)
 	if err != nil {
 		return "", nil, err
 	}
-	if creds != nil {
-		req.SetBasicAuth(creds.Username, creds.Password)
+	if username != "" || password != "" {
+		req.SetBasicAuth(username, password)
 	}
 	q := req.URL.Query()
 	if service, ok := params["service"]; ok {

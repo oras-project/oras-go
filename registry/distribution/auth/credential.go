@@ -9,14 +9,14 @@ type Credential struct {
 	// Password is the secret associated with the username.
 	Password string
 
-	// IdentityToken is a bearer token to be sent to the authorization service
+	// RefreshToken is a bearer token to be sent to the authorization service
 	// for fetching access tokens.
-	// An identity token is often used as a registry refresh token.
+	// A refresh token is often referred as an identity token.
 	// Reference: https://docs.docker.com/registry/spec/auth/oauth/
-	IdentityToken string
+	RefreshToken string
 
-	// RegistryToken is a bearer token to be sent to the registry.
-	// An registry token is often called a registry access token.
+	// AccessToken is a bearer token to be sent to the registry.
+	// An access token is often referred as a registry token.
 	// Reference: https://docs.docker.com/registry/spec/auth/token/
-	RegistryToken string
+	AccessToken string
 }
