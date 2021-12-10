@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,14 @@ type Authorizer struct {
 	// If empty, a default client ID is used.
 	// Reference: https://docs.docker.com/registry/spec/auth/oauth/#getting-a-token
 	ClientID string
+
+	// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant
+	// instead the distribution spec when authenticating using username and
+	// password.
+	// References:
+	// - https://docs.docker.com/registry/spec/auth/jwt/
+	// - https://docs.docker.com/registry/spec/auth/oauth/
+	ForceAttemptOAuth2 bool
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -62,6 +71,14 @@ func (a *Authorizer) send(req *http.Request) (*http.Response, error) {
 		req.Header[key] = append(req.Header[key], values...)
 	}
 	return a.client().Do(req)
+}
+
+// credential resolves the credential for the given registry.
+func (a *Authorizer) credential(reg string) (Credential, error) {
+	if a.Credential == nil {
+		return EmptyCredential, nil
+	}
+	return a.Credential(reg)
 }
 
 // SetUserAgent sets the user agent for all out-going requests.
@@ -86,21 +103,22 @@ func (a *Authorizer) Do(originalReq *http.Request) (*http.Response, error) {
 	scheme, params := parseChallenge(challenge)
 	switch scheme {
 	case "basic":
-		if a.Credential == nil {
+		cred, err := a.credential(req.Host)
+		if err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("%s %q: failed to resolve credential: %v", resp.Request.Method, resp.Request.URL, err)
+		}
+		if cred == EmptyCredential {
 			return resp, nil
 		}
 		resp.Body.Close()
 
-		creds, err := a.Credential(req.Host)
-		if err != nil {
-			return nil, fmt.Errorf("%s %q: failed to resolve credential: %v", resp.Request.Method, resp.Request.URL, err)
-		}
-		if creds.Username == "" {
-			return nil, fmt.Errorf("%s %q: username required for basic auth", resp.Request.Method, resp.Request.URL)
+		if cred.Username == "" || cred.Password == "" {
+			return nil, fmt.Errorf("%s %q: missing username or password for basic auth", resp.Request.Method, resp.Request.URL)
 		}
 
 		req = originalReq.Clone(ctx)
-		req.SetBasicAuth(creds.Username, creds.Password)
+		req.SetBasicAuth(cred.Username, cred.Password)
 	case "bearer":
 		resp.Body.Close()
 
@@ -123,17 +141,17 @@ func (a *Authorizer) Do(originalReq *http.Request) (*http.Response, error) {
 
 // fetchToken fetches an access token for the bearer challenge.
 func (a *Authorizer) fetchToken(ctx context.Context, host string, params map[string]string) (string, *http.Response, error) {
-	if a.Credential == nil {
-		return a.fetchDistributionToken(ctx, params, "", "")
-	}
-	creds, err := a.Credential(host)
+	cred, err := a.credential(host)
 	if err != nil {
 		return "", nil, err
 	}
-	if creds.RefreshToken == "" {
-		return a.fetchDistributionToken(ctx, params, creds.Username, creds.Password)
+	if cred.AccessToken != "" {
+		return cred.AccessToken, nil, nil
 	}
-	return a.fetchOAuth2Token(ctx, params, creds.RefreshToken)
+	if cred == EmptyCredential || !a.ForceAttemptOAuth2 {
+		return a.fetchDistributionToken(ctx, params, cred.Username, cred.Password)
+	}
+	return a.fetchOAuth2Token(ctx, params, cred)
 }
 
 // fetchDistributionToken fetches an access token as defined by the distribution
@@ -190,10 +208,18 @@ func (a *Authorizer) fetchDistributionToken(ctx context.Context, params map[stri
 
 // fetchOAuth2Token fetches an OAuth2 access token.
 // Reference: https://docs.docker.com/registry/spec/auth/oauth/
-func (a *Authorizer) fetchOAuth2Token(ctx context.Context, params map[string]string, token string) (string, *http.Response, error) {
+func (a *Authorizer) fetchOAuth2Token(ctx context.Context, params map[string]string, cred Credential) (string, *http.Response, error) {
 	form := url.Values{}
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", token)
+	if cred.RefreshToken != "" {
+		form.Set("grant_type", "refresh_token")
+		form.Set("refresh_token", cred.RefreshToken)
+	} else if cred.Username != "" && cred.Password != "" {
+		form.Set("grant_type", "password")
+		form.Set("username", cred.Username)
+		form.Set("password", cred.Password)
+	} else {
+		return "", nil, errors.New("missing username or password for bearer auth")
+	}
 	form.Set("service", params["service"])
 	clientID := a.ClientID
 	if clientID == "" {
