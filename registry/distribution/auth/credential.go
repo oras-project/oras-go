@@ -1,5 +1,8 @@
 package auth
 
+// EmptyCredential represents an empty credential.
+var EmptyCredential Credential
+
 // Credential contains authentication credentials used to access remote
 // registries.
 type Credential struct {

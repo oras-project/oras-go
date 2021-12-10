@@ -24,13 +24,14 @@ import (
 	"strconv"
 
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/distribution/auth"
 )
 
 // RepositoryOptions is an alias of Repository to avoid name conflicts.
 // It also hides all methods associated with Repository.
 type RepositoryOptions Repository
 
-// Registry is a HTTP client to a remote registry.
+// Registry is an HTTP client to a remote registry.
 type Registry struct {
 	// RepositoryOptions contains common options for Registry and Repository.
 	// It is also used as a template for derived repositories.
@@ -60,11 +61,11 @@ func NewRegistry(name string) (*Registry, error) {
 	}, nil
 }
 
-// client returns a HTTP client used to access the remote registry.
+// client returns an HTTP client used to access the remote registry.
 // A default HTTP client is return if the client is not configured.
-func (r *Registry) client() *http.Client {
+func (r *Registry) client() auth.Client {
 	if r.Client == nil {
-		return http.DefaultClient
+		return auth.DefaultClient
 	}
 	return r.Client
 }

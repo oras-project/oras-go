@@ -31,13 +31,14 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/distribution/auth"
 )
 
-// Repository is a HTTP client to a remote repository.
+// Repository is an HTTP client to a remote repository.
 type Repository struct {
 	// Client is the underlying HTTP client used to access the remote registry.
-	// If nil, a default HTTP client is used.
-	Client *http.Client
+	// If nil, auth.DefaultClient is used.
+	Client auth.Client
 
 	// Reference references the remote repository.
 	Reference registry.Reference
@@ -83,11 +84,11 @@ func NewRepository(reference string) (*Repository, error) {
 	}, nil
 }
 
-// client returns a HTTP client used to access the remote repository.
+// client returns an HTTP client used to access the remote repository.
 // A default HTTP client is return if the client is not configured.
-func (r *Repository) client() *http.Client {
+func (r *Repository) client() auth.Client {
 	if r.Client == nil {
-		return http.DefaultClient
+		return auth.DefaultClient
 	}
 	return r.Client
 }

@@ -19,11 +19,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"oras.land/oras-go/v2/registry/distribution/auth"
 )
 
 // readSeekCloser seeks http body by starting new connections.
 type readSeekCloser struct {
-	client *http.Client
+	client auth.Client
 	req    *http.Request
 	rc     io.ReadCloser
 	size   int64
@@ -33,7 +35,7 @@ type readSeekCloser struct {
 
 // NewReadSeekCloser returns a seeker to make the HTTP response seekable.
 // Callers should ensure that the server supports Range request.
-func NewReadSeekCloser(client *http.Client, req *http.Request, respBody io.ReadCloser, size int64) io.ReadSeekCloser {
+func NewReadSeekCloser(client auth.Client, req *http.Request, respBody io.ReadCloser, size int64) io.ReadSeekCloser {
 	return &readSeekCloser{
 		client: client,
 		req:    req,

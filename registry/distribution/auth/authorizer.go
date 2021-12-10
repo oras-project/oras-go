@@ -24,23 +24,57 @@ var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 // See also `Authorizer.ClientID`.
 var defaultClientID = "oras-go"
 
+// Authorizer is an auth-decorated HTTP client.
 type Authorizer struct {
 	// Transport is the underlying HTTP transport used to access the remote
 	// server.
 	// If nil, a default HTTP transport is used.
-	Transport http.RoundTripper
+	Client *http.Client
 
+	// Header contains the custom headers to be added to each request.
+	Header http.Header
+
+	// Credential specifies the function for resolving the credential for the
+	// given registry (i.e. host:port).
+	// `EmptyCredential` is a valid return value and should not be considered as
+	// an error.
+	// If nil, the credential is always resolved to `EmptyCredential`.
 	Credential func(string) (Credential, error)
 
-	// ClientID used in fetching OAuth2 token.
+	// ClientID used in fetching OAuth2 token as a required field.
 	// If empty, a default client ID is used.
+	// Reference: https://docs.docker.com/registry/spec/auth/oauth/#getting-a-token
 	ClientID string
 }
 
-func (a *Authorizer) RoundTrip(originalReq *http.Request) (*http.Response, error) {
+// client returns an HTTP client used to access the remote registry.
+// http.DefaultClient is return if the client is not configured.
+func (a *Authorizer) client() *http.Client {
+	if a.Client == nil {
+		return http.DefaultClient
+	}
+	return a.Client
+}
+
+// send adds headers to the request and sends the request to the remote server.
+func (a *Authorizer) send(req *http.Request) (*http.Response, error) {
+	for key, values := range a.Header {
+		req.Header[key] = append(req.Header[key], values...)
+	}
+	return a.client().Do(req)
+}
+
+// SetUserAgent sets the user agent for all out-going requests.
+func (a *Authorizer) SetUserAgent(userAgent string) {
+	a.Header.Set("User-Agent", userAgent)
+}
+
+// Do sends the request to the remote server with resolving authentication
+// attempted.
+func (a *Authorizer) Do(originalReq *http.Request) (*http.Response, error) {
 	ctx := originalReq.Context()
 	req := originalReq.Clone(ctx)
-	resp, err := a.transport().RoundTrip(req)
+	resp, err := a.send(req)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +96,7 @@ func (a *Authorizer) RoundTrip(originalReq *http.Request) (*http.Response, error
 			return nil, fmt.Errorf("%s %q: failed to resolve credential: %v", resp.Request.Method, resp.Request.URL, err)
 		}
 		if creds.Username == "" {
-			return nil, fmt.Errorf("%s %q: basic credential required", resp.Request.Method, resp.Request.URL)
+			return nil, fmt.Errorf("%s %q: username required for basic auth", resp.Request.Method, resp.Request.URL)
 		}
 
 		req = originalReq.Clone(ctx)
@@ -84,9 +118,10 @@ func (a *Authorizer) RoundTrip(originalReq *http.Request) (*http.Response, error
 		return resp, nil
 	}
 
-	return a.transport().RoundTrip(req)
+	return a.send(req)
 }
 
+// fetchToken fetches an access token for the bearer challenge.
 func (a *Authorizer) fetchToken(ctx context.Context, host string, params map[string]string) (string, *http.Response, error) {
 	if a.Credential == nil {
 		return a.fetchDistributionToken(ctx, params, "", "")
@@ -124,7 +159,7 @@ func (a *Authorizer) fetchDistributionToken(ctx context.Context, params map[stri
 	}
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := a.transport().RoundTrip(req)
+	resp, err := a.send(req)
 	if err != nil {
 		return "", nil, err
 	}
@@ -176,7 +211,7 @@ func (a *Authorizer) fetchOAuth2Token(ctx context.Context, params map[string]str
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := a.transport().RoundTrip(req)
+	resp, err := a.send(req)
 	if err != nil {
 		return "", nil, err
 	}
@@ -196,13 +231,4 @@ func (a *Authorizer) fetchOAuth2Token(ctx context.Context, params map[string]str
 		return result.AccessToken, nil, nil
 	}
 	return "", nil, fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
-}
-
-// transport returns a HTTP transport used to access the remote server.
-// A default HTTP transport is return if the transport is not configured.
-func (a *Authorizer) transport() http.RoundTripper {
-	if a.Transport == nil {
-		return http.DefaultTransport
-	}
-	return a.Transport
 }
