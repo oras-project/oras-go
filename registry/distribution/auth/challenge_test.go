@@ -46,6 +46,16 @@ func Test_parseChallenge(t *testing.T) {
 			},
 		},
 		{
+			name:       "bearer challenge with multiple scopes",
+			header:     `Bearer realm="https://auth.example.io/token",service="registry.example.io",scope="repository:library/alpine:pull,push repository:ubuntu:pull"`,
+			wantScheme: "bearer",
+			wantParams: map[string]string{
+				"realm":   "https://auth.example.io/token",
+				"service": "registry.example.io",
+				"scope":   "repository:library/alpine:pull,push repository:ubuntu:pull",
+			},
+		},
+		{
 			name:       "bearer challenge with no parameters",
 			header:     "Bearer",
 			wantScheme: "bearer",
