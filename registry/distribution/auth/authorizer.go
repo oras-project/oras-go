@@ -172,8 +172,10 @@ func (a *Authorizer) fetchDistributionToken(ctx context.Context, params map[stri
 	if service, ok := params["service"]; ok {
 		q.Set("service", service)
 	}
-	if scope, ok := params["scope"]; ok {
-		q.Set("scope", scope)
+	if scopes, ok := params["scope"]; ok {
+		for _, scope := range strings.Split(scopes, " ") {
+			q.Add("scope", scope)
+		}
 	}
 	req.URL.RawQuery = q.Encode()
 
