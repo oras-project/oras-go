@@ -25,7 +25,7 @@ func parseChallenge(header string) (scheme string, params map[string]string) {
 	scheme = strings.ToLower(scheme)
 
 	// fast path for non bearer challenge
-	if scheme != "bearer" {
+	if scheme != SchemeBearer {
 		return
 	}
 

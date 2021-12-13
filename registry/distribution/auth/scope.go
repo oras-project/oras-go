@@ -12,8 +12,15 @@ func WithScopes(ctx context.Context, scopes ...string) context.Context {
 	if len(scopes) == 0 {
 		return ctx
 	}
-	scopes = append([]string{}, scopes...)
+	scopes = CleanScopes(scopes)
 	return context.WithValue(ctx, scopeContextKey{}, scopes)
+}
+
+func AppendScopes(ctx context.Context, scopes ...string) context.Context {
+	if len(scopes) == 0 {
+		return ctx
+	}
+	return WithScopes(ctx, append(GetScopes(ctx), scopes...)...)
 }
 
 func GetScopes(ctx context.Context) []string {
@@ -24,6 +31,24 @@ func GetScopes(ctx context.Context) []string {
 }
 
 func CleanScopes(scopes []string) []string {
+	// fast paths
+	switch len(scopes) {
+	case 0:
+		return nil
+	case 1:
+		scope := scopes[0]
+		i := strings.LastIndex(scope, ":")
+		if i == -1 {
+			return []string{scope}
+		}
+		actionList := strings.Split(scope[i+1:], ",")
+		actionList = cleanStrings(actionList)
+		actions := strings.Join(actionList, ",")
+		scope = scope[:i+1] + actions
+		return []string{scope}
+	}
+
+	// slow path
 	var result []string
 
 	// merge recognizable scopes
@@ -61,7 +86,9 @@ func CleanScopes(scopes []string) []string {
 			namedActions[resourceName] = actionSet
 		}
 		for _, action := range strings.Split(actions, ",") {
-			actionSet[action] = struct{}{}
+			if action != "" {
+				actionSet[action] = struct{}{}
+			}
 		}
 	}
 
@@ -81,4 +108,17 @@ func CleanScopes(scopes []string) []string {
 	// sort and return
 	sort.Strings(result)
 	return result
+}
+
+func cleanStrings(s []string) []string {
+	sort.Strings(s)
+	for i, j := 0, 1; j < len(s); j++ {
+		if s[i] != s[j] {
+			i++
+			if i != j {
+				s[i] = s[j]
+			}
+		}
+	}
+	return s
 }
