@@ -30,7 +30,7 @@ import (
 // It also hides all methods associated with Repository.
 type RepositoryOptions Repository
 
-// Registry is a HTTP client to a remote registry.
+// Registry is an HTTP client to a remote registry.
 type Registry struct {
 	// RepositoryOptions contains common options for Registry and Repository.
 	// It is also used as a template for derived repositories.
@@ -60,7 +60,7 @@ func NewRegistry(name string) (*Registry, error) {
 	}, nil
 }
 
-// client returns a HTTP client used to access the remote registry.
+// client returns an HTTP client used to access the remote registry.
 // A default HTTP client is return if the client is not configured.
 func (r *Registry) client() *http.Client {
 	if r.Client == nil {
@@ -110,7 +110,7 @@ func (r *Registry) repositories(ctx context.Context, fn func(repos []string) err
 	}
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
-		return "", fmt.Errorf("%s %q: failed to decode response: %v", resp.Request.Method, resp.Request.URL, err)
+		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	if err := fn(page.Repositories); err != nil {
 		return "", err

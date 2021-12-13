@@ -33,7 +33,7 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
-// Repository is a HTTP client to a remote repository.
+// Repository is an HTTP client to a remote repository.
 type Repository struct {
 	// Client is the underlying HTTP client used to access the remote registry.
 	// If nil, a default HTTP client is used.
@@ -83,7 +83,7 @@ func NewRepository(reference string) (*Repository, error) {
 	}, nil
 }
 
-// client returns a HTTP client used to access the remote repository.
+// client returns an HTTP client used to access the remote repository.
 // A default HTTP client is return if the client is not configured.
 func (r *Repository) client() *http.Client {
 	if r.Client == nil {
@@ -251,7 +251,7 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 	}
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
-		return "", fmt.Errorf("%s %q: failed to decode response: %v", resp.Request.Method, resp.Request.URL, err)
+		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	if err := fn(page.Tags); err != nil {
 		return "", err
@@ -322,7 +322,7 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	}
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
-		return "", fmt.Errorf("%s %q: failed to decode response: %v", resp.Request.Method, resp.Request.URL, err)
+		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	if err := fn(page.References); err != nil {
 		return "", err
