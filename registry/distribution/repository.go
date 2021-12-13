@@ -252,7 +252,7 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 	}
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
-		return "", fmt.Errorf("%s %q: failed to decode response: %v", resp.Request.Method, resp.Request.URL, err)
+		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	if err := fn(page.Tags); err != nil {
 		return "", err
@@ -323,7 +323,7 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	}
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
-		return "", fmt.Errorf("%s %q: failed to decode response: %v", resp.Request.Method, resp.Request.URL, err)
+		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	if err := fn(page.References); err != nil {
 		return "", err
