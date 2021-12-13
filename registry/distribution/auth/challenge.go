@@ -132,7 +132,7 @@ func parseQuotedString(s string) (value, rest string) {
 		})
 		i++
 		if offset == -1 || (i-offset)%2 == 0 {
-			// no escaping for '"' found
+			// no escaping found for '"'
 			break
 		}
 	}
