@@ -106,18 +106,23 @@ func (a *Authorizer) SetUserAgent(userAgent string) {
 func (a *Authorizer) Do(originalReq *http.Request) (*http.Response, error) {
 	ctx := originalReq.Context()
 	req := originalReq.Clone(ctx)
+
+	// attempt cached auth token
+	var attemptedKey string
 	cache := a.cache()
-	reg := originalReq.Host
-	scheme, err := cache.GetScheme(ctx, reg)
+	registry := originalReq.Host
+	scheme, err := cache.GetScheme(ctx, registry)
 	if err == nil {
 		switch scheme {
 		case SchemeBasic:
-			token, err := cache.GetToken(ctx, reg, "")
+			token, err := cache.GetToken(ctx, registry, SchemeBasic, "")
 			if err == nil {
 				req.Header.Set("Authorization", "Basic "+token)
 			}
 		case SchemeBearer:
-			token, err := cache.GetToken(ctx, reg, strings.Join(GetScopes(ctx), " "))
+			scopes := GetScopes(ctx)
+			attemptedKey = registry + " " + strings.Join(scopes, " ")
+			token, err := cache.GetToken(ctx, registry, SchemeBearer, attemptedKey)
 			if err == nil {
 				req.Header.Set("Authorization", "Bearer "+token)
 			}
@@ -132,14 +137,15 @@ func (a *Authorizer) Do(originalReq *http.Request) (*http.Response, error) {
 		return resp, nil
 	}
 
+	// attempt again with credentials for recognized schemes
 	challenge := resp.Header.Get("Www-Authenticate")
 	scheme, params := parseChallenge(challenge)
 	switch scheme {
 	case SchemeBasic:
 		resp.Body.Close()
 
-		token, err := cache.Set(ctx, reg, SchemeBasic, "", func(ctx context.Context) (string, error) {
-			return a.fetchBasicAuth(ctx, reg)
+		token, err := cache.Set(ctx, registry, SchemeBasic, "", func(ctx context.Context) (string, error) {
+			return a.fetchBasicAuth(ctx, registry)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
@@ -150,16 +156,36 @@ func (a *Authorizer) Do(originalReq *http.Request) (*http.Response, error) {
 	case SchemeBearer:
 		resp.Body.Close()
 
-		realm := params["realm"]
-		service := params["service"]
+		// merge hinted scopes with challenged scopes
 		scopes := GetScopes(ctx)
 		if scope := params["scope"]; scope != "" {
 			scopes = append(scopes, strings.Split(scope, " ")...)
+			scopes = CleanScopes(scopes)
 		}
-		scopes = CleanScopes(scopes)
-		key := service + " " + strings.Join(scopes, " ")
-		token, err := cache.Set(ctx, reg, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			return a.fetchBearerToken(ctx, reg, realm, service, scopes)
+		key := registry + " " + strings.Join(scopes, " ")
+
+		// attempt the cache again if there is a scope change
+		if key != attemptedKey {
+			if token, err := cache.GetToken(ctx, registry, SchemeBearer, key); err == nil {
+				req = originalReq.Clone(ctx)
+				req.Header.Set("Authorization", "Bearer "+token)
+
+				resp, err := a.send(req)
+				if err != nil {
+					return nil, err
+				}
+				if resp.StatusCode != http.StatusUnauthorized {
+					return resp, nil
+				}
+				resp.Body.Close()
+			}
+		}
+
+		// attempt with credentials
+		realm := params["realm"]
+		service := params["service"]
+		token, err := cache.Set(ctx, registry, SchemeBearer, key, func(ctx context.Context) (string, error) {
+			return a.fetchBearerToken(ctx, registry, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
