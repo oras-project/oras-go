@@ -15,11 +15,14 @@ limitations under the License.
 package distribution
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+
+	"oras.land/oras-go/v2/registry/distribution/auth"
 )
 
 // defaultMaxMetadataBytes specifies the default limit on how many response
@@ -59,4 +62,14 @@ func limitReader(r io.Reader, n int64) io.Reader {
 		n = defaultMaxMetadataBytes
 	}
 	return io.LimitReader(r, n)
+}
+
+// withScopeHint adds a hinted scope to the context.
+func withScopeHint(ctx context.Context, repository, actions string) context.Context {
+	scope := strings.Join([]string{
+		"repository",
+		repository,
+		actions,
+	}, ":")
+	return auth.AppendScopes(ctx, scope)
 }
