@@ -32,7 +32,7 @@ func parseChallenge(header string) (scheme string, params map[string]string) {
 	// parse params for bearer auth.
 	// combining RFC 7235 section 2.1 with RFC 7230 section 7, we have
 	//     #auth-param => auth-param *( OWS "," OWS auth-param )
-	var key, value, tail string
+	var key, value string
 	for {
 		key, rest = parseToken(skipSpace(rest))
 		if key == "" {
@@ -49,11 +49,15 @@ func parseChallenge(header string) (scheme string, params map[string]string) {
 		}
 
 		if rest[0] == '"' {
-			value, tail = parseQuotedString(rest)
-			if rest == tail {
+			prefix, err := strconv.QuotedPrefix(rest)
+			if err != nil {
 				return
 			}
-			rest = tail
+			value, err = strconv.Unquote(prefix)
+			if err != nil {
+				return
+			}
+			rest = rest[len(prefix):]
 		} else {
 			value, rest = parseToken(rest)
 			if value == "" {
@@ -109,36 +113,4 @@ func skipSpace(s string) string {
 		return s[i:]
 	}
 	return s
-}
-
-// parseQuotedString finds the next quoted string from the given string.
-// If no quoted string found, an empty string is returned and the whole of the
-// input is returned in rest.
-// Note: it is possible to have quoted empty string as "".
-func parseQuotedString(s string) (value, rest string) {
-	if s == "" || s[0] != '"' {
-		return "", s
-	}
-
-	i := 1
-	for {
-		offset := strings.IndexByte(s[i:], '"')
-		if offset == -1 {
-			return "", s
-		}
-		i += offset
-		offset = strings.LastIndexFunc(s[:i], func(r rune) bool {
-			return r != '\\'
-		})
-		i++
-		if offset == -1 || (i-offset)%2 == 0 {
-			// no escaping found for '"'
-			break
-		}
-	}
-	value, err := strconv.Unquote(s[:i])
-	if err != nil {
-		return "", s
-	}
-	return value, s[i:]
 }
