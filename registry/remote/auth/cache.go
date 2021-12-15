@@ -21,6 +21,7 @@ type basicCache string
 type tokenCache sync.Map // map[string]string
 
 type concurrentCache struct {
+	status    sync.Map // map[string]fetchOnceFunc
 	cacheLock sync.RWMutex
 	cache     map[string]interface{}
 }
@@ -73,9 +74,18 @@ func (cc *concurrentCache) Set(ctx context.Context, registry, scheme, key string
 		return "", fmt.Errorf("unknown scheme: %s", scheme)
 	}
 
-	token, err := fetch(ctx)
+	statusKey := scheme + " " + key
+	statusValue, _ := cc.status.LoadOrStore(statusKey, newFetchOnceFunc())
+	fetchOnce := statusValue.(fetchOnceFunc)
+	primary, token, err := fetchOnce(ctx, fetch)
+	if primary {
+		cc.status.Delete(statusKey)
+	}
 	if err != nil {
 		return "", err
+	}
+	if !primary {
+		return token, nil
 	}
 
 	switch scheme {
@@ -95,6 +105,34 @@ func (cc *concurrentCache) Set(ctx context.Context, registry, scheme, key string
 	}
 
 	return token, nil
+}
+
+type fetchOnceFunc func(context.Context, func(context.Context) (string, error)) (bool, string, error)
+
+func newFetchOnceFunc() fetchOnceFunc {
+	var token string
+	var err error
+	once := make(chan bool, 1)
+	once <- true
+	return func(ctx context.Context, fetch func(context.Context) (string, error)) (bool, string, error) {
+		for {
+			select {
+			case notDone := <-once:
+				if !notDone {
+					return false, token, err
+				}
+				token, err = fetch(ctx)
+				if err == context.Canceled || err == context.DeadlineExceeded {
+					once <- true
+					return false, "", err
+				}
+				close(once)
+				return true, token, err
+			case <-ctx.Done():
+				return false, "", ctx.Err()
+			}
+		}
+	}
 }
 
 type noCache struct{}
