@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/status"
 )
 
 var DefaultCache Cache = NewCache()
@@ -22,15 +21,13 @@ type basicCache string
 type tokenCache sync.Map // map[string]string
 
 type concurrentCache struct {
-	status    *status.Tracker
 	cacheLock sync.RWMutex
 	cache     map[string]interface{}
 }
 
 func NewCache() Cache {
 	return &concurrentCache{
-		status: status.NewTracker(),
-		cache:  make(map[string]interface{}),
+		cache: make(map[string]interface{}),
 	}
 }
 
