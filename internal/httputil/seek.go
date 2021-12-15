@@ -20,7 +20,7 @@ import (
 	"io"
 	"net/http"
 
-	"oras.land/oras-go/v2/registry/distribution/auth"
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 // readSeekCloser seeks http body by starting new connections.

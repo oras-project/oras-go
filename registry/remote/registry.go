@@ -14,7 +14,7 @@ limitations under the License.
 */
 // Package distribution provides a client to the remote registry.
 // Reference: https://github.com/distribution/distribution
-package distribution
+package remote
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 	"strconv"
 
 	"oras.land/oras-go/v2/registry"
-	"oras.land/oras-go/v2/registry/distribution/auth"
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 // RepositoryOptions is an alias of Repository to avoid name conflicts.

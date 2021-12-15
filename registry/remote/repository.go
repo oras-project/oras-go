@@ -12,7 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package distribution
+package remote
 
 import (
 	"context"
@@ -31,7 +31,7 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/registry"
-	"oras.land/oras-go/v2/registry/distribution/auth"
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 // Repository is an HTTP client to a remote repository.
