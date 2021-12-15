@@ -23,13 +23,14 @@ func (o *Once) Do(ctx context.Context, f func() (interface{}, error)) (bool, int
 			if !inProgress {
 				return false, o.result, o.err
 			}
-			o.result, o.err = f()
-			if o.err == context.Canceled || o.err == context.DeadlineExceeded {
+			result, err := f()
+			if err == context.Canceled || err == context.DeadlineExceeded {
 				o.status <- true
-				return false, "", o.err
+				return false, "", err
 			}
+			o.result, o.err = result, err
 			close(o.status)
-			return true, o.result, o.err
+			return true, result, err
 		case <-ctx.Done():
 			return false, "", ctx.Err()
 		}
