@@ -22,21 +22,123 @@ import (
 
 func TestTracker_TryCommit(t *testing.T) {
 	tracker := NewTracker()
-	var desc ocispec.Descriptor
+	var key string
 
-	notify, committed := tracker.TryCommit(desc)
+	notify, committed := tracker.TryCommit(key)
 	if !committed {
 		t.Fatalf("Tracker.TryCommit() got = %v, want %v", committed, true)
 	}
 
-	done, committed := tracker.TryCommit(desc)
+	done, committed := tracker.TryCommit(key)
 	if committed {
 		t.Fatalf("Tracker.TryCommit() got = %v, want %v", committed, false)
 	}
 
-	done2, committed := tracker.TryCommit(desc)
+	done2, committed := tracker.TryCommit(key)
 	if committed {
 		t.Fatalf("Tracker.TryCommit() got = %v, want %v", committed, false)
+	}
+
+	// status: working in progress
+	select {
+	case <-done:
+		t.Fatalf("unexpected done")
+	default:
+	}
+
+	select {
+	case <-done2:
+		t.Fatalf("unexpected done")
+	default:
+	}
+
+	// mark status as done
+	close(notify)
+
+	// status: done
+	select {
+	case <-done:
+	default:
+		t.Fatalf("unexpected in progress")
+	}
+
+	select {
+	case <-done2:
+	default:
+		t.Fatalf("unexpected in progress")
+	}
+}
+
+func TestTracker_DoneAndDelete(t *testing.T) {
+	tracker := NewTracker()
+	var key string
+
+	done, committed := tracker.TryCommit(key)
+	if !committed {
+		t.Fatalf("Tracker.TryCommit() got = %v, want %v", committed, true)
+	}
+
+	done2, committed := tracker.TryCommit(key)
+	if committed {
+		t.Fatalf("Tracker.TryCommit() got = %v, want %v", committed, false)
+	}
+
+	// status: working in progress
+	select {
+	case <-done:
+		t.Fatalf("unexpected done")
+	default:
+	}
+
+	select {
+	case <-done2:
+		t.Fatalf("unexpected done")
+	default:
+	}
+
+	// mark status as done
+	found := tracker.DoneAndDelete(key)
+	if !found {
+		t.Fatalf("Tracker.DoneAndDelete() got = %v, want %v", found, true)
+	}
+
+	// status: done
+	select {
+	case <-done:
+	default:
+		t.Fatalf("unexpected in progress")
+	}
+
+	select {
+	case <-done2:
+	default:
+		t.Fatalf("unexpected in progress")
+	}
+
+	// ensure the work item is deleted
+	_, committed = tracker.TryCommit(key)
+	if !committed {
+		t.Fatalf("Tracker.TryCommit() got = %v, want %v", committed, true)
+	}
+}
+
+func TestDescriptorTracker_TryCommit(t *testing.T) {
+	tracker := NewDescriptorTracker()
+	var desc ocispec.Descriptor
+
+	notify, committed := tracker.TryCommit(desc)
+	if !committed {
+		t.Fatalf("DescriptorTracker.TryCommit() got = %v, want %v", committed, true)
+	}
+
+	done, committed := tracker.TryCommit(desc)
+	if committed {
+		t.Fatalf("DescriptorTracker.TryCommit() got = %v, want %v", committed, false)
+	}
+
+	done2, committed := tracker.TryCommit(desc)
+	if committed {
+		t.Fatalf("DescriptorTracker.TryCommit() got = %v, want %v", committed, false)
 	}
 
 	// status: working in progress

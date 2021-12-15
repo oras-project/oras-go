@@ -66,7 +66,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 	proxy := cas.NewProxy(src, cas.NewMemory())
 
 	// track content status
-	tracker := status.NewTracker()
+	tracker := status.NewDescriptorTracker()
 
 	// prepare pre-handler
 	preHandler := graph.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
