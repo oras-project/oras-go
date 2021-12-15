@@ -121,7 +121,7 @@ func (a *Authorizer) Do(originalReq *http.Request) (*http.Response, error) {
 			}
 		case SchemeBearer:
 			scopes := GetScopes(ctx)
-			attemptedKey = registry + " " + strings.Join(scopes, " ")
+			attemptedKey = strings.Join(scopes, " ")
 			token, err := cache.GetToken(ctx, registry, SchemeBearer, attemptedKey)
 			if err == nil {
 				req.Header.Set("Authorization", "Bearer "+token)
@@ -162,7 +162,7 @@ func (a *Authorizer) Do(originalReq *http.Request) (*http.Response, error) {
 			scopes = append(scopes, strings.Split(scope, " ")...)
 			scopes = CleanScopes(scopes)
 		}
-		key := registry + " " + strings.Join(scopes, " ")
+		key := strings.Join(scopes, " ")
 
 		// attempt the cache again if there is a scope change
 		if key != attemptedKey {

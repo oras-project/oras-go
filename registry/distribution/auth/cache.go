@@ -18,14 +18,11 @@ type Cache interface {
 
 type basicCache string
 
-type tokenCache struct {
-	lock   sync.RWMutex
-	tokens map[string]string
-}
+type tokenCache sync.Map // map[string]string
 
 type concurrentCache struct {
-	lock  sync.RWMutex
-	cache map[string]interface{}
+	cacheLock sync.RWMutex
+	cache     map[string]interface{}
 }
 
 func NewCache() Cache {
@@ -35,9 +32,9 @@ func NewCache() Cache {
 }
 
 func (cc *concurrentCache) GetScheme(ctx context.Context, registry string) (string, error) {
-	cc.lock.RLock()
+	cc.cacheLock.RLock()
 	value, ok := cc.cache[registry]
-	cc.lock.RUnlock()
+	cc.cacheLock.RUnlock()
 	if !ok {
 		return "", errdef.ErrNotFound
 	}
@@ -51,21 +48,19 @@ func (cc *concurrentCache) GetScheme(ctx context.Context, registry string) (stri
 }
 
 func (cc *concurrentCache) GetToken(ctx context.Context, registry, scheme, key string) (string, error) {
-	cc.lock.RLock()
+	cc.cacheLock.RLock()
 	value, ok := cc.cache[registry]
-	cc.lock.RUnlock()
+	cc.cacheLock.RUnlock()
 	if !ok {
 		return "", errdef.ErrNotFound
 	}
 	switch c := value.(type) {
 	case *basicCache:
-		return string(*c), nil
+		return *(*string)(c), nil
 	case *tokenCache:
-		c.lock.RLock()
-		token, ok := c.tokens[key]
-		c.lock.RUnlock()
+		token, ok := (*sync.Map)(c).Load(key)
 		if ok {
-			return token, nil
+			return token.(string), nil
 		}
 	}
 	return "", errdef.ErrNotFound
@@ -73,36 +68,33 @@ func (cc *concurrentCache) GetToken(ctx context.Context, registry, scheme, key s
 
 func (cc *concurrentCache) Set(ctx context.Context, registry, scheme, key string, fetch func(context.Context) (string, error)) (string, error) {
 	switch scheme {
-	case SchemeBasic:
-		token, err := fetch(ctx)
-		if err != nil {
-			return "", err
-		}
-		cc.lock.Lock()
-		cc.cache[registry] = token
-		cc.lock.Unlock()
-		return token, nil
-	case SchemeBearer:
-		token, err := fetch(ctx)
-		if err != nil {
-			return "", err
-		}
-		cc.lock.Lock()
-		scopes, ok := cc.cache[registry].(*tokenCache)
-		if !ok {
-			scopes = &tokenCache{
-				tokens: make(map[string]string),
-			}
-			cc.cache[registry] = scopes
-		}
-		cc.lock.Unlock()
-		scopes.lock.Lock()
-		scopes.tokens[key] = token
-		scopes.lock.Unlock()
-		return token, nil
+	case SchemeBasic, SchemeBearer:
+	default:
+		return "", fmt.Errorf("unknown scheme: %s", scheme)
 	}
 
-	return "", fmt.Errorf("unknown scheme: %s", scheme)
+	token, err := fetch(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	switch scheme {
+	case SchemeBasic:
+		cc.cacheLock.Lock()
+		cc.cache[registry] = token
+		cc.cacheLock.Unlock()
+	case SchemeBearer:
+		cc.cacheLock.Lock()
+		scopes, ok := cc.cache[registry].(*tokenCache)
+		if !ok {
+			scopes = &tokenCache{}
+			cc.cache[registry] = scopes
+		}
+		cc.cacheLock.Unlock()
+		(*sync.Map)(scopes).Store(key, token)
+	}
+
+	return token, nil
 }
 
 type noCache struct{}
