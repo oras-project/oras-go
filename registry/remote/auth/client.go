@@ -7,6 +7,7 @@ var DefaultClient = &Authorizer{
 	Header: http.Header{
 		"User-Agent": {"oras-go"},
 	},
+	Cache: DefaultCache,
 }
 
 // Client is an auth-decorated HTTP client.
