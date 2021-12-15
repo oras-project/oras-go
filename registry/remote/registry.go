@@ -12,9 +12,9 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-// Package distribution provides a client to the remote registry.
+// Package remote provides a client to the remote registry.
 // Reference: https://github.com/distribution/distribution
-package distribution
+package remote
 
 import (
 	"context"
