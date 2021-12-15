@@ -21,48 +21,22 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 )
 
-// Tracker tracks status described by a key.
-type Tracker sync.Map // map[interface{}]chan struct{}
+// Tracker tracks content status described by a descriptor.
+type Tracker struct {
+	status sync.Map // map[descriptor.Descriptor]chan struct{}
+}
 
-// NewTracker creates a new status tracker.
+// NewTracker creates a new content status tracker.
 func NewTracker() *Tracker {
 	return &Tracker{}
-}
-
-// TryCommit tries to commit the work item.
-// Returns true if committed. A channel is also returned for sending
-// notifications. Once the work is done, the channel should be closed.
-// Returns false if the work is done or still in progress.
-func (t *Tracker) TryCommit(item interface{}) (chan struct{}, bool) {
-	status, exists := (*sync.Map)(t).LoadOrStore(item, make(chan struct{}))
-	return status.(chan struct{}), !exists
-}
-
-// DoneAndDelete removes the work item, and sends done notification to
-// receivers, if any.
-// Return true if the work item exists and is marked as done.
-// Return false if the work item is not found.
-func (t *Tracker) DoneAndDelete(item interface{}) bool {
-	status, exists := (*sync.Map)(t).LoadAndDelete(item)
-	if exists {
-		close(status.(chan struct{}))
-	}
-	return exists
-}
-
-// DescriptorTracker tracks content status described by a descriptor.
-type DescriptorTracker Tracker
-
-// NewDescriptorTracker creates a new content status tracker.
-func NewDescriptorTracker() *DescriptorTracker {
-	return &DescriptorTracker{}
 }
 
 // TryCommit tries to commit the work for the target descriptor.
 // Returns true if committed. A channel is also returned for sending
 // notifications. Once the work is done, the channel should be closed.
 // Returns false if the work is done or still in progress.
-func (t *DescriptorTracker) TryCommit(target ocispec.Descriptor) (chan struct{}, bool) {
-	item := descriptor.FromOCI(target)
-	return (*Tracker)(t).TryCommit(item)
+func (t *Tracker) TryCommit(target ocispec.Descriptor) (chan struct{}, bool) {
+	key := descriptor.FromOCI(target)
+	status, exists := t.status.LoadOrStore(key, make(chan struct{}))
+	return status.(chan struct{}), !exists
 }
