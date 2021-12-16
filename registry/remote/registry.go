@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
@@ -68,6 +69,35 @@ func (r *Registry) client() auth.Client {
 		return auth.DefaultClient
 	}
 	return r.Client
+}
+
+// Ping checks whether or not the registry implement Docker Registry API V2 or
+// OCI Distribution Specification.
+// Ping can be used to check authentication when an auth client is configured.
+// References:
+// - https://docs.docker.com/registry/spec/api/#base
+// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#api
+func (r *Registry) Ping(ctx context.Context) error {
+	url := buildRegistryBaseURL(r.PlainHTTP, r.Reference)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := r.client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		return errdef.ErrNotFound
+	default:
+		return parseErrorResponse(resp)
+	}
 }
 
 // Repositories lists the name of repositories available in the registry.

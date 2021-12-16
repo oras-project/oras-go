@@ -29,6 +29,13 @@ func buildScheme(plainHTTP bool) string {
 	return "https"
 }
 
+// buildRegistryBaseURL builds the URL for accessing the base API.
+// Format: <scheme>://<registry>/v2/
+// Reference: https://docs.docker.com/registry/spec/api/#base
+func buildRegistryBaseURL(plainHTTP bool, ref registry.Reference) string {
+	return fmt.Sprintf("%s://%s/v2/", buildScheme(plainHTTP), ref.Host())
+}
+
 // buildRegistryCatalogURL builds the URL for accessing the catalog API.
 // Format: <scheme>://<registry>/v2/_catalog
 // Reference: https://docs.docker.com/registry/spec/api/#catalog
