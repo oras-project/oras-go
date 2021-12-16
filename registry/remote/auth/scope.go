@@ -6,16 +6,32 @@ import (
 	"strings"
 )
 
-type scopeContextKey struct{}
+// scopesContextKey is the context key for scopes.
+type scopesContextKey struct{}
 
+// WithScopes returns a context with scopes added. Scopes are de-duplicated.
+// Scopes are used as hints for the auth client to fetch bearer tokens with
+// larger scopes.
+// For example, uploading blob to the repository "hello-world" does HEAD request
+// first then POST and PUT. The HEAD request will return a challenge for scope
+// `repository:hello-world:pull`, and the auth client will fetch a token for
+// that challenge. Later, the POST request will return a challenge for scope
+// `repository:hello-world:push`, and the auth client will fetch a token for
+// that challenge again. By invoking `WithScopes()` with the scope
+// `repository:hello-world:pull,push`, the auth client with cache is hinted to
+// fetch a token via a single token fetch request for all the HEAD, POST, PUT
+// requests.
+// Passing an empty list of scopes will virtually remove the scope hints in the
+// context.
+// Reference: https://docs.docker.com/registry/spec/auth/scope/
 func WithScopes(ctx context.Context, scopes ...string) context.Context {
-	if len(scopes) == 0 {
-		return ctx
-	}
 	scopes = CleanScopes(scopes)
-	return context.WithValue(ctx, scopeContextKey{}, scopes)
+	return context.WithValue(ctx, scopesContextKey{}, scopes)
 }
 
+// AppendScopes appends additional scopes to the existing scopes in the context
+// and returns a new context. The resulted scopes are de-duplicated.
+// The append operation does modify the existing scope in the context passed in.
 func AppendScopes(ctx context.Context, scopes ...string) context.Context {
 	if len(scopes) == 0 {
 		return ctx
@@ -23,13 +39,18 @@ func AppendScopes(ctx context.Context, scopes ...string) context.Context {
 	return WithScopes(ctx, append(GetScopes(ctx), scopes...)...)
 }
 
+// GetScopes returns the scopes in the context.
 func GetScopes(ctx context.Context) []string {
-	if scopes, ok := ctx.Value(scopeContextKey{}).([]string); ok {
+	if scopes, ok := ctx.Value(scopesContextKey{}).([]string); ok {
 		return append([]string{}, scopes...)
 	}
 	return nil
 }
 
+// CleanScopes merges and sort the actions in ascending order if the scopes have
+// the same resource type and name. The final scopes are sorted in ascending
+// order. In other words, the scopes passed in are de-duplicated and sorted.
+// Therefore, the output of this function is deterministic.
 func CleanScopes(scopes []string) []string {
 	// fast paths
 	switch len(scopes) {
@@ -110,6 +131,7 @@ func CleanScopes(scopes []string) []string {
 	return result
 }
 
+// cleanStrings removes the duplicated strings and sort in ascending order.
 func cleanStrings(s []string) []string {
 	sort.Strings(s)
 	for i, j := 0, 1; j < len(s); j++ {
