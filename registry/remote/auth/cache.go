@@ -76,8 +76,8 @@ func (cc *concurrentCache) Set(ctx context.Context, registry string, scheme Sche
 	}
 
 	statusKey := scheme.String() + " " + key
-	statusValue, _ := cc.status.LoadOrStore(statusKey, syncutil.NewAggregator())
-	aggregatedFetch := statusValue.(*syncutil.Aggregator)
+	statusValue, _ := cc.status.LoadOrStore(statusKey, syncutil.NewOnce())
+	aggregatedFetch := statusValue.(*syncutil.Once)
 	fetchedFirst, result, err := aggregatedFetch.Do(ctx, func() (interface{}, error) {
 		return fetch(ctx)
 	})
