@@ -28,9 +28,9 @@ var defaultClientID = "oras-go"
 
 // Authorizer is an auth-decorated HTTP client.
 type Authorizer struct {
-	// Transport is the underlying HTTP transport used to access the remote
+	// Client is the underlying HTTP client used to access the remote
 	// server.
-	// If nil, a default HTTP transport is used.
+	// If nil, http.DefaultClient is used.
 	Client *http.Client
 
 	// Header contains the custom headers to be added to each request.
@@ -43,6 +43,8 @@ type Authorizer struct {
 	// If nil, the credential is always resolved to `EmptyCredential`.
 	Credential func(context.Context, string) (Credential, error)
 
+	// Cache caches credentials for direct accessing the remote registry.
+	// If nil, no cache is used.
 	Cache Cache
 
 	// ClientID used in fetching OAuth2 token as a required field.
@@ -84,6 +86,8 @@ func (a *Authorizer) credential(ctx context.Context, reg string) (Credential, er
 	return a.Credential(ctx, reg)
 }
 
+// cache resolves the cache.
+// noCache is return if the cache is not configured.
 func (a *Authorizer) cache() Cache {
 	if a.Cache == nil {
 		return noCache{}
