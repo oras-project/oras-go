@@ -64,7 +64,7 @@ func NewRegistry(name string) (*Registry, error) {
 
 // client returns an HTTP client used to access the remote registry.
 // A default HTTP client is return if the client is not configured.
-func (r *Registry) client() auth.Client {
+func (r *Registry) client() Client {
 	if r.Client == nil {
 		return auth.DefaultClient
 	}

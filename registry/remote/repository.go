@@ -34,11 +34,24 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
+// Client is an interface for a HTTP client.
+type Client interface {
+	// Do sends an HTTP request and returns an HTTP response.
+	//
+	// Unlike http.RoundTripper, Client can attempt to interpret the response
+	// and handle higher-level protocol details such as redirects and
+	// authentication.
+	//
+	// Like http.RoundTripper, Client should not modify the request, and must
+	// always close the request body.
+	Do(*http.Request) (*http.Response, error)
+}
+
 // Repository is an HTTP client to a remote repository.
 type Repository struct {
 	// Client is the underlying HTTP client used to access the remote registry.
 	// If nil, auth.DefaultClient is used.
-	Client auth.Client
+	Client Client
 
 	// Reference references the remote repository.
 	Reference registry.Reference
@@ -86,7 +99,7 @@ func NewRepository(reference string) (*Repository, error) {
 
 // client returns an HTTP client used to access the remote repository.
 // A default HTTP client is return if the client is not configured.
-func (r *Repository) client() auth.Client {
+func (r *Repository) client() Client {
 	if r.Client == nil {
 		return auth.DefaultClient
 	}
