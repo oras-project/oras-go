@@ -12,11 +12,6 @@ import (
 	"strings"
 )
 
-const (
-	SchemeBasic  = "basic"
-	SchemeBearer = "bearer"
-)
-
 // maxResponseBytes specifies the default limit on how many response bytes are
 // allowed in the server's response from authorization service servers.
 // A typical response message from authorization service servers is around 1 to

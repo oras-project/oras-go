@@ -9,7 +9,7 @@ func Test_parseChallenge(t *testing.T) {
 	tests := []struct {
 		name       string
 		header     string
-		wantScheme string
+		wantScheme Scheme
 		wantParams map[string]string
 	}{
 		{
@@ -18,27 +18,27 @@ func Test_parseChallenge(t *testing.T) {
 		{
 			name:       "unknown scheme",
 			header:     "foo bar",
-			wantScheme: "foo",
+			wantScheme: SchemeUnknown,
 		},
 		{
 			name:       "basic challenge",
 			header:     `Basic realm="Test Registry"`,
-			wantScheme: "basic",
+			wantScheme: SchemeBasic,
 		},
 		{
 			name:       "basic challenge with no parameters",
 			header:     "Basic",
-			wantScheme: "basic",
+			wantScheme: SchemeBasic,
 		},
 		{
 			name:       "basic challenge with no parameters but spaces",
 			header:     "Basic  ",
-			wantScheme: "basic",
+			wantScheme: SchemeBasic,
 		},
 		{
 			name:       "bearer challenge",
 			header:     `Bearer realm="https://auth.example.io/token",service="registry.example.io",scope="repository:library/hello-world:pull,push"`,
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 			wantParams: map[string]string{
 				"realm":   "https://auth.example.io/token",
 				"service": "registry.example.io",
@@ -48,7 +48,7 @@ func Test_parseChallenge(t *testing.T) {
 		{
 			name:       "bearer challenge with multiple scopes",
 			header:     `Bearer realm="https://auth.example.io/token",service="registry.example.io",scope="repository:library/alpine:pull,push repository:ubuntu:pull"`,
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 			wantParams: map[string]string{
 				"realm":   "https://auth.example.io/token",
 				"service": "registry.example.io",
@@ -58,17 +58,17 @@ func Test_parseChallenge(t *testing.T) {
 		{
 			name:       "bearer challenge with no parameters",
 			header:     "Bearer",
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 		},
 		{
 			name:       "bearer challenge with no parameters but spaces",
 			header:     "Bearer  ",
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 		},
 		{
 			name:       "bearer challenge with white spaces",
 			header:     `Bearer realm = "https://auth.example.io/token"   ,service=registry.example.io, scope  ="repository:library/hello-world:pull,push"  `,
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 			wantParams: map[string]string{
 				"realm":   "https://auth.example.io/token",
 				"service": "registry.example.io",
@@ -78,7 +78,7 @@ func Test_parseChallenge(t *testing.T) {
 		{
 			name:       "bad bearer challenge (incomplete parameter with spaces)",
 			header:     `Bearer realm="https://auth.example.io/token",service`,
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 			wantParams: map[string]string{
 				"realm": "https://auth.example.io/token",
 			},
@@ -86,7 +86,7 @@ func Test_parseChallenge(t *testing.T) {
 		{
 			name:       "bad bearer challenge (incomplete parameter with no value)",
 			header:     `Bearer realm="https://auth.example.io/token",service=`,
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 			wantParams: map[string]string{
 				"realm": "https://auth.example.io/token",
 			},
@@ -94,7 +94,7 @@ func Test_parseChallenge(t *testing.T) {
 		{
 			name:       "bad bearer challenge (incomplete parameter with spaces)",
 			header:     `Bearer realm="https://auth.example.io/token",service= `,
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 			wantParams: map[string]string{
 				"realm": "https://auth.example.io/token",
 			},
@@ -102,7 +102,7 @@ func Test_parseChallenge(t *testing.T) {
 		{
 			name:       "bad bearer challenge (incomplete quote)",
 			header:     `Bearer realm="https://auth.example.io/token",service="registry`,
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 			wantParams: map[string]string{
 				"realm": "https://auth.example.io/token",
 			},
@@ -110,7 +110,7 @@ func Test_parseChallenge(t *testing.T) {
 		{
 			name:       "bearer challenge with empty parameter value",
 			header:     `Bearer realm="https://auth.example.io/token",empty="",service="registry.example.io",scope="repository:library/hello-world:pull,push"`,
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 			wantParams: map[string]string{
 				"realm":   "https://auth.example.io/token",
 				"empty":   "",
@@ -121,7 +121,7 @@ func Test_parseChallenge(t *testing.T) {
 		{
 			name:       "bearer challenge with escaping parameter value",
 			header:     `Bearer foo="foo\"bar",hello="\"hello world\""`,
-			wantScheme: "bearer",
+			wantScheme: SchemeBearer,
 			wantParams: map[string]string{
 				"foo":   `foo"bar`,
 				"hello": `"hello world"`,

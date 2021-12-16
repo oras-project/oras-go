@@ -12,9 +12,9 @@ import (
 var DefaultCache Cache = NewCache()
 
 type Cache interface {
-	GetScheme(ctx context.Context, registry string) (string, error)
-	GetToken(ctx context.Context, registry, scheme, key string) (string, error)
-	Set(ctx context.Context, registry, scheme, key string, fetch func(context.Context) (string, error)) (string, error)
+	GetScheme(ctx context.Context, registry string) (Scheme, error)
+	GetToken(ctx context.Context, registry string, scheme Scheme, key string) (string, error)
+	Set(ctx context.Context, registry string, scheme Scheme, key string, fetch func(context.Context) (string, error)) (string, error)
 }
 
 type basicCache string
@@ -33,12 +33,12 @@ func NewCache() Cache {
 	}
 }
 
-func (cc *concurrentCache) GetScheme(ctx context.Context, registry string) (string, error) {
+func (cc *concurrentCache) GetScheme(ctx context.Context, registry string) (Scheme, error) {
 	cc.cacheLock.RLock()
 	value, ok := cc.cache[registry]
 	cc.cacheLock.RUnlock()
 	if !ok {
-		return "", errdef.ErrNotFound
+		return SchemeUnknown, errdef.ErrNotFound
 	}
 	switch value.(type) {
 	case *basicCache:
@@ -46,10 +46,10 @@ func (cc *concurrentCache) GetScheme(ctx context.Context, registry string) (stri
 	case *tokenCache:
 		return SchemeBearer, nil
 	}
-	return "", errdef.ErrNotFound
+	return SchemeUnknown, errdef.ErrNotFound
 }
 
-func (cc *concurrentCache) GetToken(ctx context.Context, registry, scheme, key string) (string, error) {
+func (cc *concurrentCache) GetToken(ctx context.Context, registry string, scheme Scheme, key string) (string, error) {
 	cc.cacheLock.RLock()
 	value, ok := cc.cache[registry]
 	cc.cacheLock.RUnlock()
@@ -68,14 +68,14 @@ func (cc *concurrentCache) GetToken(ctx context.Context, registry, scheme, key s
 	return "", errdef.ErrNotFound
 }
 
-func (cc *concurrentCache) Set(ctx context.Context, registry, scheme, key string, fetch func(context.Context) (string, error)) (string, error) {
+func (cc *concurrentCache) Set(ctx context.Context, registry string, scheme Scheme, key string, fetch func(context.Context) (string, error)) (string, error) {
 	switch scheme {
 	case SchemeBasic, SchemeBearer:
 	default:
 		return "", fmt.Errorf("unknown scheme: %s", scheme)
 	}
 
-	statusKey := scheme + " " + key
+	statusKey := scheme.String() + " " + key
 	statusValue, _ := cc.status.LoadOrStore(statusKey, syncutil.NewAggregator())
 	aggregatedFetch := statusValue.(*syncutil.Aggregator)
 	fetchedFirst, result, err := aggregatedFetch.Do(ctx, func() (interface{}, error) {
@@ -113,14 +113,14 @@ func (cc *concurrentCache) Set(ctx context.Context, registry, scheme, key string
 
 type noCache struct{}
 
-func (noCache) GetScheme(ctx context.Context, registry string) (string, error) {
+func (noCache) GetScheme(ctx context.Context, registry string) (Scheme, error) {
+	return SchemeUnknown, errdef.ErrNotFound
+}
+
+func (noCache) GetToken(ctx context.Context, registry string, scheme Scheme, key string) (string, error) {
 	return "", errdef.ErrNotFound
 }
 
-func (noCache) GetToken(ctx context.Context, registry, scheme, key string) (string, error) {
-	return "", errdef.ErrNotFound
-}
-
-func (noCache) Set(ctx context.Context, registry, scheme, key string, fetch func(context.Context) (string, error)) (string, error) {
+func (noCache) Set(ctx context.Context, registry string, scheme Scheme, key string, fetch func(context.Context) (string, error)) (string, error) {
 	return fetch(ctx)
 }

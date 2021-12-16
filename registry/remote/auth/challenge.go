@@ -5,12 +5,40 @@ import (
 	"strings"
 )
 
+type Scheme byte
+
+const (
+	SchemeUnknown Scheme = iota
+	SchemeBasic
+	SchemeBearer
+)
+
+func parseScheme(scheme string) Scheme {
+	switch {
+	case strings.EqualFold(scheme, "basic"):
+		return SchemeBasic
+	case strings.EqualFold(scheme, "bearer"):
+		return SchemeBearer
+	}
+	return SchemeUnknown
+}
+
+func (s Scheme) String() string {
+	switch s {
+	case SchemeBasic:
+		return "Basic"
+	case SchemeBearer:
+		return "Bearer"
+	}
+	return "Unknown"
+}
+
 // parseChallenge parses the "WWW-Authenticate" header returned by the remote
 // registry, and extracts parameters if scheme is Bearer.
 // References:
 // - https://docs.docker.com/registry/spec/auth/token/#how-to-authenticate
 // - https://tools.ietf.org/html/rfc7235#section-2.1
-func parseChallenge(header string) (scheme string, params map[string]string) {
+func parseChallenge(header string) (scheme Scheme, params map[string]string) {
 	// as defined in RFC 7235 section 2.1, we have
 	//     challenge   = auth-scheme [ 1*SP ( token68 / #auth-param ) ]
 	//     auth-scheme = token
@@ -18,11 +46,8 @@ func parseChallenge(header string) (scheme string, params map[string]string) {
 	//
 	// since we focus parameters only on Bearer, we have
 	//     challenge   = auth-scheme [ 1*SP #auth-param ]
-	scheme, rest := parseToken(header)
-	if scheme == "" {
-		return
-	}
-	scheme = strings.ToLower(scheme)
+	schemeString, rest := parseToken(header)
+	scheme = parseScheme(schemeString)
 
 	// fast path for non bearer challenge
 	if scheme != SchemeBearer {
