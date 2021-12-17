@@ -5,14 +5,24 @@ import (
 	"strings"
 )
 
+// Scheme define the authentication method.
 type Scheme byte
 
 const (
+	// SchemeUnknown represents unknown or unsupported schemes
 	SchemeUnknown Scheme = iota
+
+	// SchemeBasic represents the "Basic" HTTP authentication scheme.
+	// Reference: https://tools.ietf.org/html/rfc7617
 	SchemeBasic
+
+	// SchemeBearer represents the Bearer token in OAuth 2.0.
+	// Reference: https://tools.ietf.org/html/rfc6750
 	SchemeBearer
 )
 
+// parseScheme parse the authentication scheme from the given string
+// case-insensitively.
 func parseScheme(scheme string) Scheme {
 	switch {
 	case strings.EqualFold(scheme, "basic"):
@@ -23,6 +33,7 @@ func parseScheme(scheme string) Scheme {
 	return SchemeUnknown
 }
 
+// String return the string for the scheme.
 func (s Scheme) String() string {
 	switch s {
 	case SchemeBasic:
