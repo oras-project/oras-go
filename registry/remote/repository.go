@@ -381,7 +381,7 @@ func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isMa
 	}
 }
 
-// blobStore accesses the manifest part of the repository.
+// blobStore accesses the blob part of the repository.
 type blobStore struct {
 	repo *Repository
 }
