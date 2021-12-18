@@ -83,11 +83,32 @@ func TestClient_Do_Basic_Auth(t *testing.T) {
 		},
 	}
 
+	// first request
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
 	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount += 2; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+
+	// credential change
+	username = "test_user2"
+	password = "test_password2"
+	header = "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	req, err = http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err = client.Do(req)
 	if err != nil {
 		t.Fatalf("Client.Do() error = %v", err)
 	}
@@ -188,4 +209,204 @@ func TestClient_Do_Basic_Auth_Cached(t *testing.T) {
 	if wantRequestCount += 2; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
 	}
+}
+
+func TestClient_Do_Bearer_AccessToken(t *testing.T) {
+	accessToken := "test/access/token"
+	header := "Bearer " + accessToken
+	var requestCount, wantRequestCount int64
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexecuted attempt of authorization service")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer as.Close()
+	var service string
+	scope := "repository:test:pull,push"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if auth := r.Header.Get("Authorization"); auth != header {
+			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, scope)
+			w.Header().Set("Www-Authenticate", challenge)
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	client := &Client{
+		Credential: func(ctx context.Context, reg string) (Credential, error) {
+			if reg != uri.Host {
+				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
+				t.Error(err)
+				return EmptyCredential, err
+			}
+			return Credential{
+				AccessToken: accessToken,
+			}, nil
+		},
+	}
+
+	// first request
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount += 2; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+
+	// credential change
+	accessToken = "test/access/token/2"
+	header = "Bearer " + accessToken
+	req, err = http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount += 2; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+}
+
+func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
+	accessToken := "test/access/token"
+	header := "Bearer " + accessToken
+	var requestCount, wantRequestCount int64
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexecuted attempt of authorization service")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer as.Close()
+	var service string
+	scope := "repository:test:pull,push"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if auth := r.Header.Get("Authorization"); auth != header {
+			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, scope)
+			w.Header().Set("Www-Authenticate", challenge)
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	client := &Client{
+		Credential: func(ctx context.Context, reg string) (Credential, error) {
+			if reg != uri.Host {
+				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
+				t.Error(err)
+				return EmptyCredential, err
+			}
+			return Credential{
+				AccessToken: accessToken,
+			}, nil
+		},
+		Cache: NewCache(),
+	}
+
+	// first request
+	ctx := WithScopes(context.Background(), scope)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount += 2; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+
+	// repeated request
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount++; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+
+	// credential change
+	accessToken = "test/access/token/2"
+	header = "Bearer " + accessToken
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount += 2; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+}
+
+func TestClient_Do_Bearer_Auth(t *testing.T) {
+
+}
+
+func TestClient_Do_Bearer_OAuth2_Password(t *testing.T) {
+
+}
+
+func TestClient_Do_Bearer_OAuth2_RefreshToken(t *testing.T) {
+
+}
+
+func TestClient_Do_Token_Expire(t *testing.T) {
+
+}
+
+func TestClient_Do_Invalid_Credential(t *testing.T) {
+
+}
+
+func TestClient_Do_Scheme_Change(t *testing.T) {
+
 }
