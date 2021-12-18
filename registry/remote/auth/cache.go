@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -68,11 +67,15 @@ func (cc *concurrentCache) GetScheme(ctx context.Context, registry string) (Sche
 // GetToken returns the auth-token part cached for the given registry of a given
 // scheme.
 func (cc *concurrentCache) GetToken(ctx context.Context, registry string, scheme Scheme, key string) (string, error) {
-	entry, ok := cc.cache.Load(registry)
+	entryValue, ok := cc.cache.Load(registry)
 	if !ok {
 		return "", errdef.ErrNotFound
 	}
-	if token, ok := entry.(*cacheEntry).tokens.Load(key); ok {
+	entry := entryValue.(*cacheEntry)
+	if entry.scheme != scheme {
+		return "", errdef.ErrNotFound
+	}
+	if token, ok := entry.tokens.Load(key); ok {
 		return token.(string), nil
 	}
 	return "", errdef.ErrNotFound
@@ -83,12 +86,6 @@ func (cc *concurrentCache) GetToken(ctx context.Context, registry string, scheme
 // Set combines the fetch operation if the Set is invoked multiple times at the
 // same time.
 func (cc *concurrentCache) Set(ctx context.Context, registry string, scheme Scheme, key string, fetch func(context.Context) (string, error)) (string, error) {
-	switch scheme {
-	case SchemeBasic, SchemeBearer:
-	default:
-		return "", fmt.Errorf("unknown scheme: %s", scheme)
-	}
-
 	// fetch token
 	statusKey := strings.Join([]string{
 		registry,
@@ -112,8 +109,18 @@ func (cc *concurrentCache) Set(ctx context.Context, registry string, scheme Sche
 	}
 
 	// cache token
-	entry, _ := cc.cache.LoadOrStore(registry, &cacheEntry{})
-	entry.(*cacheEntry).tokens.Store(key, token)
+	newEntry := &cacheEntry{
+		scheme: scheme,
+	}
+	entryValue, exists := cc.cache.LoadOrStore(registry, newEntry)
+	entry := entryValue.(*cacheEntry)
+	if exists && entry.scheme != scheme {
+		// there is a scheme change, which is not expected in most scenarios.
+		// force invalidating all previous cache.
+		entry = newEntry
+		cc.cache.Store(registry, entry)
+	}
+	entry.tokens.Store(key, token)
 
 	return token, nil
 }
