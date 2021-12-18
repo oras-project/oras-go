@@ -47,7 +47,7 @@ func TestRegistry_TLS(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	reg, err := NewRegistry(uri.Host)
@@ -80,7 +80,7 @@ func TestRegistry_Ping(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	reg, err := NewRegistry(uri.Host)
@@ -143,7 +143,7 @@ func TestRegistry_Repositories(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	reg, err := NewRegistry(uri.Host)
