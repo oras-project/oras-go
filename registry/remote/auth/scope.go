@@ -42,7 +42,7 @@ func AppendScopes(ctx context.Context, scopes ...string) context.Context {
 // GetScopes returns the scopes in the context.
 func GetScopes(ctx context.Context) []string {
 	if scopes, ok := ctx.Value(scopesContextKey{}).([]string); ok {
-		return append([]string{}, scopes...)
+		return append([]string(nil), scopes...)
 	}
 	return nil
 }
@@ -51,6 +51,8 @@ func GetScopes(ctx context.Context) []string {
 // the same resource type and name. The final scopes are sorted in ascending
 // order. In other words, the scopes passed in are de-duplicated and sorted.
 // Therefore, the output of this function is deterministic.
+// If there is a wildcard `*` in the action, other actions in the same resource
+// type and name are ignored.
 func CleanScopes(scopes []string) []string {
 	// fast paths
 	switch len(scopes) {
@@ -63,7 +65,10 @@ func CleanScopes(scopes []string) []string {
 			return []string{scope}
 		}
 		actionList := strings.Split(scope[i+1:], ",")
-		actionList = cleanStrings(actionList)
+		actionList = cleanActions(actionList)
+		if len(actionList) == 0 {
+			return nil
+		}
 		actions := strings.Join(actionList, ",")
 		scope = scope[:i+1] + actions
 		return []string{scope}
@@ -79,17 +84,19 @@ func CleanScopes(scopes []string) []string {
 		i := strings.Index(scope, ":")
 		if i == -1 {
 			result = append(result, scope)
+			continue
 		}
 		resourceType := scope[:i]
 
 		// extract resource name and actions
-		scope = scope[i+1:]
-		i = strings.LastIndex(scope, ":")
+		rest := scope[i+1:]
+		i = strings.LastIndex(rest, ":")
 		if i == -1 {
 			result = append(result, scope)
+			continue
 		}
-		resourceName := scope[:i]
-		actions := scope[i+1:]
+		resourceName := rest[:i]
+		actions := rest[i+1:]
 		if actions == "" {
 			// drop scope since no action found
 			continue
@@ -116,8 +123,15 @@ func CleanScopes(scopes []string) []string {
 	// reconstruct scopes
 	for resourceType, namedActions := range resourceTypes {
 		for resourceName, actionSet := range namedActions {
+			if len(actionSet) == 0 {
+				continue
+			}
 			var actions []string
 			for action := range actionSet {
+				if action == "*" {
+					actions = []string{"*"}
+					break
+				}
 				actions = append(actions, action)
 			}
 			sort.Strings(actions)
@@ -131,16 +145,40 @@ func CleanScopes(scopes []string) []string {
 	return result
 }
 
-// cleanStrings removes the duplicated strings and sort in ascending order.
-func cleanStrings(s []string) []string {
-	sort.Strings(s)
-	for i, j := 0, 1; j < len(s); j++ {
-		if s[i] != s[j] {
-			i++
-			if i != j {
-				s[i] = s[j]
+// cleanActions removes the duplicated actions and sort in ascending order.
+// If there is a wildcard `*` in the action, other actions are ignored.
+func cleanActions(actions []string) []string {
+	// fast paths
+	switch len(actions) {
+	case 0:
+		return nil
+	case 1:
+		if actions[0] == "" {
+			return nil
+		}
+		return actions
+	}
+
+	// slow path
+	sort.Strings(actions)
+	n := 0
+	for i := 0; i < len(actions); i++ {
+		if actions[i] == "*" {
+			return []string{"*"}
+		}
+		if actions[i] != actions[n] {
+			n++
+			if n != i {
+				actions[n] = actions[i]
 			}
 		}
 	}
-	return s
+	n++
+	if actions[0] == "" {
+		if n == 1 {
+			return nil
+		}
+		return actions[1:n]
+	}
+	return actions[:n]
 }
