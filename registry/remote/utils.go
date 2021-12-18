@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"strings"
 
+	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
@@ -65,11 +66,7 @@ func limitReader(r io.Reader, n int64) io.Reader {
 }
 
 // withScopeHint adds a hinted scope to the context.
-func withScopeHint(ctx context.Context, repository, actions string) context.Context {
-	scope := strings.Join([]string{
-		"repository",
-		repository,
-		actions,
-	}, ":")
+func withScopeHint(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
+	scope := auth.ScopeRepository(ref.Reference, actions...)
 	return auth.AppendScopes(ctx, scope)
 }

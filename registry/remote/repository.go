@@ -158,7 +158,7 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 		return err
 	}
 
-	ctx = withScopeHint(ctx, ref.Repository, "pull,push")
+	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
 	rc, err := r.Manifests().Fetch(ctx, desc)
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func (r *Repository) PushTag(ctx context.Context, expected ocispec.Descriptor, c
 func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
 	ref := r.Reference
 	ref.Reference = reference
-	ctx = withScopeHint(ctx, ref.Repository, "push")
+	ctx = withScopeHint(ctx, ref, auth.ActionPush)
 	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content)
 	if err != nil {
@@ -230,7 +230,7 @@ func (r *Repository) parseReference(reference string) (registry.Reference, error
 
 // Tags lists the tags available in the repository.
 func (r *Repository) Tags(ctx context.Context, fn func(tags []string) error) error {
-	ctx = withScopeHint(ctx, r.Reference.Repository, "pull")
+	ctx = withScopeHint(ctx, r.Reference, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
 	var err error
 	for err == nil {
@@ -300,7 +300,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	// TODO(shizhMSFT): filter artifact type
 	ref := r.Reference
 	ref.Reference = desc.Digest.String()
-	ctx = withScopeHint(ctx, ref.Repository, "pull")
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildArtifactReferrerURL(r.PlainHTTP, ref)
 	var err error
 	for err == nil {
@@ -354,7 +354,7 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isManifest bool) error {
 	ref := r.Reference
 	ref.Reference = target.Digest.String()
-	ctx = withScopeHint(ctx, ref.Repository, "delete")
+	ctx = withScopeHint(ctx, ref, auth.ActionDelete)
 	buildURL := buildRepositoryBlobURL
 	if isManifest {
 		buildURL = buildRepositoryManifestURL
@@ -390,7 +390,7 @@ type blobStore struct {
 func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	ref := s.repo.Reference
 	ref.Reference = target.Digest.String()
-	ctx = withScopeHint(ctx, ref.Repository, "pull")
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -440,7 +440,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 // - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	// start an upload
-	ctx = withScopeHint(ctx, s.repo.Reference.Repository, "push")
+	ctx = withScopeHint(ctx, s.repo.Reference, auth.ActionPush)
 	url := buildRepositoryBlobUploadURL(s.repo.PlainHTTP, s.repo.Reference)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
@@ -518,7 +518,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	ctx = withScopeHint(ctx, ref.Repository, "pull")
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -566,7 +566,7 @@ type manifestStore struct {
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	ref := s.repo.Reference
 	ref.Reference = target.Digest.String()
-	ctx = withScopeHint(ctx, ref.Repository, "pull")
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -637,7 +637,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	ctx = withScopeHint(ctx, ref.Repository, "pull")
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {

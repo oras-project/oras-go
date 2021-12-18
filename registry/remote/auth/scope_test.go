@@ -6,6 +6,88 @@ import (
 	"testing"
 )
 
+func TestScopeRepository(t *testing.T) {
+	tests := []struct {
+		name       string
+		repository string
+		actions    []string
+		want       string
+	}{
+		{
+			name: "empty repository",
+			actions: []string{
+				"pull",
+			},
+		},
+		{
+			name:       "nil actions",
+			repository: "foo",
+		},
+		{
+			name:       "empty actions",
+			repository: "foo",
+			actions:    []string{},
+		},
+		{
+			name:       "empty actions list",
+			repository: "foo",
+			actions:    []string{},
+		},
+		{
+			name:       "empty actions",
+			repository: "foo",
+			actions: []string{
+				"",
+			},
+		},
+		{
+			name:       "single action",
+			repository: "foo",
+			actions: []string{
+				"pull",
+			},
+			want: "repository:foo:pull",
+		},
+		{
+			name:       "multiple actions",
+			repository: "foo",
+			actions: []string{
+				"pull",
+				"push",
+			},
+			want: "repository:foo:pull,push",
+		},
+		{
+			name:       "unordered actions",
+			repository: "foo",
+			actions: []string{
+				"push",
+				"pull",
+			},
+			want: "repository:foo:pull,push",
+		},
+		{
+			name:       "duplicated actions",
+			repository: "foo",
+			actions: []string{
+				"push",
+				"pull",
+				"pull",
+				"delete",
+				"push",
+			},
+			want: "repository:foo:delete,pull,push",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ScopeRepository(tt.repository, tt.actions...); got != tt.want {
+				t.Errorf("ScopeRepository() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWithScopes(t *testing.T) {
 	ctx := context.Background()
 

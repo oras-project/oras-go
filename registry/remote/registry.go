@@ -104,7 +104,7 @@ func (r *Registry) Ping(ctx context.Context) error {
 // See also `RepositoryListPageSize`.
 // Reference: https://docs.docker.com/registry/spec/api/#catalog
 func (r *Registry) Repositories(ctx context.Context, fn func(repos []string) error) error {
-	ctx = auth.AppendScopes(ctx, "registry:catalog:*")
+	ctx = auth.AppendScopes(ctx, auth.ScopeRegistryCatalog)
 	url := buildRegistryCatalogURL(r.PlainHTTP, r.Reference)
 	var err error
 	for err == nil {

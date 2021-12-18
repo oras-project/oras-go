@@ -6,6 +6,39 @@ import (
 	"strings"
 )
 
+// Actions used in scopes.
+// Reference: https://docs.docker.com/registry/spec/auth/scope/
+const (
+	// ActionPull represents generic read access for resources of the repository
+	// type.
+	ActionPull = "pull"
+
+	// ActionPush represents generic write access for resources of the
+	// repository type.
+	ActionPush = "push"
+
+	// ActionDelete represents the delete permission for resources of the
+	// repository type.
+	ActionDelete = "delete"
+)
+
+// ScopeRegistryCatalog is the scope for registry catalog access.
+const ScopeRegistryCatalog = "registry:catalog:*"
+
+// ScopeRepository returns a repository scope with given actions.
+// Reference: https://docs.docker.com/registry/spec/auth/scope/
+func ScopeRepository(repository string, actions ...string) string {
+	actions = cleanActions(actions)
+	if repository == "" || len(actions) == 0 {
+		return ""
+	}
+	return strings.Join([]string{
+		"repository",
+		repository,
+		strings.Join(actions, ","),
+	}, ":")
+}
+
 // scopesContextKey is the context key for scopes.
 type scopesContextKey struct{}
 
