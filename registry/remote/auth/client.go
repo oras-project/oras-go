@@ -106,6 +106,9 @@ func (c *Client) cache() Cache {
 
 // SetUserAgent sets the user agent for all out-going requests.
 func (c *Client) SetUserAgent(userAgent string) {
+	if c.Header == nil {
+		c.Header = http.Header{}
+	}
 	c.Header.Set("User-Agent", userAgent)
 }
 
