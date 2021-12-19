@@ -14,6 +14,7 @@ import (
 func TestClient_SetUserAgent(t *testing.T) {
 	wantUserAgent := "test agent"
 	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestCount, 1)
 		if r.Method != http.MethodGet || r.URL.Path != "/" {
@@ -23,7 +24,9 @@ func TestClient_SetUserAgent(t *testing.T) {
 		}
 		if userAgent := r.Header.Get("User-Agent"); userAgent != wantUserAgent {
 			t.Errorf("unexpected User-Agent: %v, want %v", userAgent, wantUserAgent)
+			return
 		}
+		atomic.AddInt64(&successCount, 1)
 	}))
 	defer ts.Close()
 
@@ -44,6 +47,9 @@ func TestClient_SetUserAgent(t *testing.T) {
 	if wantRequestCount++; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
 	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
 }
 
 func TestClient_Do_Basic_Auth(t *testing.T) {
@@ -51,6 +57,7 @@ func TestClient_Do_Basic_Auth(t *testing.T) {
 	password := "test_password"
 	header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
 	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestCount, 1)
 		if r.Method != http.MethodGet || r.URL.Path != "/" {
@@ -61,7 +68,9 @@ func TestClient_Do_Basic_Auth(t *testing.T) {
 		if auth := r.Header.Get("Authorization"); auth != header {
 			w.Header().Set("Www-Authenticate", `Basic realm="Test Server"`)
 			w.WriteHeader(http.StatusUnauthorized)
+			return
 		}
+		atomic.AddInt64(&successCount, 1)
 	}))
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
@@ -98,6 +107,9 @@ func TestClient_Do_Basic_Auth(t *testing.T) {
 	if wantRequestCount += 2; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
 	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
 
 	// credential change
 	username = "test_user2"
@@ -118,6 +130,9 @@ func TestClient_Do_Basic_Auth(t *testing.T) {
 	if wantRequestCount += 2; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
 	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
 }
 
 func TestClient_Do_Basic_Auth_Cached(t *testing.T) {
@@ -125,6 +140,7 @@ func TestClient_Do_Basic_Auth_Cached(t *testing.T) {
 	password := "test_password"
 	header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
 	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&requestCount, 1)
 		if r.Method != http.MethodGet || r.URL.Path != "/" {
@@ -135,7 +151,9 @@ func TestClient_Do_Basic_Auth_Cached(t *testing.T) {
 		if auth := r.Header.Get("Authorization"); auth != header {
 			w.Header().Set("Www-Authenticate", `Basic realm="Test Server"`)
 			w.WriteHeader(http.StatusUnauthorized)
+			return
 		}
+		atomic.AddInt64(&successCount, 1)
 	}))
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
@@ -173,6 +191,9 @@ func TestClient_Do_Basic_Auth_Cached(t *testing.T) {
 	if wantRequestCount += 2; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
 	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
 
 	// repeated request
 	req, err = http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -188,6 +209,9 @@ func TestClient_Do_Basic_Auth_Cached(t *testing.T) {
 	}
 	if wantRequestCount++; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
 	}
 
 	// credential change
@@ -209,12 +233,16 @@ func TestClient_Do_Basic_Auth_Cached(t *testing.T) {
 	if wantRequestCount += 2; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
 	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
 }
 
 func TestClient_Do_Bearer_AccessToken(t *testing.T) {
 	accessToken := "test/access/token"
 	header := "Bearer " + accessToken
 	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("unexecuted attempt of authorization service")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -233,7 +261,9 @@ func TestClient_Do_Bearer_AccessToken(t *testing.T) {
 			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, scope)
 			w.Header().Set("Www-Authenticate", challenge)
 			w.WriteHeader(http.StatusUnauthorized)
+			return
 		}
+		atomic.AddInt64(&successCount, 1)
 	}))
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
@@ -270,6 +300,9 @@ func TestClient_Do_Bearer_AccessToken(t *testing.T) {
 	if wantRequestCount += 2; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
 	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
 
 	// credential change
 	accessToken = "test/access/token/2"
@@ -288,12 +321,16 @@ func TestClient_Do_Bearer_AccessToken(t *testing.T) {
 	if wantRequestCount += 2; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
 	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
 }
 
 func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 	accessToken := "test/access/token"
 	header := "Bearer " + accessToken
 	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("unexecuted attempt of authorization service")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -312,7 +349,9 @@ func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, scope)
 			w.Header().Set("Www-Authenticate", challenge)
 			w.WriteHeader(http.StatusUnauthorized)
+			return
 		}
+		atomic.AddInt64(&successCount, 1)
 	}))
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
@@ -351,6 +390,9 @@ func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 	if wantRequestCount += 2; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
 	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
 
 	// repeated request
 	req, err = http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
@@ -366,6 +408,9 @@ func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 	}
 	if wantRequestCount++; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
 	}
 
 	// credential change
@@ -384,6 +429,9 @@ func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 	}
 	if wantRequestCount += 2; requestCount != wantRequestCount {
 		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
 	}
 }
 
