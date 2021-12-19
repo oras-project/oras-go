@@ -93,7 +93,7 @@ func TestRepository_Fetch(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -194,7 +194,7 @@ func TestRepository_Push(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -262,7 +262,7 @@ func TestRepository_Exists(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -327,7 +327,7 @@ func TestRepository_Delete(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -395,7 +395,7 @@ func TestRepository_Resolve(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -479,7 +479,7 @@ func TestRepository_Tag(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -550,7 +550,7 @@ func TestRepository_PushTag(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -621,7 +621,7 @@ func TestRepository_Tags(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -731,7 +731,7 @@ func TestRepository_UpEdges(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -840,7 +840,7 @@ func TestRepository_Referrers(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -894,7 +894,7 @@ func Test_BlobStore_Fetch(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -985,7 +985,7 @@ func Test_BlobStore_Fetch_Seek(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -1088,7 +1088,7 @@ func Test_BlobStore_Push(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -1133,7 +1133,7 @@ func Test_BlobStore_Exists(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -1193,7 +1193,7 @@ func Test_BlobStore_Delete(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -1250,7 +1250,7 @@ func Test_BlobStore_Resolve(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -1318,7 +1318,7 @@ func Test_ManifestStore_Fetch(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -1387,7 +1387,7 @@ func Test_ManifestStore_Push(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -1437,7 +1437,7 @@ func Test_ManifestStore_Exists(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -1497,7 +1497,7 @@ func Test_ManifestStore_Delete(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
@@ -1560,7 +1560,7 @@ func Test_ManifestStore_Resolve(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	repo, err := NewRepository(uri.Host + "/test")
