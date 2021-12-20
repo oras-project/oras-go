@@ -79,5 +79,5 @@ func ParseErrorResponse(resp *http.Response) error {
 	} else {
 		errmsg = http.StatusText(resp.StatusCode)
 	}
-	return fmt.Errorf("%s %q: unexpected status code %d: %v", resp.Request.Method, resp.Request.URL, resp.StatusCode, errmsg)
+	return fmt.Errorf("%s %q: unexpected status code %d: %s", resp.Request.Method, resp.Request.URL, resp.StatusCode, errmsg)
 }
