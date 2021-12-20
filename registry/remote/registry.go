@@ -26,6 +26,7 @@ import (
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
 // RepositoryOptions is an alias of Repository to avoid name conflicts.
@@ -96,7 +97,7 @@ func (r *Registry) Ping(ctx context.Context) error {
 	case http.StatusNotFound:
 		return errdef.ErrNotFound
 	default:
-		return parseErrorResponse(resp)
+		return errutil.ParseErrorResponse(resp)
 	}
 }
 
@@ -135,7 +136,7 @@ func (r *Registry) repositories(ctx context.Context, fn func(repos []string) err
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", parseErrorResponse(resp)
+		return "", errutil.ParseErrorResponse(resp)
 	}
 	var page struct {
 		Repositories []string `json:"repositories"`
