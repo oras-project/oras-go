@@ -32,6 +32,7 @@ import (
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
 // Client is an interface for a HTTP client.
@@ -201,7 +202,7 @@ func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, cont
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return parseErrorResponse(resp)
+		return errutil.ParseErrorResponse(resp)
 	}
 	return verifyContentDigest(resp, expected.Digest)
 }
@@ -261,7 +262,7 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", parseErrorResponse(resp)
+		return "", errutil.ParseErrorResponse(resp)
 	}
 	var page struct {
 		Tags []string `json:"tags"`
@@ -332,7 +333,7 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", parseErrorResponse(resp)
+		return "", errutil.ParseErrorResponse(resp)
 	}
 
 	var page struct {
@@ -377,7 +378,7 @@ func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isMa
 	case http.StatusNotFound:
 		return fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
 	default:
-		return parseErrorResponse(resp)
+		return errutil.ParseErrorResponse(resp)
 	}
 }
 
@@ -424,7 +425,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 	case http.StatusNotFound:
 		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
 	default:
-		return nil, parseErrorResponse(resp)
+		return nil, errutil.ParseErrorResponse(resp)
 	}
 }
 
@@ -454,7 +455,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 
 	if resp.StatusCode != http.StatusAccepted {
 		defer resp.Body.Close()
-		return parseErrorResponse(resp)
+		return errutil.ParseErrorResponse(resp)
 	}
 	resp.Body.Close()
 
@@ -486,7 +487,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return parseErrorResponse(resp)
+		return errutil.ParseErrorResponse(resp)
 	}
 	return nil
 }
@@ -537,7 +538,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
-		return ocispec.Descriptor{}, parseErrorResponse(resp)
+		return ocispec.Descriptor{}, errutil.ParseErrorResponse(resp)
 	}
 	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if mediaType == "" {
@@ -590,7 +591,7 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	case http.StatusNotFound:
 		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
 	default:
-		return nil, parseErrorResponse(resp)
+		return nil, errutil.ParseErrorResponse(resp)
 	}
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
@@ -657,7 +658,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
-		return ocispec.Descriptor{}, parseErrorResponse(resp)
+		return ocispec.Descriptor{}, errutil.ParseErrorResponse(resp)
 	}
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {

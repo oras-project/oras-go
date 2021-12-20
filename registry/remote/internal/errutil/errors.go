@@ -12,7 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package remote
+package errutil
 
 import (
 	"encoding/json"
@@ -67,8 +67,8 @@ func (errs requestErrors) Error() string {
 	return strings.Join(errmsgs, "; ")
 }
 
-// parseErrorResponse parses the error returned by the remote registry.
-func parseErrorResponse(resp *http.Response) error {
+// ParseErrorResponse parses the error returned by the remote registry.
+func ParseErrorResponse(resp *http.Response) error {
 	var errmsg string
 	var body struct {
 		Errors requestErrors `json:"errors"`
@@ -79,5 +79,5 @@ func parseErrorResponse(resp *http.Response) error {
 	} else {
 		errmsg = http.StatusText(resp.StatusCode)
 	}
-	return fmt.Errorf("%s %q: unexpected status code %d: %v", resp.Request.Method, resp.Request.URL, resp.StatusCode, errmsg)
+	return fmt.Errorf("%s %q: unexpected status code %d: %s", resp.Request.Method, resp.Request.URL, resp.StatusCode, errmsg)
 }
