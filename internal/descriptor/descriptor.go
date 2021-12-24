@@ -65,3 +65,14 @@ func ArtifactToOCI(desc artifactspec.Descriptor) ocispec.Descriptor {
 		Annotations: desc.Annotations,
 	}
 }
+
+// OCIToArtifact converts OCI descriptor to artifact descriptor.
+func OCIToArtifact(desc ocispec.Descriptor) artifactspec.Descriptor {
+	return artifactspec.Descriptor{
+		MediaType:   desc.MediaType,
+		Digest:      desc.Digest,
+		Size:        desc.Size,
+		URLs:        desc.URLs,
+		Annotations: desc.Annotations,
+	}
+}
