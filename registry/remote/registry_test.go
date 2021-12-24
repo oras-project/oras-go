@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"testing"
 
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -36,26 +37,17 @@ func TestRegistryInterface(t *testing.T) {
 }
 
 func TestRegistry_TLS(t *testing.T) {
-	repos := []string{"the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v2/_catalog" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/" {
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
 			return
-		}
-		result := struct {
-			Repositories []string `json:"repositories"`
-		}{
-			Repositories: repos,
-		}
-		if err := json.NewEncoder(w).Encode(result); err != nil {
-			t.Errorf("failed to write response: %v", err)
 		}
 	}))
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	reg, err := NewRegistry(uri.Host)
@@ -65,13 +57,46 @@ func TestRegistry_TLS(t *testing.T) {
 	reg.Client = ts.Client()
 
 	ctx := context.Background()
-	if err := reg.Repositories(ctx, func(got []string) error {
-		if !reflect.DeepEqual(got, repos) {
-			t.Errorf("Registry.Repositories() = %v, want %v", got, repos)
+	if err := reg.Ping(ctx); err != nil {
+		t.Errorf("Registry.Ping() error = %v", err)
+	}
+}
+
+func TestRegistry_Ping(t *testing.T) {
+	v2Implemented := true
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
 		}
-		return nil
-	}); err != nil {
-		t.Fatalf("Registry.Repositories() error = %v", err)
+
+		if v2Implemented {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	reg.PlainHTTP = true
+
+	ctx := context.Background()
+	if err := reg.Ping(ctx); err != nil {
+		t.Errorf("Registry.Ping() error = %v", err)
+	}
+
+	v2Implemented = false
+	if err := reg.Ping(ctx); err == nil {
+		t.Errorf("Registry.Ping() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
 
@@ -118,7 +143,7 @@ func TestRegistry_Repositories(t *testing.T) {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		t.Fatalf("invalid test http server: %s", err)
+		t.Fatalf("invalid test http server: %v", err)
 	}
 
 	reg, err := NewRegistry(uri.Host)

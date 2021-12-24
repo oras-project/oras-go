@@ -31,13 +31,28 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
+
+// Client is an interface for a HTTP client.
+type Client interface {
+	// Do sends an HTTP request and returns an HTTP response.
+	//
+	// Unlike http.RoundTripper, Client can attempt to interpret the response
+	// and handle higher-level protocol details such as redirects and
+	// authentication.
+	//
+	// Like http.RoundTripper, Client should not modify the request, and must
+	// always close the request body.
+	Do(*http.Request) (*http.Response, error)
+}
 
 // Repository is an HTTP client to a remote repository.
 type Repository struct {
 	// Client is the underlying HTTP client used to access the remote registry.
-	// If nil, a default HTTP client is used.
-	Client *http.Client
+	// If nil, auth.DefaultClient is used.
+	Client Client
 
 	// Reference references the remote repository.
 	Reference registry.Reference
@@ -85,9 +100,9 @@ func NewRepository(reference string) (*Repository, error) {
 
 // client returns an HTTP client used to access the remote repository.
 // A default HTTP client is return if the client is not configured.
-func (r *Repository) client() *http.Client {
+func (r *Repository) client() Client {
 	if r.Client == nil {
-		return http.DefaultClient
+		return auth.DefaultClient
 	}
 	return r.Client
 }
@@ -144,6 +159,7 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 		return err
 	}
 
+	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
 	rc, err := r.Manifests().Fetch(ctx, desc)
 	if err != nil {
 		return err
@@ -166,6 +182,7 @@ func (r *Repository) PushTag(ctx context.Context, expected ocispec.Descriptor, c
 func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
 	ref := r.Reference
 	ref.Reference = reference
+	ctx = withScopeHint(ctx, ref, auth.ActionPush)
 	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content)
 	if err != nil {
@@ -185,7 +202,7 @@ func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, cont
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return parseErrorResponse(resp)
+		return errutil.ParseErrorResponse(resp)
 	}
 	return verifyContentDigest(resp, expected.Digest)
 }
@@ -214,6 +231,7 @@ func (r *Repository) parseReference(reference string) (registry.Reference, error
 
 // Tags lists the tags available in the repository.
 func (r *Repository) Tags(ctx context.Context, fn func(tags []string) error) error {
+	ctx = withScopeHint(ctx, r.Reference, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
 	var err error
 	for err == nil {
@@ -244,7 +262,7 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", parseErrorResponse(resp)
+		return "", errutil.ParseErrorResponse(resp)
 	}
 	var page struct {
 		Tags []string `json:"tags"`
@@ -283,6 +301,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	// TODO(shizhMSFT): filter artifact type
 	ref := r.Reference
 	ref.Reference = desc.Digest.String()
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildArtifactReferrerURL(r.PlainHTTP, ref)
 	var err error
 	for err == nil {
@@ -314,7 +333,7 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", parseErrorResponse(resp)
+		return "", errutil.ParseErrorResponse(resp)
 	}
 
 	var page struct {
@@ -336,6 +355,7 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isManifest bool) error {
 	ref := r.Reference
 	ref.Reference = target.Digest.String()
+	ctx = withScopeHint(ctx, ref, auth.ActionDelete)
 	buildURL := buildRepositoryBlobURL
 	if isManifest {
 		buildURL = buildRepositoryManifestURL
@@ -358,11 +378,11 @@ func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isMa
 	case http.StatusNotFound:
 		return fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
 	default:
-		return parseErrorResponse(resp)
+		return errutil.ParseErrorResponse(resp)
 	}
 }
 
-// blobStore accesses the manifest part of the repository.
+// blobStore accesses the blob part of the repository.
 type blobStore struct {
 	repo *Repository
 }
@@ -371,6 +391,7 @@ type blobStore struct {
 func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	ref := s.repo.Reference
 	ref.Reference = target.Digest.String()
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -404,7 +425,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 	case http.StatusNotFound:
 		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
 	default:
-		return nil, parseErrorResponse(resp)
+		return nil, errutil.ParseErrorResponse(resp)
 	}
 }
 
@@ -420,6 +441,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 // - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	// start an upload
+	ctx = withScopeHint(ctx, s.repo.Reference, auth.ActionPush)
 	url := buildRepositoryBlobUploadURL(s.repo.PlainHTTP, s.repo.Reference)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
@@ -433,7 +455,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 
 	if resp.StatusCode != http.StatusAccepted {
 		defer resp.Body.Close()
-		return parseErrorResponse(resp)
+		return errutil.ParseErrorResponse(resp)
 	}
 	resp.Body.Close()
 
@@ -465,7 +487,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return parseErrorResponse(resp)
+		return errutil.ParseErrorResponse(resp)
 	}
 	return nil
 }
@@ -497,6 +519,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -515,7 +538,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
-		return ocispec.Descriptor{}, parseErrorResponse(resp)
+		return ocispec.Descriptor{}, errutil.ParseErrorResponse(resp)
 	}
 	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if mediaType == "" {
@@ -544,6 +567,7 @@ type manifestStore struct {
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	ref := s.repo.Reference
 	ref.Reference = target.Digest.String()
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -567,7 +591,7 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	case http.StatusNotFound:
 		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
 	default:
-		return nil, parseErrorResponse(resp)
+		return nil, errutil.ParseErrorResponse(resp)
 	}
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
@@ -614,6 +638,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -633,7 +658,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
-		return ocispec.Descriptor{}, parseErrorResponse(resp)
+		return ocispec.Descriptor{}, errutil.ParseErrorResponse(resp)
 	}
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {

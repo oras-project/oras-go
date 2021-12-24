@@ -23,7 +23,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
 // RepositoryOptions is an alias of Repository to avoid name conflicts.
@@ -62,17 +65,47 @@ func NewRegistry(name string) (*Registry, error) {
 
 // client returns an HTTP client used to access the remote registry.
 // A default HTTP client is return if the client is not configured.
-func (r *Registry) client() *http.Client {
+func (r *Registry) client() Client {
 	if r.Client == nil {
-		return http.DefaultClient
+		return auth.DefaultClient
 	}
 	return r.Client
+}
+
+// Ping checks whether or not the registry implement Docker Registry API V2 or
+// OCI Distribution Specification.
+// Ping can be used to check authentication when an auth client is configured.
+// References:
+// - https://docs.docker.com/registry/spec/api/#base
+// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#api
+func (r *Registry) Ping(ctx context.Context) error {
+	url := buildRegistryBaseURL(r.PlainHTTP, r.Reference)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := r.client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusNotFound:
+		return errdef.ErrNotFound
+	default:
+		return errutil.ParseErrorResponse(resp)
+	}
 }
 
 // Repositories lists the name of repositories available in the registry.
 // See also `RepositoryListPageSize`.
 // Reference: https://docs.docker.com/registry/spec/api/#catalog
 func (r *Registry) Repositories(ctx context.Context, fn func(repos []string) error) error {
+	ctx = auth.AppendScopes(ctx, auth.ScopeRegistryCatalog)
 	url := buildRegistryCatalogURL(r.PlainHTTP, r.Reference)
 	var err error
 	for err == nil {
@@ -103,7 +136,7 @@ func (r *Registry) repositories(ctx context.Context, fn func(repos []string) err
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", parseErrorResponse(resp)
+		return "", errutil.ParseErrorResponse(resp)
 	}
 	var page struct {
 		Repositories []string `json:"repositories"`

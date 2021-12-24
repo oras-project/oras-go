@@ -21,9 +21,17 @@ import (
 	"net/http"
 )
 
+// Client is an interface for a HTTP client.
+// This interface is defined inside this package to prevent potential import
+// loop.
+type Client interface {
+	// Do sends an HTTP request and returns an HTTP response.
+	Do(*http.Request) (*http.Response, error)
+}
+
 // readSeekCloser seeks http body by starting new connections.
 type readSeekCloser struct {
-	client *http.Client
+	client Client
 	req    *http.Request
 	rc     io.ReadCloser
 	size   int64
@@ -33,7 +41,7 @@ type readSeekCloser struct {
 
 // NewReadSeekCloser returns a seeker to make the HTTP response seekable.
 // Callers should ensure that the server supports Range request.
-func NewReadSeekCloser(client *http.Client, req *http.Request, respBody io.ReadCloser, size int64) io.ReadSeekCloser {
+func NewReadSeekCloser(client Client, req *http.Request, respBody io.ReadCloser, size int64) io.ReadSeekCloser {
 	return &readSeekCloser{
 		client: client,
 		req:    req,
