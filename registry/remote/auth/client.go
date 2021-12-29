@@ -307,7 +307,7 @@ func (c *Client) fetchDistributionToken(ctx context.Context, realm, service stri
 	if result.AccessToken != "" {
 		return result.AccessToken, nil
 	}
-	if result.Token == "" {
+	if result.Token != "" {
 		return result.Token, nil
 	}
 	return "", fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
