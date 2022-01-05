@@ -67,6 +67,6 @@ func limitReader(r io.Reader, n int64) io.Reader {
 
 // withScopeHint adds a hinted scope to the context.
 func withScopeHint(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
-	scope := auth.ScopeRepository(ref.Reference, actions...)
+	scope := auth.ScopeRepository(ref.Repository, actions...)
 	return auth.AppendScopes(ctx, scope)
 }
