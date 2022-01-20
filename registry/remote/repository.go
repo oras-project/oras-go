@@ -28,8 +28,10 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/httputil"
+	"oras.land/oras-go/v2/internal/ioutil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
@@ -186,7 +188,13 @@ func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, cont
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
 	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
 	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content)
+	// unwrap the content for optimizations of built-in types.
+	body := ioutil.UnwrapNopCloser(content)
+	if _, ok := body.(io.ReadCloser); ok {
+		// undo unwrap if the nopCloser is intended.
+		body = content
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, body)
 	if err != nil {
 		return err
 	}
@@ -197,7 +205,26 @@ func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, cont
 	req.ContentLength = expected.Size
 	req.Header.Set("Content-Type", expected.MediaType)
 
-	resp, err := r.client().Do(req)
+	// if the underlying client is an auth client, the content might be read
+	// more than once for obtaining the auth challenge and the actual request.
+	// To prevent double reading, the manifest is read and stored in the memory,
+	// and serve from the memory.
+	client := r.client()
+	if _, ok := client.(*auth.Client); ok && req.GetBody == nil {
+		store := cas.NewMemory()
+		err := store.Push(ctx, expected, content)
+		if err != nil {
+			return err
+		}
+		req.GetBody = func() (io.ReadCloser, error) {
+			return store.Fetch(ctx, expected)
+		}
+		req.Body, err = req.GetBody()
+		if err != nil {
+			return err
+		}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
