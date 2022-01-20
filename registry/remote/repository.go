@@ -178,10 +178,12 @@ func (r *Repository) PushTag(ctx context.Context, expected ocispec.Descriptor, c
 	return r.push(ctx, expected, content, ref.Reference)
 }
 
-// push pushes the content, matching the expected descriptor.
+// push pushes the manifest content, matching the expected descriptor.
 func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
 	ref := r.Reference
 	ref.Reference = reference
+	// pushing usually requires both pull and push actions.
+	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
 	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
 	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, content)
@@ -441,6 +443,8 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 // - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	// start an upload
+	// pushing usually requires both pull and push actions.
+	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
 	ctx = withScopeHint(ctx, s.repo.Reference, auth.ActionPull, auth.ActionPush)
 	url := buildRepositoryBlobUploadURL(s.repo.PlainHTTP, s.repo.Reference)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
