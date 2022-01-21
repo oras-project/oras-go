@@ -22,7 +22,7 @@ mkdir .cover/ .test/
 trap "rm -rf .test/" EXIT
 
 export CGO_ENABLED=0
-for pkg in `go list ./pkg/... | grep -v /vendor/`; do
+for pkg in `go list ./...`; do
     go test -v -covermode=atomic \
         -coverprofile=".cover/$(echo $pkg | sed 's/\//_/g').cover.out" $pkg
 done
