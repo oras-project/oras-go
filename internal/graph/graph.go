@@ -48,8 +48,8 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 		if err := startLimitRegion(ctx, limiter); err != nil {
 			return err
 		}
-		eg.Go(func(desc ocispec.Descriptor) func() (err error) {
-			return func() error {
+		eg.Go(func(desc ocispec.Descriptor) func() error {
+			return func() (err error) {
 				shouldEndLimitRegion := true
 				defer func() {
 					if shouldEndLimitRegion {
