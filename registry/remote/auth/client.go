@@ -199,6 +199,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			if token, err := cache.GetToken(ctx, registry, SchemeBearer, key); err == nil {
 				req = originalReq.Clone(ctx)
 				req.Header.Set("Authorization", "Bearer "+token)
+				if err := rewindRequestBody(req); err != nil {
+					return nil, err
+				}
 
 				resp, err := c.send(req)
 				if err != nil {
@@ -225,6 +228,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		req.Header.Set("Authorization", "Bearer "+token)
 	default:
 		return resp, nil
+	}
+	if err := rewindRequestBody(req); err != nil {
+		return nil, err
 	}
 
 	return c.send(req)
@@ -364,4 +370,20 @@ func (c *Client) fetchOAuth2Token(ctx context.Context, realm, service string, sc
 		return result.AccessToken, nil
 	}
 	return "", fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
+}
+
+// rewindRequestBody tries to rewind the request body if exists.
+func rewindRequestBody(req *http.Request) error {
+	if req.Body == nil || req.Body == http.NoBody {
+		return nil
+	}
+	if req.GetBody == nil {
+		return fmt.Errorf("%s %q: request body is not rewindable", req.Method, req.URL)
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return fmt.Errorf("%s %q: failed to get request body: %w", req.Method, req.URL, err)
+	}
+	req.Body = body
+	return nil
 }

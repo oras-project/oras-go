@@ -17,6 +17,7 @@ package ioutil
 import (
 	"errors"
 	"io"
+	"reflect"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -52,4 +53,17 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	}
 
 	return buf, nil
+}
+
+// nopCloserType is the type of `io.NopCloser()`.
+var nopCloserType = reflect.TypeOf(io.NopCloser(nil))
+
+// UnwrapNopCloser unwraps the reader wrapped by `io.NopCloser()`.
+// Similar implementation can be found in the built-in package `net/http`.
+// Reference: https://github.com/golang/go/blob/go1.17.6/src/net/http/transfer.go#L423-L425
+func UnwrapNopCloser(rc io.Reader) io.Reader {
+	if reflect.TypeOf(rc) == nopCloserType {
+		return reflect.ValueOf(rc).Field(0).Interface().(io.Reader)
+	}
+	return rc
 }
