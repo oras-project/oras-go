@@ -29,7 +29,7 @@ docker rm -f oras-acceptance-registry || true
   cd examples
   for example in */; do
     example=${example%/}
-    CGO_ENABLED=0 go build -v -o ../bin/oras-acceptance-$example ./$example
+    CGO_ENABLED=0 go build -v -o ../bin/oras-acceptance-${example} ./${example}
   done
 )
 
