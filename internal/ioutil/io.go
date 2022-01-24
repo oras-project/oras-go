@@ -16,6 +16,7 @@ package ioutil
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 
@@ -39,20 +40,47 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	buf := make([]byte, desc.Size)
 	_, err := io.ReadFull(r, buf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read failed: %w", err)
 	}
 	if !verifier.Verified() {
 		return nil, errors.New("digest verification failed")
 	}
 
-	// ensure EOF
-	var peek [1]byte
-	_, err = io.ReadFull(r, peek[:])
-	if err != io.EOF {
-		return nil, errors.New("trailing data")
+	if err := ensureEOF(r); err != nil {
+		return nil, err
 	}
 
 	return buf, nil
+}
+
+// CopyBuffer copies from src to dst through the provided buffer
+// until either EOF is reached on src, or an error occurs.
+// The copied content is verified against the size and the digest.
+func CopyBuffer(dst io.Writer, src io.Reader, buf []byte, desc ocispec.Descriptor) error {
+	// verify while copying
+	verifier := desc.Digest.Verifier()
+	lr := io.LimitReader(src, desc.Size)
+	mw := io.MultiWriter(verifier, dst)
+
+	if _, err := io.CopyBuffer(mw, lr, buf); err != nil {
+		return fmt.Errorf("copy failed: %w", err)
+	}
+
+	if !verifier.Verified() {
+		return errors.New("digest verification failed")
+	}
+
+	return ensureEOF(lr)
+}
+
+func ensureEOF(r io.Reader) error {
+	var peek [1]byte
+	_, err := io.ReadFull(r, peek[:])
+	if err != io.EOF {
+		return errors.New("trailing data")
+	}
+
+	return nil
 }
 
 // nopCloserType is the type of `io.NopCloser()`.

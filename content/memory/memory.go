@@ -18,13 +18,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/resolver"
 )
 
@@ -32,7 +31,7 @@ import (
 type Store struct {
 	storage  content.Storage
 	resolver content.TagResolver
-	upEdges  sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
+	graph    *graph.Memory
 }
 
 // New creates a new memory based store.
@@ -40,6 +39,7 @@ func New() *Store {
 	return &Store{
 		storage:  cas.NewMemory(),
 		resolver: resolver.NewMemory(),
+		graph:    graph.NewMemory(),
 	}
 }
 
@@ -57,18 +57,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 	// index up edges.
 	// there is no data consistency issue as long as deletion is not implemented
 	// for the memory store.
-	upEdgeKey := descriptor.FromOCI(expected)
-	downEdges, err := content.DownEdges(ctx, s.storage, expected)
-	if err != nil {
-		return err
-	}
-	for _, downEdge := range downEdges {
-		downEdgeKey := descriptor.FromOCI(downEdge)
-		value, _ := s.upEdges.LoadOrStore(downEdgeKey, &sync.Map{})
-		upEdges := value.(*sync.Map)
-		upEdges.Store(upEdgeKey, expected)
-	}
-	return nil
+	return s.graph.Index(ctx, s.storage, expected)
 }
 
 // Exists returns true if the described content exists.
@@ -98,18 +87,6 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 // UpEdges returns nil without error if the node does not exists in the store.
 // Like other operations, calling UpEdges() is go-routine safe. However, it does
 // not necessarily correspond to any consistent snapshot of the stored contents.
-func (s *Store) UpEdges(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	key := descriptor.FromOCI(node)
-	value, exists := s.upEdges.Load(key)
-	if !exists {
-		return nil, nil
-	}
-	upEdges := value.(*sync.Map)
-
-	var res []ocispec.Descriptor
-	upEdges.Range(func(key, value interface{}) bool {
-		res = append(res, value.(ocispec.Descriptor))
-		return true
-	})
-	return res, nil
+func (s *Store) UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return s.graph.UpEdges(ctx, node)
 }
