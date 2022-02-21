@@ -1,3 +1,17 @@
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package file
 
 import (
@@ -31,19 +45,13 @@ func TestStorage_File_Push(t *testing.T) {
 			ocispec.AnnotationTitle: "test.txt",
 		},
 	}
-
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	err := s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Storage.Push() error =", err)
 	}
@@ -76,12 +84,7 @@ func TestStorage_File_Push(t *testing.T) {
 }
 
 func TestStorage_Dir_Push(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	dirName := "testdir"
 	dirPath := filepath.Join(tempDir, dirName)
 	if err := os.MkdirAll(dirPath, 0777); err != nil {
@@ -90,7 +93,7 @@ func TestStorage_Dir_Push(t *testing.T) {
 
 	content := []byte("hello world")
 	fileName := "test.txt"
-	if err = ioutil.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
+	if err := ioutil.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -121,12 +124,7 @@ func TestStorage_Dir_Push(t *testing.T) {
 		t.Fatal("failed to close internal zip reader")
 	}
 
-	anotherTempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(anotherTempDir)
-
+	anotherTempDir := t.TempDir()
 	// test with another file store instance to mock push zip
 	anotherS := newStorage(anotherTempDir)
 	defer anotherS.Close()
@@ -203,12 +201,7 @@ func TestStorage_Manifest_Push(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 
@@ -253,20 +246,15 @@ func TestStorage_NoNameErr(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if !errors.Is(err, errdef.ErrNoName) {
-		t.Errorf("Storage.Push() error = %v, want %v", err, errdef.ErrNoName)
+	err := s.Push(ctx, desc, bytes.NewReader(content))
+	if !errors.Is(err, ErrNoName) {
+		t.Errorf("Storage.Push() error = %v, want %v", err, ErrNoName)
 	}
 }
 
@@ -278,19 +266,14 @@ func TestStorage_IgnoreNoName_Push(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 	s.IgnoreNoName = true
 	ctx := context.Background()
 
 	// test push
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	err := s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Storage.Push() error =", err)
 	}
@@ -333,12 +316,7 @@ func TestStorage_File_NotFound(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 	ctx := context.Background()
@@ -357,38 +335,6 @@ func TestStorage_File_NotFound(t *testing.T) {
 	}
 }
 
-func TestStorage_File_AlreadyExists(t *testing.T) {
-	content := []byte("hello world")
-	desc := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-		Annotations: map[string]string{
-			ocispec.AnnotationTitle: "test.txt",
-		},
-	}
-
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	s := newStorage(tempDir)
-	defer s.Close()
-	ctx := context.Background()
-
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if err != nil {
-		t.Fatal("Storage.Push() error =", err)
-	}
-
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if !errors.Is(err, errdef.ErrAlreadyExists) {
-		t.Errorf("Storage.Push() error = %v, want %v", err, errdef.ErrAlreadyExists)
-	}
-}
-
 func TestStorage_File_BadPush(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
@@ -400,17 +346,12 @@ func TestStorage_File_BadPush(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 	ctx := context.Background()
 
-	err = s.Push(ctx, desc, strings.NewReader("foobar"))
+	err := s.Push(ctx, desc, strings.NewReader("foobar"))
 	if err == nil {
 		t.Errorf("Storage.Push() error = %v, wantErr %v", err, true)
 	}
@@ -429,14 +370,9 @@ func TestStorage_File_Add(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err = ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := ioutil.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -481,12 +417,7 @@ func TestStorage_File_Add(t *testing.T) {
 }
 
 func TestStorage_Dir_Add(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	dirName := "testdir"
 	dirPath := filepath.Join(tempDir, dirName)
 	if err := os.MkdirAll(dirPath, 0777); err != nil {
@@ -494,7 +425,7 @@ func TestStorage_Dir_Add(t *testing.T) {
 	}
 
 	content := []byte("hello world")
-	if err = ioutil.WriteFile(filepath.Join(dirPath, "test.txt"), content, 0444); err != nil {
+	if err := ioutil.WriteFile(filepath.Join(dirPath, "test.txt"), content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -575,14 +506,9 @@ func TestStorage_Pack(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	path_1 := filepath.Join(tempDir, name_1)
-	if err = ioutil.WriteFile(path_1, content_1, 0444); err != nil {
+	if err := ioutil.WriteFile(path_1, content_1, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 	files = append(files, FileRef{
@@ -592,7 +518,7 @@ func TestStorage_Pack(t *testing.T) {
 	})
 
 	path_2 := filepath.Join(tempDir, name_2)
-	if err = ioutil.WriteFile(path_2, content_2, 0444); err != nil {
+	if err := ioutil.WriteFile(path_2, content_2, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 	files = append(files, FileRef{
@@ -683,18 +609,13 @@ func TestStorage_File_Add_SameContent(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	path_1 := filepath.Join(tempDir, name_1)
-	if err = ioutil.WriteFile(path_1, content, 0444); err != nil {
+	if err := ioutil.WriteFile(path_1, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 	path_2 := filepath.Join(tempDir, name_2)
-	if err = ioutil.WriteFile(path_2, content, 0444); err != nil {
+	if err := ioutil.WriteFile(path_2, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -794,12 +715,7 @@ func TestStorage_File_Push_SameContent(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 	ctx := context.Background()
@@ -863,6 +779,72 @@ func TestStorage_File_Push_SameContent(t *testing.T) {
 	}
 }
 
+func TestStorage_File_DuplicateName(t *testing.T) {
+	mediaType := "test"
+	name := "test.txt"
+	content_1 := []byte("hello world")
+	content_2 := []byte("goodbye world")
+	desc_1 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content_1),
+		Size:      int64(len(content_1)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name,
+		},
+	}
+	desc_2 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content_2),
+		Size:      int64(len(content_2)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name,
+		},
+	}
+
+	tempDir := t.TempDir()
+	s := newStorage(tempDir)
+	defer s.Close()
+	ctx := context.Background()
+
+	// test push
+	err := s.Push(ctx, desc_1, bytes.NewReader(content_1))
+	if err != nil {
+		t.Fatal("Storage.Push() error =", err)
+	}
+
+	// test exists
+	exists, err := s.Exists(ctx, desc_1)
+	if err != nil {
+		t.Fatal("Storage.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Storage.Exists() = %v, want %v", exists, true)
+	}
+
+	// test fetch
+	rc, err := s.Fetch(ctx, desc_1)
+	if err != nil {
+		t.Fatal("Storage.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Storage.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Storage.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content_1) {
+		t.Errorf("Storage.Fetch() = %v, want %v", got, content_1)
+	}
+
+	// test push with duplicate name
+	err = s.Push(ctx, desc_2, bytes.NewBuffer(content_2))
+	if !errors.Is(err, ErrDuplicateName) {
+		t.Errorf("Storage.Push() error = %v, want %v", err, ErrDuplicateName)
+	}
+}
+
 func TestStorage_File_Overwrite(t *testing.T) {
 	mediaType := "test"
 	name := "test.txt"
@@ -877,14 +859,9 @@ func TestStorage_File_Overwrite(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err = ioutil.WriteFile(path, old_content, 0666); err != nil {
+	if err := ioutil.WriteFile(path, old_content, 0666); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -893,7 +870,7 @@ func TestStorage_File_Overwrite(t *testing.T) {
 	ctx := context.Background()
 
 	// test push
-	err = s.Push(ctx, desc, bytes.NewReader(new_content))
+	err := s.Push(ctx, desc, bytes.NewReader(new_content))
 	if err != nil {
 		t.Fatal("Storage.Push() error =", err)
 	}
@@ -938,14 +915,9 @@ func TestStorage_File_DisableOverwrite(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err = ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := ioutil.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -954,9 +926,9 @@ func TestStorage_File_DisableOverwrite(t *testing.T) {
 	s.DisableOverwrite = true
 
 	ctx := context.Background()
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if !errors.Is(err, errdef.ErrOverwriteDisallowed) {
-		t.Errorf("Storage.Push() error = %v, want %v", err, errdef.ErrOverwriteDisallowed)
+	err := s.Push(ctx, desc, bytes.NewReader(content))
+	if !errors.Is(err, ErrOverwriteDisallowed) {
+		t.Errorf("Storage.Push() error = %v, want %v", err, ErrOverwriteDisallowed)
 	}
 }
 
@@ -972,19 +944,14 @@ func TestStorage_File_DisallowPathTraversal(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 
 	ctx := context.Background()
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if !errors.Is(err, errdef.ErrPathTraversalDisallowed) {
-		t.Errorf("Storage.Push() error = %v, want %v", err, errdef.ErrPathTraversalDisallowed)
+	err := s.Push(ctx, desc, bytes.NewReader(content))
+	if !errors.Is(err, ErrPathTraversalDisallowed) {
+		t.Errorf("Storage.Push() error = %v, want %v", err, ErrPathTraversalDisallowed)
 	}
 }
 
@@ -1000,12 +967,7 @@ func TestStorage_File_PathTraversal(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	subTempDir, err := os.MkdirTemp(tempDir, "oras_filestore_*")
 	if err != nil {
 		t.Fatal("error creating temp dir, error =", err)
@@ -1060,12 +1022,7 @@ func TestStorage_File_Push_Concurrent(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 	ctx := context.Background()
@@ -1076,7 +1033,7 @@ func TestStorage_File_Push_Concurrent(t *testing.T) {
 		eg.Go(func(i int) func() error {
 			return func() error {
 				if err := s.Push(egCtx, desc, bytes.NewReader(content)); err != nil {
-					if errors.Is(err, errdef.ErrAlreadyExists) {
+					if errors.Is(err, ErrDuplicateName) {
 						return nil
 					}
 					return fmt.Errorf("failed to push content: %v", err)
@@ -1126,12 +1083,7 @@ func TestStorage_File_Fetch_Concurrent(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := newStorage(tempDir)
 	defer s.Close()
 	ctx := context.Background()

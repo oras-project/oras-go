@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -75,12 +74,7 @@ func TestStoreInterface(t *testing.T) {
 }
 
 func TestStore_Success(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := New(tempDir)
 	defer s.Close()
 	ctx := context.Background()
@@ -98,7 +92,7 @@ func TestStore_Success(t *testing.T) {
 	}
 
 	path := filepath.Join(tempDir, name)
-	if err = ioutil.WriteFile(path, blob, 0444); err != nil {
+	if err := ioutil.WriteFile(path, blob, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -217,38 +211,6 @@ func TestStore_Success(t *testing.T) {
 	}
 }
 
-func TestStore_ContentAlreadyExists(t *testing.T) {
-	content := []byte("hello world")
-	desc := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-		Annotations: map[string]string{
-			ocispec.AnnotationTitle: "test.txt",
-		},
-	}
-
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	s := New(tempDir)
-	defer s.Close()
-	ctx := context.Background()
-
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if err != nil {
-		t.Fatal("Store.Push() error =", err)
-	}
-
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if !errors.Is(err, errdef.ErrAlreadyExists) {
-		t.Errorf("Store.Push() error = %v, want %v", err, errdef.ErrAlreadyExists)
-	}
-}
-
 func TestStore_ContentBadPush(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
@@ -260,17 +222,12 @@ func TestStore_ContentBadPush(t *testing.T) {
 		},
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := New(tempDir)
 	defer s.Close()
 	ctx := context.Background()
 
-	err = s.Push(ctx, desc, strings.NewReader("foobar"))
+	err := s.Push(ctx, desc, strings.NewReader("foobar"))
 	if err == nil {
 		t.Errorf("Store.Push() error = %v, wantErr %v", err, true)
 	}
@@ -279,17 +236,12 @@ func TestStore_ContentBadPush(t *testing.T) {
 func TestStore_TagNotFound(t *testing.T) {
 	ref := "foobar"
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := New(tempDir)
 	defer s.Close()
 	ctx := context.Background()
 
-	_, err = s.Resolve(ctx, ref)
+	_, err := s.Resolve(ctx, ref)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Store.Resolve() error = %v, want %v", err, errdef.ErrNotFound)
 	}
@@ -304,29 +256,19 @@ func TestStore_TagUnknownContent(t *testing.T) {
 	}
 	ref := "foobar"
 
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := New(tempDir)
 	defer s.Close()
 	ctx := context.Background()
 
-	err = s.Tag(ctx, desc, ref)
+	err := s.Tag(ctx, desc, ref)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Store.Resolve() error = %v, want %v", err, errdef.ErrNotFound)
 	}
 }
 
 func TestStore_RepeatTag(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := New(tempDir)
 	defer s.Close()
 	ctx := context.Background()
@@ -351,7 +293,7 @@ func TestStore_RepeatTag(t *testing.T) {
 	// initial tag
 	content := []byte("hello world")
 	desc := generate(content)
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	err := s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -422,12 +364,7 @@ func TestStore_RepeatTag(t *testing.T) {
 }
 
 func TestStore_UpEdges(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := New(tempDir)
 	defer s.Close()
 	ctx := context.Background()
@@ -564,12 +501,8 @@ func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descript
 
 func TestCopy_File_MemoryToFile_FullCopy(t *testing.T) {
 	src := memory.New()
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
 
+	tempDir := t.TempDir()
 	dst := New(tempDir)
 	defer dst.Close()
 
@@ -615,7 +548,7 @@ func TestCopy_File_MemoryToFile_FullCopy(t *testing.T) {
 
 	root := descs[3]
 	ref := "foobar"
-	err = src.Tag(ctx, root, ref)
+	err := src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)
 	}
@@ -652,12 +585,8 @@ func TestCopy_File_MemoryToFile_FullCopy(t *testing.T) {
 
 func TestCopyGraph_MemoryToFile_FullCopy(t *testing.T) {
 	src := memory.New()
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
 
+	tempDir := t.TempDir()
 	dst := New(tempDir)
 	defer dst.Close()
 
@@ -761,12 +690,8 @@ func TestCopyGraph_MemoryToFile_FullCopy(t *testing.T) {
 
 func TestCopyGraph_MemoryToFile_PartialCopy(t *testing.T) {
 	src := memory.New()
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
 
+	tempDir := t.TempDir()
 	dst := New(tempDir)
 	defer dst.Close()
 
@@ -881,11 +806,7 @@ func TestCopyGraph_MemoryToFile_PartialCopy(t *testing.T) {
 }
 
 func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 	src := New(tempDir)
 	defer src.Close()
 
@@ -933,7 +854,7 @@ func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
 
 	root := descs[3]
 	ref := "foobar"
-	err = src.Tag(ctx, root, ref)
+	err := src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)
 	}
@@ -969,11 +890,7 @@ func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
 }
 
 func TestCopyGraph_FileToMemory_FullCopy(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 	src := New(tempDir)
 	defer src.Close()
 
@@ -1078,11 +995,7 @@ func TestCopyGraph_FileToMemory_FullCopy(t *testing.T) {
 }
 
 func TestCopyGraph_FileToMemory_PartialCopy(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_file_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 	src := New(tempDir)
 	defer src.Close()
 

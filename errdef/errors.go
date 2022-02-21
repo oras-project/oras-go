@@ -18,14 +18,11 @@ import "errors"
 
 // Common errors used in ORAS
 var (
-	ErrAlreadyExists           = errors.New("already exists")
-	ErrUnsupported             = errors.New("unsupported")
-	ErrInvalidReference        = errors.New("invalid reference")
-	ErrInvalidDigest           = errors.New("invalid digest")
-	ErrNotFound                = errors.New("not found")
-	ErrNoName                  = errors.New("no name")
-	ErrUnsupportedVersion      = errors.New("unsupported version")
-	ErrMissingReference        = errors.New("missing reference")
-	ErrPathTraversalDisallowed = errors.New("path traversal disallowed")
-	ErrOverwriteDisallowed     = errors.New("overwrite disallowed")
+	ErrAlreadyExists      = errors.New("already exists")
+	ErrUnsupported        = errors.New("unsupported")
+	ErrInvalidReference   = errors.New("invalid reference")
+	ErrInvalidDigest      = errors.New("invalid digest")
+	ErrNotFound           = errors.New("not found")
+	ErrUnsupportedVersion = errors.New("unsupported version")
+	ErrMissingReference   = errors.New("missing reference")
 )

@@ -25,12 +25,14 @@ import (
 	"oras.land/oras-go/v2/internal/resolver"
 )
 
+// Store represents a file system based store, which implements `oras.Target`.
 type Store struct {
 	*storage
 	resolver *resolver.Memory
 	graph    *graph.Memory
 }
 
+// New creates a new file store.
 func New(workingDir string) *Store {
 	store := &Store{
 		storage:  newStorage(workingDir),
@@ -86,6 +88,7 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, ref string) er
 }
 
 // UpEdges returns the nodes directly pointing to the current node.
+// UpEdges returns nil without error if the node does not exists in the store.
 func (s *Store) UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	return s.graph.UpEdges(ctx, node)
 }

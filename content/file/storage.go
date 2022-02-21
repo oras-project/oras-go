@@ -1,3 +1,17 @@
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package file
 
 import (
@@ -36,16 +50,17 @@ var bufPool = sync.Pool{
 }
 
 const (
-	// DefaultBlobMediaType specifies the default blob media type
-	DefaultBlobMediaType = ocispec.MediaTypeImageLayer
-	// DefaultBlobDirMediaType specifies the default blob directory media type
-	DefaultBlobDirMediaType = ocispec.MediaTypeImageLayerGzip
 	// AnnotationDigest is the annotation key for the digest of the uncompressed content
 	AnnotationDigest = "io.deis.oras.content.digest"
 	// AnnotationUnpack is the annotation key for indication of unpacking
 	AnnotationUnpack = "io.deis.oras.content.unpack"
+	// defaultBlobMediaType specifies the default blob media type
+	defaultBlobMediaType = ocispec.MediaTypeImageLayer
+	// defaultBlobDirMediaType specifies the default blob directory media type
+	defaultBlobDirMediaType = ocispec.MediaTypeImageLayerGzip
 )
 
+// storage implements `content.Storage`
 type storage struct {
 	Reproducible              bool
 	IgnoreNoName              bool
@@ -130,7 +145,7 @@ func (s *storage) Push(ctx context.Context, expected ocispec.Descriptor, content
 	if name == "" {
 		// if we were not told to ignore NoName, then return an error
 		if !s.IgnoreNoName {
-			return errdef.ErrNoName
+			return ErrNoName
 		}
 
 		_, exists := s.dgstToPath.Load(expected.Digest)
@@ -149,12 +164,18 @@ func (s *storage) Push(ctx context.Context, expected ocispec.Descriptor, content
 	// check if name already exists
 	_, exists := s.nameToPath.Load(name)
 	if exists {
-		return fmt.Errorf("%s: %s: %w", name, expected.MediaType, errdef.ErrAlreadyExists)
+		return fmt.Errorf("%s: %w", name, ErrDuplicateName)
 	}
 
 	// only one go-routine is allowed to write file
 	s.locker.Lock(name)
 	defer s.locker.Unlock(name)
+
+	// check if name already exists
+	_, exists = s.nameToPath.Load(name)
+	if exists {
+		return fmt.Errorf("%s: %w", name, ErrDuplicateName)
+	}
 
 	target, err := s.resolveWritePath(name)
 	if err != nil {
@@ -213,7 +234,7 @@ func (s *storage) Add(name, mediaType, path string) (ocispec.Descriptor, error) 
 	// check if name already exists
 	_, exists := s.nameToPath.Load(name)
 	if exists {
-		return ocispec.Descriptor{}, fmt.Errorf("%s: %s: %w", name, mediaType, errdef.ErrAlreadyExists)
+		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", name, ErrDuplicateName)
 	}
 
 	if path == "" {
@@ -363,7 +384,7 @@ func (s *storage) descriptorFromDir(name, mediaType, dir string) (ocispec.Descri
 
 	// generate descriptor
 	if mediaType == "" {
-		mediaType = DefaultBlobDirMediaType
+		mediaType = defaultBlobDirMediaType
 	}
 
 	return ocispec.Descriptor{
@@ -392,7 +413,7 @@ func (s *storage) descriptorFromFile(fi os.FileInfo, mediaType, path string) (oc
 	s.dgstToPath.Store(dgst, path)
 
 	if mediaType == "" {
-		mediaType = DefaultBlobMediaType
+		mediaType = defaultBlobMediaType
 	}
 
 	return ocispec.Descriptor{
@@ -415,16 +436,16 @@ func (s *storage) resolveWritePath(name string) (string, error) {
 		}
 		rel, err := filepath.Rel(base, target)
 		if err != nil {
-			return "", errdef.ErrPathTraversalDisallowed
+			return "", ErrPathTraversalDisallowed
 		}
 		rel = filepath.ToSlash(rel)
 		if strings.HasPrefix(rel, "../") || rel == ".." {
-			return "", errdef.ErrPathTraversalDisallowed
+			return "", ErrPathTraversalDisallowed
 		}
 	}
 	if s.DisableOverwrite {
 		if _, err := os.Stat(path); err == nil {
-			return "", errdef.ErrOverwriteDisallowed
+			return "", ErrOverwriteDisallowed
 		} else if !os.IsNotExist(err) {
 			return "", err
 		}
