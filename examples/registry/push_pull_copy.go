@@ -30,8 +30,8 @@ func main() {
 	}
 	// 0. Create a registry struct pointing to our local OSS registry instance
 	localRegistry, err := remote.NewRegistry(fmt.Sprintf("%s:5000", env))
-	localRegistry.RepositoryOptions.PlainHTTP = true // HTTP, not HTTPS
 	CheckError(err)
+	localRegistry.RepositoryOptions.PlainHTTP = true // HTTP, not HTTPS
 
 	// 1. Create a image in the 'push-example' repository
 	var localRepoName = "push-example"
