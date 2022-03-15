@@ -91,7 +91,7 @@ func Pack(ctx context.Context, pusher content.Pusher, layers []ocispec.Descripto
 
 	// push manifest.
 	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestBytes)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-		return ocispec.Descriptor{}, fmt.Errorf("failed to store manifest: %w", err)
+		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
 	}
 
 	return manifestDesc, nil
