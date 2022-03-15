@@ -38,9 +38,8 @@ func main() {
 	localRepo, err := localRegistry.Repository(ctx, localRepoName)
 	CheckError(err)
 	// 1.1 Create a config blob and a layer blob
-	// For each blob , we need to create its content and descriptor respectively
-	layer1Blob := []byte("Hello layer")
-	layer1Descriptor := ocispec.Descriptor{
+	layer1Blob := []byte("Hello layer")     // a) content
+	layer1Descriptor := ocispec.Descriptor{ // b) descriptor
 		MediaType: ocispec.MediaTypeImageLayer,
 		Digest:    digest.FromBytes(layer1Blob),
 		Size:      int64(len(layer1Blob)),
@@ -51,9 +50,9 @@ func main() {
 		Digest:    digest.FromBytes(configBlob),
 		Size:      int64(len(configBlob)),
 	}
-	// 1.2 Create a manifest pointing to the config and layer blobs
+	// 1.2 Create a manifest blob
 	manifest1Content := ocispec.Manifest{
-		Config:    configDescriptor,
+		Config:    configDescriptor, //
 		Layers:    []ocispec.Descriptor{layer1Descriptor},
 		Versioned: specs.Versioned{SchemaVersion: 2},
 	}
@@ -65,36 +64,36 @@ func main() {
 		Size:      int64(len(manifest1Blob)),
 	}
 	// 1.3 Push all the blobs
-	err = localRepo.Push(ctx, manifest1Descriptor, bytes.NewReader(manifest1Blob))
-	CheckError(err)
 	err = localRepo.Push(ctx, layer1Descriptor, bytes.NewReader(layer1Blob))
 	CheckError(err)
 	err = localRepo.Push(ctx, configDescriptor, bytes.NewReader(configBlob))
 	CheckError(err)
+	err = localRepo.Push(ctx, manifest1Descriptor, bytes.NewReader(manifest1Blob)) // the manifest blob need to be uploaded as the last one
+	CheckError(err)
 
-	// 2. Pull a layer blob
+	// 2. Pull the pushed layer blob
 	reader, err := localRepo.Fetch(ctx, layer1Descriptor) // we can use the descriptor to pull the blob
 	CheckError(err)
 	pulledBlob, err := io.ReadAll(reader)
 	CheckError(err)
-	fmt.Println("--- Pull a layer blob---")
+	fmt.Println("--- Pull a layer blob ---")
 	fmt.Printf("Pushed layer => \"%v\"; Pulled layer => \"%v\"\n", string(layer1Blob), string(pulledBlob))
 	fmt.Println()
 
-	// 3. Pull a manifest blob
+	// 3. Pull the pushed manifest blob
 	reader, err = localRepo.Fetch(ctx, manifest1Descriptor) // we can use the descriptor to pull a manifest, which is also a blob
 	CheckError(err)
 	pulledBlob, err = io.ReadAll(reader)
 	CheckError(err)
-	fmt.Println("--- Pull manifest as a blob---")
+	fmt.Println("--- Pull a manifest blob ---")
 	fmt.Printf("Pushed manifest =>\n %v\nPulled manifest =>\n %v\n", string(manifest1Blob), string(pulledBlob))
 	fmt.Println()
 
 	// 4. Pull a manifest blob with validation
-	manifestBlob, err := content.FetchAll(ctx, localRepo, manifest1Descriptor) // Another way to pull
+	pulledManifest1Content, err := content.FetchAll(ctx, localRepo, manifest1Descriptor) // Another way to pull
 	CheckError(err)
-	fmt.Println("--- Pull manifest with verification---")
-	fmt.Printf("Pushed manifest =>\n %v\nPulled manifest =>\n %v\n", string(manifest1Blob), string(manifestBlob))
+	fmt.Println("--- Pull manifest with verification ---")
+	fmt.Printf("Pushed manifest =>\n %v\nPulled manifest =>\n %v\n", string(manifest1Blob), string(pulledManifest1Content))
 	fmt.Println()
 
 	// 5. Tag a manifest + Resolve
@@ -154,7 +153,7 @@ func main() {
 	_, err = oras.Copy(ctx, mcrRepo, tagName, localRepo, tagName)
 	CheckError(err)
 	// 7.4 Verify the copied manifest
-	fmt.Println("--- Copy manifest verification---")
+	fmt.Println("--- Copy manifest verification ---")
 	copiedManifest, err := localRepo.Resolve(ctx, tagName)
 	CheckError(err)
 	fmt.Printf("%s is copied with tag name %s\n", copiedManifest.Digest, tagName)
@@ -167,13 +166,13 @@ func main() {
 	fmt.Printf("--- What's in our local registry so far ---\n")
 	fmt.Printf("%s:5000 (Registry)\n", env)
 	localRegistry.PlainHTTP = true
-	repos, err := registry.Repositories(ctx, localRegistry)
+	repos, err := registry.Repositories(ctx, localRegistry) // list all repositories in the local registry
 	CheckError(err)
 	for _, repoName := range repos {
 		fmt.Printf("  +--%s (Repository)\n", repoName)
 		repo, err := localRegistry.Repository(ctx, repoName)
 		CheckError(err)
-		err = repo.Tags(ctx, func(tags []string) error {
+		err = repo.Tags(ctx, func(tags []string) error { // list all the tags in the current repository
 			for _, tag := range tags {
 				manifestDesc, err := repo.Resolve(ctx, tag)
 				CheckError(err)
