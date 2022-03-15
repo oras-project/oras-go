@@ -60,9 +60,9 @@ func Pack(ctx context.Context, pusher content.Pusher, layers []ocispec.Descripto
 			Annotations: opts.ConfigAnnotations,
 		}
 
-		// push config blob.
+		// push config.
 		if err := pusher.Push(ctx, configDesc, bytes.NewReader(configBytes)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to store config: %w", err)
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
 		}
 	}
 
