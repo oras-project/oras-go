@@ -12,19 +12,12 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
-package errdef
+package file
 
 import "errors"
 
-// Common errors used in ORAS
 var (
-	ErrAlreadyExists      = errors.New("already exists")
-	ErrUnsupported        = errors.New("unsupported")
-	ErrInvalidReference   = errors.New("invalid reference")
-	ErrInvalidDigest      = errors.New("invalid digest")
-	ErrNotFound           = errors.New("not found")
-	ErrUnsupportedVersion = errors.New("unsupported version")
-	ErrMissingReference   = errors.New("missing reference")
-	ErrContextCanceled    = errors.New("context canceled")
+	ErrDuplicateName           = errors.New("duplicate name")
+	ErrPathTraversalDisallowed = errors.New("path traversal disallowed")
+	ErrOverwriteDisallowed     = errors.New("overwrite disallowed")
 )
