@@ -151,6 +151,8 @@ func main() {
 	// 8. Iterate all repositories and tags in the registry
 	repos, err := GetRegistryCatalog(ctx, localRegistryUri, true) // get all repositories
 	CheckError(err)
+	fmt.Printf("--- What's in our local registry so far ---\n")
+	fmt.Printf("%s (Registry)\n", localRegistryUri)
 	for _, repoName := range repos {
 		fmt.Printf("  +--%s (Repository)\n", repoName)
 		err = GetRepositoryTagList(ctx, localRegistryUri, localRepoName, true, func(tags []string) error { // list all the tags in the current repository
