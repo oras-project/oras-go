@@ -57,7 +57,7 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 	// prepare pre-handler
 	preHandler := HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		// skip the node if other go routine is working on it
-		done, committed := tracker.TryCommit(desc)
+		_, committed := tracker.TryCommit(desc)
 		if !committed {
 			return nil, ErrSkipDesc
 		}
@@ -66,8 +66,6 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 		key := descriptor.FromOCI(desc)
 		_, exists := m.indexed.Load(key)
 		if exists {
-			// mark the node as done
-			close(done)
 			return nil, ErrSkipDesc
 		}
 
@@ -80,8 +78,6 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 			return nil, err
 		}
 
-		// mark the node as done on success
-		close(done)
 		return downEdges, nil
 	})
 
