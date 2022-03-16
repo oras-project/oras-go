@@ -24,7 +24,7 @@ func main() {
 	var localRepoName = "example/registry"             // Prepare local repository name
 	ctx := context.Background()
 
-	// 1. Push the below oci image to registry
+	// 1. Push an oci image to registry
 	layer1Desc, err := PushBlob(ctx, ocispec.MediaTypeImageLayer, []byte("Hello layer"), localRegistryUri, localRepoName, true) // push layer blob
 	CheckError(err)
 	configDesc, err := PushBlob(ctx, ocispec.MediaTypeImageLayer, []byte("Hello config"), localRegistryUri, localRepoName, true) // push config blob
