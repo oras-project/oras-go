@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -192,4 +193,49 @@ func TestRegistry_Repository(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Registry.Repository() = %v, want %v", got, want)
 	}
+}
+
+// This is a package-level example:
+func ExampleRepositories() {
+	var sampleRepoSet = []string{"public/repo1", "public/repo2", "internal/repo3"}
+	// Mocking local registry
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		n, _ := strconv.Atoi(q.Get("n"))
+		if n == 0 {
+			n = len(sampleRepoSet)
+		}
+		last, _ := strconv.Atoi(q.Get("last"))
+		result := struct {
+			Repositories []string `json:"repositories"`
+		}{
+			Repositories: sampleRepoSet[last:int(math.Min(float64(len(sampleRepoSet)-1), float64(last+n)))],
+		}
+		json.NewEncoder(w).Encode(result)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		panic(err)
+	}
+
+	// Example: List repositories in a registry
+	reg, err := NewRegistry(uri.Host) // Create a registry via the remote host
+	if err != nil {
+		panic(err) // Handle error
+	}
+	reg.RepositoryOptions.PlainHTTP = true // Use HTTP
+	reg.RepositoryListPageSize = 2         // Set page size to 2 so only get first 2 repositories
+	fn := func(repos []string) error {     // Setup a callback function to process returned repository list
+		for _, repo := range repos {
+			fmt.Println(repo)
+		}
+		return nil
+	}
+
+	ctx := context.Background()
+	reg.Repositories(ctx, fn)
+	// Output:
+	// public/repo1
+	// public/repo2
 }
