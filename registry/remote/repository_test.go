@@ -1598,3 +1598,217 @@ func Test_ManifestStore_Resolve(t *testing.T) {
 		t.Errorf("Manifests.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
+
+const exampleRepoName = "example"
+const exampleDigest = "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+const exampleBlob = "Example blob content"
+
+func testService() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		switch p {
+		case fmt.Sprintf("/v2/%s/tags/list", exampleRepoName):
+			result := struct {
+				Tags []string `json:"tags"`
+			}{
+				Tags: []string{"tag1", "tag2"},
+			}
+			json.NewEncoder(w).Encode(result)
+		case fmt.Sprintf("/v2/%s/blobs/uploads/", exampleRepoName):
+			w.WriteHeader(http.StatusCreated)
+		case fmt.Sprintf("/v2/%s/manifests/latest", exampleRepoName),
+			fmt.Sprintf("/v2/%s/manifests/%s", exampleRepoName, exampleDigest):
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
+			w.Header().Set("Docker-Content-Digest", exampleDigest)
+			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
+		case fmt.Sprintf("/v2/%s/blobs/%s", exampleRepoName, exampleDigest):
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
+			w.Header().Set("Docker-Content-Digest", exampleDigest)
+			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
+			w.Write([]byte(exampleBlob))
+		}
+
+	}))
+}
+
+func ExampleRepository_Tags() {
+	ts := testService()
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		panic(err)
+	}
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		panic(err)
+	}
+	reg.RepositoryOptions.PlainHTTP = true
+
+	// Example: List tags in a repository
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepoName) // Get the repository from registry
+	if err != nil {
+		panic(err)
+	}
+
+	fn := func(tags []string) error { // Setup a callback function to process returned tag list
+		for _, tag := range tags {
+			fmt.Println(tag)
+		}
+		return nil
+	}
+	repo.Tags(ctx, fn)
+
+	// Output:
+	// tag1
+	// tag2
+}
+
+func ExampleRepository_Push() {
+	ts := testService()
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		// handle it
+		return
+	}
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		// handle it
+		return
+	}
+	reg.RepositoryOptions.PlainHTTP = true
+
+	// Example: Push a blob to a repository
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepoName) // Get the repository from registry
+	if err != nil {
+		panic(err)
+	}
+
+	mediaType, content := ocispec.MediaTypeImageLayer, []byte("Example blob content") // Setup input: 1) media type and 2)[]byte content
+	desc := ocispec.Descriptor{                                                       // Assemble a descriptor
+		MediaType: mediaType,                 // Set mediatype
+		Digest:    digest.FromBytes(content), // Calculate digest
+		Size:      int64(len(content)),       // Include content size
+	}
+	repo.Push(ctx, desc, bytes.NewReader(content)) // Push the blob
+
+	fmt.Println("Push finished")
+	// Output:
+	// Push finished
+}
+
+func ExampleRepository_Resolve() {
+	ts := testService()
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		// handle it
+		return
+	}
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		// handle it
+		return
+	}
+	reg.RepositoryOptions.PlainHTTP = true
+
+	// Example: Resolve a blob from a registry
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepoName) // Get the repository from registry
+	if err != nil {
+		panic(err)
+	}
+	// suppose we are going to pull a blob with below digest and tag
+	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	tag := "latest"
+
+	// 1. Resolve via tag
+	descriptor, err := repo.Resolve(ctx, tag) // Resolve tag to the descriptor
+	if err != nil {
+		// handle it
+		return
+	}
+	fmt.Println(descriptor.Digest)
+
+	// 2. Resolve via digest
+	descriptor, err = repo.Resolve(ctx, digest) // Resolve digest to the descriptor
+	if err != nil {
+		// handle it
+		return
+	}
+	fmt.Println(descriptor.Size)
+
+	// Output:
+	// sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec
+	// 20
+}
+
+func ExampleRepository_Fetch() {
+	ts := testService()
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		// handle it
+		return
+	}
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		// handle it
+		return
+	}
+	reg.RepositoryOptions.PlainHTTP = true
+
+	// Example: Pull a blob from a registry
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepoName) // Get the repository from registry
+	if err != nil {
+		panic(err)
+	}
+	// suppose we are going to pull a blob with below digest and tag
+	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	tag := "latest"
+
+	// 1. pull with tag
+	descriptor, err := repo.Resolve(ctx, tag) // First resolve the tag to the descriptor
+	if err != nil {
+		// handle it
+		return
+	}
+	r, err := repo.Fetch(ctx, descriptor) // Fetch the blob from the repository
+	if err != nil {
+		// handle it
+		return
+	}
+	defer r.Close() // don't forget to close
+	pulledBlob, err := io.ReadAll(r)
+	if err != nil {
+		// handle it
+		return
+	}
+	fmt.Println(string(pulledBlob))
+
+	// 2. pull with digest
+	descriptor, err = repo.Resolve(ctx, digest) // We still need to resolve first, don't create a new descriptor with the digest, blob size is unknown
+	if err != nil {
+		// handle it
+		return
+	}
+	r, err = repo.Fetch(ctx, descriptor) // Fetch the blob from the repository
+	if err != nil {
+		// handle it
+		return
+	}
+	defer r.Close() // don't forget to close
+	pulledBlob, err = io.ReadAll(r)
+	if err != nil {
+		// handle it
+		return
+	}
+	fmt.Println(string(pulledBlob))
+
+	// Output:
+	// Example blob content
+	// Example blob content
+}
