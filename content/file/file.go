@@ -120,14 +120,14 @@ func (s *Store) Close() error {
 
 // Fetch fetches the content identified by the descriptor.
 // If name is not specified in the descriptor,
-// the content wil be fetched from the fallback storage.
+// the content will be fetched from the fallback storage.
 func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
 	name := target.Annotations[ocispec.AnnotationTitle]
 	if name == "" {
 		return s.fallbackStorage.Fetch(ctx, target)
 	}
 
-	// check if the name is in the record.
+	// check if the name is in the record
 	status, exists := s.nameToStatus.Load(name)
 	if !exists {
 		return nil, fmt.Errorf("%s: %s: %w", name, target.MediaType, errdef.ErrNotFound)
@@ -135,6 +135,7 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 
 	done := status.(chan struct{})
 	select {
+	// if the work is in progress, wait for it to be done or cancaled.
 	case <-done:
 	case <-ctx.Done():
 		return nil, errdef.ErrContextCanceled
@@ -166,7 +167,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 		return s.fallbackStorage.Push(ctx, expected, content)
 	}
 
-	// check the status of the name.
+	// check the status of the name
 	status, committed := s.nameToStatus.LoadOrStore(name, make(chan struct{}))
 	done := status.(chan struct{})
 	if committed {
@@ -258,7 +259,7 @@ func (s *Store) UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec
 
 // Add adds a file into the file store.
 func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.Descriptor, error) {
-	// check the status of the name.
+	// check the status of the name
 	status, committed := s.nameToStatus.LoadOrStore(name, make(chan struct{}))
 	done := status.(chan struct{})
 	if committed {
@@ -353,7 +354,7 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 }
 
 // pushDir saves content matching the descriptor to the target directory.
-func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, content io.Reader) error {
+func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, content io.Reader) (err error) {
 	if err := ensureDir(target); err != nil {
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
@@ -362,13 +363,20 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 	if err != nil {
 		return err
 	}
+	defer func() {
+		closeErr := gz.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
+
 	gzPath := gz.Name()
 	// the digest of the gz is verified while saving
 	if err := s.saveFile(gz, expected, content); err != nil {
 		return fmt.Errorf("failed to save gzip to %s: %w", gzPath, err)
 	}
-	if err := gz.Close(); err != nil {
-		return fmt.Errorf("failed to close gzip: %w", err)
+	if err := gz.Sync(); err != nil {
+		return fmt.Errorf("failed to flush gzip: %w", err)
 	}
 
 	checksum := expected.Annotations[AnnotationDigest]
@@ -383,12 +391,12 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 // descriptorFromDir generates descriptor from the given directory.
 func (s *Store) descriptorFromDir(name, mediaType, dir string) (desc ocispec.Descriptor, err error) {
 	// make a temp file to store the gzip
-	f, err := s.tempFile()
+	gz, err := s.tempFile()
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 	defer func() {
-		closeErr := f.Close()
+		closeErr := gz.Close()
 		if err == nil {
 			err = closeErr
 		}
@@ -396,7 +404,7 @@ func (s *Store) descriptorFromDir(name, mediaType, dir string) (desc ocispec.Des
 
 	// compress the directory
 	gzDigester := digest.Canonical.Digester()
-	gzw := gzip.NewWriter(io.MultiWriter(f, gzDigester.Hash()))
+	gzw := gzip.NewWriter(io.MultiWriter(gz, gzDigester.Hash()))
 	defer func() {
 		closeErr := gzw.Close()
 		if err == nil {
@@ -416,18 +424,18 @@ func (s *Store) descriptorFromDir(name, mediaType, dir string) (desc ocispec.Des
 	if err := gzw.Close(); err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	if err := f.Sync(); err != nil {
+	if err := gz.Sync(); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
-	fi, err := f.Stat()
+	fi, err := gz.Stat()
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
 	// map gzip digest to gzip path
 	gzDigest := gzDigester.Digest()
-	s.digestToPath.Store(gzDigest, f.Name())
+	s.digestToPath.Store(gzDigest, gz.Name())
 
 	// generate descriptor
 	if mediaType == "" {
@@ -436,7 +444,7 @@ func (s *Store) descriptorFromDir(name, mediaType, dir string) (desc ocispec.Des
 
 	return ocispec.Descriptor{
 		MediaType: mediaType,
-		Digest:    gzDigester.Digest(), // digest for the compressed content
+		Digest:    gzDigest, // digest for the compressed content
 		Size:      fi.Size(),
 		Annotations: map[string]string{
 			AnnotationDigest: tarDigester.Digest().String(), // digest fot the uncompressed content
