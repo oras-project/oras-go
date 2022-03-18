@@ -194,18 +194,21 @@ func TestRegistry_Repository(t *testing.T) {
 	}
 }
 
-// This is a package-level example:
-func ExampleRepositories() {
-	var sampleRepoSet = []string{"public/repo1", "public/repo2", "internal/repo3"}
-	// Mocking local registry
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func testRegistry() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		result := struct {
 			Repositories []string `json:"repositories"`
 		}{
-			Repositories: sampleRepoSet,
+			Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
 		}
 		json.NewEncoder(w).Encode(result)
 	}))
+}
+
+// This is a example for listing respositories in the registry:
+func ExampleRegistry_Repositories() {
+	// Mocking local registry
+	ts := testRegistry()
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
