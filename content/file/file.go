@@ -320,7 +320,13 @@ func (s *Store) PackFiles(ctx context.Context, names []string) (ocispec.Descript
 }
 
 // saveFile saves content matching the descriptor to the given file.
-func (s *Store) saveFile(fp *os.File, expected ocispec.Descriptor, content io.Reader) error {
+func (s *Store) saveFile(fp *os.File, expected ocispec.Descriptor, content io.Reader) (err error) {
+	defer func() {
+		closeErr := fp.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
 	path := fp.Name()
 
 	buf := bufPool.Get().(*[]byte)
@@ -334,7 +340,7 @@ func (s *Store) saveFile(fp *os.File, expected ocispec.Descriptor, content io.Re
 }
 
 // pushFile saves content matching the descriptor to the target path.
-func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.Reader) (err error) {
+func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.Reader) error {
 	if err := ensureDir(filepath.Dir(target)); err != nil {
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
@@ -343,12 +349,6 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", target, err)
 	}
-	defer func() {
-		closeErr := fp.Close()
-		if err == nil {
-			err = closeErr
-		}
-	}()
 
 	return s.saveFile(fp, expected, content)
 }
@@ -363,20 +363,11 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 	if err != nil {
 		return err
 	}
-	defer func() {
-		closeErr := gz.Close()
-		if err == nil {
-			err = closeErr
-		}
-	}()
 
 	gzPath := gz.Name()
 	// the digest of the gz is verified while saving
 	if err := s.saveFile(gz, expected, content); err != nil {
 		return fmt.Errorf("failed to save gzip to %s: %w", gzPath, err)
-	}
-	if err := gz.Sync(); err != nil {
-		return fmt.Errorf("failed to flush gzip: %w", err)
 	}
 
 	checksum := expected.Annotations[AnnotationDigest]
