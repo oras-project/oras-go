@@ -1601,31 +1601,39 @@ func Test_ManifestStore_Resolve(t *testing.T) {
 
 const exampleRepoName = "example"
 const exampleDigest = "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+const exampleTag = "latest"
 const exampleBlob = "Example blob content"
 
 func testService() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		switch p {
-		case fmt.Sprintf("/v2/%s/tags/list", exampleRepoName):
+		m := r.Method
+		switch {
+		case p == fmt.Sprintf("/v2/%s/tags/list", exampleRepoName) && m == "GET":
 			result := struct {
 				Tags []string `json:"tags"`
 			}{
 				Tags: []string{"tag1", "tag2"},
 			}
 			json.NewEncoder(w).Encode(result)
-		case fmt.Sprintf("/v2/%s/blobs/uploads/", exampleRepoName):
+		case p == fmt.Sprintf("/v2/%s/blobs/uploads/", exampleRepoName) && m == "GET":
 			w.WriteHeader(http.StatusCreated)
-		case fmt.Sprintf("/v2/%s/manifests/latest", exampleRepoName),
-			fmt.Sprintf("/v2/%s/manifests/%s", exampleRepoName, exampleDigest):
+		case (p == fmt.Sprintf("/v2/%s/manifests/latest", exampleRepoName) || p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepoName, exampleDigest)) && m == "HEAD":
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
 			w.Header().Set("Docker-Content-Digest", exampleDigest)
 			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
-		case fmt.Sprintf("/v2/%s/blobs/%s", exampleRepoName, exampleDigest):
+		case (p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepoName, exampleDigest)) && m == "GET":
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
 			w.Header().Set("Docker-Content-Digest", exampleDigest)
 			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
 			w.Write([]byte(exampleBlob))
+		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepoName, exampleDigest) && m == "GET":
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
+			w.Header().Set("Docker-Content-Digest", exampleDigest)
+			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
+			w.Write([]byte(exampleBlob))
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepoName, exampleTag) && m == "PUT":
+			w.WriteHeader(http.StatusCreated)
 		}
 
 	}))
@@ -1636,11 +1644,13 @@ func ExampleRepository_Tags() {
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
 	if err != nil {
-		panic(err)
+		// handle it
+		return
 	}
 	reg, err := NewRegistry(uri.Host)
 	if err != nil {
-		panic(err)
+		// handle it
+		return
 	}
 	reg.RepositoryOptions.PlainHTTP = true
 
@@ -1648,7 +1658,8 @@ func ExampleRepository_Tags() {
 	ctx := context.Background()
 	repo, err := reg.Repository(ctx, exampleRepoName) // Get the repository from registry
 	if err != nil {
-		panic(err)
+		// handle it
+		return
 	}
 
 	fn := func(tags []string) error { // Setup a callback function to process returned tag list
@@ -1683,7 +1694,8 @@ func ExampleRepository_Push() {
 	ctx := context.Background()
 	repo, err := reg.Repository(ctx, exampleRepoName) // Get the repository from registry
 	if err != nil {
-		panic(err)
+		// handle it
+		return
 	}
 
 	mediaType, content := ocispec.MediaTypeImageLayer, []byte("Example blob content") // Setup input: 1) media type and 2)[]byte content
@@ -1718,7 +1730,8 @@ func ExampleRepository_Resolve() {
 	ctx := context.Background()
 	repo, err := reg.Repository(ctx, exampleRepoName) // Get the repository from registry
 	if err != nil {
-		panic(err)
+		// handle it
+		return
 	}
 	// suppose we are going to pull a blob with below digest and tag
 	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
@@ -1764,7 +1777,8 @@ func ExampleRepository_Fetch() {
 	ctx := context.Background()
 	repo, err := reg.Repository(ctx, exampleRepoName) // Get the repository from registry
 	if err != nil {
-		panic(err)
+		// handle it
+		return
 	}
 	// suppose we are going to pull a blob with below digest and tag
 	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
@@ -1811,4 +1825,49 @@ func ExampleRepository_Fetch() {
 	// Output:
 	// Example blob content
 	// Example blob content
+}
+
+func ExampleRepository_Tag() {
+	ts := testService()
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		// handle it
+		return
+	}
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		// handle it
+		return
+	}
+	reg.RepositoryOptions.PlainHTTP = true
+
+	// Example: Tag a manifest a blob from a registry
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepoName) // Get the repository from registry
+	if err != nil {
+		// handle it
+		return
+	}
+	// suppose we are going to pull a blob with below digest and tag
+	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	tag := "latest"
+
+	// 1. Resolve the target desc
+	descriptor, err := repo.Resolve(ctx, digest)
+	if err != nil {
+		// handle it
+		return
+	}
+
+	// 2. Tag the resolved desc
+	err = repo.Tag(ctx, descriptor, tag)
+	if err != nil {
+		// handle it
+		return
+	}
+	fmt.Println("Succeed")
+
+	// Output:
+	// Succeed
 }
