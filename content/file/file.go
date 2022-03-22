@@ -57,17 +57,35 @@ const (
 	defaultBlobMediaType = ocispec.MediaTypeImageLayer
 	// defaultBlobDirMediaType specifies the default blob directory media type.
 	defaultBlobDirMediaType = ocispec.MediaTypeImageLayerGzip
-	// defaultSizeLimit specifies the default size limit for pushing no-name contents.
-	defaultSizeLimit = 1 << 22 // 4 MiB
+	// defaultFallbackPushSizeLimit specifies the default size limit for pushing no-name contents.
+	defaultFallbackPushSizeLimit = 1 << 22 // 4 MiB
 )
 
 // Store represents a file system based store, which implements `oras.Target`.
+// In the file store, the contents described by names are location-addressed
+// by file paths. Meanwhile, the file paths are mapped to a virtual CAS
+// where all metadata are stored in the memory.
+// The contents that are not described by names are stored in a fallback storage,
+// which is a limited memory CAS by default.
+// As all the metadata are stored in the memory, the file store cannot be restored
+// from the file system.
+// After used, the file store needs to be close by calling the Close function.
 type Store struct {
-	TarReproducible           bool
+	// TarReproducible controls if the tarballs generated
+	// for the added directories are reproducible.
+	// When specified, some metadata such as change time
+	// will be stripped from the files in the tarballs. Default value: false.
+	TarReproducible bool
+	// AllowPathTraversalOnWrite controls if path traversal is allowed
+	// when writing files. When specified, writing files
+	// outside the working directory will be allowed. Default value: false.
 	AllowPathTraversalOnWrite bool
-	DisableOverwrite          bool
+	// DisableOverwrite controls if push operations can overwrite existing files.
+	// When specified, saving files to existing paths will be disabled.
+	// Default value: false.
+	DisableOverwrite bool
 
-	workingDir   string
+	workingDir   string   // the working directory of the file store
 	digestToPath sync.Map // map[digest.Digest]string
 	nameToStatus sync.Map // map[string]chan struct{}
 	tmpFiles     sync.Map // map[string]bool
@@ -77,16 +95,16 @@ type Store struct {
 	graph           *graph.Memory
 }
 
-// New creates a file store, using a default limited memory storage
+// New creates a file store, using a default limited memory CAS
 // as the fallback storage for contents without names.
 // When pushing content without names, the size of content being pushed
 // cannot exceed the default size limit: 4 MiB.
 func New(workingDir string) *Store {
-	return NewWithFallbackLimit(workingDir, defaultSizeLimit)
+	return NewWithFallbackLimit(workingDir, defaultFallbackPushSizeLimit)
 }
 
 // NewWithFallbackLimit creates a file store, using a default
-// limited memory storage as the fallback storage for contents without names.
+// limited memory CAS as the fallback storage for contents without names.
 // When pushing content without names, the size of content being pushed
 // cannot exceed the size limit specified by the `limit` parameter.
 func NewWithFallbackLimit(workingDir string, limit int64) *Store {
@@ -107,6 +125,7 @@ func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) 
 }
 
 // Close cleans up all the temp files used by the file store.
+// TODO: close?
 func (s *Store) Close() error {
 	var errs []string
 	s.tmpFiles.Range(func(name, _ interface{}) bool {
@@ -138,7 +157,7 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 	// if the work is in progress, wait for it to be done or cancaled.
 	case <-done:
 	case <-ctx.Done():
-		return nil, errdef.ErrContextCanceled
+		return nil, context.Canceled
 	}
 
 	val, ok := s.digestToPath.Load(target.Digest)
@@ -177,7 +196,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 		case <-done:
 			return fmt.Errorf("%s: %w", name, ErrDuplicateName)
 		case <-ctx.Done():
-			return errdef.ErrContextCanceled
+			return context.Canceled
 		}
 	}
 
@@ -221,7 +240,7 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 	case <-done:
 		return true, nil
 	case <-ctx.Done():
-		return false, errdef.ErrContextCanceled
+		return false, context.Canceled
 	}
 }
 
@@ -269,7 +288,7 @@ func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.
 		case <-done:
 			return ocispec.Descriptor{}, fmt.Errorf("%s: %w", name, ErrDuplicateName)
 		case <-ctx.Done():
-			return ocispec.Descriptor{}, errdef.ErrContextCanceled
+			return ocispec.Descriptor{}, context.Canceled
 		}
 	}
 

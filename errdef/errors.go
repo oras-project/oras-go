@@ -26,5 +26,4 @@ var (
 	ErrNotFound           = errors.New("not found")
 	ErrUnsupportedVersion = errors.New("unsupported version")
 	ErrMissingReference   = errors.New("missing reference")
-	ErrContextCanceled    = errors.New("context canceled")
 )
