@@ -210,6 +210,106 @@ func TestStore_Success(t *testing.T) {
 	}
 }
 
+func TestStore_Close(t *testing.T) {
+	content := []byte("hello world")
+	name := "test.txt"
+	mediaType := "test"
+	desc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name,
+		},
+	}
+	ref := "foobar"
+
+	tempDir := t.TempDir()
+	s := New(tempDir)
+	ctx := context.Background()
+
+	// test push
+	err := s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// test exists
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	// test fetch
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, content)
+	}
+
+	// test close
+	if err := s.Close(); err != nil {
+		t.Error("Store.Close() error =", err)
+	}
+	// test close twice
+	if err := s.Close(); err != nil {
+		t.Error("Store.Close() error =", err)
+	}
+
+	// test add after closed
+	if _, err := s.Add(ctx, name, mediaType, ""); !errors.Is(err, ErrStoreClosed) {
+		t.Errorf("Store.Add() = %v, want %v", err, ErrStoreClosed)
+	}
+
+	// test push after closed
+	if err = s.Push(ctx, desc, bytes.NewReader(content)); !errors.Is(err, ErrStoreClosed) {
+		t.Errorf("Store.Push() = %v, want %v", err, ErrStoreClosed)
+	}
+
+	// test exists after closed
+	if _, err := s.Exists(ctx, desc); !errors.Is(err, ErrStoreClosed) {
+		t.Errorf("Store.Exists() = %v, want %v", err, ErrStoreClosed)
+	}
+
+	// test tag after closed
+	if err := s.Tag(ctx, desc, ref); !errors.Is(err, ErrStoreClosed) {
+		t.Errorf("Store.Tag() = %v, want %v", err, ErrStoreClosed)
+	}
+
+	// test resolve after closed
+	if _, err := s.Resolve(ctx, ref); !errors.Is(err, ErrStoreClosed) {
+		t.Errorf("Store.Resolve() = %v, want %v", err, ErrStoreClosed)
+	}
+
+	// test fetch after closed
+	if _, err := s.Fetch(ctx, desc); !errors.Is(err, ErrStoreClosed) {
+		t.Errorf("Store.Fetch() = %v, want %v", err, ErrStoreClosed)
+	}
+
+	// test UpEdges after closed
+	if _, err := s.UpEdges(ctx, desc); !errors.Is(err, ErrStoreClosed) {
+		t.Errorf("Store.UpEdges() = %v, want %v", err, ErrStoreClosed)
+	}
+
+	// test PackFiles after close
+	if _, err := s.PackFiles(ctx, []string{}); !errors.Is(err, ErrStoreClosed) {
+		t.Errorf("Store.PackFiles() = %v, want %v", err, ErrStoreClosed)
+	}
+}
+
 func TestStore_File_Push(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
@@ -368,7 +468,7 @@ func TestStore_Dir_Push(t *testing.T) {
 	}
 }
 
-func TestStore_NoName_Push(t *testing.T) {
+func TestStore_Push_NoName(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
 		MediaType: "test",
@@ -414,7 +514,7 @@ func TestStore_NoName_Push(t *testing.T) {
 	}
 }
 
-func TestStore_NoName_ExceedLimit(t *testing.T) {
+func TestStore_Push_NoName_ExceedLimit(t *testing.T) {
 	blob := []byte("hello world")
 	desc := ocispec.Descriptor{
 		MediaType: "test",
@@ -434,7 +534,7 @@ func TestStore_NoName_ExceedLimit(t *testing.T) {
 	}
 }
 
-func TestStore_NoName_SizeNotMatch(t *testing.T) {
+func TestStore_Push_NoName_SizeNotMatch(t *testing.T) {
 	blob := []byte("hello world")
 	desc := ocispec.Descriptor{
 		MediaType: "test",
@@ -626,6 +726,165 @@ func TestStore_Dir_Add(t *testing.T) {
 	}
 	if !bytes.Equal(got, gotgz) {
 		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
+	}
+}
+func TestStore_File_SameContent_DuplicateName(t *testing.T) {
+	content := []byte("hello world")
+	name := "test.txt"
+	mediaType := "test"
+	desc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name,
+		},
+	}
+
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, name)
+	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	s := New(tempDir)
+	defer s.Close()
+	ctx := context.Background()
+
+	// test add
+	gotDesc, err := s.Add(ctx, name, mediaType, path)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	if descriptor.FromOCI(gotDesc) != descriptor.FromOCI(desc) {
+		t.Fatal("got descriptor mismatch")
+	}
+
+	// test exists
+	exists, err := s.Exists(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	// test fetch
+	rc, err := s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, content)
+	}
+
+	// test duplicate name
+	if _, err := s.Add(ctx, name, mediaType, path); !errors.Is(err, ErrDuplicateName) {
+		t.Errorf("Store.Add() = %v, want %v", err, ErrDuplicateName)
+	}
+}
+
+func TestStore_File_DifferentContent_DuplicateName(t *testing.T) {
+	content_1 := []byte("hello world")
+	content_2 := []byte("goodbye world")
+
+	name_1 := "test_1.txt"
+	name_2 := "test_2.txt"
+
+	mediaType_1 := "test"
+	mediaType_2 := "test_2"
+	desc_1 := ocispec.Descriptor{
+		MediaType: mediaType_1,
+		Digest:    digest.FromBytes(content_1),
+		Size:      int64(len(content_1)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name_1,
+		},
+	}
+
+	tempDir := t.TempDir()
+	path_1 := filepath.Join(tempDir, name_1)
+	if err := ioutil.WriteFile(path_1, content_1, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	s := New(tempDir)
+	defer s.Close()
+	ctx := context.Background()
+
+	// test add
+	gotDesc, err := s.Add(ctx, name_1, mediaType_1, path_1)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	if descriptor.FromOCI(gotDesc) != descriptor.FromOCI(desc_1) {
+		t.Fatal("got descriptor mismatch")
+	}
+
+	// test exists
+	exists, err := s.Exists(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	// test fetch
+	rc, err := s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content_1) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, content_1)
+	}
+
+	// test add duplicate name
+	path_2 := filepath.Join(tempDir, name_2)
+	if err := ioutil.WriteFile(path_2, content_2, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	if _, err := s.Add(ctx, name_1, mediaType_2, path_2); !errors.Is(err, ErrDuplicateName) {
+		t.Errorf("Store.Add() = %v, want %v", err, ErrDuplicateName)
+	}
+}
+
+func TestStore_File_Add_MissingName(t *testing.T) {
+	content := []byte("hello world")
+	name := "test.txt"
+	mediaType := "test"
+
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, name)
+	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	s := New(tempDir)
+	defer s.Close()
+	ctx := context.Background()
+
+	// test add with empty name
+	_, err := s.Add(ctx, "", mediaType, path)
+	if !errors.Is(err, ErrMissingName) {
+		t.Errorf("Store.Add() error = %v, want %v", err, ErrMissingName)
 	}
 }
 
@@ -917,7 +1176,7 @@ func TestStore_File_Push_SameContent(t *testing.T) {
 	}
 }
 
-func TestStore_File_DuplicateName(t *testing.T) {
+func TestStore_File_Push_DuplicateName(t *testing.T) {
 	mediaType := "test"
 	name := "test.txt"
 	content_1 := []byte("hello world")
@@ -983,7 +1242,164 @@ func TestStore_File_DuplicateName(t *testing.T) {
 	}
 }
 
-func TestStore_File_Overwrite(t *testing.T) {
+func TestStore_File_Fetch_SameDigest_NoName(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+
+	name_1 := "test_1.txt"
+	desc_1 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name_1,
+		},
+	}
+
+	desc_2 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	tempDir := t.TempDir()
+	s := New(tempDir)
+	defer s.Close()
+	ctx := context.Background()
+
+	// test push
+	if err := s.Push(ctx, desc_1, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if err := s.Push(ctx, desc_2, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// test exists
+	exists, err := s.Exists(ctx, desc_1)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	exists, err = s.Exists(ctx, desc_2)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	// test fetch
+	rc_1, err := s.Fetch(ctx, desc_1)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got_1, err := io.ReadAll(rc_1)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc_1.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got_1, content) {
+		t.Errorf("Store.Fetch() = %v, want %v", got_1, content)
+	}
+
+	rc_2, err := s.Fetch(ctx, desc_2)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got_2, err := io.ReadAll(rc_2)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc_2.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got_2, content) {
+		t.Errorf("Store.Fetch() = %v, want %v", got_2, content)
+	}
+}
+
+func TestStore_File_Fetch_SameDigest_DifferentName(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+
+	name_1 := "test_1.txt"
+	desc_1 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name_1,
+		},
+	}
+
+	name_2 := "test_2.txt"
+	desc_2 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name_2,
+		},
+	}
+
+	tempDir := t.TempDir()
+	s := New(tempDir)
+	defer s.Close()
+	ctx := context.Background()
+
+	// test desc_1
+	if err := s.Push(ctx, desc_1, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	exists, err := s.Exists(ctx, desc_1)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	rc_1, err := s.Fetch(ctx, desc_1)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got_1, err := io.ReadAll(rc_1)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc_1.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got_1, content) {
+		t.Errorf("Store.Fetch() = %v, want %v", got_1, content)
+	}
+
+	// test desc_2
+	exists, err = s.Exists(ctx, desc_2)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, false)
+	}
+
+	_, err = s.Fetch(ctx, desc_2)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Store.Fetch() error = %v, want %v", err, errdef.ErrNotFound)
+	}
+}
+
+func TestStore_File_Push_Overwrite(t *testing.T) {
 	mediaType := "test"
 	name := "test.txt"
 	old_content := []byte("hello world")
@@ -1041,7 +1457,7 @@ func TestStore_File_Overwrite(t *testing.T) {
 
 }
 
-func TestStore_File_DisableOverwrite(t *testing.T) {
+func TestStore_File_Push_DisableOverwrite(t *testing.T) {
 	content := []byte("hello world")
 	name := "test.txt"
 	desc := ocispec.Descriptor{
@@ -1070,7 +1486,7 @@ func TestStore_File_DisableOverwrite(t *testing.T) {
 	}
 }
 
-func TestStore_File_DisallowPathTraversal(t *testing.T) {
+func TestStore_File_Push_DisallowPathTraversal(t *testing.T) {
 	content := []byte("hello world")
 	name := "../test.txt"
 	desc := ocispec.Descriptor{
@@ -1093,7 +1509,7 @@ func TestStore_File_DisallowPathTraversal(t *testing.T) {
 	}
 }
 
-func TestStore_Dir_DisallowPathTraversal(t *testing.T) {
+func TestStore_Dir_Push_DisallowPathTraversal(t *testing.T) {
 	tempDir := t.TempDir()
 	dirName := "../testdir"
 	dirPath := filepath.Join(tempDir, dirName)
@@ -1146,7 +1562,7 @@ func TestStore_Dir_DisallowPathTraversal(t *testing.T) {
 	}
 }
 
-func TestStore_File_PathTraversal(t *testing.T) {
+func TestStore_File_Push_PathTraversal(t *testing.T) {
 	content := []byte("hello world")
 	name := "../test.txt"
 	desc := ocispec.Descriptor{
@@ -2179,3 +2595,5 @@ func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descript
 	}
 	return true
 }
+
+// TODO: Fetch same content/same name

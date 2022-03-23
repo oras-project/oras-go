@@ -18,6 +18,7 @@ package file
 import "errors"
 
 var (
+	ErrMissingName             = errors.New("missing name")
 	ErrDuplicateName           = errors.New("duplicate name")
 	ErrPathTraversalDisallowed = errors.New("path traversal disallowed")
 	ErrOverwriteDisallowed     = errors.New("overwrite disallowed")
