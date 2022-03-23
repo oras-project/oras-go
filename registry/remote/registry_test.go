@@ -36,6 +36,7 @@ func TestRegistryInterface(t *testing.T) {
 		t.Error("&Registry{} does not conform registry.Registry")
 	}
 }
+
 func TestRegistry_TLS(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v2/" {
