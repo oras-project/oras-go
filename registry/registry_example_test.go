@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package registry_test gives examples code of functions in the registry package.
+// Package registry_test gives examples code of functions in the remote package.
 package registry_test
 
 import (
