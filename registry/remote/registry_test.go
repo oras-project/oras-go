@@ -27,15 +27,7 @@ import (
 	"testing"
 
 	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/registry"
 )
-
-func TestRegistryInterface(t *testing.T) {
-	var reg interface{} = &Registry{}
-	if _, ok := reg.(registry.Registry); !ok {
-		t.Error("&Registry{} does not conform registry.Registry")
-	}
-}
 
 func TestRegistry_TLS(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -193,46 +185,4 @@ func TestRegistry_Repository(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Registry.Repository() = %v, want %v", got, want)
 	}
-}
-
-func testRegistry() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		result := struct {
-			Repositories []string `json:"repositories"`
-		}{
-			Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
-		}
-		json.NewEncoder(w).Encode(result)
-	}))
-}
-
-// This is a example for listing respositories in the registry:
-func ExampleRegistry_Repositories() {
-	// Mocking local registry
-	ts := testRegistry()
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		panic(err)
-	}
-
-	// Example: List repositories in a registry
-	reg, err := NewRegistry(uri.Host) // Create a registry via the remote host
-	if err != nil {
-		panic(err) // Handle error
-	}
-	reg.RepositoryOptions.PlainHTTP = true // Use HTTP
-	fn := func(repos []string) error {     // Setup a callback function to process returned repository list
-		for _, repo := range repos {
-			fmt.Println(repo)
-		}
-		return nil
-	}
-
-	ctx := context.Background()
-	reg.Repositories(ctx, fn)
-	// Output:
-	// public/repo1
-	// public/repo2
-	// internal/repo3
 }
