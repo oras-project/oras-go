@@ -67,9 +67,10 @@ const (
 // where all metadata are stored in the memory.
 // The contents that are not described by names are stored in a fallback storage,
 // which is a limited memory CAS by default.
-// As all the metadata are stored in the memory, the file store cannot be restored
-// from the file system.
-// After used, the file store needs to be close by calling the Close function.
+// As all the metadata are stored in the memory, the file store
+// cannot be restored from the file system.
+// After use, the file store needs to be close by calling the `Close()` function.
+// The file store cannot be used after being closed.
 type Store struct {
 	// TarReproducible controls if the tarballs generated
 	// for the added directories are reproducible.
@@ -86,6 +87,7 @@ type Store struct {
 	DisableOverwrite bool
 
 	workingDir   string   // the working directory of the file store
+	closed       bool     // if the store is closed
 	digestToPath sync.Map // map[digest.Digest]string
 	nameToStatus sync.Map // map[string]chan struct{}
 	tmpFiles     sync.Map // map[string]bool
@@ -124,9 +126,15 @@ func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) 
 	}
 }
 
-// Close cleans up all the temp files used by the file store.
-// TODO: close?
+// Close closes the file store and cleans up all the temporary files used by it.
+// The store cannot be used after being closed.
+// This funciton is not go-routine safe.
 func (s *Store) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+
 	var errs []string
 	s.tmpFiles.Range(func(name, _ interface{}) bool {
 		if err := os.Remove(name.(string)); err != nil {
@@ -134,6 +142,7 @@ func (s *Store) Close() error {
 		}
 		return true
 	})
+
 	return errors.New(strings.Join(errs, "; "))
 }
 
@@ -141,6 +150,10 @@ func (s *Store) Close() error {
 // If name is not specified in the descriptor,
 // the content will be fetched from the fallback storage.
 func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	if s.closed {
+		return nil, ErrStoreClosed
+	}
+
 	name := target.Annotations[ocispec.AnnotationTitle]
 	if name == "" {
 		return s.fallbackStorage.Fetch(ctx, target)
@@ -181,6 +194,10 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 // If name is not specified in the descriptor,
 // the content will be pushed to the fallback storage.
 func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
+	if s.closed {
+		return ErrStoreClosed
+	}
+
 	name := expected.Annotations[ocispec.AnnotationTitle]
 	if name == "" {
 		return s.fallbackStorage.Push(ctx, expected, content)
@@ -223,6 +240,10 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 // If name is not specified in the descriptor,
 // it will be the fallback storage to check if the content exists.
 func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	if s.closed {
+		return false, ErrStoreClosed
+	}
+
 	name := target.Annotations[ocispec.AnnotationTitle]
 	if name == "" {
 		return s.fallbackStorage.Exists(ctx, target)
@@ -246,6 +267,10 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 
 // Resolve resolves a reference to a descriptor.
 func (s *Store) Resolve(ctx context.Context, ref string) (ocispec.Descriptor, error) {
+	if s.closed {
+		return ocispec.Descriptor{}, ErrStoreClosed
+	}
+
 	if ref == "" {
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
@@ -255,6 +280,10 @@ func (s *Store) Resolve(ctx context.Context, ref string) (ocispec.Descriptor, er
 
 // Tag tags a descriptor with a reference string.
 func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, ref string) error {
+	if s.closed {
+		return ErrStoreClosed
+	}
+
 	if ref == "" {
 		return errdef.ErrMissingReference
 	}
@@ -273,11 +302,21 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, ref string) er
 // UpEdges returns the nodes directly pointing to the current node.
 // UpEdges returns nil without error if the node does not exists in the store.
 func (s *Store) UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	if s.closed {
+		return nil, ErrStoreClosed
+	}
+
 	return s.graph.UpEdges(ctx, node)
 }
 
 // Add adds a file into the file store.
 func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.Descriptor, error) {
+	if s.closed {
+		return ocispec.Descriptor{}, ErrStoreClosed
+	}
+
+	// TODO: name sanity check
+
 	// check the status of the name
 	status, committed := s.nameToStatus.LoadOrStore(name, make(chan struct{}))
 	done := status.(chan struct{})
@@ -326,6 +365,10 @@ func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.
 // generates a manifest for the pack, and store the manifest in the file store.
 // If succeeded, returns a descriptor of the manifest.
 func (s *Store) PackFiles(ctx context.Context, names []string) (ocispec.Descriptor, error) {
+	if s.closed {
+		return ocispec.Descriptor{}, ErrStoreClosed
+	}
+
 	var layers []ocispec.Descriptor
 	for _, name := range names {
 		desc, err := s.Add(ctx, name, "", "")

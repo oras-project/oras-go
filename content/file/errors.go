@@ -21,4 +21,5 @@ var (
 	ErrDuplicateName           = errors.New("duplicate name")
 	ErrPathTraversalDisallowed = errors.New("path traversal disallowed")
 	ErrOverwriteDisallowed     = errors.New("overwrite disallowed")
+	ErrStoreClosed             = errors.New("store already closed")
 )
