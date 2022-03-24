@@ -61,7 +61,6 @@ func ExampleRegistry_Repositories() {
 		panic(err)
 	}
 	exampleRegistry, err := remote.NewRegistry(exampleUri.Host) // Create a registry via the remote host
-	exampleRegistry.PlainHTTP = true                            // Use HTTP
 	if err != nil {
 		panic(err) // Handle error
 	}
