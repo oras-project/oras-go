@@ -27,71 +27,37 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 )
 
-var httpsHost string
-var httpHost string
-
-func handler(w http.ResponseWriter, r *http.Request) {
-	result := struct {
-		Repositories []string `json:"repositories"`
-	}{
-		Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
-	}
-	json.NewEncoder(w).Encode(result)
-}
+var host string
 
 func TestMain(m *testing.M) {
 	// Setup mocked registries
-	httpsServer := httptest.NewTLSServer(http.HandlerFunc(handler))
+	httpsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result := struct {
+			Repositories []string `json:"repositories"`
+		}{
+			Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
+		}
+		json.NewEncoder(w).Encode(result)
+	}))
 	defer httpsServer.Close()
 	u, err := url.Parse(httpsServer.URL)
 	if err != nil {
 		panic(err)
 	}
-	httpsHost = u.Host
+	host = u.Host
 	http.DefaultClient = httpsServer.Client()
-
-	httpServer := httptest.NewServer(http.HandlerFunc(handler))
-	defer httpsServer.Close()
-	u, err = url.Parse(httpServer.URL)
-	if err != nil {
-		panic(err)
-	}
-	httpHost = u.Host
 	os.Exit(m.Run())
 }
 
 // ExampleRegistry_Repositories gives example snippets for listing respositories in a HTTPS registry with pagination.
-func ExampleRegistry_Repositories_https() {
-	reg, err := remote.NewRegistry(httpsHost)
+func ExampleRegistry_Repositories() {
+	reg, err := remote.NewRegistry(host)
 	if err != nil {
 		panic(err) // Handle error
 	}
-
-	ctx := context.Background()
-	err = reg.Repositories(ctx, func(repos []string) error {
-		for _, repo := range repos {
-			fmt.Println(repo)
-		}
-		return nil
-	})
-	if err != nil {
-		panic(err) // Handle error
-	}
-	// Output:
-	// public/repo1
-	// public/repo2
-	// internal/repo3
-}
-
-// ExampleRegistry_Repositories_second gives example snippets for listing respositories in a HTTP registry with pagination.
-func ExampleRegistry_Repositories_http() {
-	// If you want to play with your local registry, try to override the `httpHost` variable here,
-	// like localhost:5000
-	reg, err := remote.NewRegistry(httpHost)
-	if err != nil {
-		panic(err) // Handle error
-	}
-	reg.PlainHTTP = true
+	// If you want to play with your local registry, try to override
+	// the `host` variable. Don't forget to set HTTP option as below:
+	// reg.PlainHTTP = true
 
 	ctx := context.Background()
 	err = reg.Repositories(ctx, func(repos []string) error {
