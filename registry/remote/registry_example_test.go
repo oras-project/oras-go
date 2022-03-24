@@ -61,7 +61,7 @@ func TestMain(m *testing.M) {
 }
 
 // ExampleRegistry_Repositories gives example snippets for listing respositories in a HTTPS registry with pagination.
-func ExampleRegistry_Repositories() {
+func ExampleRegistry_Repositories_https() {
 	reg, err := remote.NewRegistry(httpsHost)
 	if err != nil {
 		panic(err) // Handle error
@@ -84,7 +84,7 @@ func ExampleRegistry_Repositories() {
 }
 
 // ExampleRegistry_Repositories_second gives example snippets for listing respositories in a HTTP registry with pagination.
-func ExampleRegistry_Repositories_second() {
+func ExampleRegistry_Repositories_http() {
 	// If you want to play with your local registry, try to override the `httpHost` variable here,
 	// like localhost:5000
 	reg, err := remote.NewRegistry(httpHost)
