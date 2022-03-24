@@ -31,7 +31,7 @@ import (
 )
 
 func testRegistry() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		result := struct {
 			Repositories []string `json:"repositories"`
 		}{
@@ -41,7 +41,7 @@ func testRegistry() *httptest.Server {
 	}))
 }
 
-var exampleReg *remote.Registry
+var registryUrl string
 
 func TestMain(m *testing.M) {
 	// Mocking local registry
@@ -51,19 +51,20 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	exampleReg, err = remote.NewRegistry(exampleUri.Host) // Create a registry via the remote host
-	if err != nil {
-		panic(err) // Handle error
-	}
-	exampleReg.PlainHTTP = true // Use HTTP
+	registryUrl = exampleUri.Host
+	http.DefaultClient = ts.Client()
 	os.Exit(m.Run())
 }
 
 // ExampleRepositories gives example snippets for listing respositories in the registry without pagination.
 func ExampleRepositories() {
-	// Example: List repositories in a registry
 	ctx := context.Background()
-
+	// If you want to play with your local registry
+	// Try to set registryUrl to its URL, like localhost:5000
+	exampleReg, err := remote.NewRegistry(registryUrl) // Create a registry via the remote host
+	if err != nil {
+		panic(err) // Handle error
+	}
 	repos, err := registry.Repositories(ctx, exampleReg)
 	if err != nil {
 		panic(err) // Handle error
