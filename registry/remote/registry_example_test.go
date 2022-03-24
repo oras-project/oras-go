@@ -27,48 +27,81 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 )
 
-var registryUrl string
+var httpsHost string
+var httpHost string
 
-func TestMain(m *testing.M) {
-	// Mocking local registry
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		result := struct {
-			Repositories []string `json:"repositories"`
-		}{
-			Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
-		}
-		json.NewEncoder(w).Encode(result)
-	}))
-	defer ts.Close()
-	registryUrl = ts.URL
-	http.DefaultClient = ts.Client()
-	os.Exit(m.Run())
+func handler(w http.ResponseWriter, r *http.Request) {
+	result := struct {
+		Repositories []string `json:"repositories"`
+	}{
+		Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
+	}
+	json.NewEncoder(w).Encode(result)
 }
 
-// ExampleRegistry_Repositories gives example snippets for listing respositories in the registry with pagination.
-func ExampleRegistry_Repositories() {
-	fn := func(repos []string) error { // Setup a callback function to process returned repository list
-		for _, repo := range repos {
-			fmt.Println(repo)
-		}
-		return nil
-	}
-	ctx := context.Background()
-	// If you want to play with your local registry
-	// Try to set registryUrl to its URL, like localhost:5000
-	exampleUri, err := url.Parse(registryUrl)
+func TestMain(m *testing.M) {
+	// Setup mocked registries
+	httpsServer := httptest.NewTLSServer(http.HandlerFunc(handler))
+	defer httpsServer.Close()
+	u, err := url.Parse(httpsServer.URL)
 	if err != nil {
 		panic(err)
 	}
-	exampleRegistry, err := remote.NewRegistry(exampleUri.Host) // Create a registry via the remote host
+	httpsHost = u.Host
+	http.DefaultClient = httpsServer.Client()
+
+	httpServer := httptest.NewServer(http.HandlerFunc(handler))
+	defer httpsServer.Close()
+	u, err = url.Parse(httpServer.URL)
+	if err != nil {
+		panic(err)
+	}
+	httpHost = u.Host
+	os.Exit(m.Run())
+}
+
+// ExampleRegistry_Repositories gives example snippets for listing respositories in a HTTPS registry with pagination.
+func ExampleRegistry_Repositories() {
+	reg, err := remote.NewRegistry(httpsHost)
 	if err != nil {
 		panic(err) // Handle error
 	}
 
-	err = exampleRegistry.Repositories(ctx, fn)
+	ctx := context.Background()
+	err = reg.Repositories(ctx, func(repos []string) error {
+		for _, repo := range repos {
+			fmt.Println(repo)
+		}
+		return nil
+	})
 	if err != nil {
-		//handle it
-		panic(err)
+		panic(err) // Handle error
+	}
+	// Output:
+	// public/repo1
+	// public/repo2
+	// internal/repo3
+}
+
+// ExampleRegistry_Repositories_second gives example snippets for listing respositories in a HTTP registry with pagination.
+func ExampleRegistry_Repositories_second() {
+	// If you want to play with your local registry, try to override the `httpHost` variable here,
+	// like localhost:5000
+	reg, err := remote.NewRegistry(httpHost)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	reg.PlainHTTP = true
+
+	ctx := context.Background()
+	err = reg.Repositories(ctx, func(repos []string) error {
+		for _, repo := range repos {
+			fmt.Println(repo)
+		}
+		return nil
+	})
+	if err != nil {
+		panic(err) // Handle error
 	}
 	// Output:
 	// public/repo1
