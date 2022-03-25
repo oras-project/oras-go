@@ -237,6 +237,54 @@ func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, cont
 	return verifyContentDigest(resp, expected.Digest)
 }
 
+// FetchTag fetches the content identified by a reference.
+// It is equivalent to call `Resolve()` and then `Fetch()`
+// but more efficient or equal.
+func (r *Repository) FetchTag(ctx context.Context, reference string) (io.ReadCloser, error) {
+	// TODO: move to manifeststore
+	ref, err := r.parseReference(reference)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
+	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", manifestAcceptHeader(r.ManifestMediaTypes))
+
+	resp, err := r.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			resp.Body.Close()
+		}
+	}()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// no-op
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("%s: %w", ref.Reference, errdef.ErrNotFound)
+	default:
+		return nil, errutil.ParseErrorResponse(resp)
+	}
+
+	// validate digest if the provided reference is a digest
+	if refDigest, err := ref.Digest(); err == nil {
+		if err = verifyContentDigest(resp, refDigest); err != nil {
+			return nil, err
+		}
+		return resp.Body, nil
+	}
+
+	return resp.Body, nil
+}
+
 // parseReference validates the reference.
 // Both simplified or fully qualified references are accepted as input.
 // A fully qualified reference is returned on success.
