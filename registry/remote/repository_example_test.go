@@ -97,13 +97,12 @@ func ExampleRepository_Tags() {
 		panic(err) // Handle error
 	}
 
-	fn := func(tags []string) error { // Setup a callback function to process returned tag list
+	repo.Tags(ctx, func(tags []string) error {
 		for _, tag := range tags {
 			fmt.Println(tag)
 		}
 		return nil
-	}
-	repo.Tags(ctx, fn)
+	})
 
 	// Output:
 	// tag1
