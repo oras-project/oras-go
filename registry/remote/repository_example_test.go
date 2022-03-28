@@ -45,6 +45,13 @@ func TestMain(m *testing.M) {
 		p := r.URL.Path
 		m := r.Method
 		switch {
+		case p == "/v2/_catalog" && m == "GET":
+			result := struct {
+				Repositories []string `json:"repositories"`
+			}{
+				Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
+			}
+			json.NewEncoder(w).Encode(result)
 		case p == fmt.Sprintf("/v2/%s/tags/list", exampleRepositoryName) && m == "GET":
 			result := struct {
 				Tags []string `json:"tags"`

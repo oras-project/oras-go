@@ -16,38 +16,32 @@ package remote_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"os"
-	"testing"
 
 	"oras.land/oras-go/v2/registry/remote"
 )
 
-var host string
+// var host string
 
-func TestMain(m *testing.M) {
-	// Setup mocked registries
-	httpsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		result := struct {
-			Repositories []string `json:"repositories"`
-		}{
-			Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
-		}
-		json.NewEncoder(w).Encode(result)
-	}))
-	defer httpsServer.Close()
-	u, err := url.Parse(httpsServer.URL)
-	if err != nil {
-		panic(err)
-	}
-	host = u.Host
-	http.DefaultClient = httpsServer.Client()
-	os.Exit(m.Run())
-}
+// func TestMain(m *testing.M) {
+// 	// Setup mocked registries
+// 	httpsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		result := struct {
+// 			Repositories []string `json:"repositories"`
+// 		}{
+// 			Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
+// 		}
+// 		json.NewEncoder(w).Encode(result)
+// 	}))
+// 	defer httpsServer.Close()
+// 	u, err := url.Parse(httpsServer.URL)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	host = u.Host
+// 	http.DefaultClient = httpsServer.Client()
+// 	os.Exit(m.Run())
+// }
 
 // ExampleRegistry_Repositories gives example snippets for listing respositories in a HTTPS registry with pagination.
 func ExampleRegistry_Repositories() {
