@@ -76,6 +76,10 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 		graph:         graph.NewMemory(),
 	}
 
+	if err := ensureDir(root); err != nil {
+		return nil, err
+	}
+
 	if err := store.ensureOCILayoutFile(); err != nil {
 		return nil, err
 	}

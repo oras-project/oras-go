@@ -89,12 +89,7 @@ func TestStore_Success(t *testing.T) {
 		ocispec.AnnotationRefName: ref,
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -103,6 +98,95 @@ func TestStore_Success(t *testing.T) {
 
 	// validate layout
 	layoutFilePath := filepath.Join(tempDir, ocispec.ImageLayoutFile)
+	layoutFile, err := os.Open(layoutFilePath)
+	if err != nil {
+		t.Errorf("error opening layout file, error = %v", err)
+	}
+	defer layoutFile.Close()
+
+	var layout *ocispec.ImageLayout
+	err = json.NewDecoder(layoutFile).Decode(&layout)
+	if err != nil {
+		t.Fatal("error decoding layout, error =", err)
+	}
+	if layout.Version != ocispec.ImageLayoutVersion {
+		t.Error("wrong layout version")
+	}
+
+	// test push
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// test tag
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// test resolve
+	gotDesc, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descWithRef) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
+	}
+	internalResolver := s.resolver
+	if got := len(internalResolver.Map()); got != 1 {
+		t.Errorf("resolver.Map() = %v, want %v", got, 1)
+	}
+
+	// test fetch
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, content)
+	}
+}
+
+func TestStore_NotExistRoot_Success(t *testing.T) {
+	content := []byte(`{"layers":[]}`)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	ref := "foobar"
+	descWithRef := desc
+	descWithRef.Annotations = map[string]string{
+		ocispec.AnnotationRefName: ref,
+	}
+
+	tempDir := t.TempDir()
+	root := filepath.Join(tempDir, "rootDir")
+	s, err := New(root)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// validate layout
+	layoutFilePath := filepath.Join(root, ocispec.ImageLayoutFile)
 	layoutFile, err := os.Open(layoutFilePath)
 	if err != nil {
 		t.Errorf("error opening layout file, error = %v", err)
@@ -182,12 +266,7 @@ func TestStore_TagByDigest(t *testing.T) {
 		ocispec.AnnotationRefName: ref,
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -249,12 +328,7 @@ func TestStore_ContentNotFound(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -283,12 +357,7 @@ func TestStore_ContentAlreadyExists(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -314,12 +383,7 @@ func TestStore_ContentBadPush(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -335,12 +399,7 @@ func TestStore_ContentBadPush(t *testing.T) {
 func TestStore_TagNotFound(t *testing.T) {
 	ref := "foobar"
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -362,12 +421,7 @@ func TestStore_TagUnknownContent(t *testing.T) {
 	}
 	ref := "foobar"
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -393,12 +447,7 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 		ocispec.AnnotationRefName: ref,
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -470,12 +519,7 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 }
 
 func TestStore_RepeatTag(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -575,29 +619,19 @@ func TestStore_RepeatTag(t *testing.T) {
 }
 
 func TestStore_BadIndex(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	content := []byte("whatever")
 	path := filepath.Join(tempDir, ociImageIndexFile)
 	ioutil.WriteFile(path, content, 0666)
 
-	_, err = New(tempDir)
+	_, err := New(tempDir)
 	if err == nil {
 		t.Errorf("New() error = nil, want: error")
 	}
 }
 
 func TestStore_UpEdges(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -711,12 +745,7 @@ func TestStore_UpEdges(t *testing.T) {
 }
 
 func TestStore_ExistingStore(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -950,12 +979,8 @@ func TestStore_ExistingStore(t *testing.T) {
 
 func TestCopy_MemoryToOCI_FullCopy(t *testing.T) {
 	src := memory.New()
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
 
+	tempDir := t.TempDir()
 	dst, err := New(tempDir)
 	if err != nil {
 		t.Fatal("OCI.New() error =", err)
@@ -1040,12 +1065,8 @@ func TestCopy_MemoryToOCI_FullCopy(t *testing.T) {
 
 func TestCopyGraph_MemoryToOCI_FullCopy(t *testing.T) {
 	src := cas.NewMemory()
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
 
+	tempDir := t.TempDir()
 	dst, err := New(tempDir)
 	if err != nil {
 		t.Fatal("OCI.New() error =", err)
@@ -1147,12 +1168,8 @@ func TestCopyGraph_MemoryToOCI_FullCopy(t *testing.T) {
 
 func TestCopyGraph_MemoryToOCI_PartialCopy(t *testing.T) {
 	src := cas.NewMemory()
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
 
+	tempDir := t.TempDir()
 	dst, err := New(tempDir)
 	if err != nil {
 		t.Fatal("OCI.New() error =", err)
@@ -1265,12 +1282,7 @@ func TestCopyGraph_MemoryToOCI_PartialCopy(t *testing.T) {
 }
 
 func TestCopyGraph_OCIToMemory_FullCopy(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	src, err := New(tempDir)
 	if err != nil {
 		t.Fatal("OCI.New() error =", err)
@@ -1373,12 +1385,7 @@ func TestCopyGraph_OCIToMemory_FullCopy(t *testing.T) {
 }
 
 func TestCopyGraph_OCIToMemory_PartialCopy(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	src, err := New(tempDir)
 	if err != nil {
 		t.Fatal("OCI.New() error =", err)
