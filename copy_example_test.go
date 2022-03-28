@@ -28,57 +28,8 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 )
-
-func getTestRepository(ctx context.Context, repositoryName string) (ts *httptest.Server, repo registry.Repository, err error) {
-
-	const exampleRepoName = "example"
-	const exampleDigest = "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
-	const exampleTag = "latest"
-	const exampleBlob = "Example blob content"
-
-	ts = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := r.URL.Path
-		m := r.Method
-		switch {
-		case strings.HasSuffix(p, "/blobs/uploads/") && m == "GET":
-			w.WriteHeader(http.StatusCreated)
-		case (strings.HasSuffix(p, "/manifests/latest") || strings.HasSuffix(p, fmt.Sprintf("/manifests/%s", exampleDigest))) && m == "HEAD":
-			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
-			w.Header().Set("Docker-Content-Digest", exampleDigest)
-			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
-		case strings.HasSuffix(p, fmt.Sprintf("/manifests/%s", exampleDigest)) && m == "GET":
-			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
-			w.Header().Set("Docker-Content-Digest", exampleDigest)
-			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
-			w.Write([]byte(exampleBlob))
-		case strings.HasSuffix(p, fmt.Sprintf("/blobs/%s", exampleDigest)) && (m == "GET" || m == "HEAD"):
-			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
-			w.Header().Set("Docker-Content-Digest", exampleDigest)
-			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
-			w.Write([]byte(exampleBlob))
-		case strings.HasSuffix(p, fmt.Sprintf("/manifests/%s", exampleTag)) && m == "PUT":
-			w.WriteHeader(http.StatusCreated)
-		}
-
-	}))
-
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		// handle it
-		return
-	}
-	reg, err := remote.NewRegistry(uri.Host)
-	if err != nil {
-		// handle it
-		return
-	}
-	reg.RepositoryOptions.PlainHTTP = true
-	repo, err = reg.Repository(ctx, repositoryName)
-	return ts, repo, err
-}
 
 var host string
 
@@ -107,7 +58,7 @@ func TestMain(m *testing.M) {
 			w.Header().Set("Docker-Content-Digest", exampleDigest)
 			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
 			w.Write([]byte(exampleBlob))
-		case strings.HasSuffix(p, fmt.Sprintf("/manifests/%s", exampleTag)) && m == "PUT":
+		case (strings.HasSuffix(p, fmt.Sprintf("/manifests/%s", exampleDigest)) || strings.HasSuffix(p, fmt.Sprintf("/manifests/%s", exampleTag))) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		}
 
@@ -147,7 +98,7 @@ func ExampleCopy() {
 	fmt.Println(desc.Digest)
 
 	// Or copy via digest
-	digest := "sha255:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
 	desc, err = oras.Copy(ctx, srcRepo, digest, tarRepo, digest)
 	if err != nil {
 		panic(err) // Handle error
