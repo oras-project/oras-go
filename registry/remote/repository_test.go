@@ -580,11 +580,17 @@ func TestRepository_PushTag(t *testing.T) {
 }
 
 func TestRepository_FetchTag(t *testing.T) {
-	manifest := []byte(`{"layers":[]}`)
-	manifestDesc := ocispec.Descriptor{
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageIndex,
-		Digest:    digest.FromBytes(manifest),
-		Size:      int64(len(manifest)),
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
 	}
 	ref := "foobar"
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -594,20 +600,22 @@ func TestRepository_FetchTag(t *testing.T) {
 			return
 		}
 		switch r.URL.Path {
-		case "/v2/test/manifests/" + manifestDesc.Digest.String(),
+		case "/v2/test/manifests/" + blobDesc.Digest.String():
+			w.WriteHeader(http.StatusNotFound)
+		case "/v2/test/manifests/" + indexDesc.Digest.String(),
 			"/v2/test/manifests/" + ref:
-			if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
 				t.Errorf("manifest not convertable: %s", accept)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			w.Header().Set("Content-Type", manifestDesc.MediaType)
-			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
-			w.Header().Set("Content-Length", strconv.Itoa(int(manifestDesc.Size)))
-			if _, err := w.Write(manifest); err != nil {
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			if _, err := w.Write(index); err != nil {
 				t.Errorf("failed to write %q: %v", r.URL, err)
 			}
 		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
@@ -624,8 +632,14 @@ func TestRepository_FetchTag(t *testing.T) {
 	repo.PlainHTTP = true
 	ctx := context.Background()
 
-	// test with a reference tag
-	rc, err := repo.FetchTag(ctx, ref)
+	// test with blob digest
+	_, err = repo.FetchTag(ctx, blobDesc.Digest.String())
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Repository.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	// test with manifest digest
+	rc, err := repo.FetchTag(ctx, indexDesc.Digest.String())
 	if err != nil {
 		t.Fatalf("Repository.FetchTag() error = %v", err)
 	}
@@ -636,39 +650,24 @@ func TestRepository_FetchTag(t *testing.T) {
 	if err := rc.Close(); err != nil {
 		t.Errorf("fail to close: %v", err)
 	}
-	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
-		t.Errorf("Repository.FetchTag() = %v, want %v", got, manifest)
+	if got := buf.Bytes(); !bytes.Equal(got, index) {
+		t.Errorf("Repository.FetchTag() = %v, want %v", got, index)
 	}
 
-	// test with an invalid tag reference
-	randomRef := "whatever"
-	_, err = repo.FetchTag(ctx, randomRef)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Repository.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
-	}
-
-	// test with a reference digest
-	rc, err = repo.FetchTag(ctx, manifestDesc.Digest.String())
+	// test with manifest tag
+	rc, err = repo.FetchTag(ctx, ref)
 	if err != nil {
 		t.Fatalf("Repository.FetchTag() error = %v", err)
 	}
-	buf = bytes.NewBuffer(nil)
+	buf.Reset()
 	if _, err := buf.ReadFrom(rc); err != nil {
 		t.Errorf("fail to read: %v", err)
 	}
 	if err := rc.Close(); err != nil {
 		t.Errorf("fail to close: %v", err)
 	}
-	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
-		t.Errorf("Repository.FetchTag() = %v, want %v", got, manifest)
-	}
-
-	// test with an invalid digest reference
-	randomContent := []byte("whatever")
-	randomContentDigest := digest.FromBytes(randomContent)
-	_, err = repo.FetchTag(ctx, randomContentDigest.String())
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Repository.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	if got := buf.Bytes(); !bytes.Equal(got, index) {
+		t.Errorf("Repository.FetchTag() = %v, want %v", got, index)
 	}
 }
 
@@ -1380,6 +1379,81 @@ func Test_BlobStore_Resolve(t *testing.T) {
 	}
 }
 
+func Test_BlobStore_FetchTag(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			if _, err := w.Write(blob); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	// test with digest
+	rc, err := store.FetchTag(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatalf("Blobs.FetchTag() error = %v", err)
+	}
+	buf := bytes.NewBuffer(nil)
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, blob) {
+		t.Errorf("Blobs.FetchTag() = %v, want %v", got, blob)
+	}
+
+	// test with non-digest reference
+	_, err = store.FetchTag(ctx, ref)
+	if !errors.Is(err, digest.ErrDigestInvalidFormat) {
+		t.Errorf("Blobs.FetchTag() error = %v, wantErr %v", err, digest.ErrDigestInvalidFormat)
+	}
+
+	content := []byte("foobar")
+	contentDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	// test with other digest
+	_, err = store.FetchTag(ctx, contentDesc.Digest.String())
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Blobs.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+}
+
 func Test_ManifestStore_Fetch(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
@@ -1690,5 +1764,98 @@ func Test_ManifestStore_Resolve(t *testing.T) {
 	_, err = store.Resolve(ctx, contentDesc.Digest.String())
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Manifests.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+}
+
+func Test_ManifestStore_FetchTag(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/manifests/" + manifestDesc.Digest.String(),
+			"/v2/test/manifests/" + ref:
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", manifestDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+			if _, err := w.Write(manifest); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Manifests()
+	ctx := context.Background()
+
+	// test with tag
+	rc, err := store.FetchTag(ctx, ref)
+	if err != nil {
+		t.Fatalf("Manifests.FetchTag() error = %v", err)
+	}
+	buf := bytes.NewBuffer(nil)
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
+		t.Errorf("Manifests.FetchTag() = %v, want %v", got, manifest)
+	}
+
+	// test with other tag
+	randomRef := "whatever"
+	_, err = store.FetchTag(ctx, randomRef)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Manifests.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	// test with digest
+	rc, err = store.FetchTag(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatalf("Manifests.FetchTag() error = %v", err)
+	}
+	buf = bytes.NewBuffer(nil)
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
+		t.Errorf("Manifests.FetchTag() = %v, want %v", got, manifest)
+	}
+
+	// test with other digest
+	randomContent := []byte("whatever")
+	randomContentDigest := digest.FromBytes(randomContent)
+	_, err = store.FetchTag(ctx, randomContentDigest.String())
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Manifests.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }

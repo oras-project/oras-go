@@ -241,48 +241,7 @@ func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, cont
 // It is equivalent to call `Resolve()` and then `Fetch()`
 // but more efficient or equal.
 func (r *Repository) FetchTag(ctx context.Context, reference string) (io.ReadCloser, error) {
-	// TODO: move to manifeststore
-	ref, err := r.parseReference(reference)
-	if err != nil {
-		return nil, err
-	}
-
-	ctx = withScopeHint(ctx, ref, auth.ActionPull)
-	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", manifestAcceptHeader(r.ManifestMediaTypes))
-
-	resp, err := r.client().Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err != nil {
-			resp.Body.Close()
-		}
-	}()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		// no-op
-	case http.StatusNotFound:
-		return nil, fmt.Errorf("%s: %w", ref.Reference, errdef.ErrNotFound)
-	default:
-		return nil, errutil.ParseErrorResponse(resp)
-	}
-
-	// validate digest if the provided reference is a digest
-	if refDigest, err := ref.Digest(); err == nil {
-		if err = verifyContentDigest(resp, refDigest); err != nil {
-			return nil, err
-		}
-		return resp.Body, nil
-	}
-
-	return resp.Body, nil
+	return r.Manifests().FetchTag(ctx, reference)
 }
 
 // parseReference validates the reference.
@@ -649,6 +608,56 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	}, nil
 }
 
+// FetchTag fetches the content identified by a reference.
+// It is equivalent to call `Resolve()` and then `Fetch()`
+// but more efficient or equal.
+func (s *blobStore) FetchTag(ctx context.Context, reference string) (io.ReadCloser, error) {
+	ref, err := s.repo.parseReference(reference)
+	if err != nil {
+		return nil, err
+	}
+	refDigest, err := ref.Digest()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
+	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.repo.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			resp.Body.Close()
+		}
+	}()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// no-op
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
+	default:
+		return nil, errutil.ParseErrorResponse(resp)
+	}
+
+	size := resp.ContentLength
+	if size == -1 {
+		return nil, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
+	}
+	if err := verifyContentDigest(resp, refDigest); err != nil {
+		return nil, err
+	}
+
+	return resp.Body, nil
+}
+
 // manifestStore accesses the manifest part of the repository.
 type manifestStore struct {
 	repo *Repository
@@ -785,6 +794,58 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 		Digest:    contentDigest,
 		Size:      size,
 	}, nil
+}
+
+// FetchTag fetches the content identified by a reference.
+// It is equivalent to call `Resolve()` and then `Fetch()`
+// but more efficient or equal.
+func (s *manifestStore) FetchTag(ctx context.Context, reference string) (io.ReadCloser, error) {
+	ref, err := s.repo.parseReference(reference)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx = withScopeHint(ctx, ref, auth.ActionPull)
+	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", manifestAcceptHeader(s.repo.ManifestMediaTypes))
+
+	resp, err := s.repo.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			resp.Body.Close()
+		}
+	}()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// no-op
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("%s: %w", ref.Reference, errdef.ErrNotFound)
+	default:
+		return nil, errutil.ParseErrorResponse(resp)
+	}
+
+	size := resp.ContentLength
+	if size == -1 {
+		return nil, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
+	}
+
+	// validate digest if the provided reference is a digest
+	if refDigest, err := ref.Digest(); err == nil {
+		if err = verifyContentDigest(resp, refDigest); err != nil {
+			return nil, err
+		}
+		return resp.Body, nil
+	}
+
+	return resp.Body, nil
 }
 
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.

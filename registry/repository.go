@@ -38,7 +38,6 @@ type Repository interface {
 	oras.Target
 	BlobStore
 	TagPusher
-	TagFetcher
 
 	// Blobs provides access to the blob CAS only, which contains config blobs,
 	// layers, and other generic blobs.
@@ -66,6 +65,7 @@ type BlobStore interface {
 	content.Storage
 	content.Deleter
 	content.Resolver
+	TagFetcher
 }
 
 // TagPusher provides advanced push with the tag service.
