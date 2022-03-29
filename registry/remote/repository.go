@@ -172,8 +172,8 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 	return r.push(ctx, desc, rc, ref.Reference)
 }
 
-// PushTag pushes the manifest with a reference tag.
-func (r *Repository) PushTag(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
+// PushReference pushes the manifest with a reference tag.
+func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
 	ref, err := r.parseReference(reference)
 	if err != nil {
 		return err

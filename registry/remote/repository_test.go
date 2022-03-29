@@ -561,21 +561,21 @@ func TestRepository_PushTag(t *testing.T) {
 	repo.PlainHTTP = true
 	ctx := context.Background()
 
-	err = repo.PushTag(ctx, blobDesc, bytes.NewReader(blob), ref)
+	err = repo.PushReference(ctx, blobDesc, bytes.NewReader(blob), ref)
 	if err == nil {
-		t.Fatalf("Repository.PushTag() error = %v, wantErr %v", err, true)
+		t.Fatalf("Repository.PushReference() error = %v, wantErr %v", err, true)
 	}
 	if gotIndex != nil {
-		t.Errorf("Repository.PushTag() = %v, want %v", gotIndex, nil)
+		t.Errorf("Repository.PushReference() = %v, want %v", gotIndex, nil)
 	}
 
 	gotIndex = nil
-	err = repo.PushTag(ctx, indexDesc, bytes.NewReader(index), ref)
+	err = repo.PushReference(ctx, indexDesc, bytes.NewReader(index), ref)
 	if err != nil {
-		t.Fatalf("Repository.PushTag() error = %v", err)
+		t.Fatalf("Repository.PushReference() error = %v", err)
 	}
 	if !bytes.Equal(gotIndex, index) {
-		t.Errorf("Repository.PushTag() = %v, want %v", gotIndex, index)
+		t.Errorf("Repository.PushReference() = %v, want %v", gotIndex, index)
 	}
 }
 
