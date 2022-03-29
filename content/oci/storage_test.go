@@ -41,17 +41,12 @@ func TestStorage_Success(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := NewStorage(tempDir)
 	ctx := context.Background()
 
 	// test push
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	err := s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Storage.Push() error =", err)
 	}
@@ -90,12 +85,7 @@ func TestStorage_NotFound(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := NewStorage(tempDir)
 	ctx := context.Background()
 
@@ -121,16 +111,11 @@ func TestStorage_AlreadyExists(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := NewStorage(tempDir)
 	ctx := context.Background()
 
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	err := s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Storage.Push() error =", err)
 	}
@@ -149,16 +134,11 @@ func TestStorage_BadPush(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := NewStorage(tempDir)
 	ctx := context.Background()
 
-	err = s.Push(ctx, desc, strings.NewReader("foobar"))
+	err := s.Push(ctx, desc, strings.NewReader("foobar"))
 	if err == nil {
 		t.Errorf("Storage.Push() error = %v, wantErr %v", err, true)
 	}
@@ -172,12 +152,7 @@ func TestStorage_Push_Concurrent(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := NewStorage(tempDir)
 	ctx := context.Background()
 
@@ -235,17 +210,12 @@ func TestStorage_Fetch_ExistingBlobs(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, "blobs", dgst.Algorithm().String(), dgst.Encoded())
 	if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
 		t.Fatal("error calling Mkdir(), error =", err)
 	}
-	if err = ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := ioutil.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -285,12 +255,7 @@ func TestStorage_Fetch_Concurrent(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir, err := os.MkdirTemp("", "oras_oci_test_*")
-	if err != nil {
-		t.Fatal("error creating temp dir, error =", err)
-	}
-	defer os.RemoveAll(tempDir)
-
+	tempDir := t.TempDir()
 	s := NewStorage(tempDir)
 	ctx := context.Background()
 
