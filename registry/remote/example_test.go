@@ -284,3 +284,29 @@ func ExampleRepository_Tag() {
 	// Output:
 	// Succeed
 }
+
+// ExampleRegistry_Repositories gives example snippets for listing respositories in a HTTPS registry with pagination.
+func ExampleRegistry_Repositories() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	// If you want to play with your local registry, try to override
+	// the `host` variable. Don't forget to set HTTP option as below:
+	// reg.PlainHTTP = true
+
+	ctx := context.Background()
+	err = reg.Repositories(ctx, func(repos []string) error {
+		for _, repo := range repos {
+			fmt.Println(repo)
+		}
+		return nil
+	})
+	if err != nil {
+		panic(err) // Handle error
+	}
+	// Output:
+	// public/repo1
+	// public/repo2
+	// internal/repo3
+}
