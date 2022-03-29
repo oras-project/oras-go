@@ -579,7 +579,7 @@ func TestRepository_PushTag(t *testing.T) {
 	}
 }
 
-func TestRepository_FetchTag(t *testing.T) {
+func TestRepository_FetchReference(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
 		MediaType: "test",
@@ -633,15 +633,15 @@ func TestRepository_FetchTag(t *testing.T) {
 	ctx := context.Background()
 
 	// test with blob digest
-	_, err = repo.FetchTag(ctx, blobDesc.Digest.String())
+	_, _, err = repo.FetchReference(ctx, blobDesc.Digest.String())
 	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Repository.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		t.Errorf("Repository.FetchReference() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 
 	// test with manifest digest
-	rc, err := repo.FetchTag(ctx, indexDesc.Digest.String())
+	_, rc, err := repo.FetchReference(ctx, indexDesc.Digest.String())
 	if err != nil {
-		t.Fatalf("Repository.FetchTag() error = %v", err)
+		t.Fatalf("Repository.FetchReference() error = %v", err)
 	}
 	buf := bytes.NewBuffer(nil)
 	if _, err := buf.ReadFrom(rc); err != nil {
@@ -651,13 +651,13 @@ func TestRepository_FetchTag(t *testing.T) {
 		t.Errorf("fail to close: %v", err)
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, index) {
-		t.Errorf("Repository.FetchTag() = %v, want %v", got, index)
+		t.Errorf("Repository.FetchReference() = %v, want %v", got, index)
 	}
 
 	// test with manifest tag
-	rc, err = repo.FetchTag(ctx, ref)
+	_, rc, err = repo.FetchReference(ctx, ref)
 	if err != nil {
-		t.Fatalf("Repository.FetchTag() error = %v", err)
+		t.Fatalf("Repository.FetchReference() error = %v", err)
 	}
 	buf.Reset()
 	if _, err := buf.ReadFrom(rc); err != nil {
@@ -667,7 +667,7 @@ func TestRepository_FetchTag(t *testing.T) {
 		t.Errorf("fail to close: %v", err)
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, index) {
-		t.Errorf("Repository.FetchTag() = %v, want %v", got, index)
+		t.Errorf("Repository.FetchReference() = %v, want %v", got, index)
 	}
 }
 
@@ -1379,7 +1379,7 @@ func Test_BlobStore_Resolve(t *testing.T) {
 	}
 }
 
-func Test_BlobStore_FetchTag(t *testing.T) {
+func Test_BlobStore_FetchReference(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
 		MediaType: "test",
@@ -1419,9 +1419,12 @@ func Test_BlobStore_FetchTag(t *testing.T) {
 	ctx := context.Background()
 
 	// test with digest
-	rc, err := store.FetchTag(ctx, blobDesc.Digest.String())
+	gotDesc, rc, err := store.FetchReference(ctx, blobDesc.Digest.String())
 	if err != nil {
-		t.Fatalf("Blobs.FetchTag() error = %v", err)
+		t.Fatalf("Blobs.FetchReference() error = %v", err)
+	}
+	if gotDesc.Digest != blobDesc.Digest || gotDesc.Size != blobDesc.Size {
+		t.Errorf("Blobs.FetchReference() = %v, want %v", gotDesc, blobDesc)
 	}
 	buf := bytes.NewBuffer(nil)
 	if _, err := buf.ReadFrom(rc); err != nil {
@@ -1431,13 +1434,13 @@ func Test_BlobStore_FetchTag(t *testing.T) {
 		t.Errorf("fail to close: %v", err)
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, blob) {
-		t.Errorf("Blobs.FetchTag() = %v, want %v", got, blob)
+		t.Errorf("Blobs.FetchReference() = %v, want %v", got, blob)
 	}
 
 	// test with non-digest reference
-	_, err = store.FetchTag(ctx, ref)
+	_, _, err = store.FetchReference(ctx, ref)
 	if !errors.Is(err, digest.ErrDigestInvalidFormat) {
-		t.Errorf("Blobs.FetchTag() error = %v, wantErr %v", err, digest.ErrDigestInvalidFormat)
+		t.Errorf("Blobs.FetchReference() error = %v, wantErr %v", err, digest.ErrDigestInvalidFormat)
 	}
 
 	content := []byte("foobar")
@@ -1448,9 +1451,9 @@ func Test_BlobStore_FetchTag(t *testing.T) {
 	}
 
 	// test with other digest
-	_, err = store.FetchTag(ctx, contentDesc.Digest.String())
+	_, _, err = store.FetchReference(ctx, contentDesc.Digest.String())
 	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Blobs.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		t.Errorf("Blobs.FetchReference() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
 
@@ -1767,7 +1770,7 @@ func Test_ManifestStore_Resolve(t *testing.T) {
 	}
 }
 
-func Test_ManifestStore_FetchTag(t *testing.T) {
+func Test_ManifestStore_FetchReference(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageIndex,
@@ -1813,9 +1816,12 @@ func Test_ManifestStore_FetchTag(t *testing.T) {
 	ctx := context.Background()
 
 	// test with tag
-	rc, err := store.FetchTag(ctx, ref)
+	gotDesc, rc, err := store.FetchReference(ctx, ref)
 	if err != nil {
-		t.Fatalf("Manifests.FetchTag() error = %v", err)
+		t.Fatalf("Manifests.FetchReference() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Manifests.FetchReference() = %v, want %v", gotDesc, manifestDesc)
 	}
 	buf := bytes.NewBuffer(nil)
 	if _, err := buf.ReadFrom(rc); err != nil {
@@ -1825,20 +1831,23 @@ func Test_ManifestStore_FetchTag(t *testing.T) {
 		t.Errorf("fail to close: %v", err)
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
-		t.Errorf("Manifests.FetchTag() = %v, want %v", got, manifest)
+		t.Errorf("Manifests.FetchReference() = %v, want %v", got, manifest)
 	}
 
 	// test with other tag
 	randomRef := "whatever"
-	_, err = store.FetchTag(ctx, randomRef)
+	_, _, err = store.FetchReference(ctx, randomRef)
 	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Manifests.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		t.Errorf("Manifests.FetchReference() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 
 	// test with digest
-	rc, err = store.FetchTag(ctx, manifestDesc.Digest.String())
+	gotDesc, rc, err = store.FetchReference(ctx, manifestDesc.Digest.String())
 	if err != nil {
-		t.Fatalf("Manifests.FetchTag() error = %v", err)
+		t.Fatalf("Manifests.FetchReference() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Manifests.FetchReference() = %v, want %v", gotDesc, manifestDesc)
 	}
 	buf = bytes.NewBuffer(nil)
 	if _, err := buf.ReadFrom(rc); err != nil {
@@ -1848,14 +1857,14 @@ func Test_ManifestStore_FetchTag(t *testing.T) {
 		t.Errorf("fail to close: %v", err)
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
-		t.Errorf("Manifests.FetchTag() = %v, want %v", got, manifest)
+		t.Errorf("Manifests.FetchReference() = %v, want %v", got, manifest)
 	}
 
 	// test with other digest
 	randomContent := []byte("whatever")
 	randomContentDigest := digest.FromBytes(randomContent)
-	_, err = store.FetchTag(ctx, randomContentDigest.String())
+	_, _, err = store.FetchReference(ctx, randomContentDigest.String())
 	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Manifests.FetchTag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		t.Errorf("Manifests.FetchReference() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
