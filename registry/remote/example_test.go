@@ -36,6 +36,7 @@ const exampleRepositoryName = "example"
 const exampleDigest = "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
 const exampleTag = "latest"
 const exampleBlob = "Example blob content"
+const exampleUploadUUid = "0bc84d80-837c-41d9-824e-1907463c53b3"
 
 var host string
 
@@ -59,7 +60,11 @@ func TestMain(m *testing.M) {
 				Tags: []string{"tag1", "tag2"},
 			}
 			json.NewEncoder(w).Encode(result)
-		case p == fmt.Sprintf("/v2/%s/blobs/uploads/", exampleRepositoryName) && m == "GET":
+		case p == fmt.Sprintf("/v2/%s/blobs/uploads/", exampleRepositoryName):
+			w.Header().Set("Location", p+exampleUploadUUid)
+			w.Header().Set("Docker-Upload-UUID", exampleUploadUUid)
+			w.WriteHeader(http.StatusAccepted)
+		case p == fmt.Sprintf("/v2/%s/blobs/uploads/%s", exampleRepositoryName, exampleUploadUUid):
 			w.WriteHeader(http.StatusCreated)
 		case (p == fmt.Sprintf("/v2/%s/manifests/latest", exampleRepositoryName) || p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleDigest)) && m == "HEAD":
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
@@ -134,7 +139,10 @@ func ExampleRepository_Push() {
 		Digest:    digest.FromBytes(content), // Calculate digest
 		Size:      int64(len(content)),       // Include content size
 	}
-	repo.Push(ctx, desc, bytes.NewReader(content)) // Push the blob
+	err = repo.Push(ctx, desc, bytes.NewReader(content)) // Push the blob
+	if err != nil {
+		panic(err) // Handle error
+	}
 
 	fmt.Println("Push finished")
 	// Output:
@@ -158,10 +166,12 @@ func ExampleRepository_Resolve_byTag() {
 	if err != nil {
 		panic(err) // Handle error
 	}
+	fmt.Println(descriptor.MediaType)
 	fmt.Println(descriptor.Digest)
 	fmt.Println(descriptor.Size)
 
 	// Output:
+	// application/vnd.oci.image.layer.v1.tar
 	// sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec
 	// 20
 }
@@ -182,9 +192,13 @@ func ExampleRepository_Resolve_byDigest() {
 	if err != nil {
 		panic(err) // Handle error
 	}
+	fmt.Println(descriptor.MediaType)
+	fmt.Println(descriptor.Digest)
 	fmt.Println(descriptor.Size)
 
 	// Output:
+	// application/vnd.oci.image.layer.v1.tar
+	// sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec
 	// 20
 }
 
