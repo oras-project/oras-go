@@ -18,11 +18,40 @@ package registry_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"testing"
 
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 )
+
+var host string
+
+func TestMain(m *testing.M) {
+	// Setup a local HTTPS registry
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result := struct {
+			Repositories []string `json:"repositories"`
+		}{
+			Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
+		}
+		json.NewEncoder(w).Encode(result)
+	}))
+	defer ts.Close()
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		panic(err)
+	}
+	host = u.Host
+	http.DefaultClient = ts.Client()
+
+	os.Exit(m.Run())
+}
 
 // ExampleRepositories gives example snippets for listing respositories in the registry without pagination.
 func ExampleRepositories() {
