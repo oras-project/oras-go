@@ -192,36 +192,38 @@ func ExampleCopy_remoteToLocal() {
 
 func ExampleCopy_localToLocal() {
 	src := exampleMemoryStore
-	memoryDst := memory.New()
+	dst := memory.New()
 
-	// 1. copy to a memory store
 	tagName := "latest"
 	ctx := context.Background()
-	desc, err := oras.Copy(ctx, src, tagName, memoryDst, tagName)
+	desc, err := oras.Copy(ctx, src, tagName, dst, tagName)
 	if err != nil {
 		panic(err) // Handle error
 	}
 	fmt.Println(desc.Digest)
 
-	// 2. copy to a file store
+	// Output:
+	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+}
+
+func ExampleCopy_localToOciFile() {
+	src := exampleMemoryStore
 	tempDir, err := os.MkdirTemp("", "oras_oci_example_*")
 	if err != nil {
 		panic(err) // Handle error
 	}
 	defer os.RemoveAll(tempDir)
-	ociDst, err := oci.New(tempDir)
-	desc, err = oras.Copy(ctx, src, tagName, ociDst, tagName)
+	dst, err := oci.New(tempDir)
+
+	tagName := "latest"
+	ctx := context.Background()
+	desc, err := oras.Copy(ctx, src, tagName, dst, tagName)
 	if err != nil {
 		panic(err) // Handle error
 	}
 	fmt.Println(desc.Digest)
 
-	if err != nil {
-		panic(err) // Handle error
-	}
-
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
 	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
 }
 
