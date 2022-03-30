@@ -60,6 +60,7 @@ func generateManifestContent(config ocispec.Descriptor, layers ...ocispec.Descri
 
 func TestMain(m *testing.M) {
 	const exampleTag = "latest"
+	const exampleUploadUUid = "0bc84d80-837c-41d9-824e-1907463c53b3"
 	// Setup example local target
 	exampleMemoryStore = memory.New()
 	ctx := context.Background()
@@ -91,7 +92,11 @@ func TestMain(m *testing.M) {
 		p := r.URL.Path
 		m := r.Method
 		switch {
-		case strings.HasSuffix(p, "/blobs/uploads/"):
+		case strings.Contains(p, "/blobs/uploads/") && m == "POST":
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
+			w.Header().Set("Location", p+exampleUploadUUid)
+			w.WriteHeader(http.StatusAccepted)
+		case strings.Contains(p, "/blobs/uploads/"+exampleUploadUUid) && m == "GET":
 			w.WriteHeader(http.StatusCreated)
 		case strings.Contains(p, "/manifests/") && (m == "HEAD" || m == "GET"):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
