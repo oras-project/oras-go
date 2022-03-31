@@ -61,10 +61,11 @@ func generateManifestContent(config ocispec.Descriptor, layers ...ocispec.Descri
 func TestMain(m *testing.M) {
 	const exampleTag = "latest"
 	const exampleUploadUUid = "0bc84d80-837c-41d9-824e-1907463c53b3"
+
 	// Setup example local target
 	exampleMemoryStore = memory.New()
-	ctx := context.Background()
 	layerBlob := []byte("Hello layer")
+	ctx := context.Background()
 	layerDesc, err := pushBlob(ctx, ocispec.MediaTypeImageLayer, layerBlob, exampleMemoryStore) // push layer blob
 	if err != nil {
 		panic(err)
@@ -144,7 +145,6 @@ func ExampleCopy_remoteToRemote() {
 	if err != nil {
 		panic(err) // Handle error
 	}
-
 	ctx := context.Background()
 	src, err := reg.Repository(ctx, "source")
 	if err != nil {
@@ -214,6 +214,9 @@ func ExampleCopy_localToOciFile() {
 	}
 	defer os.RemoveAll(tempDir)
 	dst, err := oci.New(tempDir)
+	if err != nil {
+		panic(err) // Handle error
+	}
 
 	tagName := "latest"
 	ctx := context.Background()
