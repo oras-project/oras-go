@@ -111,12 +111,16 @@ func ExampleRepository_Tags() {
 		panic(err) // Handle error
 	}
 
-	repo.Tags(ctx, func(tags []string) error {
+	err = repo.Tags(ctx, func(tags []string) error {
 		for _, tag := range tags {
 			fmt.Println(tag)
 		}
 		return nil
 	})
+
+	if err != nil {
+		panic(err) // Handle error
+	}
 
 	// Output:
 	// tag1
