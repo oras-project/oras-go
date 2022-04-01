@@ -32,11 +32,13 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 )
 
-const exampleRepositoryName = "example"
-const exampleDigest = "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
-const exampleTag = "latest"
-const exampleBlob = "Example blob content"
-const exampleUploadUUid = "0bc84d80-837c-41d9-824e-1907463c53b3"
+const (
+	exampleRepositoryName = "example"
+	exampleDigest         = "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	exampleTag            = "latest"
+	exampleBlob           = "Example blob content"
+	exampleUploadUUid     = "0bc84d80-837c-41d9-824e-1907463c53b3"
+)
 
 var host string
 
