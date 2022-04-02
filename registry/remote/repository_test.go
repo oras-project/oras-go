@@ -399,7 +399,8 @@ func TestRepository_Resolve(t *testing.T) {
 		t.Fatalf("invalid test http server: %v", err)
 	}
 
-	repo, err := NewRepository(uri.Host + "/test")
+	repoName := uri.Host + "/test"
+	repo, err := NewRepository(repoName)
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -420,6 +421,24 @@ func TestRepository_Resolve(t *testing.T) {
 	}
 
 	got, err = repo.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatalf("Repository.Resolve() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, indexDesc) {
+		t.Errorf("Repository.Resolve() = %v, want %v", got, indexDesc)
+	}
+
+	tagDigestRef := "whatever" + "@" + indexDesc.Digest.String()
+	got, err = repo.Resolve(ctx, tagDigestRef)
+	if err != nil {
+		t.Fatalf("Repository.Resolve() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, indexDesc) {
+		t.Errorf("Repository.Resolve() = %v, want %v", got, indexDesc)
+	}
+
+	fqdnRef := repoName + ":" + tagDigestRef
+	got, err = repo.Resolve(ctx, fqdnRef)
 	if err != nil {
 		t.Fatalf("Repository.Resolve() error = %v", err)
 	}
@@ -625,7 +644,8 @@ func TestRepository_FetchReference(t *testing.T) {
 		t.Fatalf("invalid test http server: %v", err)
 	}
 
-	repo, err := NewRepository(uri.Host + "/test")
+	repoName := uri.Host + "/test"
+	repo, err := NewRepository(repoName)
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -639,9 +659,12 @@ func TestRepository_FetchReference(t *testing.T) {
 	}
 
 	// test with manifest digest
-	_, rc, err := repo.FetchReference(ctx, indexDesc.Digest.String())
+	gotDesc, rc, err := repo.FetchReference(ctx, indexDesc.Digest.String())
 	if err != nil {
 		t.Fatalf("Repository.FetchReference() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("Repository.FetchReference() = %v, want %v", gotDesc, indexDesc)
 	}
 	buf := bytes.NewBuffer(nil)
 	if _, err := buf.ReadFrom(rc); err != nil {
@@ -655,9 +678,52 @@ func TestRepository_FetchReference(t *testing.T) {
 	}
 
 	// test with manifest tag
-	_, rc, err = repo.FetchReference(ctx, ref)
+	gotDesc, rc, err = repo.FetchReference(ctx, ref)
 	if err != nil {
 		t.Fatalf("Repository.FetchReference() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("Repository.FetchReference() = %v, want %v", gotDesc, indexDesc)
+	}
+	buf.Reset()
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, index) {
+		t.Errorf("Repository.FetchReference() = %v, want %v", got, index)
+	}
+
+	// test with manifest tag@digest
+	tagDigestRef := "whatever" + "@" + indexDesc.Digest.String()
+	gotDesc, rc, err = repo.FetchReference(ctx, tagDigestRef)
+	if err != nil {
+		t.Fatalf("Repository.FetchReference() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("Repository.FetchReference() = %v, want %v", gotDesc, indexDesc)
+	}
+	buf.Reset()
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, index) {
+		t.Errorf("Repository.FetchReference() = %v, want %v", got, index)
+	}
+
+	// test with manifest FQDN
+	fqdnRef := repoName + ":" + tagDigestRef
+	gotDesc, rc, err = repo.FetchReference(ctx, fqdnRef)
+	if err != nil {
+		t.Fatalf("Repository.FetchReference() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("Repository.FetchReference() = %v, want %v", gotDesc, indexDesc)
 	}
 	buf.Reset()
 	if _, err := buf.ReadFrom(rc); err != nil {
@@ -1346,7 +1412,8 @@ func Test_BlobStore_Resolve(t *testing.T) {
 		t.Fatalf("invalid test http server: %v", err)
 	}
 
-	repo, err := NewRepository(uri.Host + "/test")
+	repoName := uri.Host + "/test"
+	repo, err := NewRepository(repoName)
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -1365,6 +1432,15 @@ func Test_BlobStore_Resolve(t *testing.T) {
 	_, err = store.Resolve(ctx, ref)
 	if !errors.Is(err, digest.ErrDigestInvalidFormat) {
 		t.Errorf("Blobs.Resolve() error = %v, wantErr %v", err, digest.ErrDigestInvalidFormat)
+	}
+
+	fqdnRef := repoName + "@" + blobDesc.Digest.String()
+	got, err = store.Resolve(ctx, fqdnRef)
+	if err != nil {
+		t.Fatalf("Blobs.Resolve() error = %v", err)
+	}
+	if got.Digest != blobDesc.Digest || got.Size != blobDesc.Size {
+		t.Errorf("Blobs.Resolve() = %v, want %v", got, blobDesc)
 	}
 
 	content := []byte("foobar")
@@ -1410,7 +1486,8 @@ func Test_BlobStore_FetchReference(t *testing.T) {
 		t.Fatalf("invalid test http server: %v", err)
 	}
 
-	repo, err := NewRepository(uri.Host + "/test")
+	repoName := uri.Host + "/test"
+	repo, err := NewRepository(repoName)
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -1441,6 +1518,26 @@ func Test_BlobStore_FetchReference(t *testing.T) {
 	_, _, err = store.FetchReference(ctx, ref)
 	if !errors.Is(err, digest.ErrDigestInvalidFormat) {
 		t.Errorf("Blobs.FetchReference() error = %v, wantErr %v", err, digest.ErrDigestInvalidFormat)
+	}
+
+	// test with FQDN reference
+	fqdnRef := repoName + "@" + blobDesc.Digest.String()
+	gotDesc, rc, err = store.FetchReference(ctx, fqdnRef)
+	if err != nil {
+		t.Fatalf("Blobs.FetchReference() error = %v", err)
+	}
+	if gotDesc.Digest != blobDesc.Digest || gotDesc.Size != blobDesc.Size {
+		t.Errorf("Blobs.FetchReference() = %v, want %v", gotDesc, blobDesc)
+	}
+	buf.Reset()
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, blob) {
+		t.Errorf("Blobs.FetchReference() = %v, want %v", got, blob)
 	}
 
 	content := []byte("foobar")
@@ -1734,7 +1831,8 @@ func Test_ManifestStore_Resolve(t *testing.T) {
 		t.Fatalf("invalid test http server: %v", err)
 	}
 
-	repo, err := NewRepository(uri.Host + "/test")
+	repoName := uri.Host + "/test"
+	repo, err := NewRepository(repoName)
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -1751,6 +1849,24 @@ func Test_ManifestStore_Resolve(t *testing.T) {
 	}
 
 	got, err = store.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatalf("Manifests.Resolve() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, manifestDesc) {
+		t.Errorf("Manifests.Resolve() = %v, want %v", got, manifestDesc)
+	}
+
+	tagDigestRef := "whatever" + "@" + manifestDesc.Digest.String()
+	got, err = repo.Resolve(ctx, tagDigestRef)
+	if err != nil {
+		t.Fatalf("Manifests.Resolve() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, manifestDesc) {
+		t.Errorf("Manifests.Resolve() = %v, want %v", got, manifestDesc)
+	}
+
+	fqdnRef := repoName + ":" + tagDigestRef
+	got, err = repo.Resolve(ctx, fqdnRef)
 	if err != nil {
 		t.Fatalf("Manifests.Resolve() error = %v", err)
 	}
@@ -1807,7 +1923,8 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 		t.Fatalf("invalid test http server: %v", err)
 	}
 
-	repo, err := NewRepository(uri.Host + "/test")
+	repoName := uri.Host + "/test"
+	repo, err := NewRepository(repoName)
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -1849,7 +1966,7 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	if !reflect.DeepEqual(gotDesc, manifestDesc) {
 		t.Errorf("Manifests.FetchReference() = %v, want %v", gotDesc, manifestDesc)
 	}
-	buf = bytes.NewBuffer(nil)
+	buf.Reset()
 	if _, err := buf.ReadFrom(rc); err != nil {
 		t.Errorf("fail to read: %v", err)
 	}
@@ -1866,5 +1983,45 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	_, _, err = store.FetchReference(ctx, randomContentDigest.String())
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Manifests.FetchReference() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	// test with tag@digest
+	tagDigestRef := randomRef + "@" + manifestDesc.Digest.String()
+	gotDesc, rc, err = store.FetchReference(ctx, tagDigestRef)
+	if err != nil {
+		t.Fatalf("Manifests.FetchReference() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Manifests.FetchReference() = %v, want %v", gotDesc, manifestDesc)
+	}
+	buf.Reset()
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
+		t.Errorf("Manifests.FetchReference() = %v, want %v", got, manifest)
+	}
+
+	// test with FQDN
+	fqdnRef := repoName + ":" + tagDigestRef
+	gotDesc, rc, err = store.FetchReference(ctx, fqdnRef)
+	if err != nil {
+		t.Fatalf("Manifests.FetchReference() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Manifests.FetchReference() = %v, want %v", gotDesc, manifestDesc)
+	}
+	buf.Reset()
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
+		t.Errorf("Manifests.FetchReference() = %v, want %v", got, manifest)
 	}
 }

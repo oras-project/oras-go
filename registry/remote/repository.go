@@ -24,6 +24,7 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -249,6 +250,11 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 func (r *Repository) parseReference(reference string) (registry.Reference, error) {
 	ref, err := registry.ParseReference(reference)
 	if err != nil {
+		// reference is not a FQDN
+		if index := strings.IndexByte(reference, '@'); index != -1 {
+			// drop tag since the digest is present
+			reference = reference[index+1:]
+		}
 		ref = registry.Reference{
 			Registry:   r.Reference.Registry,
 			Repository: r.Reference.Repository,
