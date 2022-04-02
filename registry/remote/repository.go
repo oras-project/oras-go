@@ -589,14 +589,12 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		// no-op
+		return s.generateDescriptor(resp, refDigest)
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
 		return ocispec.Descriptor{}, errutil.ParseErrorResponse(resp)
 	}
-
-	return s.generateDescriptor(resp, refDigest)
 }
 
 // FetchReference fetches the blob identified by the reference.
@@ -618,6 +616,13 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 		return ocispec.Descriptor{}, nil, err
 	}
 
+	// probe server range request ability.
+	// Docker spec allows range header form of "Range: bytes=<start>-<end>".
+	// The form of "Range: bytes=<start>-" is also acceptable.
+	// However, the remote server may still not RFC 7233 compliant.
+	// Reference: https://docs.docker.com/registry/spec/api/#blob
+	req.Header.Set("Range", "bytes=0-")
+
 	resp, err := s.repo.client().Do(req)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -629,20 +634,23 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 	}()
 
 	switch resp.StatusCode {
-	case http.StatusOK:
-		// no-op
+	case http.StatusOK: // server does not support seek as `Range` was ignored.
+		desc, err = s.generateDescriptor(resp, refDigest)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		return desc, resp.Body, nil
+	case http.StatusPartialContent:
+		desc, err = s.generateDescriptor(resp, refDigest)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		return desc, httputil.NewReadSeekCloser(s.repo.client(), req, resp.Body, desc.Size), nil
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, nil, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
 		return ocispec.Descriptor{}, nil, errutil.ParseErrorResponse(resp)
 	}
-
-	desc, err = s.generateDescriptor(resp, refDigest)
-	if err != nil {
-		return ocispec.Descriptor{}, nil, err
-	}
-
-	return desc, resp.Body, nil
 }
 
 // generateDescriptor returns a descriptor generated from the response.
@@ -764,14 +772,12 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		// no-op
+		return s.generateDescriptor(resp, ref)
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
 		return ocispec.Descriptor{}, errutil.ParseErrorResponse(resp)
 	}
-
-	return s.generateDescriptor(resp, ref)
 }
 
 // FetchReference fetches the manifest identified by the reference.
@@ -802,19 +808,16 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		// no-op
+		desc, err = s.generateDescriptor(resp, ref)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		return desc, resp.Body, nil
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, nil, fmt.Errorf("%s: %w", ref.Reference, errdef.ErrNotFound)
 	default:
 		return ocispec.Descriptor{}, nil, errutil.ParseErrorResponse(resp)
 	}
-
-	desc, err = s.generateDescriptor(resp, ref)
-	if err != nil {
-		return ocispec.Descriptor{}, nil, err
-	}
-
-	return desc, resp.Body, nil
 }
 
 // generateDescriptor returns a descriptor generated from the response.
