@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -69,7 +70,7 @@ const (
 // which is a limited memory CAS by default.
 // As all the metadata are stored in the memory, the file store
 // cannot be restored from the file system.
-// After use, the file store needs to be close by calling the `Close()` function.
+// After use, the file store needs to be closed by calling the `Close()` function.
 // The file store cannot be used after being closed.
 type Store struct {
 	// TarReproducible controls if the tarballs generated
@@ -87,7 +88,7 @@ type Store struct {
 	DisableOverwrite bool
 
 	workingDir   string   // the working directory of the file store
-	closed       bool     // if the store is closed
+	closed       int32    // if the store is closed - 0: false, 1: true.
 	digestToPath sync.Map // map[digest.Digest]string
 	nameToStatus sync.Map // map[string]*nameStatus
 	tmpFiles     sync.Map // map[string]bool
@@ -135,12 +136,12 @@ func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) 
 
 // Close closes the file store and cleans up all the temporary files used by it.
 // The store cannot be used after being closed.
-// This funciton is not go-routine safe.
+// This function is not go-routine safe.
 func (s *Store) Close() error {
-	if s.closed {
+	if s.isClosedSet() {
 		return nil
 	}
-	s.closed = true
+	s.setClosed()
 
 	var errs []string
 	s.tmpFiles.Range(func(name, _ interface{}) bool {
@@ -158,7 +159,7 @@ func (s *Store) Close() error {
 
 // Fetch fetches the content identified by the descriptor.
 func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	if s.closed {
+	if s.isClosedSet() {
 		return nil, ErrStoreClosed
 	}
 
@@ -193,7 +194,7 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 // If name is not specified in the descriptor,
 // the content will be pushed to the fallback storage.
 func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	if s.closed {
+	if s.isClosedSet() {
 		return ErrStoreClosed
 	}
 
@@ -243,7 +244,7 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 
 // Exists returns true if the described content exists.
 func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	if s.closed {
+	if s.isClosedSet() {
 		return false, ErrStoreClosed
 	}
 
@@ -266,7 +267,7 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 
 // Resolve resolves a reference to a descriptor.
 func (s *Store) Resolve(ctx context.Context, ref string) (ocispec.Descriptor, error) {
-	if s.closed {
+	if s.isClosedSet() {
 		return ocispec.Descriptor{}, ErrStoreClosed
 	}
 
@@ -279,7 +280,7 @@ func (s *Store) Resolve(ctx context.Context, ref string) (ocispec.Descriptor, er
 
 // Tag tags a descriptor with a reference string.
 func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, ref string) error {
-	if s.closed {
+	if s.isClosedSet() {
 		return ErrStoreClosed
 	}
 
@@ -300,7 +301,7 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, ref string) er
 
 // UpEdges returns nil without error if the node does not exists in the store.
 func (s *Store) UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	if s.closed {
+	if s.isClosedSet() {
 		return nil, ErrStoreClosed
 	}
 
@@ -309,7 +310,7 @@ func (s *Store) UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec
 
 // Add adds a file into the file store.
 func (s *Store) Add(_ context.Context, name, mediaType, path string) (ocispec.Descriptor, error) {
-	if s.closed {
+	if s.isClosedSet() {
 		return ocispec.Descriptor{}, ErrStoreClosed
 	}
 
@@ -360,7 +361,7 @@ func (s *Store) Add(_ context.Context, name, mediaType, path string) (ocispec.De
 // generates a manifest for the pack, and store the manifest in the file store.
 // If succeeded, returns a descriptor of the manifest.
 func (s *Store) PackFiles(ctx context.Context, names []string) (ocispec.Descriptor, error) {
-	if s.closed {
+	if s.isClosedSet() {
 		return ocispec.Descriptor{}, ErrStoreClosed
 	}
 
@@ -598,6 +599,16 @@ func (s *Store) absPath(path string) string {
 		return path
 	}
 	return filepath.Join(s.workingDir, path)
+}
+
+// isClosedSet returns true if the `closed` flag is set, otherwise returns false.
+func (s *Store) isClosedSet() bool {
+	return atomic.LoadInt32(&s.closed) == 1
+}
+
+// setClosed sets the `closed` flag.
+func (s *Store) setClosed() {
+	atomic.StoreInt32(&s.closed, 1)
 }
 
 // ensureDir ensures the directories of the path exists.
