@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/opencontainers/go-digest"
+	ocidigest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry/remote"
 )
@@ -141,9 +141,9 @@ func ExampleRepository_Push() {
 
 	mediaType, content := ocispec.MediaTypeImageLayer, []byte("Example blob content") // Setup input: 1) media type and 2)[]byte content
 	desc := ocispec.Descriptor{                                                       // Assemble a descriptor
-		MediaType: mediaType,                 // Set mediatype
-		Digest:    digest.FromBytes(content), // Calculate digest
-		Size:      int64(len(content)),       // Include content size
+		MediaType: mediaType,                    // Set mediatype
+		Digest:    ocidigest.FromBytes(content), // Calculate digest
+		Size:      int64(len(content)),          // Include content size
 	}
 	err = repo.Push(ctx, desc, bytes.NewReader(content)) // Push the blob
 	if err != nil {
@@ -235,6 +235,10 @@ func ExampleRepository_Fetch_byTag() {
 		panic(err) // Handle error
 	}
 	fmt.Println(string(pulledBlob))
+	// **You still need to validate the digest**
+	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) {
+		panic(err) // Handle error
+	}
 
 	// Output:
 	// Example blob content
@@ -267,6 +271,10 @@ func ExampleRepository_Fetch_byDigest() {
 		panic(err) // Handle error
 	}
 	fmt.Println(string(pulledBlob))
+	// **You still need to validate the digest**
+	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) {
+		panic(err) // Handle error
+	}
 
 	// Output:
 	// Example blob content
