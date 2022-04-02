@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	ocidigest "github.com/opencontainers/go-digest"
@@ -80,8 +81,22 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, exampleDigest) && m == "GET":
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
 			w.Header().Set("Docker-Content-Digest", exampleDigest)
-			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
-			w.Write([]byte(exampleBlob))
+			w.WriteHeader(http.StatusPartialContent)
+			if h := r.Header.Get("Range"); h != "" {
+				w.WriteHeader(http.StatusPartialContent)
+				indices := strings.Split(strings.Split(h, "=")[1], "-")
+				start, err := strconv.Atoi(indices[0])
+				if err != nil {
+					panic(err) // Handle error
+				}
+				end, err := strconv.Atoi(indices[1])
+				if err != nil {
+					panic(err) // Handle error
+				}
+				resultBlob := exampleBlob[start : end+1]
+				w.Header().Set("Content-Length", strconv.Itoa(len([]byte(resultBlob))))
+				w.Write([]byte(resultBlob))
+			}
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		}
@@ -266,18 +281,34 @@ func ExampleRepository_Fetch_byDigest() {
 		panic(err) // Handle error
 	}
 	defer r.Close() // don't forget to close
+
+	// You can 1) fetch a whole blob
 	pulledBlob, err := io.ReadAll(r)
 	if err != nil {
 		panic(err) // Handle error
 	}
 	fmt.Println(string(pulledBlob))
-	// **You still need to validate the digest**
+	// Fetch() doesn't provide validation, you need to do it **
 	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) {
 		panic(err) // Handle error
 	}
 
+	// or 2) do partially read, if the remote registry supports
+	if seeker, ok := r.(io.ReadSeeker); ok {
+		_, err = seeker.Seek(8, io.SeekStart)
+		if err != nil {
+			panic(err) // Handle error
+		}
+		pulledBlob, err := io.ReadAll(r)
+		if err != nil {
+			panic(err) // Handle error
+		}
+		fmt.Println(string(pulledBlob))
+	}
+
 	// Output:
 	// Example blob content
+	// blob content
 }
 
 // ExampleRepository_Tag gives example snippets for tagging a descriptor.
