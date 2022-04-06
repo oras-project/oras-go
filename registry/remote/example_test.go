@@ -184,7 +184,7 @@ func ExampleRepository_Resolve_byTag() {
 	}
 
 	tag := "latest"
-	descriptor, err := repo.Resolve(ctx, tag) // Resolve digest to the descriptor
+	descriptor, err := repo.Resolve(ctx, tag) // Resolve the descriptor
 	if err != nil {
 		panic(err) // Handle error
 	}
