@@ -30,6 +30,7 @@ import (
 
 	ocidigest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -368,4 +369,56 @@ func ExampleRegistry_Repositories() {
 	// public/repo1
 	// public/repo2
 	// internal/repo3
+}
+
+func Example_pullByTag() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName) // Get the repository from registry
+	if err != nil {
+		panic(err) // Handle error
+	}
+
+	tag := "latest"
+	descriptor, err := repo.Resolve(ctx, tag) // First resolve the descriptor
+	if err != nil {
+		panic(err) // Handle error
+	}
+	pulledBlob, err := content.FetchAll(ctx, repo, descriptor) // Fetch the blob from the repository
+	if err != nil {
+		panic(err) // Handle error
+	}
+	fmt.Println(string(pulledBlob))
+
+	// Output:
+	// Example blob content
+}
+
+func Example_pullByDigest() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName) // Get the repository from registry
+	if err != nil {
+		panic(err) // Handle error
+	}
+
+	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	descriptor, err := repo.Resolve(ctx, digest) // Resolve the descriptor
+	if err != nil {
+		panic(err) // Handle error
+	}
+	pulledBlob, err := content.FetchAll(ctx, repo, descriptor) // Fetch the blob from the repository
+	if err != nil {
+		panic(err) // Handle error
+	}
+	fmt.Println(string(pulledBlob))
+
+	// Output:
+	// Example blob content
 }
