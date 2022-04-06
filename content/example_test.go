@@ -78,7 +78,7 @@ func TestMain(m *testing.M) {
 }
 
 // ExampleFetchAll_byTag gives example snippets for downloading a blob by tag.
-func ExampleFetchAll_byTag() {
+func ExampleFetchAll_remoteByTag() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
 		panic(err) // Handle error
@@ -105,7 +105,7 @@ func ExampleFetchAll_byTag() {
 }
 
 // ExampleFetchAll_byDigest gives example snippets for downloading a blob by digest.
-func ExampleFetchAll_byDigest() {
+func ExampleFetchAll_remoteByDigest() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
 		panic(err) // Handle error

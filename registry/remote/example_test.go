@@ -250,8 +250,8 @@ func ExampleRepository_Fetch_byTag() {
 		panic(err) // Handle error
 	}
 	fmt.Println(string(pulledBlob))
-	// **You still need to validate the digest**
-	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) {
+	// caller SHOULD verify what is fetched
+	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) || descriptor.Size != int64(len(pulledBlob)) {
 		panic(err) // Handle error
 	}
 
@@ -272,7 +272,7 @@ func ExampleRepository_Fetch_byDigest() {
 	}
 
 	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
-	descriptor, err := repo.Resolve(ctx, digest) // We still need to resolve first, don't create a new descriptor with the digest, blob size is unknown
+	descriptor, err := repo.Resolve(ctx, digest) // Still need to resolve first, don't create a new descriptor with the digest, blob size is unknown
 	if err != nil {
 		panic(err) // Handle error
 	}
@@ -282,18 +282,14 @@ func ExampleRepository_Fetch_byDigest() {
 	}
 	defer r.Close() // don't forget to close
 
-	// You can 1) fetch a whole blob
+	// option 1: fetch a WHOLE blob
 	pulledBlob, err := io.ReadAll(r)
 	if err != nil {
 		panic(err) // Handle error
 	}
 	fmt.Println(string(pulledBlob))
-	// Fetch() doesn't provide validation, you need to do it **
-	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) {
-		panic(err) // Handle error
-	}
 
-	// or 2) do partially read, if the remote registry supports
+	// option 2: partially read, if the remote registry supports
 	if seeker, ok := r.(io.ReadSeeker); ok {
 		_, err = seeker.Seek(8, io.SeekStart)
 		if err != nil {
@@ -304,6 +300,11 @@ func ExampleRepository_Fetch_byDigest() {
 			panic(err) // Handle error
 		}
 		fmt.Println(string(pulledBlob))
+	}
+
+	// caller SHOULD verify what is fetched
+	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) || descriptor.Size != int64(len(pulledBlob)) {
+		panic(err) // Handle error
 	}
 
 	// Output:
@@ -350,10 +351,9 @@ func ExampleRegistry_Repositories() {
 	if err != nil {
 		panic(err) // Handle error
 	}
-	// If you want to play with your local registry, try to override
-	// the `host` variable. Don't forget to set HTTP option as below:
+	// Override the `host` variable to play with local registry.
+	// Uncomment below line to reset HTTP option:
 	// reg.PlainHTTP = true
-
 	ctx := context.Background()
 	err = reg.Repositories(ctx, func(repos []string) error {
 		for _, repo := range repos {
