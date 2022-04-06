@@ -156,12 +156,12 @@ func ExampleRepository_Push() {
 	}
 
 	mediaType, content := ocispec.MediaTypeImageLayer, []byte("Example blob content") // Setup input: 1) media type and 2)[]byte content
-	desc := ocispec.Descriptor{                                                       // Assemble a descriptor
+	descriptor := ocispec.Descriptor{                                                 // Assemble a descriptor
 		MediaType: mediaType,                    // Set mediatype
 		Digest:    ocidigest.FromBytes(content), // Calculate digest
 		Size:      int64(len(content)),          // Include content size
 	}
-	err = repo.Push(ctx, desc, bytes.NewReader(content)) // Push the blob
+	err = repo.Push(ctx, descriptor, bytes.NewReader(content)) // Push the blob
 	if err != nil {
 		panic(err) // Handle error
 	}
@@ -328,13 +328,13 @@ func ExampleRepository_Tag() {
 	// suppose we are going to tag a blob with below digest
 	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
 
-	// 1. Resolve the target desc
+	// 1. Resolve the target descriptor
 	descriptor, err := repo.Resolve(ctx, digest)
 	if err != nil {
 		panic(err) // Handle error
 	}
 
-	// 2. Tag the resolved desc
+	// 2. Tag the resolved descriptor
 	tag := "latest"
 	err = repo.Tag(ctx, descriptor, tag)
 	if err != nil {
