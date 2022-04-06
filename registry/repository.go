@@ -37,7 +37,8 @@ import (
 type Repository interface {
 	oras.Target
 	BlobStore
-	TagPusher
+	ReferencePusher
+	ReferenceFetcher
 
 	// Blobs provides access to the blob CAS only, which contains config blobs,
 	// layers, and other generic blobs.
@@ -65,14 +66,19 @@ type BlobStore interface {
 	content.Storage
 	content.Deleter
 	content.Resolver
+	ReferenceFetcher
 }
 
-// TagPusher provides advanced push with the tag service.
-type TagPusher interface {
-	// PushTag pushes the manifest with a reference tag.
-	// It is equivalent to call `Push()` and then `Tag()` but more efficient or
-	// equal.
-	PushTag(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error
+// ReferencePusher provides advanced push with the tag service.
+type ReferencePusher interface {
+	// PushReference pushes the manifest with a reference tag.
+	PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error
+}
+
+// ReferenceFetcher provides advanced fetch with the tag service.
+type ReferenceFetcher interface {
+	// FetchReference fetches the content identified by the reference.
+	FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
 }
 
 // Tags lists the tags available in the repository.
