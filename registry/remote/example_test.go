@@ -28,6 +28,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/opencontainers/go-digest"
 	ocidigest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
@@ -36,15 +37,17 @@ import (
 
 const (
 	exampleRepositoryName = "example"
-	exampleDigest         = "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
 	exampleTag            = "latest"
-	exampleBlob           = "Example blob content"
+	exampleManifest       = "Example manifest content"
+	exampleLayer          = "Example layer content"
 	exampleUploadUUid     = "0bc84d80-837c-41d9-824e-1907463c53b3"
 )
 
 var host string
 
 func TestMain(m *testing.M) {
+	exampleLayerDigest := digest.FromBytes([]byte(exampleLayer)).String()
+	exampleManifestDigest := digest.FromBytes([]byte(exampleManifest)).String()
 	// Setup a local HTTPS registry
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
@@ -70,19 +73,21 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusAccepted)
 		case p == fmt.Sprintf("/v2/%s/blobs/uploads/%s", exampleRepositoryName, exampleUploadUUid):
 			w.WriteHeader(http.StatusCreated)
-		case (p == fmt.Sprintf("/v2/%s/manifests/latest", exampleRepositoryName) || p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleDigest)) && m == "HEAD":
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest) && m == "HEAD":
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
+			w.Header().Set("Docker-Content-Digest", exampleManifestDigest)
+			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleManifest))))
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == "PUT":
+			w.WriteHeader(http.StatusCreated)
+		case p == fmt.Sprintf("/v2/%s/manifests/latest", exampleRepositoryName) ||
+			(p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest) && m == "GET"):
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
+			w.Header().Set("Docker-Content-Digest", exampleManifestDigest)
+			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleManifest))))
+			w.Write([]byte(exampleManifest))
+		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, exampleLayerDigest) && m == "GET":
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
-			w.Header().Set("Docker-Content-Digest", exampleDigest)
-			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
-		case (p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleDigest)) && m == "GET":
-			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
-			w.Header().Set("Docker-Content-Digest", exampleDigest)
-			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleBlob))))
-			w.Write([]byte(exampleBlob))
-		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, exampleDigest) && m == "GET":
-			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
-			w.Header().Set("Docker-Content-Digest", exampleDigest)
-			w.WriteHeader(http.StatusPartialContent)
+			w.Header().Set("Docker-Content-Digest", string(exampleLayerDigest))
 			if h := r.Header.Get("Range"); h != "" {
 				w.WriteHeader(http.StatusPartialContent)
 				indices := strings.Split(strings.Split(h, "=")[1], "-")
@@ -94,12 +99,10 @@ func TestMain(m *testing.M) {
 				if err != nil {
 					panic(err) // Handle error
 				}
-				resultBlob := exampleBlob[start : end+1]
+				resultBlob := exampleLayer[start : end+1]
 				w.Header().Set("Content-Length", strconv.Itoa(len([]byte(resultBlob))))
 				w.Write([]byte(resultBlob))
 			}
-		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == "PUT":
-			w.WriteHeader(http.StatusCreated)
 		}
 
 	}))
@@ -155,8 +158,8 @@ func ExampleRepository_Push() {
 		panic(err) // Handle error
 	}
 
-	mediaType, content := ocispec.MediaTypeImageLayer, []byte("Example blob content") // Setup input: 1) media type and 2)[]byte content
-	descriptor := ocispec.Descriptor{                                                 // Assemble a descriptor
+	mediaType, content := ocispec.MediaTypeImageLayer, []byte("Example layer content") // Setup input: 1) media type and 2)[]byte content
+	descriptor := ocispec.Descriptor{                                                  // Assemble a descriptor
 		MediaType: mediaType,                    // Set mediatype
 		Digest:    ocidigest.FromBytes(content), // Calculate digest
 		Size:      int64(len(content)),          // Include content size
@@ -193,9 +196,9 @@ func ExampleRepository_Resolve_byTag() {
 	fmt.Println(descriptor.Size)
 
 	// Output:
-	// application/vnd.oci.image.layer.v1.tar
-	// sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec
-	// 20
+	// application/vnd.oci.image.manifest.v1+json
+	// sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b
+	// 24
 }
 
 // ExampleRepository_Resolve_byDigest gives example snippets for resolving a digest.
@@ -209,7 +212,7 @@ func ExampleRepository_Resolve_byDigest() {
 	if err != nil {
 		panic(err) // Handle error
 	}
-	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	digest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
 	descriptor, err := repo.Resolve(ctx, digest) // Resolve digest to the descriptor
 	if err != nil {
 		panic(err) // Handle error
@@ -219,13 +222,13 @@ func ExampleRepository_Resolve_byDigest() {
 	fmt.Println(descriptor.Size)
 
 	// Output:
-	// application/vnd.oci.image.layer.v1.tar
-	// sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec
-	// 20
+	// application/vnd.oci.image.manifest.v1+json
+	// sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b
+	// 24
 }
 
-// ExampleRepository_Fetch_byTag gives example snippets for downloading a blob by tag.
-func ExampleRepository_Fetch_byTag() {
+// ExampleRepository_Fetch_byTag gives example snippets for downloading a manifest by tag.
+func ExampleRepository_Fetch_manifestByTag() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
 		panic(err) // Handle error
@@ -257,11 +260,11 @@ func ExampleRepository_Fetch_byTag() {
 	}
 
 	// Output:
-	// Example blob content
+	// Example manifest content
 }
 
-// ExampleRepository_Fetch_byDigest gives example snippets for downloading a blob by digest.
-func ExampleRepository_Fetch_byDigest() {
+// ExampleRepository_Fetch_byDigest gives example snippets for downloading a manifest by digest.
+func ExampleRepository_Fetch_manifestByDigest() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
 		panic(err) // Handle error
@@ -272,10 +275,112 @@ func ExampleRepository_Fetch_byDigest() {
 		panic(err) // Handle error
 	}
 
-	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	digest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
 	descriptor, err := repo.Resolve(ctx, digest) // Still need to resolve first, don't create a new descriptor with the digest, blob size is unknown
 	if err != nil {
 		panic(err) // Handle error
+	}
+	r, err := repo.Fetch(ctx, descriptor) // Fetch the blob from the repository
+	if err != nil {
+		panic(err) // Handle error
+	}
+	defer r.Close() // don't forget to close
+	pulled, err := io.ReadAll(r)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	// caller SHOULD verify what is fetched
+	if descriptor.Digest != ocidigest.FromBytes(pulled) || descriptor.Size != int64(len(pulled)) {
+		panic(err) // Handle error
+	}
+	fmt.Println(string(pulled))
+
+	// Output:
+	// Example manifest content
+}
+
+// ExampleRepository_FetchReference_byTag gives example snippets for downloading a manifest by tag with only one API call.
+func ExampleRepository_FetchReference_manifestByTag() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName) // Get the repository from registry
+	if err != nil {
+		panic(err) // Handle error
+	}
+
+	tag := "latest"
+	reg.ManifestMediaTypes = append(reg.ManifestMediaTypes, ocispec.MediaTypeImageManifest) // Specify the expected manifest media type
+	descriptor, r, err := repo.FetchReference(ctx, tag)                                     // Fetch the blob from the repository
+	if err != nil {
+		panic(err) // Handle error
+	}
+	defer r.Close() // don't forget to close
+	pulledBlob, err := io.ReadAll(r)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	fmt.Println(string(pulledBlob))
+	// caller SHOULD verify what is fetched
+	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) || descriptor.Size != int64(len(pulledBlob)) {
+		panic(err) // Handle error
+	}
+
+	// Output:
+	// Example manifest content
+}
+
+// ExampleRepository_FetchReference_byDigest gives example snippets for downloading a manifest by digest.
+func ExampleRepository_FetchReference_manifestByDigest() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName) // Get the repository from registry
+	if err != nil {
+		panic(err) // Handle error
+	}
+
+	digest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
+	descriptor, r, err := repo.FetchReference(ctx, digest) // Fetch the blob from the repository
+	if err != nil {
+		panic(err) // Handle error
+	}
+	defer r.Close() // don't forget to close
+	pulled, err := io.ReadAll(r)
+	if err != nil {
+		panic(err) // Handle error
+	}
+
+	// caller SHOULD verify what is fetched
+	if descriptor.Digest != ocidigest.FromBytes(pulled) || descriptor.Size != int64(len(pulled)) {
+		panic(err) // Handle error
+	}
+	fmt.Println(string(pulled))
+
+	// Output:
+	// Example manifest content
+}
+
+// ExampleRepository_Fetch_layer gives example snippets for downloading a layer blob by digest.
+func ExampleRepository_Fetch_layer() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName) // Get the repository from registry
+	if err != nil {
+		panic(err) // Handle error
+	}
+
+	descriptor := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes([]byte(exampleLayer)),
+		Size:      int64(len(exampleLayer)),
 	}
 	r, err := repo.Fetch(ctx, descriptor) // Fetch the blob from the repository
 	if err != nil {
@@ -309,11 +414,11 @@ func ExampleRepository_Fetch_byDigest() {
 	}
 
 	// Output:
-	// Example blob content
-	// blob content
+	// Example layer content
+	// layer content
 }
 
-// ExampleRepository_Tag gives example snippets for tagging a descriptor.
+// ExampleRepository_Tag gives example snippets for tagging a manifest.
 func ExampleRepository_Tag() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
@@ -326,7 +431,7 @@ func ExampleRepository_Tag() {
 	}
 
 	// suppose we are going to tag a blob with below digest
-	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	digest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
 
 	// 1. Resolve the target descriptor
 	descriptor, err := repo.Resolve(ctx, digest)
@@ -387,6 +492,9 @@ func Example_pullByTag() {
 	if err != nil {
 		panic(err) // Handle error
 	}
+	fmt.Println(descriptor.Digest)
+	fmt.Println(descriptor.Size)
+
 	pulledBlob, err := content.FetchAll(ctx, repo, descriptor) // Fetch the blob from the repository
 	if err != nil {
 		panic(err) // Handle error
@@ -394,7 +502,9 @@ func Example_pullByTag() {
 	fmt.Println(string(pulledBlob))
 
 	// Output:
-	// Example blob content
+	// sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b
+	// 24
+	// Example manifest content
 }
 
 func Example_pullByDigest() {
@@ -408,17 +518,22 @@ func Example_pullByDigest() {
 		panic(err) // Handle error
 	}
 
-	digest := "sha256:aafc6b9fa2094cbfb97eca0355105b9e8f5dfa1a4b3dbe9375a30b836f6db5ec"
+	digest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
 	descriptor, err := repo.Resolve(ctx, digest) // Resolve the descriptor
 	if err != nil {
 		panic(err) // Handle error
 	}
-	pulledBlob, err := content.FetchAll(ctx, repo, descriptor) // Fetch the blob from the repository
+	fmt.Println(descriptor.Digest)
+	fmt.Println(descriptor.Size)
+
+	pulledBlob, err := content.FetchAll(ctx, repo, descriptor) // Fetch from the repository
 	if err != nil {
 		panic(err) // Handle error
 	}
 	fmt.Println(string(pulledBlob))
 
 	// Output:
-	// Example blob content
+	// sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b
+	// 24
+	// Example manifest content
 }
