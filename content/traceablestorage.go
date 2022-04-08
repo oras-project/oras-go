@@ -13,18 +13,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package oras
+package content
 
-import "oras.land/oras-go/v2/content"
-
-// Target is a CAS with generic tags.
-type Target interface {
-	content.Storage
-	content.TagResolver
-}
-
-// TraceableTarget is a traceable-CAS with generic tags.
-type TraceableTarget interface {
-	content.TraceableStorage
-	content.TagResolver
+// TraceableStorage represents a traceable-CAS that supports parent node finding.
+type TraceableStorage interface {
+	Storage
+	UpEdgeFinder
 }
