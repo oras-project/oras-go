@@ -147,7 +147,7 @@ func ExampleRepository_Tags() {
 	// tag2
 }
 
-// ExampleRepository_Push gives example snippets for pushing a blob.
+// ExampleRepository_Push gives example snippets for pushing a layer.
 func ExampleRepository_Push() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
@@ -435,16 +435,14 @@ func ExampleRepository_Tag() {
 		panic(err) // Handle error
 	}
 
-	// suppose we are going to tag a blob with below digest
+	// Tag a manifest with below digest
 	digest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
 
-	// 1. Resolve the target descriptor
 	descriptor, err := repo.Resolve(ctx, digest)
 	if err != nil {
 		panic(err) // Handle error
 	}
 
-	// 2. Tag the resolved descriptor
 	tag := "latest"
 	err = repo.Tag(ctx, descriptor, tag)
 	if err != nil {
