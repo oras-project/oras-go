@@ -82,22 +82,26 @@ func TestMain(m *testing.M) {
 			if m == "GET" {
 				w.Write([]byte(exampleManifest))
 			}
-		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, exampleLayerDigest) && m == "GET":
+		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, exampleLayerDigest):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
 			w.Header().Set("Docker-Content-Digest", string(exampleLayerDigest))
+			var start, end = 0, len(exampleLayer) - 1
 			if h := r.Header.Get("Range"); h != "" {
 				w.WriteHeader(http.StatusPartialContent)
 				indices := strings.Split(strings.Split(h, "=")[1], "-")
-				start, err := strconv.Atoi(indices[0])
+				var err error
+				start, err = strconv.Atoi(indices[0])
 				if err != nil {
 					panic(err) // Handle error
 				}
-				end, err := strconv.Atoi(indices[1])
+				end, err = strconv.Atoi(indices[1])
 				if err != nil {
 					panic(err) // Handle error
 				}
-				resultBlob := exampleLayer[start : end+1]
-				w.Header().Set("Content-Length", strconv.Itoa(len([]byte(resultBlob))))
+			}
+			resultBlob := exampleLayer[start : end+1]
+			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(resultBlob))))
+			if m == "GET" {
 				w.Write([]byte(resultBlob))
 			}
 		}
@@ -374,10 +378,9 @@ func ExampleRepository_Fetch_layer() {
 		panic(err) // Handle error
 	}
 
-	descriptor := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes([]byte(exampleLayer)),
-		Size:      int64(len(exampleLayer)),
+	descriptor, err := repo.Blobs().Resolve(ctx, digest.FromBytes([]byte(exampleLayer)).String())
+	if err != nil {
+		panic(err) // Handle error
 	}
 	r, err := repo.Fetch(ctx, descriptor) // Fetch the blob from the repository
 	if err != nil {
@@ -392,9 +395,15 @@ func ExampleRepository_Fetch_layer() {
 	}
 	fmt.Println(string(pulledBlob))
 
+	// caller SHOULD verify what is fetched
+	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) || descriptor.Size != int64(len(pulledBlob)) {
+		panic(err) // Handle error
+	}
+
 	// option 2: partially read, if the remote registry supports
 	if seeker, ok := r.(io.ReadSeeker); ok {
-		_, err = seeker.Seek(8, io.SeekStart)
+		offset := int64(8)
+		_, err = seeker.Seek(offset, io.SeekStart)
 		if err != nil {
 			panic(err) // Handle error
 		}
@@ -402,12 +411,11 @@ func ExampleRepository_Fetch_layer() {
 		if err != nil {
 			panic(err) // Handle error
 		}
+		// caller SHOULD verify what is fetched
+		if descriptor.Size-offset != int64(len(pulledBlob)) {
+			panic(err) // Handle error
+		}
 		fmt.Println(string(pulledBlob))
-	}
-
-	// caller SHOULD verify what is fetched
-	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) || descriptor.Size != int64(len(pulledBlob)) {
-		panic(err) // Handle error
 	}
 
 	// Output:
