@@ -171,7 +171,7 @@ func ExampleRepository_Push() {
 	// Push finished
 }
 
-// ExampleRepository_Resolve_byTag gives example snippets for resolving a tag.
+// ExampleRepository_Resolve_byTag gives example snippets for resolving a tag to a manifest descriptor.
 func ExampleRepository_Resolve_byTag() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
