@@ -73,18 +73,15 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusAccepted)
 		case p == fmt.Sprintf("/v2/%s/blobs/uploads/%s", exampleRepositoryName, exampleUploadUUid):
 			w.WriteHeader(http.StatusCreated)
-		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest) && m == "HEAD":
-			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
-			w.Header().Set("Docker-Content-Digest", exampleManifestDigest)
-			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleManifest))))
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
-		case p == fmt.Sprintf("/v2/%s/manifests/latest", exampleRepositoryName) ||
-			(p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest) && m == "GET"):
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) || p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Docker-Content-Digest", exampleManifestDigest)
 			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleManifest))))
-			w.Write([]byte(exampleManifest))
+			if m == "GET" {
+				w.Write([]byte(exampleManifest))
+			}
 		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, exampleLayerDigest) && m == "GET":
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
 			w.Header().Set("Docker-Content-Digest", string(exampleLayerDigest))
