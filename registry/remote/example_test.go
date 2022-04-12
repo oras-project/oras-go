@@ -442,7 +442,7 @@ func ExampleRepository_Tag() {
 		panic(err)
 	}
 
-	// Tag a manifest with below digest
+	// tag a manifest referenced by the digest below
 	digest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
 	descriptor, err := repo.Resolve(ctx, digest)
 	if err != nil {
