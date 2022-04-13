@@ -552,7 +552,7 @@ func Example_pullByDigest() {
 	// Example manifest content
 }
 
-// Example_pushAndTag gives example snippet of pushing a OCI image with a tag.
+// Example_pushAndTag gives example snippet of pushing an OCI image with a tag.
 func Example_pushAndTag() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
@@ -585,8 +585,8 @@ func Example_pushAndTag() {
 	}
 	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) ([]byte, error) {
 		content := ocispec.Manifest{
-			Config:    config, // Set config blob
-			Layers:    layers, // Set layer blobs
+			Config:    config,
+			Layers:    layers,
 			Versioned: specs.Versioned{SchemaVersion: 2},
 		}
 		return json.Marshal(content)
