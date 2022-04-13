@@ -354,7 +354,7 @@ func ExampleRepository_FetchReference_manifestByDigest() {
 	}
 
 	digest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
-	descriptor, rc, err := repo.FetchReference(ctx, digest) // Fetch the blob from the repository
+	descriptor, rc, err := repo.FetchReference(ctx, digest)
 	if err != nil {
 		panic(err)
 	}
@@ -390,7 +390,7 @@ func ExampleRepository_Fetch_layer() {
 	if err != nil {
 		panic(err)
 	}
-	rc, err := repo.Fetch(ctx, descriptor) // Fetch the blob from the repository
+	rc, err := repo.Fetch(ctx, descriptor)
 	if err != nil {
 		panic(err)
 	}
