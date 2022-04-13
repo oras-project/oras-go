@@ -30,6 +30,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocidigest "github.com/opencontainers/go-digest"
+	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
@@ -205,7 +206,7 @@ func ExampleRepository_Resolve_byTag() {
 	// 24
 }
 
-// ExampleRepository_Resolve_byDigest gives example snippets for resolving a digest.
+// ExampleRepository_Resolve_byDigest gives example snippets for resolving a digest to a manifest descriptor.
 func ExampleRepository_Resolve_byDigest() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
@@ -549,4 +550,75 @@ func Example_pullByDigest() {
 	// sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b
 	// 24
 	// Example manifest content
+}
+
+// Example_pushAndTag gives example snippet of pushing a OCI image with a tag.
+func Example_pushAndTag() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName)
+	if err != nil {
+		panic(err)
+	}
+
+	// Assemble the below OCI image, push and tag it
+	//   +---------------------------------------------------+
+	//   |                                +----------------+ |
+	//   |                             +--> "Hello Config" | |
+	//   |            +-------------+  |  +---+ Config +---+ |
+	//   | (latest)+-->     ...     +--+                     |
+	//   |            ++ Manifest  ++  |  +----------------+ |
+	//   |                             +--> "Hello Layer"  | |
+	//   |                                +---+ Layer  +---+ |
+	//   |                                                   |
+	//   +--------+ localhost:5000/example/registry +--------+
+
+	generateDescriptor := func(mediaType string, blob []byte) (desc ocispec.Descriptor) {
+		return ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob), // Calculate digest
+			Size:      int64(len(blob)),       // Include blob size
+		}
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) ([]byte, error) {
+		content := ocispec.Manifest{
+			Config:    config, // Set config blob
+			Layers:    layers, // Set layer blobs
+			Versioned: specs.Versioned{SchemaVersion: 2},
+		}
+		return json.Marshal(content)
+	}
+
+	// 1. assemble descriptors and manifest
+	layerBlob := []byte("Hello layer")
+	layerDesc := generateDescriptor(ocispec.MediaTypeImageLayer, layerBlob)
+	configBlob := []byte("Hello config")
+	configDesc := generateDescriptor(ocispec.MediaTypeImageConfig, configBlob)
+	manifestBlob, err := generateManifest(configDesc, layerDesc)
+	if err != nil {
+		panic(err)
+	}
+	manifestDesc := generateDescriptor(ocispec.MediaTypeImageManifest, manifestBlob)
+
+	// 2. push and tag
+	err = repo.Push(ctx, layerDesc, bytes.NewReader(layerBlob))
+	if err != nil {
+		panic(err)
+	}
+	err = repo.Push(ctx, configDesc, bytes.NewReader(configBlob))
+	if err != nil {
+		panic(err)
+	}
+	err = repo.PushReference(ctx, manifestDesc, bytes.NewReader(manifestBlob), "latest")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Succeed")
+
+	// Output:
+	// Succeed
 }
