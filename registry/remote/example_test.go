@@ -161,9 +161,9 @@ func ExampleRepository_Push() {
 	}
 
 	// 1. assemble a descriptor
-	mediaType, content := ocispec.MediaTypeImageLayer, []byte("Example layer content")
+	content := []byte("Example layer content")
 	descriptor := ocispec.Descriptor{
-		MediaType: mediaType,                    // Set media type
+		MediaType: ocispec.MediaTypeImageLayer,  // Set media type
 		Digest:    ocidigest.FromBytes(content), // Calculate digest
 		Size:      int64(len(content)),          // Include content size
 	}
@@ -260,7 +260,7 @@ func ExampleRepository_Fetch_manifestByTag() {
 		panic(err)
 	}
 	// verify the fetched content
-	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) || descriptor.Size != int64(len(pulledBlob)) {
+	if descriptor.Size != int64(len(pulledBlob)) || descriptor.Digest != ocidigest.FromBytes(pulledBlob) {
 		panic(err)
 	}
 
@@ -320,8 +320,6 @@ func ExampleRepository_FetchReference_manifestByTag() {
 	}
 
 	tag := "latest"
-	// specify the expected manifest media type for the blob
-	reg.ManifestMediaTypes = append(reg.ManifestMediaTypes, ocispec.MediaTypeImageManifest)
 	descriptor, rc, err := repo.FetchReference(ctx, tag)
 	if err != nil {
 		panic(err)
@@ -375,6 +373,8 @@ func ExampleRepository_FetchReference_manifestByDigest() {
 	// Example manifest content
 }
 
+var exampleLayerDigest = digest.FromBytes([]byte(exampleLayer)).String()
+
 // ExampleRepository_Fetch_layer gives example snippets for downloading a layer blob by digest.
 func ExampleRepository_Fetch_layer() {
 	reg, err := remote.NewRegistry(host)
@@ -387,7 +387,7 @@ func ExampleRepository_Fetch_layer() {
 		panic(err)
 	}
 
-	descriptor, err := repo.Blobs().Resolve(ctx, digest.FromBytes([]byte(exampleLayer)).String())
+	descriptor, err := repo.Blobs().Resolve(ctx, exampleLayerDigest)
 	if err != nil {
 		panic(err)
 	}
@@ -397,7 +397,7 @@ func ExampleRepository_Fetch_layer() {
 	}
 	defer rc.Close() // don't forget to close
 
-	// option 1: fetch a WHOLE blob
+	// option 1: sequential fetch
 	pulledBlob, err := io.ReadAll(rc)
 	if err != nil {
 		panic(err)
@@ -409,7 +409,7 @@ func ExampleRepository_Fetch_layer() {
 		panic(err)
 	}
 
-	// option 2: partially read, if the remote registry supports
+	// option 2: random access, if the remote registry supports
 	if seeker, ok := rc.(io.ReadSeeker); ok {
 		offset := int64(8)
 		_, err = seeker.Seek(offset, io.SeekStart)
