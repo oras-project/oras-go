@@ -298,7 +298,7 @@ func ExampleRepository_Fetch_manifestByDigest() {
 		panic(err)
 	}
 	// verify the fetched content
-	if descriptor.Digest != ocidigest.FromBytes(pulled) || descriptor.Size != int64(len(pulled)) {
+	if descriptor.Size != int64(len(pulled)) || descriptor.Digest != ocidigest.FromBytes(pulled) {
 		panic(err)
 	}
 
@@ -330,7 +330,7 @@ func ExampleRepository_FetchReference_manifestByTag() {
 		panic(err)
 	}
 	// verify the fetched content
-	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) || descriptor.Size != int64(len(pulledBlob)) {
+	if descriptor.Size != int64(len(pulledBlob)) || descriptor.Digest != ocidigest.FromBytes(pulledBlob) {
 		panic(err)
 	}
 
@@ -363,7 +363,7 @@ func ExampleRepository_FetchReference_manifestByDigest() {
 		panic(err)
 	}
 	// verify the fetched content
-	if descriptor.Digest != ocidigest.FromBytes(pulled) || descriptor.Size != int64(len(pulled)) {
+	if descriptor.Size != int64(len(pulled)) || descriptor.Digest != ocidigest.FromBytes(pulled) {
 		panic(err)
 	}
 
@@ -405,7 +405,7 @@ func ExampleRepository_Fetch_layer() {
 	fmt.Println(string(pulledBlob))
 
 	// verify the fetched content
-	if descriptor.Digest != ocidigest.FromBytes(pulledBlob) || descriptor.Size != int64(len(pulledBlob)) {
+	if descriptor.Size != int64(len(pulledBlob)) || descriptor.Digest != ocidigest.FromBytes(pulledBlob) {
 		panic(err)
 	}
 
