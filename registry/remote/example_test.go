@@ -44,11 +44,14 @@ const (
 	exampleUploadUUid     = "0bc84d80-837c-41d9-824e-1907463c53b3"
 )
 
+var (
+	exampleLayerDigest    = digest.FromBytes([]byte(exampleLayer)).String()
+	exampleManifestDigest = digest.FromBytes([]byte(exampleManifest)).String()
+)
+
 var host string
 
 func TestMain(m *testing.M) {
-	exampleLayerDigest := digest.FromBytes([]byte(exampleLayer)).String()
-	exampleManifestDigest := digest.FromBytes([]byte(exampleManifest)).String()
 	// Setup a local HTTPS registry
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
@@ -372,8 +375,6 @@ func ExampleRepository_FetchReference_manifestByDigest() {
 	// Output:
 	// Example manifest content
 }
-
-var exampleLayerDigest = digest.FromBytes([]byte(exampleLayer)).String()
 
 // ExampleRepository_Fetch_layer gives example snippets for downloading a layer blob by digest.
 func ExampleRepository_Fetch_layer() {
