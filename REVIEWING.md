@@ -43,7 +43,8 @@ Be trustworthy. During a review, your actions both build and help maintain the t
 4. Do a quick check for the license header for all new files.
 5. When you provide feedback, make it clear if the change must be made for the pull request to be approved, or if it is just a suggestion. Mark suggestions with `nit`.
 6. Reviews from maintainers are required. Only pull requests approved by maintainers can be merged. If the author is a maintainer, the pull request is required to be approved by other maintainers.
-7. Pull requests are required to be reviewed again if updates come after the approval from maintainers.
+7. Maintainers can merge their own pull requests after being approved by other maintainers.
+8. Pull requests are required to be reviewed again if updates come after the approval from maintainers.
 
 
 ## Checklist
