@@ -26,11 +26,11 @@ import (
 )
 
 // ExtendedCopy copies the directed acyclic graph (DAG) that are reachable from
-// the given tagged node from the source TraceableTarget to the destination Target.
+// the given tagged node from the source GraphTarget to the destination Target.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
 // Returns the descriptor of the tagged node on successful copy.
-func ExtendedCopy(ctx context.Context, src TraceableTarget, srcRef string, dst Target, dstRef string) (ocispec.Descriptor, error) {
+func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Target, dstRef string) (ocispec.Descriptor, error) {
 	if src == nil {
 		return ocispec.Descriptor{}, errors.New("nil source traceable target")
 	}
@@ -58,8 +58,8 @@ func ExtendedCopy(ctx context.Context, src TraceableTarget, srcRef string, dst T
 }
 
 // ExtendedCopyGraph copies the directed acyclic graph (DAG) that are reachable
-// from the given node from the source traceable-CAS to the destination CAS.
-func ExtendedCopyGraph(ctx context.Context, src content.TraceableStorage, dst content.Storage, node ocispec.Descriptor) error {
+// from the given node from the source GraphStorage to the destination Storage.
+func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst content.Storage, node ocispec.Descriptor) error {
 	exists, err := src.Exists(ctx, node)
 	if err != nil {
 		return err
@@ -87,7 +87,7 @@ func ExtendedCopyGraph(ctx context.Context, src content.TraceableStorage, dst co
 
 // traceRoots traces the root nodes from the given node,
 // and records them in the given map.
-func traceRoots(ctx context.Context, storage content.TraceableStorage, roots map[descriptor.Descriptor]ocispec.Descriptor, node ocispec.Descriptor) error {
+func traceRoots(ctx context.Context, storage content.GraphStorage, roots map[descriptor.Descriptor]ocispec.Descriptor, node ocispec.Descriptor) error {
 	exists, err := storage.Exists(ctx, node)
 	if err != nil {
 		return err

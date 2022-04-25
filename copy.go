@@ -135,8 +135,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 	return graph.Dispatch(ctx, preHandler, postHandler, nil, root)
 }
 
-// copyNode copies a single content from the source CAS to the destination
-// CAS.
+// copyNode copies a single content from the source CAS to the destination CAS.
 func copyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {

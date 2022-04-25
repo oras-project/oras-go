@@ -23,8 +23,8 @@ type Target interface {
 	content.TagResolver
 }
 
-// TraceableTarget is a traceable-CAS with generic tags.
-type TraceableTarget interface {
-	content.TraceableStorage
+// GraphTarget is a CAS with generic tags that supports parent node finding.
+type GraphTarget interface {
+	content.GraphStorage
 	content.TagResolver
 }

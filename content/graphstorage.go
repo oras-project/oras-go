@@ -15,8 +15,8 @@ limitations under the License.
 
 package content
 
-// TraceableStorage represents a traceable-CAS that supports parent node finding.
-type TraceableStorage interface {
+// GraphStorage represents a CAS that supports parent node finding.
+type GraphStorage interface {
 	Storage
 	UpEdgeFinder
 }
