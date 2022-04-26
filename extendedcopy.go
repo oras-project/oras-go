@@ -21,7 +21,6 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
 )
 
@@ -60,18 +59,8 @@ func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Targe
 // ExtendedCopyGraph copies the directed acyclic graph (DAG) that are reachable
 // from the given node from the source GraphStorage to the destination Storage.
 func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst content.Storage, node ocispec.Descriptor) error {
-	exists, err := src.Exists(ctx, node)
+	roots, err := findRoots(ctx, src, node)
 	if err != nil {
-		return err
-	}
-
-	if !exists {
-		return errdef.ErrNotFound
-	}
-
-	// find the root nodes traceable from the current node
-	roots := make(map[descriptor.Descriptor]ocispec.Descriptor)
-	if err := traceRoots(ctx, src, roots, node); err != nil {
 		return err
 	}
 
@@ -85,39 +74,50 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 	return nil
 }
 
-// traceRoots traces the root nodes from the given node,
-// and records them in the given map.
-func traceRoots(ctx context.Context, storage content.GraphStorage, roots map[descriptor.Descriptor]ocispec.Descriptor, node ocispec.Descriptor) error {
-	exists, err := storage.Exists(ctx, node)
-	if err != nil {
-		return err
-	}
+// findRoots finds the root nodes reachable from the given node.
+func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.Descriptor) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
+	roots := make(map[descriptor.Descriptor]ocispec.Descriptor)
+	visited := make(map[descriptor.Descriptor]bool)
+	var stack []ocispec.Descriptor
 
-	if !exists {
-		return errdef.ErrNotFound
-	}
+	// push the initial node to the stack
+	stack = append(stack, node)
+	for len(stack) > 0 {
+		// pop the current node from the stack
+		top := len(stack) - 1
+		current := stack[top]
+		stack = stack[:top]
 
-	upEdges, err := storage.UpEdges(ctx, node)
-	if err != nil {
-		return err
-	}
-
-	// The current node has no parent node,
-	// which means it is a root node of a sub-DAG.
-	if len(upEdges) == 0 {
-		key := descriptor.FromOCI(node)
-		if _, exists := roots[key]; !exists {
-			roots[key] = node
+		currentKey := descriptor.FromOCI(current)
+		if visited[currentKey] {
+			// skip the current node if it has been visited
+			continue
 		}
-		return nil
-	}
+		visited[currentKey] = true
 
-	// The current node has parents nodes. Keep tracing from the parent nodes.
-	for _, upEdge := range upEdges {
-		if err := traceRoots(ctx, storage, roots, upEdge); err != nil {
-			return err
+		upEdges, err := finder.UpEdges(ctx, current)
+		if err != nil {
+			return nil, err
+		}
+
+		// The current node has no parent node,
+		// which means it is a root node of a sub-DAG.
+		if len(upEdges) == 0 {
+			if _, exists := roots[currentKey]; !exists {
+				roots[currentKey] = current
+			}
+			continue
+		}
+
+		// The current node has parent nodes, which means it is NOT a root node.
+		// Push the parent nodes to the stack and keep finding from there.
+		for _, upEdge := range upEdges {
+			upEdgeKey := descriptor.FromOCI(upEdge)
+			if !visited[upEdgeKey] {
+				stack = append(stack, upEdge)
+			}
 		}
 	}
 
-	return nil
+	return roots, nil
 }

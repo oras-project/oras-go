@@ -334,19 +334,14 @@ func TestExtendedCopyGraph_PartialCopy(t *testing.T) {
 	}
 }
 
-func TestExtendedCopyGraph_NotFound(t *testing.T) {
+func TestExtendedCopy_NotFound(t *testing.T) {
 	src := memory.New()
 	dst := memory.New()
 
-	content := []byte("hello world")
-	desc := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}
-
+	ref := "foobar"
 	ctx := context.Background()
-	if err := oras.ExtendedCopyGraph(ctx, src, dst, desc); !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	_, err := oras.ExtendedCopy(ctx, src, ref, dst, "")
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("ExtendedCopy() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
