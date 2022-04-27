@@ -49,6 +49,12 @@ type Storage interface {
 	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
 }
 
+// GraphStorage represents a CAS that supports parent node finding.
+type GraphStorage interface {
+	Storage
+	UpEdgeFinder
+}
+
 // Deleter removes content.
 // Deleter is an extension of Storage.
 type Deleter interface {

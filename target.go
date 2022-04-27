@@ -22,3 +22,9 @@ type Target interface {
 	content.Storage
 	content.TagResolver
 }
+
+// GraphTarget is a CAS with generic tags that supports parent node finding.
+type GraphTarget interface {
+	content.GraphStorage
+	content.TagResolver
+}

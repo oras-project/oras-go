@@ -109,7 +109,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 			return nil, err
 		}
 		if !exists {
-			return nil, copyDescriptor(ctx, src, dst, desc)
+			return nil, copyNode(ctx, src, dst, desc)
 		}
 
 		// for non-leaf nodes, wait for its down edges to complete
@@ -128,16 +128,15 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 				return nil, ctx.Err()
 			}
 		}
-		return nil, copyDescriptor(ctx, proxy.Cache, dst, desc)
+		return nil, copyNode(ctx, proxy.Cache, dst, desc)
 	})
 
 	// traverse the graph
 	return graph.Dispatch(ctx, preHandler, postHandler, nil, root)
 }
 
-// copyDescriptor copies a single content from the source CAS to the destination
-// CAS.
-func copyDescriptor(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error {
+// copyNode copies a single content from the source CAS to the destination CAS.
+func copyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
 		return err
