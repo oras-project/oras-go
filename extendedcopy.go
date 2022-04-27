@@ -31,7 +31,7 @@ import (
 // Returns the descriptor of the tagged node on successful copy.
 func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Target, dstRef string) (ocispec.Descriptor, error) {
 	if src == nil {
-		return ocispec.Descriptor{}, errors.New("nil source traceable target")
+		return ocispec.Descriptor{}, errors.New("nil source graph target")
 	}
 	if dst == nil {
 		return ocispec.Descriptor{}, errors.New("nil destination target")
@@ -74,7 +74,8 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 	return nil
 }
 
-// findRoots finds the root nodes reachable from the given node.
+// findRoots finds the root nodes reachable from the given node through a
+// depth-first search.
 func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.Descriptor) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
 	roots := make(map[descriptor.Descriptor]ocispec.Descriptor)
 	visited := make(map[descriptor.Descriptor]bool)
