@@ -24,7 +24,7 @@ Avoid burnout by enforcing healthy boundaries. Here are some examples of how a r
 
 * Authors should meet baseline expectations when submitting a pull request, such as writing tests.
 * If your availability changes, you can step down from a pull request and have someone else assigned.
-* If interactions with an author are not following code of conduct, close the PR and raise it up with your Code of Conduct committee or point of contact. It's not your job to coax people into behaving.
+* If interactions with an author are not following the code of conduct, close the PR and raise it up with your Code of Conduct committee or point of contact. It's not your job to coax people into behaving.
 
 ### Trust
 
@@ -32,7 +32,7 @@ Be trustworthy. During a review, your actions both build and help maintain the t
 
 * **Transparency** - If a pull request won't be merged, clearly say why and close it. If a pull request won't be reviewed for a while, let the author know so they can set expectations and understand why it's blocked.
 * **Integrity** - Put the project's best interests ahead of personal relationships or company affiliations when deciding if a change should be merged.
-* **Stability** - Only merge when then change won't negatively impact project stability. It can be tempting to merge a pull request that doesn't meet our quality standards, for example when the review has been delayed, or because we are trying to deliver new features quickly, but regressions can significantly hurt trust in our project.
+* **Stability** - Only merge when the change won't negatively impact project stability. It can be tempting to merge a pull request that doesn't meet our quality standards, for example when the review has been delayed, or because we are trying to deliver new features quickly, but regressions can significantly hurt trust in our project.
 
 
 ## Process
