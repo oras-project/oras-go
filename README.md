@@ -2,7 +2,7 @@
 
 [![GitHub Actions status](https://github.com/oras-project/oras-go/workflows/build/badge.svg)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild)
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go)](https://goreportcard.com/report/oras.land/oras-go)
-[![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://godoc.org/oras.land/oras-go)
+[![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://godoc.org/oras.land/oras-go/v2)
 
 ![ORAS](https://github.com/oras-project/oras-www/raw/main/docs/assets/images/oras.png)
 
@@ -13,6 +13,8 @@ The ORAS Go library follows [Semantic Versioning](https://semver.org/), where br
 
 ### v1: stable
 
+[![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://godoc.org/oras.land/oras-go)
+
 As there are various stable projects depending on the ORAS Go library, the
 [`v1`](https://github.com/oras-project/oras-go/tree/v1) branch
 is maintained for API stability, dependency updates, and security patches.
@@ -22,6 +24,8 @@ If you are seeking stability over new features, you are highly encouraged
 to use releases with major version `1`.
 
 ### v2: experimental
+
+[![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://godoc.org/oras.land/oras-go/v2)
 
 In contrast to the `v1` branch, the
 [`main`](https://github.com/oras-project/oras-go/tree/main) branch
