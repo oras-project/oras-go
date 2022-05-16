@@ -1207,6 +1207,63 @@ func Test_BlobStore_Fetch_Seek(t *testing.T) {
 	}
 }
 
+func Test_BlobStore_Fetch_ZeroSizedBlob(t *testing.T) {
+	blob := []byte("")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		switch r.URL.Path {
+		case "/v2/test/blobs/" + blobDesc.Digest.String():
+			if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+				t.Errorf("unexpected range header")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	rc, err := store.Fetch(ctx, blobDesc)
+	if err != nil {
+		t.Fatalf("Blobs.Fetch() error = %v", err)
+	}
+	buf := bytes.NewBuffer(nil)
+	if _, err := buf.ReadFrom(rc); err != nil {
+		t.Errorf("fail to read: %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("fail to close: %v", err)
+	}
+	if got := buf.Bytes(); !bytes.Equal(got, blob) {
+		t.Errorf("Blobs.Fetch() = %v, want %v", got, blob)
+	}
+}
+
 func Test_BlobStore_Push(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{

@@ -444,7 +444,9 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 	// Docker spec allows range header form of "Range: bytes=<start>-<end>".
 	// However, the remote server may still not RFC 7233 compliant.
 	// Reference: https://docs.docker.com/registry/spec/api/#blob
-	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", target.Size-1))
+	if target.Size > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", target.Size-1))
+	}
 
 	resp, err := s.repo.client().Do(req)
 	if err != nil {
