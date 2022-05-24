@@ -16,7 +16,7 @@ limitations under the License.
 package docker
 
 // docker media types
-var (
+const (
 	MediaTypeManifestList = "application/vnd.docker.distribution.manifest.list.v2+json"
 	MediaTypeManifest     = "application/vnd.docker.distribution.manifest.v2+json"
 )
