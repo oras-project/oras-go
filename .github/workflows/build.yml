@@ -3,24 +3,31 @@ name: build
 on:
   push:
     branches: main
+  pull_request:
+    branches: main
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.17, 1.18]
+      fail-fast: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
-      - name: setup go environment
-        uses: actions/setup-go@v1
+        uses: actions/checkout@v3
+      - name: Set up Go ${{ matrix.go-version }} environment
+        uses: actions/setup-go@v3
         with:
-          go-version: '1.17.6'
-      - name: run unit tests
+          go-version: ${{ matrix.go-version }}
+          check-latest: true
+      - name: Run unit tests
         run: make test
-      - name: run acceptance tests
+      - name: Run acceptance tests
         run: |
           export LOCAL_REGISTRY_HOSTNAME="$(hostname -I | awk '{print $1}')"
           make acceptance
-      - name: upload coverage report
+      - name: Upload coverage report
         uses: actions/upload-artifact@master
         with:
           name: oras-coverage-report-${{ github.sha }}
