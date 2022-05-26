@@ -1,6 +1,7 @@
 # ORAS Go library
 
-[![GitHub Actions status](https://github.com/oras-project/oras-go/workflows/build/badge.svg)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild)
+[![v1 Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=v1)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Av1)
+[![v2 Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=main)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Amain)
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go)](https://goreportcard.com/report/oras.land/oras-go)
 [![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://godoc.org/oras.land/oras-go)
 
