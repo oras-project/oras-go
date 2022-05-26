@@ -1,9 +1,5 @@
 # ORAS Go library
 
-[![GitHub Actions status](https://github.com/oras-project/oras-go/workflows/build/badge.svg)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild)
-[![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go)](https://goreportcard.com/report/oras.land/oras-go)
-[![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://godoc.org/oras.land/oras-go)
-
 ![ORAS](https://github.com/oras-project/oras-www/raw/main/docs/assets/images/oras.png)
 
 ## Project status
@@ -13,6 +9,8 @@ The ORAS Go library follows [Semantic Versioning](https://semver.org/), where br
 
 ### v1: stable
 
+[![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=v1)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Av1)
+[![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go)](https://goreportcard.com/report/oras.land/oras-go)
 [![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://godoc.org/oras.land/oras-go)
 
 As there are various stable projects depending on the ORAS Go library, the
@@ -25,6 +23,8 @@ to use releases with major version `1`.
 
 ### v2: experimental
 
+[![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=main)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Amain)
+[![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go/v2)](https://goreportcard.com/report/oras.land/oras-go/v2)
 [![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://godoc.org/oras.land/oras-go/v2)
 
 In contrast to the `v1` branch, the
