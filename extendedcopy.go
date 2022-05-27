@@ -33,7 +33,7 @@ type ExtendedCopyOptions struct {
 type ExtendedCopyGraphOptions struct {
 	CopyGraphOptions
 	Depth         int
-	UpEdgeFilter  func(ctx context.Context, desc, upEdge ocispec.Descriptor) (bool, error)
+	UpEdgeFilter  func(ctx context.Context, node, upEdge ocispec.Descriptor) (bool, error)
 	UpEdgesFinder func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
@@ -86,7 +86,7 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 		return err
 	}
 
-	// TODO: roots handler
+	// TODO: roots handler?
 
 	// copy the sub-DAGs rooted by the root nodes
 	for _, root := range roots {
@@ -109,25 +109,23 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 		}
 	}
 
-	var stack copyutil.Stack
-	stack = stack.Push(copyutil.Item{Value: node, Depth: 0})
+	stack := &copyutil.Stack{}
+	stack.Push(copyutil.Item{Value: node, Depth: 0})
 	for !stack.IsEmpty() {
-		var current copyutil.Item
-		var err error
-		stack, current, err = stack.Pop()
+		current, err := stack.Pop()
 		if err != nil {
 			return nil, err
 		}
-
 		currentNode := current.Value
 		currentKey := descriptor.FromOCI(currentNode)
+
 		if visited[currentKey] {
 			// skip the current node if it has been visited
 			continue
 		}
 		visited[currentKey] = true
 
-		// stop finding parents if target depth is reached
+		// stop finding parents if the target depth is reached
 		if opts.Depth > 0 && current.Depth == opts.Depth {
 			addRoot(currentKey, currentNode)
 			continue
@@ -150,7 +148,7 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 		for _, upEdge := range upEdges {
 			upEdgeKey := descriptor.FromOCI(upEdge)
 			if !visited[upEdgeKey] {
-				stack = stack.Push(copyutil.Item{Value: upEdge, Depth: current.Depth + 1})
+				stack.Push(copyutil.Item{Value: upEdge, Depth: current.Depth + 1})
 			}
 		}
 	}
@@ -158,13 +156,12 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 }
 
 func getUpEdges(ctx context.Context, finder content.UpEdgeFinder, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) ([]ocispec.Descriptor, error) {
-	var upEdges []ocispec.Descriptor
-	var err error
-	if opts.UpEdgesFinder != nil {
-		upEdges, err = opts.UpEdgesFinder(ctx, node)
-	} else {
-		upEdges, err = finder.UpEdges(ctx, node)
+	upEdgesFinder := opts.UpEdgesFinder
+	if upEdgesFinder == nil {
+		upEdgesFinder = finder.UpEdges
 	}
+
+	upEdges, err := upEdgesFinder(ctx, node)
 	if err != nil {
 		return nil, err
 	}

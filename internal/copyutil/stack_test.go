@@ -16,38 +16,42 @@ limitations under the License.
 package copyutil
 
 import (
+	"reflect"
 	"testing"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func TestStack_IsEmpty(t *testing.T) {
-	tests := []struct {
-		name string
-		s    Stack
-		want bool
-	}{
-		{
-			name: "empty stack",
-			s:    Stack{},
-			want: true,
-		},
-		{
-			name: "non-empty stack",
-			s: Stack{
-				Item{
-					Value: ocispec.Descriptor{},
-					Depth: 0,
-				},
-			},
-			want: false,
-		},
+func TestStack(t *testing.T) {
+	stack := &Stack{}
+	isEmpty := stack.IsEmpty()
+	if !isEmpty {
+		t.Errorf("Stack.IsEmpty() = %v, want %v", isEmpty, true)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.s.IsEmpty(); got != tt.want {
-				t.Errorf("Stack.IsEmpty() = %v, want %v", got, tt.want)
-			}
-		})
+
+	items := []Item{
+		{ocispec.Descriptor{}, 0},
+		{ocispec.Descriptor{}, 1},
+		{ocispec.Descriptor{}, 2},
+	}
+	for _, item := range items {
+		stack.Push(item)
+	}
+
+	i := len(items) - 1
+	for !stack.IsEmpty() {
+		got, err := stack.Pop()
+		if err != nil {
+			t.Fatalf("Stack.Pop() error = %v, wantErr %v", err, false)
+		}
+		if !reflect.DeepEqual(got, items[i]) {
+			t.Errorf("Stack.Pop() = %v, want %v", got, items[i])
+		}
+		i--
+	}
+
+	_, err := stack.Pop()
+	if err == nil {
+		t.Errorf("Stack.Pop() error = %v, wantErr %v", err, ErrEmptyStack)
 	}
 }

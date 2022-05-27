@@ -21,51 +21,32 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+var ErrEmptyStack = errors.New("empty stack")
+
 type Item struct {
 	Value ocispec.Descriptor
 	Depth int
 }
 
-// type Stack struct {
-// 	items []Item
-// }
-
-// func (s *Stack) IsEmpty() bool {
-// 	return len(s.items) == 0
-// }
-
-// func (s *Stack) Push(i Item) {
-// 	s.items = append(s.items, i)
-// }
-
-// func (s *Stack) Pop() (Item, error) {
-// 	if s.IsEmpty() {
-// 		return Item{}, errors.New("empty stack")
-// 	}
-
-// 	last := len(s.items) - 1
-// 	top := s.items[last]
-// 	s.items = s.items[:last]
-// 	return top, nil
-
-// }
-
-type Stack []Item
-
-func (s Stack) IsEmpty() bool {
-	return len(s) == 0
+type Stack struct {
+	items []Item
 }
 
-func (s Stack) Push(i Item) Stack {
-	return append(s, i)
+func (s *Stack) IsEmpty() bool {
+	return len(s.items) == 0
 }
 
-func (s Stack) Pop() (Stack, Item, error) {
+func (s *Stack) Push(i Item) {
+	s.items = append(s.items, i)
+}
+
+func (s *Stack) Pop() (Item, error) {
 	if s.IsEmpty() {
-		return nil, Item{}, errors.New("empty stack")
+		return Item{}, ErrEmptyStack
 	}
 
-	last := len(s) - 1
-	top := s[last]
-	return s[:last], top, nil
+	last := len(s.items) - 1
+	top := s.items[last]
+	s.items = s.items[:last]
+	return top, nil
 }

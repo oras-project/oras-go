@@ -37,7 +37,10 @@ type CopyOptions struct {
 }
 
 type CopyGraphOptions struct {
-	Concurrency int64
+	Concurrency        int64
+	PreCopyHandler     func(ctx context.Context, desc ocispec.Descriptor) error
+	PostCopyHandler    func(ctx context.Context, desc ocispec.Descriptor) error
+	SkippedCopyHandler func(ctx context.Context, desc ocispec.Descriptor) error
 }
 
 // Copy copies a rooted directed acyclic graph (DAG) with the tagged root node
@@ -106,6 +109,11 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 		if exists {
 			// mark the content as done
 			close(done)
+			if opts.SkippedCopyHandler != nil {
+				if err := opts.SkippedCopyHandler(ctx, desc); err != nil {
+					return nil, err
+				}
+			}
 			return nil, graph.ErrSkipDesc
 		}
 
@@ -130,7 +138,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 			return nil, err
 		}
 		if !exists {
-			return nil, copyNode(ctx, src, dst, desc)
+			return nil, handleCopyNode(ctx, src, dst, desc, opts)
 		}
 
 		// for non-leaf nodes, wait for its down edges to complete
@@ -149,7 +157,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 				return nil, ctx.Err()
 			}
 		}
-		return nil, copyNode(ctx, proxy.Cache, dst, desc)
+		return nil, handleCopyNode(ctx, src, dst, desc, opts)
 	})
 
 	var concurrency = defaultConcurrencyLimit
@@ -158,6 +166,25 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 	}
 	// traverse the graph
 	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(concurrency), root)
+}
+
+func handleCopyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
+	if opts.PreCopyHandler != nil {
+		if err := opts.PreCopyHandler(ctx, desc); err != nil {
+			return err
+		}
+	}
+
+	if err := copyNode(ctx, src, dst, desc); err != nil {
+		return err
+	}
+
+	if opts.PostCopyHandler != nil {
+		if err := opts.PostCopyHandler(ctx, desc); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // copyNode copies a single content from the source CAS to the destination CAS.

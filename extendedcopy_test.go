@@ -468,6 +468,115 @@ func TestExtendedCopyGraph_WithDepth(t *testing.T) {
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
+func TestExtendedCopy_WithHandlers(t *testing.T) {
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+	generateArtifactManifest := func(artifactType string, subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
+		var manifest artifactspec.Manifest
+		manifest.Subject = descriptor.OCIToArtifact(subject)
+		for _, blob := range blobs {
+			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
+		}
+		manifest.ArtifactType = artifactType
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config_1")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))       // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))       // Blob 2
+	generateManifest(descs[0], descs[1:3]...)                    // Blob 3
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("sig_1"))     // Blob 4
+	generateArtifactManifest("signed", descs[3], descs[4])       // Blob 5 (root)
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("baz"))       // Blob 6
+	generateArtifactManifest("sbom", descs[3], descs[6])         // Blob 7 (root)
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config_2")) // Blob 8
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))     // Blob 9
+	generateManifest(descs[8], descs[9])                         // Blob 10
+	generateIndex(descs[3], descs[10])                           // Blob 11 (root)
+
+	ctx := context.Background()
+	verifyCopy := func(dst content.Fetcher, copiedIndice []int, uncopiedIndice []int) {
+		for _, i := range copiedIndice {
+			got, err := content.FetchAll(ctx, dst, descs[i])
+			if err != nil {
+				t.Errorf("content[%d] error = %v, wantErr %v", i, err, false)
+				continue
+			}
+			if want := blobs[i]; !bytes.Equal(got, want) {
+				t.Errorf("content[%d] = %v, want %v", i, got, want)
+			}
+		}
+		for _, i := range uncopiedIndice {
+			if _, err := dst.Fetch(ctx, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
+				t.Errorf("content[%d] error = %v, wantErr %v", i, err, errdef.ErrNotFound)
+			}
+		}
+	}
+
+	src := memory.New()
+	for i := range blobs {
+		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// test extended copy by descs[3] with media type filter
+	dst := memory.New()
+	opts := oras.ExtendedCopyGraphOptions{
+		UpEdgeFilter: func(ctx context.Context, node, upEdge ocispec.Descriptor) (bool, error) {
+			// filter media type
+			switch upEdge.MediaType {
+			case artifactspec.MediaTypeArtifactManifest:
+				return true, nil
+			default:
+				return false, nil
+			}
+		},
+	}
+	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[3], opts); err != nil {
+		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
+	}
+	// graph rooted by descs[5] and decs[7] should be copied
+	copiedIndice := []int{0, 1, 2, 3, 4, 5, 6, 7}
+	uncopiedIndice := []int{8, 9, 10, 11}
+	verifyCopy(dst, copiedIndice, uncopiedIndice)
+}
+
 func TestExtendedCopy_NotFound(t *testing.T) {
 	src := memory.New()
 	dst := memory.New()
