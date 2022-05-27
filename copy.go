@@ -157,7 +157,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 				return nil, ctx.Err()
 			}
 		}
-		return nil, handleCopyNode(ctx, src, dst, desc, opts)
+		return nil, handleCopyNode(ctx, proxy.Cache, dst, desc, opts)
 	})
 
 	var concurrency = defaultConcurrencyLimit

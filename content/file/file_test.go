@@ -2019,7 +2019,7 @@ func TestCopy_File_MemoryToFile_FullCopy(t *testing.T) {
 	}
 
 	// test copy
-	gotDesc, err := oras.Copy(ctx, src, ref, dst, "")
+	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", oras.CopyOptions{})
 	if err != nil {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
 	}
@@ -2116,7 +2116,7 @@ func TestCopyGraph_MemoryToFile_FullCopy(t *testing.T) {
 	srcTracker := &storageTracker{Storage: src}
 	dstTracker := &storageTracker{Storage: dst}
 	root := descs[len(descs)-1]
-	if err := oras.CopyGraph(ctx, srcTracker, dstTracker, root); err != nil {
+	if err := oras.CopyGraph(ctx, srcTracker, dstTracker, root, oras.CopyGraphOptions{}); err != nil {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 
@@ -2215,7 +2215,7 @@ func TestCopyGraph_MemoryToFile_PartialCopy(t *testing.T) {
 
 	// initial copy
 	root := descs[3]
-	if err := oras.CopyGraph(ctx, src, dst, root); err != nil {
+	if err := oras.CopyGraph(ctx, src, dst, root, oras.CopyGraphOptions{}); err != nil {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// verify contents
@@ -2233,7 +2233,7 @@ func TestCopyGraph_MemoryToFile_PartialCopy(t *testing.T) {
 	srcTracker := &storageTracker{Storage: src}
 	dstTracker := &storageTracker{Storage: dst}
 	root = descs[len(descs)-1]
-	if err := oras.CopyGraph(ctx, srcTracker, dstTracker, root); err != nil {
+	if err := oras.CopyGraph(ctx, srcTracker, dstTracker, root, oras.CopyGraphOptions{}); err != nil {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 
@@ -2325,7 +2325,7 @@ func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
 	}
 
 	// test copy
-	gotDesc, err := oras.Copy(ctx, src, ref, dst, "")
+	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", oras.CopyOptions{})
 	if err != nil {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
 	}
@@ -2422,7 +2422,7 @@ func TestCopyGraph_FileToMemory_FullCopy(t *testing.T) {
 	srcTracker := &storageTracker{Storage: src}
 	dstTracker := &storageTracker{Storage: dst}
 	root := descs[len(descs)-1]
-	if err := oras.CopyGraph(ctx, srcTracker, dstTracker, root); err != nil {
+	if err := oras.CopyGraph(ctx, srcTracker, dstTracker, root, oras.CopyGraphOptions{}); err != nil {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 
@@ -2521,7 +2521,7 @@ func TestCopyGraph_FileToMemory_PartialCopy(t *testing.T) {
 
 	// initial copy
 	root := descs[3]
-	if err := oras.CopyGraph(ctx, src, dst, root); err != nil {
+	if err := oras.CopyGraph(ctx, src, dst, root, oras.CopyGraphOptions{}); err != nil {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// verify contents
@@ -2539,7 +2539,7 @@ func TestCopyGraph_FileToMemory_PartialCopy(t *testing.T) {
 	srcTracker := &storageTracker{Storage: src}
 	dstTracker := &storageTracker{Storage: dst}
 	root = descs[len(descs)-1]
-	if err := oras.CopyGraph(ctx, srcTracker, dstTracker, root); err != nil {
+	if err := oras.CopyGraph(ctx, srcTracker, dstTracker, root, oras.CopyGraphOptions{}); err != nil {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 
