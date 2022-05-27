@@ -156,7 +156,7 @@ func ExampleCopy_remoteToRemote() {
 	}
 
 	tagName := "latest"
-	desc, err := oras.Copy(ctx, src, tagName, dst, tagName)
+	desc, err := oras.Copy(ctx, src, tagName, dst, tagName, oras.CopyOptions{})
 	if err != nil {
 		panic(err) // Handle error
 	}
@@ -180,7 +180,7 @@ func ExampleCopy_remoteToLocal() {
 	dst := memory.New()
 
 	tagName := "latest"
-	desc, err := oras.Copy(ctx, src, tagName, dst, tagName)
+	desc, err := oras.Copy(ctx, src, tagName, dst, tagName, oras.CopyOptions{})
 	if err != nil {
 		panic(err) // Handle error
 	}
@@ -196,7 +196,7 @@ func ExampleCopy_localToLocal() {
 
 	tagName := "latest"
 	ctx := context.Background()
-	desc, err := oras.Copy(ctx, src, tagName, dst, tagName)
+	desc, err := oras.Copy(ctx, src, tagName, dst, tagName, oras.CopyOptions{})
 	if err != nil {
 		panic(err) // Handle error
 	}
@@ -220,7 +220,7 @@ func ExampleCopy_localToOciFile() {
 
 	tagName := "latest"
 	ctx := context.Background()
-	desc, err := oras.Copy(ctx, src, tagName, dst, tagName)
+	desc, err := oras.Copy(ctx, src, tagName, dst, tagName, oras.CopyOptions{})
 	if err != nil {
 		panic(err) // Handle error
 	}
@@ -243,7 +243,7 @@ func ExampleCopy_localToRemote() {
 	}
 
 	tagName := "latest"
-	desc, err := oras.Copy(ctx, src, tagName, dst, tagName)
+	desc, err := oras.Copy(ctx, src, tagName, dst, tagName, oras.CopyOptions{})
 	if err != nil {
 		panic(err) // Handle error
 	}

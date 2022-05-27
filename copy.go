@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
@@ -28,12 +29,23 @@ import (
 	"oras.land/oras-go/v2/internal/status"
 )
 
+const defaultConcurrencyLimit = int64(3)
+
+type CopyOptions struct {
+	CopyGraphOptions
+	ManifestFilter func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) (ocispec.Descriptor, error)
+}
+
+type CopyGraphOptions struct {
+	Concurrency int64
+}
+
 // Copy copies a rooted directed acyclic graph (DAG) with the tagged root node
 // in the source Target to the destination Target.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
 // Returns the descriptor of the root node on successful copy.
-func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string) (ocispec.Descriptor, error) {
+func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
 		return ocispec.Descriptor{}, errors.New("nil source target")
 	}
@@ -49,7 +61,16 @@ func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef str
 		return ocispec.Descriptor{}, err
 	}
 
-	if err := CopyGraph(ctx, src, dst, root); err != nil {
+	// TODO: manifest filter? 1. media type filter 2. platform filter
+	if opts.ManifestFilter != nil {
+		filtered, err := opts.ManifestFilter(ctx, src, root)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		root = filtered
+	}
+
+	if err := CopyGraph(ctx, src, dst, root, opts.CopyGraphOptions); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
@@ -62,7 +83,7 @@ func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef str
 
 // CopyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
 // the destination CAS.
-func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descriptor) error {
+func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descriptor, opts CopyGraphOptions) error {
 	// use caching proxy on non-leaf nodes
 	proxy := cas.NewProxy(src, cas.NewMemory())
 
@@ -131,8 +152,12 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 		return nil, copyNode(ctx, proxy.Cache, dst, desc)
 	})
 
+	var concurrency = defaultConcurrencyLimit
+	if opts.Concurrency > 0 {
+		concurrency = opts.Concurrency
+	}
 	// traverse the graph
-	return graph.Dispatch(ctx, preHandler, postHandler, nil, root)
+	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(concurrency), root)
 }
 
 // copyNode copies a single content from the source CAS to the destination CAS.
