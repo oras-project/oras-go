@@ -334,7 +334,7 @@ func TestExtendedCopyGraph_PartialCopy(t *testing.T) {
 	}
 }
 
-func TestExtendedCopyGraph_WithDepth(t *testing.T) {
+func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 	// generate test content
 	var blobs [][]byte
 	var descs []ocispec.Descriptor
@@ -468,7 +468,7 @@ func TestExtendedCopyGraph_WithDepth(t *testing.T) {
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
-func TestExtendedCopy_WithHandlers(t *testing.T) {
+func TestExtendedCopy_WithFilterOptions(t *testing.T) {
 	// generate test content
 	var blobs [][]byte
 	var descs []ocispec.Descriptor
@@ -558,7 +558,7 @@ func TestExtendedCopy_WithHandlers(t *testing.T) {
 	// test extended copy by descs[3] with media type filter
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{
-		UpEdgeFilter: func(ctx context.Context, node, upEdge ocispec.Descriptor) (bool, error) {
+		UpEdgeFilter: func(ctx context.Context, _, upEdge ocispec.Descriptor) (bool, error) {
 			// filter media type
 			switch upEdge.MediaType {
 			case artifactspec.MediaTypeArtifactManifest:
@@ -574,6 +574,34 @@ func TestExtendedCopy_WithHandlers(t *testing.T) {
 	// graph rooted by descs[5] and decs[7] should be copied
 	copiedIndice := []int{0, 1, 2, 3, 4, 5, 6, 7}
 	uncopiedIndice := []int{8, 9, 10, 11}
+	verifyCopy(dst, copiedIndice, uncopiedIndice)
+
+	dst = memory.New()
+	opts = oras.ExtendedCopyGraphOptions{
+		UpEdgesFinder: func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			upEdges, err := src.UpEdges(ctx, desc)
+			if err != nil {
+				return nil, err
+			}
+
+			var res []ocispec.Descriptor
+			for _, upEdge := range upEdges {
+				// filter media type
+				switch upEdge.MediaType {
+				case artifactspec.MediaTypeArtifactManifest:
+					res = append(res, upEdge)
+				}
+			}
+
+			return res, nil
+		},
+	}
+	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[3], opts); err != nil {
+		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
+	}
+	// graph rooted by descs[5] and decs[7] should be copied
+	copiedIndice = []int{0, 1, 2, 3, 4, 5, 6, 7}
+	uncopiedIndice = []int{8, 9, 10, 11}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 

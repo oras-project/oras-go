@@ -25,6 +25,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
+	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/status"
 )
@@ -33,13 +34,14 @@ const defaultConcurrencyLimit = int64(3)
 
 type CopyOptions struct {
 	CopyGraphOptions
-	ManifestFilter func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) (ocispec.Descriptor, error)
+	ManifestFilter func(ctx context.Context, manifest ocispec.Descriptor) (bool, error)
 }
 
 type CopyGraphOptions struct {
-	Concurrency        int64
-	PreCopyHandler     func(ctx context.Context, desc ocispec.Descriptor) error
-	PostCopyHandler    func(ctx context.Context, desc ocispec.Descriptor) error
+	Concurrency     int64
+	PreCopyHandler  func(ctx context.Context, desc ocispec.Descriptor) error
+	PostCopyHandler func(ctx context.Context, desc ocispec.Descriptor) error
+	// TODO: skip root
 	SkippedCopyHandler func(ctx context.Context, desc ocispec.Descriptor) error
 }
 
@@ -64,9 +66,8 @@ func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef str
 		return ocispec.Descriptor{}, err
 	}
 
-	// TODO: manifest filter? 1. media type filter 2. platform filter
 	if opts.ManifestFilter != nil {
-		filtered, err := opts.ManifestFilter(ctx, src, root)
+		filtered, err := filterManifest(ctx, src, root, opts.ManifestFilter)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -160,12 +161,11 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 		return nil, handleCopyNode(ctx, proxy.Cache, dst, desc, opts)
 	})
 
-	var concurrency = defaultConcurrencyLimit
-	if opts.Concurrency > 0 {
-		concurrency = opts.Concurrency
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultConcurrencyLimit
 	}
 	// traverse the graph
-	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(concurrency), root)
+	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(opts.Concurrency), root)
 }
 
 func handleCopyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
@@ -199,4 +199,34 @@ func copyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descri
 		return err
 	}
 	return nil
+}
+
+func filterManifest(ctx context.Context, fetcher content.Fetcher, root ocispec.Descriptor, filter func(ctx context.Context, manifest ocispec.Descriptor) (bool, error)) (ocispec.Descriptor, error) {
+	switch root.MediaType {
+	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
+		manifests, err := content.DownEdges(ctx, fetcher, root)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+
+		for _, m := range manifests {
+			yes, err := filter(ctx, m)
+			if err != nil {
+				return ocispec.Descriptor{}, err
+			}
+			if yes {
+				return m, nil
+			}
+		}
+	default:
+		yes, err := filter(ctx, root)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		if yes {
+			return root, nil
+		}
+	}
+
+	return ocispec.Descriptor{}, errdef.ErrMatchingManifestNotFound
 }

@@ -27,3 +27,8 @@ var (
 	ErrUnsupportedVersion = errors.New("unsupported version")
 	ErrMissingReference   = errors.New("missing reference")
 )
+
+// Errors used in the oras package
+var (
+	ErrMatchingManifestNotFound = errors.New("matching manifest not found")
+)

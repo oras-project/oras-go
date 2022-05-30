@@ -27,7 +27,6 @@ import (
 
 type ExtendedCopyOptions struct {
 	ExtendedCopyGraphOptions
-	ManifestFilter func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) (ocispec.Descriptor, error)
 }
 
 type ExtendedCopyGraphOptions struct {
@@ -56,15 +55,6 @@ func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Targe
 	node, err := src.Resolve(ctx, srcRef)
 	if err != nil {
 		return ocispec.Descriptor{}, err
-	}
-
-	// TODO: manifest filter? 1. media type filter 2. platform filter
-	if opts.ManifestFilter != nil {
-		filtered, err := opts.ManifestFilter(ctx, src, node)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-		node = filtered
 	}
 
 	if err := ExtendedCopyGraph(ctx, src, dst, node, opts.ExtendedCopyGraphOptions); err != nil {
