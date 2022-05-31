@@ -109,6 +109,7 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 	}
 
 	stack := &copyutil.Stack{}
+	// push the initial node to the stack, set the depth to 0
 	stack.Push(copyutil.Item{Node: node, Depth: 0})
 	for !stack.IsEmpty() {
 		current, err := stack.Pop()
@@ -147,6 +148,7 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 		for _, upEdge := range upEdges {
 			upEdgeKey := descriptor.FromOCI(upEdge)
 			if !visited[upEdgeKey] {
+				// push the parent node with increased depth
 				stack.Push(copyutil.Item{Node: upEdge, Depth: current.Depth + 1})
 			}
 		}

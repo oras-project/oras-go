@@ -31,9 +31,9 @@ import (
 	"oras.land/oras-go/v2/internal/status"
 )
 
-// defaultConcurrencyLimit is the default concurrency limit.
+// defaultConcurrency is the default concurrency limit.
 // The value is consistent with dockerd and containerd.
-const defaultConcurrencyLimit = int64(3)
+const defaultConcurrency = int64(3)
 
 // CopyOptions contains parameters for oras.Copy.
 type CopyOptions struct {
@@ -67,7 +67,7 @@ type CopyGraphOptions struct {
 // reference represents a list of manifests, the ManifestFilter will be applied
 // on the manifests in the list; otherwise the ManifestFilter will be applied on
 // the resolved manifest itself. Currently, if there are multiple matching
-// manifests, the first one in the original order will be used.
+// manifests, only the first one in the original order will be used.
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
@@ -181,7 +181,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 	})
 
 	if opts.Concurrency <= 0 {
-		opts.Concurrency = defaultConcurrencyLimit
+		opts.Concurrency = defaultConcurrency
 	}
 	// traverse the graph
 	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(opts.Concurrency), root)
@@ -200,10 +200,9 @@ func handleCopyNode(ctx context.Context, src, dst content.Storage, desc ocispec.
 	}
 
 	if opts.PostCopyHandler != nil {
-		if err := opts.PostCopyHandler(ctx, desc); err != nil {
-			return err
-		}
+		return opts.PostCopyHandler(ctx, desc)
 	}
+
 	return nil
 }
 
