@@ -25,14 +25,25 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 )
 
+// ExtendedCopyOptions contains parameters for oras.ExtendedCopy.
 type ExtendedCopyOptions struct {
 	ExtendedCopyGraphOptions
 }
 
+// ExtendedCopyGraphOptions contains parameters for oras.ExtendedCopyGraph.
 type ExtendedCopyGraphOptions struct {
 	CopyGraphOptions
-	Depth         int
-	UpEdgeFilter  func(ctx context.Context, node, upEdge ocispec.Descriptor) (bool, error)
+	// Depth limits the maximum depth of the directed acyclic graph (DAG) that
+	// will be extended-copied.
+	// If Depth is no specified, or the specified value is less or equal than 0,
+	// the depth limit will be considered as infinity.
+	Depth int
+	// UpEdgeFilter filters the up edge of the current node that is to be
+	// extended-copied. Returns true if the up edge matches the filter,
+	// otherwise returns false.
+	UpEdgeFilter func(ctx context.Context, node, upEdge ocispec.Descriptor) (bool, error)
+	// UpEdgesFinder finds the up edges of the current node.
+	// If UpEdgesFinder is not provided, a default finder function will be used.
 	UpEdgesFinder func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
@@ -76,8 +87,6 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 		return err
 	}
 
-	// TODO: roots handler?
-
 	// copy the sub-DAGs rooted by the root nodes
 	for _, root := range roots {
 		if err := CopyGraph(ctx, src, dst, root, opts.CopyGraphOptions); err != nil {
@@ -100,13 +109,13 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 	}
 
 	stack := &copyutil.Stack{}
-	stack.Push(copyutil.Item{Value: node, Depth: 0})
+	stack.Push(copyutil.Item{Node: node, Depth: 0})
 	for !stack.IsEmpty() {
 		current, err := stack.Pop()
 		if err != nil {
 			return nil, err
 		}
-		currentNode := current.Value
+		currentNode := current.Node
 		currentKey := descriptor.FromOCI(currentNode)
 
 		if visited[currentKey] {
@@ -138,13 +147,14 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 		for _, upEdge := range upEdges {
 			upEdgeKey := descriptor.FromOCI(upEdge)
 			if !visited[upEdgeKey] {
-				stack.Push(copyutil.Item{Value: upEdge, Depth: current.Depth + 1})
+				stack.Push(copyutil.Item{Node: upEdge, Depth: current.Depth + 1})
 			}
 		}
 	}
 	return roots, nil
 }
 
+// getUpEdges returns the filtered up edges.
 func getUpEdges(ctx context.Context, finder content.UpEdgeFinder, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) ([]ocispec.Descriptor, error) {
 	upEdgesFinder := opts.UpEdgesFinder
 	if upEdgesFinder == nil {

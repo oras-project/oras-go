@@ -427,7 +427,7 @@ func TestCopy_WithOptions(t *testing.T) {
 		t.Fatal("fail to tag root node", err)
 	}
 
-	// test copy with manifest filter and matching manifest can be found
+	// test copy with manifest filter and the matching manifest can be found
 	opts := oras.CopyOptions{
 		ManifestFilter: func(ctx context.Context, manifest ocispec.Descriptor) (bool, error) {
 			if manifest.Platform.Architecture == "test-arc-2" && manifest.Platform.OS == "test-os-2" {
@@ -466,7 +466,7 @@ func TestCopy_WithOptions(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
 	}
 
-	// test copy with manifest filter and matching manifest not found
+	// test copy with manifest filter and the matching manifest is not found
 	dst = memory.New()
 	opts = oras.CopyOptions{
 		ManifestFilter: func(ctx context.Context, manifest ocispec.Descriptor) (bool, error) {
@@ -483,7 +483,7 @@ func TestCopy_WithOptions(t *testing.T) {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrMatchingManifestNotFound)
 	}
 
-	// test copy with manifest filter applied on a non-index manifest
+	// test copy with manifest filter applied on a non-manifest-list
 	dst = memory.New()
 	root = descs[3]
 	ref = "baz"
@@ -493,7 +493,7 @@ func TestCopy_WithOptions(t *testing.T) {
 	}
 	opts = oras.CopyOptions{
 		ManifestFilter: func(ctx context.Context, manifest ocispec.Descriptor) (bool, error) {
-			if manifest.MediaType == ocispec.MediaTypeImageManifest {
+			if manifest.Platform.Architecture == "test-arc-1" && manifest.Platform.OS == "test-os-1" {
 				return true, nil
 			} else {
 				return false, nil
@@ -603,7 +603,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		}
 	}
 
-	// test copy
+	// test partial copy
 	var preCount int64
 	var postCount int64
 	var skippedCount int64

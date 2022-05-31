@@ -23,23 +23,30 @@ import (
 
 var ErrEmptyStack = errors.New("empty stack")
 
+// Item represents an item in the stack.
 type Item struct {
-	Value ocispec.Descriptor
+	// Node represents a node in the graph.
+	Node ocispec.Descriptor
+	// Depth represents the depth of the node in the graph.
 	Depth int
 }
 
+// Stack represents a stack data structure that stores a list of items.
 type Stack struct {
 	items []Item
 }
 
+// IsEmpty returns true if the stack is empty, otherwise returns false.
 func (s *Stack) IsEmpty() bool {
 	return len(s.items) == 0
 }
 
+// Push pushes an item to the stack.
 func (s *Stack) Push(i Item) {
 	s.items = append(s.items, i)
 }
 
+// Pop pops the top item out of the stack.
 func (s *Stack) Pop() (Item, error) {
 	if s.IsEmpty() {
 		return Item{}, ErrEmptyStack

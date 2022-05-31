@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
@@ -30,18 +31,31 @@ import (
 	"oras.land/oras-go/v2/internal/status"
 )
 
+// defaultConcurrencyLimit is the default concurrency limit.
+// The value is consistent with dockerd and containerd.
 const defaultConcurrencyLimit = int64(3)
 
+// CopyOptions contains parameters for oras.Copy.
 type CopyOptions struct {
 	CopyGraphOptions
+	// ManifestFilter filters the manifest that is to be used as the root node
+	// for copy. Returns true if the manifest matches the filter, otherwise
+	// returns false.
 	ManifestFilter func(ctx context.Context, manifest ocispec.Descriptor) (bool, error)
 }
 
+// CopyGraphOptions contains parameters for oras.CopyGraph.
 type CopyGraphOptions struct {
-	Concurrency     int64
-	PreCopyHandler  func(ctx context.Context, desc ocispec.Descriptor) error
+	// Concurrency limits the maximum number of concurrent copy tasks.
+	// If Concurrency is not specified, or the specified value is less
+	// or equal to 0, a default value will be used.
+	Concurrency int64
+	// PreCopyHandler handles the current descriptor before copying it.
+	PreCopyHandler func(ctx context.Context, desc ocispec.Descriptor) error
+	// PostCopyHandler handles the current descriptor after copying it.
 	PostCopyHandler func(ctx context.Context, desc ocispec.Descriptor) error
-	// TODO: skip root
+	// SkippedCopyHandler handles the current descriptor,
+	// when the sub-DAG rooted by the current node is skipped.
 	SkippedCopyHandler func(ctx context.Context, desc ocispec.Descriptor) error
 }
 
@@ -49,6 +63,11 @@ type CopyGraphOptions struct {
 // in the source Target to the destination Target.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
+// When ManifestFilter is provided, if the descriptor resolved from the source
+// reference represents a list of manifests, the ManifestFilter will be applied
+// on the manifests in the list; otherwise the ManifestFilter will be applied on
+// the resolved manifest itself. Currently, if there are multiple matching
+// manifests, the first one in the original order will be used.
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
@@ -168,6 +187,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(opts.Concurrency), root)
 }
 
+// handleCopyNode handles the current node when copying it.
 func handleCopyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
 	if opts.PreCopyHandler != nil {
 		if err := opts.PreCopyHandler(ctx, desc); err != nil {
@@ -201,6 +221,9 @@ func copyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descri
 	return nil
 }
 
+// filterManifest filters the matching manifest directly referenced by the root
+// node. If there are multiple matching manifests, the first one in the original
+// order will be returned.
 func filterManifest(ctx context.Context, fetcher content.Fetcher, root ocispec.Descriptor, filter func(ctx context.Context, manifest ocispec.Descriptor) (bool, error)) (ocispec.Descriptor, error) {
 	switch root.MediaType {
 	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
@@ -218,7 +241,7 @@ func filterManifest(ctx context.Context, fetcher content.Fetcher, root ocispec.D
 				return m, nil
 			}
 		}
-	default:
+	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest, artifactspec.MediaTypeArtifactManifest:
 		yes, err := filter(ctx, root)
 		if err != nil {
 			return ocispec.Descriptor{}, err

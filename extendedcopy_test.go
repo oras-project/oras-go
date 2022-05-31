@@ -501,13 +501,12 @@ func TestExtendedCopy_WithFilterOptions(t *testing.T) {
 		}
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
-	generateArtifactManifest := func(artifactType string, subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
+	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
 		var manifest artifactspec.Manifest
 		manifest.Subject = descriptor.OCIToArtifact(subject)
 		for _, blob := range blobs {
 			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
 		}
-		manifest.ArtifactType = artifactType
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
@@ -520,9 +519,9 @@ func TestExtendedCopy_WithFilterOptions(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))       // Blob 2
 	generateManifest(descs[0], descs[1:3]...)                    // Blob 3
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("sig_1"))     // Blob 4
-	generateArtifactManifest("signed", descs[3], descs[4])       // Blob 5 (root)
+	generateArtifactManifest(descs[3], descs[4])                 // Blob 5 (root)
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("baz"))       // Blob 6
-	generateArtifactManifest("sbom", descs[3], descs[6])         // Blob 7 (root)
+	generateArtifactManifest(descs[3], descs[6])                 // Blob 7 (root)
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config_2")) // Blob 8
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))     // Blob 9
 	generateManifest(descs[8], descs[9])                         // Blob 10
@@ -576,32 +575,28 @@ func TestExtendedCopy_WithFilterOptions(t *testing.T) {
 	uncopiedIndice := []int{8, 9, 10, 11}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 
+	// test extended copy by descs[3] with custom upEdges finder and media type filter
 	dst = memory.New()
 	opts = oras.ExtendedCopyGraphOptions{
 		UpEdgesFinder: func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-			upEdges, err := src.UpEdges(ctx, desc)
-			if err != nil {
-				return nil, err
+			return src.UpEdges(ctx, desc)
+		},
+		UpEdgeFilter: func(ctx context.Context, _, upEdge ocispec.Descriptor) (bool, error) {
+			// filter media type
+			switch upEdge.MediaType {
+			case ocispec.MediaTypeImageIndex:
+				return true, nil
+			default:
+				return false, nil
 			}
-
-			var res []ocispec.Descriptor
-			for _, upEdge := range upEdges {
-				// filter media type
-				switch upEdge.MediaType {
-				case artifactspec.MediaTypeArtifactManifest:
-					res = append(res, upEdge)
-				}
-			}
-
-			return res, nil
 		},
 	}
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[3], opts); err != nil {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
-	// graph rooted by descs[5] and decs[7] should be copied
-	copiedIndice = []int{0, 1, 2, 3, 4, 5, 6, 7}
-	uncopiedIndice = []int{8, 9, 10, 11}
+	// graph rooted by descs[11] should be copied
+	copiedIndice = []int{0, 1, 2, 3, 8, 9, 10, 11}
+	uncopiedIndice = []int{4, 5, 6, 7}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
