@@ -355,7 +355,7 @@ func TestCopyGraph_PartialCopy(t *testing.T) {
 	}
 }
 
-func TestCopy_WithOptions(t *testing.T) {
+func TestCopy_WithRootFilterOption(t *testing.T) {
 	src := memory.New()
 	dst := memory.New()
 
@@ -427,18 +427,68 @@ func TestCopy_WithOptions(t *testing.T) {
 		t.Fatal("fail to tag root node", err)
 	}
 
-	// test copy with manifest filter and the matching manifest can be found
+	// test copy with media type filter
 	opts := oras.CopyOptions{
-		ManifestFilter: func(ctx context.Context, manifest ocispec.Descriptor) (bool, error) {
-			if manifest.Platform.Architecture == "test-arc-2" && manifest.Platform.OS == "test-os-2" {
-				return true, nil
+		RootFilter: func(ctx context.Context, root ocispec.Descriptor) (ocispec.Descriptor, bool, error) {
+			if root.MediaType == ocispec.MediaTypeImageIndex {
+				return root, true, nil
 			} else {
-				return false, nil
+				return ocispec.Descriptor{}, false, nil
 			}
 		},
 	}
-	wantDesc := descs[5]
 	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", opts)
+	if err != nil {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
+	}
+	if !reflect.DeepEqual(gotDesc, root) {
+		t.Errorf("Copy() = %v, want %v", gotDesc, root)
+	}
+
+	// verify contents
+	for i, desc := range descs {
+		exists, err := dst.Exists(ctx, desc)
+		if err != nil {
+			t.Fatalf("dst.Exists(%d) error = %v", i, err)
+		}
+		if !exists {
+			t.Errorf("dst.Exists(%d) = %v, want %v", i, exists, true)
+		}
+	}
+
+	// verify tag
+	gotDesc, err = dst.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("dst.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, root) {
+		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
+	}
+
+	// test copy with platform filter
+	opts = oras.CopyOptions{
+		RootFilter: func(ctx context.Context, root ocispec.Descriptor) (ocispec.Descriptor, bool, error) {
+			switch root.MediaType {
+			case ocispec.MediaTypeImageManifest:
+				return root, true, nil
+			case ocispec.MediaTypeImageIndex:
+				manifests, err := content.DownEdges(ctx, src, root)
+				if err != nil {
+					return ocispec.Descriptor{}, false, err
+				}
+
+				// platform filter
+				for _, m := range manifests {
+					if m.Platform.Architecture == "test-arc-2" && m.Platform.OS == "test-os-2" {
+						return m, true, nil
+					}
+				}
+			}
+			return ocispec.Descriptor{}, false, nil
+		},
+	}
+	wantDesc := descs[5]
+	gotDesc, err = oras.Copy(ctx, src, ref, dst, "", opts)
 	if err != nil {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
 	}
@@ -466,68 +516,22 @@ func TestCopy_WithOptions(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
 	}
 
-	// test copy with manifest filter and the matching manifest is not found
+	// test copy with root filter, but no matching node can be found
 	dst = memory.New()
 	opts = oras.CopyOptions{
-		ManifestFilter: func(ctx context.Context, manifest ocispec.Descriptor) (bool, error) {
-			if manifest.MediaType == "test" {
-				return true, nil
+		RootFilter: func(ctx context.Context, root ocispec.Descriptor) (ocispec.Descriptor, bool, error) {
+			if root.MediaType == "test" {
+				return root, true, nil
 			} else {
-				return false, nil
+				return ocispec.Descriptor{}, false, nil
 			}
 		},
 	}
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	if !errors.Is(err, errdef.ErrMatchingManifestNotFound) {
-		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrMatchingManifestNotFound)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
-
-	// test copy with manifest filter applied on a non-manifest-list
-	dst = memory.New()
-	root = descs[3]
-	ref = "baz"
-	err = src.Tag(ctx, root, ref)
-	if err != nil {
-		t.Fatal("fail to tag root node", err)
-	}
-	opts = oras.CopyOptions{
-		ManifestFilter: func(ctx context.Context, manifest ocispec.Descriptor) (bool, error) {
-			if manifest.Platform.Architecture == "test-arc-1" && manifest.Platform.OS == "test-os-1" {
-				return true, nil
-			} else {
-				return false, nil
-			}
-		},
-	}
-	gotDesc, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	if err != nil {
-		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
-	}
-	if !reflect.DeepEqual(gotDesc, root) {
-		t.Errorf("Copy() = %v, want %v", gotDesc, root)
-	}
-
-	// verify contents
-	for i, desc := range descs[:4] {
-		exists, err := dst.Exists(ctx, desc)
-		if err != nil {
-			t.Fatalf("dst.Exists(%d) error = %v", i, err)
-		}
-		if !exists {
-			t.Errorf("dst.Exists(%d) = %v, want %v", i, exists, true)
-		}
-	}
-
-	// verify tag
-	gotDesc, err = dst.Resolve(ctx, ref)
-	if err != nil {
-		t.Fatal("dst.Resolve() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, root) {
-		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
-	}
-
 }
 
 func TestCopyGraph_WithOptions(t *testing.T) {

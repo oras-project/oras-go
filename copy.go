@@ -21,12 +21,10 @@ import (
 	"fmt"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/status"
 )
@@ -38,10 +36,9 @@ const defaultConcurrency = int64(3)
 // CopyOptions contains parameters for oras.Copy.
 type CopyOptions struct {
 	CopyGraphOptions
-	// ManifestFilter filters the manifest that is to be used as the root node
-	// for copy. Returns true if the manifest matches the filter, otherwise
-	// returns false.
-	ManifestFilter func(ctx context.Context, manifest ocispec.Descriptor) (bool, error)
+	// RootFilter filters the descriptor that is to be used as the root node for
+	// copy.
+	RootFilter func(ctx context.Context, root ocispec.Descriptor) (desc ocispec.Descriptor, found bool, err error)
 }
 
 // CopyGraphOptions contains parameters for oras.CopyGraph.
@@ -63,11 +60,9 @@ type CopyGraphOptions struct {
 // in the source Target to the destination Target.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
-// When ManifestFilter is provided, if the descriptor resolved from the source
-// reference represents a list of manifests, the ManifestFilter will be applied
-// on the manifests in the list; otherwise the ManifestFilter will be applied on
-// the resolved manifest itself. Currently, if there are multiple matching
-// manifests, only the first one in the original order will be used.
+// When RootFilter option is provided, the descriptor resolved from the source
+// reference will be passed to the RootFilter, and the filtered descriptor will
+// be used as the root node for copy.
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
@@ -85,10 +80,13 @@ func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef str
 		return ocispec.Descriptor{}, err
 	}
 
-	if opts.ManifestFilter != nil {
-		filtered, err := filterManifest(ctx, src, root, opts.ManifestFilter)
+	if opts.RootFilter != nil {
+		filtered, found, err := opts.RootFilter(ctx, root)
 		if err != nil {
 			return ocispec.Descriptor{}, err
+		}
+		if !found {
+			return ocispec.Descriptor{}, errdef.ErrNotFound
 		}
 		root = filtered
 	}
@@ -218,37 +216,4 @@ func copyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descri
 		return err
 	}
 	return nil
-}
-
-// filterManifest filters the matching manifest directly referenced by the root
-// node. If there are multiple matching manifests, the first one in the original
-// order will be returned.
-func filterManifest(ctx context.Context, fetcher content.Fetcher, root ocispec.Descriptor, filter func(ctx context.Context, manifest ocispec.Descriptor) (bool, error)) (ocispec.Descriptor, error) {
-	switch root.MediaType {
-	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
-		manifests, err := content.DownEdges(ctx, fetcher, root)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-
-		for _, m := range manifests {
-			yes, err := filter(ctx, m)
-			if err != nil {
-				return ocispec.Descriptor{}, err
-			}
-			if yes {
-				return m, nil
-			}
-		}
-	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest, artifactspec.MediaTypeArtifactManifest:
-		yes, err := filter(ctx, root)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-		if yes {
-			return root, nil
-		}
-	}
-
-	return ocispec.Descriptor{}, errdef.ErrMatchingManifestNotFound
 }
