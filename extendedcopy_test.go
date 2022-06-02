@@ -557,14 +557,17 @@ func TestExtendedCopy_WithFilterOptions(t *testing.T) {
 	// test extended copy by descs[3] with media type filter
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{
-		UpEdgeFilter: func(ctx context.Context, _, upEdge ocispec.Descriptor) (bool, error) {
-			// filter media type
-			switch upEdge.MediaType {
-			case artifactspec.MediaTypeArtifactManifest:
-				return true, nil
-			default:
-				return false, nil
+		UpEdgesFilter: func(ctx context.Context, _ ocispec.Descriptor, upEdges []ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			var filtered []ocispec.Descriptor
+			for _, u := range upEdges {
+				// filter media type
+				switch u.MediaType {
+				case artifactspec.MediaTypeArtifactManifest:
+					filtered = append(filtered, u)
+				}
 			}
+
+			return filtered, nil
 		},
 	}
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[3], opts); err != nil {
@@ -581,14 +584,17 @@ func TestExtendedCopy_WithFilterOptions(t *testing.T) {
 		UpEdgesFinder: func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 			return src.UpEdges(ctx, desc)
 		},
-		UpEdgeFilter: func(ctx context.Context, _, upEdge ocispec.Descriptor) (bool, error) {
-			// filter media type
-			switch upEdge.MediaType {
-			case ocispec.MediaTypeImageIndex:
-				return true, nil
-			default:
-				return false, nil
+		UpEdgesFilter: func(ctx context.Context, _ ocispec.Descriptor, upEdges []ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			var filtered []ocispec.Descriptor
+			for _, u := range upEdges {
+				// filter media type
+				switch u.MediaType {
+				case ocispec.MediaTypeImageIndex:
+					filtered = append(filtered, u)
+				}
 			}
+
+			return filtered, nil
 		},
 	}
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[3], opts); err != nil {

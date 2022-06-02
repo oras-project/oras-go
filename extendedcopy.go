@@ -38,10 +38,9 @@ type ExtendedCopyGraphOptions struct {
 	// If Depth is no specified, or the specified value is less or equal than 0,
 	// the depth limit will be considered as infinity.
 	Depth int
-	// UpEdgeFilter filters the up edge of the current node that is to be
-	// extended-copied. Returns true if the up edge matches the filter,
-	// otherwise returns false.
-	UpEdgeFilter func(ctx context.Context, node, upEdge ocispec.Descriptor) (bool, error)
+	// UpEdgesFilter filters the up edges of the current node that is to be
+	// extended-copied. Returns the filtered up edges.
+	UpEdgesFilter func(ctx context.Context, node ocispec.Descriptor, upEdges []ocispec.Descriptor) ([]ocispec.Descriptor, error)
 	// UpEdgesFinder finds the up edges of the current node.
 	// If UpEdgesFinder is not provided, a default finder function will be used.
 	UpEdgesFinder func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
@@ -168,20 +167,9 @@ func getUpEdges(ctx context.Context, finder content.UpEdgeFinder, node ocispec.D
 		return nil, err
 	}
 
-	var filteredUpEdges []ocispec.Descriptor
-	if opts.UpEdgeFilter != nil {
-		for _, upEdge := range upEdges {
-			yes, err := opts.UpEdgeFilter(ctx, node, upEdge)
-			if err != nil {
-				return nil, err
-			}
-			if yes {
-				filteredUpEdges = append(filteredUpEdges, upEdge)
-			}
-		}
-	} else {
-		filteredUpEdges = upEdges
+	if opts.UpEdgesFilter != nil {
+		return opts.UpEdgesFilter(ctx, node, upEdges)
 	}
 
-	return filteredUpEdges, nil
+	return upEdges, nil
 }
