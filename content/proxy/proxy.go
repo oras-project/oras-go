@@ -25,32 +25,32 @@ import (
 	"oras.land/oras-go/v2/internal/ioutil"
 )
 
-// Store is a caching proxy for the storage.
+// proxy is a caching proxy for the storage.
 // The first fetch call of a described content will read from the remote and
 // cache the fetched content.
 // The subsequent fetch call will read from the local cache.
-type Store struct {
+type proxy struct {
 	content.Storage
 	Cache content.Storage
 }
 
 // New creates a proxy for the `base` storage, using the `cache` storage as
 // the cache.
-func New(base, cache content.Storage) *Store {
-	return &Store{
+func New(base, cache content.Storage) *proxy {
+	return &proxy{
 		Storage: base,
 		Cache:   cache,
 	}
 }
 
 // Fetch fetches the content identified by the descriptor.
-func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	rc, err := s.Cache.Fetch(ctx, target)
+func (p *proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	rc, err := p.Cache.Fetch(ctx, target)
 	if err == nil {
 		return rc, nil
 	}
 
-	rc, err = s.Storage.Fetch(ctx, target)
+	rc, err = p.Storage.Fetch(ctx, target)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 	var pushErr error
 	go func() {
 		defer wg.Done()
-		pushErr = s.Cache.Push(ctx, target, pr)
+		pushErr = p.Cache.Push(ctx, target, pr)
 	}()
 	closer := ioutil.CloserFunc(func() error {
 		rcErr := rc.Close()
@@ -84,10 +84,10 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 }
 
 // Exists returns true if the described content exists.
-func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	exists, err := s.Cache.Exists(ctx, target)
+func (p *proxy) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	exists, err := p.Cache.Exists(ctx, target)
 	if err == nil && exists {
 		return true, nil
 	}
-	return s.Storage.Exists(ctx, target)
+	return p.Storage.Exists(ctx, target)
 }
