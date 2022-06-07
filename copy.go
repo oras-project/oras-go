@@ -22,6 +22,7 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/content/proxy"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/graph"
@@ -64,7 +65,7 @@ func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef str
 // the destination CAS.
 func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descriptor) error {
 	// use caching proxy on non-leaf nodes
-	proxy := cas.NewProxy(src, cas.NewMemory())
+	proxy := proxy.New(src, cas.NewMemory())
 
 	// track content status
 	tracker := status.NewTracker()

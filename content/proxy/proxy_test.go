@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cas
+package proxy
 
 import (
 	"bytes"
@@ -24,6 +24,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/internal/cas"
 )
 
 func TestProxyCache(t *testing.T) {
@@ -34,7 +35,7 @@ func TestProxyCache(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	s := NewProxy(NewMemory(), NewMemory())
+	s := New(cas.NewMemory(), cas.NewMemory())
 	ctx := context.Background()
 
 	err := s.Push(ctx, desc, bytes.NewReader(content))
@@ -102,7 +103,7 @@ func TestProxyPushPassThrough(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	s := NewProxy(NewMemory(), nil)
+	s := New(cas.NewMemory(), nil)
 	ctx := context.Background()
 
 	err := s.Push(ctx, desc, bytes.NewReader(content))

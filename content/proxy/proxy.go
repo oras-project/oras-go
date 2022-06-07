@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cas
+package proxy
 
 import (
 	"context"
@@ -25,32 +25,32 @@ import (
 	"oras.land/oras-go/v2/internal/ioutil"
 )
 
-// Proxy is a caching proxy for the storage.
+// Store is a caching proxy for the storage.
 // The first fetch call of a described content will read from the remote and
 // cache the fetched content.
 // The subsequent fetch call will read from the local cache.
-type Proxy struct {
+type Store struct {
 	content.Storage
 	Cache content.Storage
 }
 
-// NewProxy creates a proxy for the `base` storage, using the `cache` storage as
+// New creates a proxy for the `base` storage, using the `cache` storage as
 // the cache.
-func NewProxy(base, cache content.Storage) *Proxy {
-	return &Proxy{
+func New(base, cache content.Storage) *Store {
+	return &Store{
 		Storage: base,
 		Cache:   cache,
 	}
 }
 
 // Fetch fetches the content identified by the descriptor.
-func (p *Proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	rc, err := p.Cache.Fetch(ctx, target)
+func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	rc, err := s.Cache.Fetch(ctx, target)
 	if err == nil {
 		return rc, nil
 	}
 
-	rc, err = p.Storage.Fetch(ctx, target)
+	rc, err = s.Storage.Fetch(ctx, target)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (p *Proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 	var pushErr error
 	go func() {
 		defer wg.Done()
-		pushErr = p.Cache.Push(ctx, target, pr)
+		pushErr = s.Cache.Push(ctx, target, pr)
 	}()
 	closer := ioutil.CloserFunc(func() error {
 		rcErr := rc.Close()
@@ -84,10 +84,10 @@ func (p *Proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 }
 
 // Exists returns true if the described content exists.
-func (p *Proxy) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	exists, err := p.Cache.Exists(ctx, target)
+func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	exists, err := s.Cache.Exists(ctx, target)
 	if err == nil && exists {
 		return true, nil
 	}
-	return p.Storage.Exists(ctx, target)
+	return s.Storage.Exists(ctx, target)
 }
