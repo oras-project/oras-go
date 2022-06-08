@@ -166,18 +166,6 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 		}
 		path = filepath.Join(dir, path)
 
-		// Link check
-		switch header.Typeflag {
-		case tar.TypeLink, tar.TypeSymlink:
-			link := header.Linkname
-			if !filepath.IsAbs(link) {
-				link = filepath.Join(filepath.Dir(name), link)
-			}
-			if _, err := ensureBasePath(dir, prefix, link); err != nil {
-				return err
-			}
-		}
-
 		// Create content
 		switch header.Typeflag {
 		case tar.TypeReg:
@@ -185,9 +173,15 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 		case tar.TypeDir:
 			err = os.MkdirAll(path, header.FileInfo().Mode())
 		case tar.TypeLink:
-			err = os.Link(header.Linkname, path)
+			var target string
+			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
+				err = os.Link(target, path)
+			}
 		case tar.TypeSymlink:
-			err = os.Symlink(header.Linkname, path)
+			var target string
+			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
+				err = os.Symlink(target, path)
+			}
 		default:
 			continue // Non-regular files are skipped
 		}
@@ -226,6 +220,19 @@ func ensureBasePath(root, base, target string) (string, error) {
 	}
 
 	return path, nil
+}
+
+// ensureLinkPath ensures the target path pointed by the link is in the base
+// path. It returns target path if validated.
+func ensureLinkPath(root, base, link, target string) (string, error) {
+	path := target
+	if !filepath.IsAbs(target) {
+		path = filepath.Join(filepath.Dir(link), target)
+	}
+	if _, err := ensureBasePath(root, base, path); err != nil {
+		return "", err
+	}
+	return target, nil
 }
 
 // writeFile writes content to the file specified by the `path` parameter.
