@@ -23,13 +23,13 @@ import (
 )
 
 func TestStack(t *testing.T) {
-	stack := &Stack{}
+	var stack Stack
 	isEmpty := stack.IsEmpty()
 	if !isEmpty {
 		t.Errorf("Stack.IsEmpty() = %v, want %v", isEmpty, true)
 	}
 
-	items := []Item{
+	items := []NodeInfo{
 		{ocispec.Descriptor{}, 0},
 		{ocispec.Descriptor{}, 1},
 		{ocispec.Descriptor{}, 2},
@@ -40,9 +40,9 @@ func TestStack(t *testing.T) {
 
 	i := len(items) - 1
 	for !stack.IsEmpty() {
-		got, err := stack.Pop()
-		if err != nil {
-			t.Fatalf("Stack.Pop() error = %v, wantErr %v", err, false)
+		got, ok := stack.Pop()
+		if !ok {
+			t.Fatalf("Stack.Pop() = %v, want %v", ok, true)
 		}
 		if !reflect.DeepEqual(got, items[i]) {
 			t.Errorf("Stack.Pop() = %v, want %v", got, items[i])
@@ -50,8 +50,8 @@ func TestStack(t *testing.T) {
 		i--
 	}
 
-	_, err := stack.Pop()
-	if err == nil {
-		t.Errorf("Stack.Pop() error = %v, wantErr %v", err, ErrEmptyStack)
+	_, ok := stack.Pop()
+	if ok {
+		t.Errorf("Stack.Pop() = %v, want %v", ok, false)
 	}
 }

@@ -16,44 +16,40 @@ limitations under the License.
 package copyutil
 
 import (
-	"errors"
-
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-var ErrEmptyStack = errors.New("empty stack")
-
-// Item represents an item in the stack.
-type Item struct {
+// NodeInfo represents information of a node that is being visited in
+// ExtendedCopy.
+type NodeInfo struct {
 	// Node represents a node in the graph.
 	Node ocispec.Descriptor
 	// Depth represents the depth of the node in the graph.
 	Depth int
 }
 
-// Stack represents a stack data structure that stores a list of items.
-type Stack struct {
-	items []Item
-}
+// Stack represents a stack data structure that is used in ExtendedCopy for
+// storing node information.
+type Stack []NodeInfo
 
 // IsEmpty returns true if the stack is empty, otherwise returns false.
 func (s *Stack) IsEmpty() bool {
-	return len(s.items) == 0
+	return len(*s) == 0
 }
 
 // Push pushes an item to the stack.
-func (s *Stack) Push(i Item) {
-	s.items = append(s.items, i)
+func (s *Stack) Push(i NodeInfo) {
+	*s = append(*s, i)
 }
 
 // Pop pops the top item out of the stack.
-func (s *Stack) Pop() (Item, error) {
+func (s *Stack) Pop() (NodeInfo, bool) {
 	if s.IsEmpty() {
-		return Item{}, ErrEmptyStack
+		return NodeInfo{}, false
 	}
 
-	last := len(s.items) - 1
-	top := s.items[last]
-	s.items = s.items[:last]
-	return top, nil
+	last := len(*s) - 1
+	top := (*s)[last]
+	*s = (*s)[:last]
+	return top, true
 }
