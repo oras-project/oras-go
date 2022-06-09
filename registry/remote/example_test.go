@@ -32,7 +32,9 @@ import (
 	ocidigest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -47,6 +49,7 @@ const (
 var (
 	exampleLayerDigest    = digest.FromBytes([]byte(exampleLayer)).String()
 	exampleManifestDigest = digest.FromBytes([]byte(exampleManifest)).String()
+	exampleRefereceDigest = "sha256:aa477aa71f0a7f5a8339ac982d30569a4200dbef53aeae77e1df6c9999eb92be"
 )
 
 var host string
@@ -78,6 +81,8 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/blobs/uploads/%s", exampleRepositoryName, exampleUploadUUid):
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == "PUT":
+			w.WriteHeader(http.StatusCreated)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleRefereceDigest) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) || p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
@@ -172,6 +177,56 @@ func ExampleRepository_Push() {
 	}
 	// 2. push the descriptor and blob content
 	err = repo.Push(ctx, descriptor, bytes.NewReader(content))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Push finished")
+	// Output:
+	// Push finished
+}
+
+// ExampleRepository_Push_referenceManifest gives an example snippet for pushing a reference manifest.
+func ExampleRepository_Push_referenceManifest() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName)
+	if err != nil {
+		panic(err)
+	}
+
+	// 1. assemble the referenced manifest
+	rfedManifest := artifactspec.Manifest{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: "referenced manifest",
+	}
+	rfedManifestContent, _ := json.Marshal(rfedManifest)
+	rfedManifestDescriptor := artifactspec.Descriptor{
+		MediaType:    ocispec.MediaTypeImageManifest,
+		ArtifactType: "referenced manifest descriptor",
+		Digest:       ocidigest.FromBytes(rfedManifestContent),
+		Size:         int64(len(rfedManifestContent)),
+	}
+
+	// 2. assemble the referencing artifact manifest
+	rfingManifest := artifactspec.Manifest{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: "referencing manifest",
+		Subject:      rfedManifestDescriptor,
+	}
+	rfingManifestContent, _ := json.Marshal(rfingManifest)
+	rfingManifestDescriptor := artifactspec.Descriptor{
+		MediaType:    ocispec.MediaTypeImageManifest,
+		ArtifactType: "referencing manifest descriptor",
+		Digest:       ocidigest.FromBytes(rfingManifestContent),
+		Size:         int64(len(rfingManifestContent)),
+	}
+
+	// 3. push the manifest descriptor and content
+	err = repo.Push(ctx, descriptor.ArtifactToOCI(rfingManifestDescriptor), bytes.NewReader(rfingManifestContent))
 	if err != nil {
 		panic(err)
 	}
