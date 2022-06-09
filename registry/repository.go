@@ -20,6 +20,7 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 )
 
@@ -57,6 +58,11 @@ type Repository interface {
 	// - https://docs.docker.com/registry/spec/api/#tags
 	// See also `Tags()` in this package.
 	Tags(ctx context.Context, fn func(tags []string) error) error
+
+	// Referrers returns the manifest descriptors directly referencing the given
+	// manifest descriptor.
+	// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
+	Referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error) error
 }
 
 // BlobStore is a CAS with the ability to stat and delete its content.
