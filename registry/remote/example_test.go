@@ -28,7 +28,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opencontainers/go-digest"
 	ocidigest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -47,8 +46,8 @@ const (
 )
 
 var (
-	exampleLayerDigest    = digest.FromBytes([]byte(exampleLayer)).String()
-	exampleManifestDigest = digest.FromBytes([]byte(exampleManifest)).String()
+	exampleLayerDigest    = ocidigest.FromBytes([]byte(exampleLayer)).String()
+	exampleManifestDigest = ocidigest.FromBytes([]byte(exampleManifest)).String()
 	exampleRefereceDigest = "sha256:aa477aa71f0a7f5a8339ac982d30569a4200dbef53aeae77e1df6c9999eb92be"
 )
 
@@ -635,8 +634,8 @@ func Example_pushAndTag() {
 	generateDescriptor := func(mediaType string, blob []byte) (desc ocispec.Descriptor) {
 		return ocispec.Descriptor{
 			MediaType: mediaType,
-			Digest:    digest.FromBytes(blob), // Calculate digest
-			Size:      int64(len(blob)),       // Include blob size
+			Digest:    ocidigest.FromBytes(blob), // Calculate digest
+			Size:      int64(len(blob)),          // Include blob size
 		}
 	}
 	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) ([]byte, error) {
