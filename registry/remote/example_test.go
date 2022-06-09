@@ -51,6 +51,18 @@ var (
 	exampleRefereceDigest = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
 )
 
+var (
+	exampleReferenceManifest, _ = json.Marshal(artifactspec.Manifest{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: "example reference manifest",
+		Subject:      artifactspec.Descriptor{Digest: digest.Digest(exampleManifestDigest)}})
+	exampleReferenceManifestDescriptor = ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(exampleReferenceManifest),
+		Size:      int64(len(exampleReferenceManifest)),
+	}
+)
+
 var host string
 
 func TestMain(m *testing.M) {
@@ -83,6 +95,13 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleRefereceDigest) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleReferenceManifestDescriptor.Digest) && m == "GET":
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
+			w.Header().Set("Content-Digest", string(exampleReferenceManifestDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleReferenceManifest))))
+			if m == "GET" {
+				w.Write([]byte(exampleReferenceManifest))
+			}
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) || p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Docker-Content-Digest", exampleManifestDigest)
@@ -359,6 +378,35 @@ func ExampleRepository_Fetch_manifestByDigest() {
 	fmt.Println(string(pulled))
 	// Output:
 	// Example manifest content
+}
+
+func ExampleRepository_Fetch_referenceManifest() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName)
+	if err != nil {
+		panic(err)
+	}
+	rc, err := repo.Fetch(ctx, exampleReferenceManifestDescriptor)
+	if err != nil {
+		panic(err)
+	}
+	defer rc.Close() // don't forget to close
+
+	pulledBlob, err := io.ReadAll(rc)
+	if err != nil {
+		panic(err)
+	}
+	// verify the fetched content
+	if exampleReferenceManifestDescriptor.Size != int64(len(pulledBlob)) || exampleReferenceManifestDescriptor.Digest != digest.FromBytes(pulledBlob) {
+		panic(err)
+	}
+	fmt.Println("Fetch finished")
+	// Output:
+	// Fetch finished
 }
 
 // ExampleRepository_FetchReference_manifestByTag gives example snippets for downloading a manifest by tag with only one API call.
