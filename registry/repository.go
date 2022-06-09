@@ -20,7 +20,6 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 )
 
@@ -35,10 +34,9 @@ import (
 // Furthurmore, this interface also provides the ability to enforce the
 // separation of the blob and the manifests CASs.
 type Repository interface {
-	oras.Target
 	BlobStore
+	content.TagResolver
 	ReferencePusher
-	ReferenceFetcher
 
 	// Blobs provides access to the blob CAS only, which contains config blobs,
 	// layers, and other generic blobs.

@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/semaphore"
@@ -27,41 +28,40 @@ import (
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/status"
+	"oras.land/oras-go/v2/registry"
 )
-
-// defaultConcurrency is the default concurrency limit.
-// The value is consistent with dockerd and containerd.
-const defaultConcurrency = int64(3)
 
 // CopyOptions contains parameters for oras.Copy.
 type CopyOptions struct {
 	CopyGraphOptions
-	// RootFilter filters the descriptor that is to be used as the root node for
-	// copy.
-	RootFilter func(ctx context.Context, root ocispec.Descriptor) (desc ocispec.Descriptor, found bool, err error)
+	// MapRoot maps the resolved root node to a desired root node for copy.
+	MapRoot func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error)
 }
 
 // CopyGraphOptions contains parameters for oras.CopyGraph.
 type CopyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent copy tasks.
 	// If Concurrency is not specified, or the specified value is less
-	// or equal to 0, a default value will be used.
+	// or equal to 0, the concurrency limit will be considered as infinity.
 	Concurrency int64
-	// PreCopyHandler handles the current descriptor before copying it.
-	PreCopyHandler func(ctx context.Context, desc ocispec.Descriptor) error
-	// PostCopyHandler handles the current descriptor after copying it.
-	PostCopyHandler func(ctx context.Context, desc ocispec.Descriptor) error
-	// SkippedCopyHandler handles the current descriptor,
-	// when the sub-DAG rooted by the current node is skipped.
-	SkippedCopyHandler func(ctx context.Context, desc ocispec.Descriptor) error
+	// CopySkipped will be called when the sub-DAG rooted by the current node is
+	// skipped.
+	CopySkipped func(ctx context.Context, desc ocispec.Descriptor) error
+	// CopyNode copies a single content from the source CAS to the destination CAS.
+	// If CopyNode is not provided, a default function will be used.
+	CopyNode func(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error
+}
+
+var DefaultCopyGraphOptions = CopyGraphOptions{
+	Concurrency: 3, // This value is consistent with dockerd and containerd.
 }
 
 // Copy copies a rooted directed acyclic graph (DAG) with the tagged root node
 // in the source Target to the destination Target.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
-// When RootFilter option is provided, the descriptor resolved from the source
-// reference will be passed to the RootFilter, and the filtered descriptor will
+// When MapRoot option is provided, the descriptor resolved from the source
+// reference will be passed to the MapRoot, and the mapped descriptor will
 // be used as the root node for copy.
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
@@ -75,31 +75,62 @@ func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef str
 		dstRef = srcRef
 	}
 
-	root, err := src.Resolve(ctx, srcRef)
+	proxy := cas.NewProxy(src, cas.NewMemory())
+	var root ocispec.Descriptor
+	var err error
+	if fetcher, ok := src.(registry.ReferenceFetcher); ok {
+		var rc io.ReadCloser
+		root, rc, err = fetcher.FetchReference(ctx, srcRef)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		err = proxy.Cache.Push(ctx, root, rc)
+	} else {
+		root, err = src.Resolve(ctx, srcRef)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		_, err = proxy.Fetch(ctx, root)
+	}
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
-	if opts.RootFilter != nil {
-		filtered, found, err := opts.RootFilter(ctx, root)
+	if opts.MapRoot != nil {
+		mapped, err := opts.MapRoot(ctx, proxy, root)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
-		if !found {
-			return ocispec.Descriptor{}, errdef.ErrNotFound
+		root = mapped
+	}
+
+	copyNode := opts.CopyNode
+	if copyNode == nil {
+		copyNode = CopyNode
+	}
+	opts.CopyNode = func(ctx context.Context, srcStorage, dstStorage content.Storage, desc ocispec.Descriptor) error {
+		if desc.Digest != root.Digest {
+			// non-root
+			return copyNode(ctx, srcStorage, dstStorage, desc)
 		}
-		root = filtered
+
+		rc, err := srcStorage.Fetch(ctx, desc)
+		if err != nil {
+			return err
+		}
+
+		// dst supports reference pusher
+		if pusher, ok := dst.(registry.ReferencePusher); ok {
+			return pusher.PushReference(ctx, desc, rc, dstRef)
+		}
+
+		if err := copyNode(ctx, srcStorage, dstStorage, desc); err != nil {
+			return err
+		}
+		return dst.Tag(ctx, desc, dstRef)
 	}
 
-	if err := CopyGraph(ctx, src, dst, root, opts.CopyGraphOptions); err != nil {
-		return ocispec.Descriptor{}, err
-	}
-
-	if err := dst.Tag(ctx, root, dstRef); err != nil {
-		return ocispec.Descriptor{}, err
-	}
-
-	return root, nil
+	return root, CopyGraph(ctx, proxy, dst, root, opts.CopyGraphOptions)
 }
 
 // CopyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
@@ -110,6 +141,10 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 
 	// track content status
 	tracker := status.NewTracker()
+
+	if opts.CopyNode == nil {
+		opts.CopyNode = CopyNode
+	}
 
 	// prepare pre-handler
 	preHandler := graph.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
@@ -127,8 +162,8 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 		if exists {
 			// mark the content as done
 			close(done)
-			if opts.SkippedCopyHandler != nil {
-				if err := opts.SkippedCopyHandler(ctx, desc); err != nil {
+			if opts.CopySkipped != nil {
+				if err := opts.CopySkipped(ctx, desc); err != nil {
 					return nil, err
 				}
 			}
@@ -156,7 +191,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 			return nil, err
 		}
 		if !exists {
-			return nil, handleCopyNode(ctx, src, dst, desc, opts)
+			return nil, opts.CopyNode(ctx, src, dst, desc)
 		}
 
 		// for non-leaf nodes, wait for its down edges to complete
@@ -175,37 +210,19 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 				return nil, ctx.Err()
 			}
 		}
-		return nil, handleCopyNode(ctx, proxy.Cache, dst, desc, opts)
+		return nil, opts.CopyNode(ctx, proxy.Cache, dst, desc)
 	})
 
-	if opts.Concurrency <= 0 {
-		opts.Concurrency = defaultConcurrency
+	var limiter *semaphore.Weighted
+	if opts.Concurrency > 0 {
+		limiter = semaphore.NewWeighted(opts.Concurrency)
 	}
 	// traverse the graph
-	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(opts.Concurrency), root)
+	return graph.Dispatch(ctx, preHandler, postHandler, limiter, root)
 }
 
-// handleCopyNode handles the current node when copying it.
-func handleCopyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
-	if opts.PreCopyHandler != nil {
-		if err := opts.PreCopyHandler(ctx, desc); err != nil {
-			return err
-		}
-	}
-
-	if err := copyNode(ctx, src, dst, desc); err != nil {
-		return err
-	}
-
-	if opts.PostCopyHandler != nil {
-		return opts.PostCopyHandler(ctx, desc)
-	}
-
-	return nil
-}
-
-// copyNode copies a single content from the source CAS to the destination CAS.
-func copyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error {
+// CopyNode copies a single content from the source CAS to the destination CAS.
+func CopyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
 		return err

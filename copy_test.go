@@ -355,9 +355,8 @@ func TestCopyGraph_PartialCopy(t *testing.T) {
 	}
 }
 
-func TestCopy_WithRootFilterOption(t *testing.T) {
+func TestCopy_WithOptions(t *testing.T) {
 	src := memory.New()
-	dst := memory.New()
 
 	// generate test content
 	var blobs [][]byte
@@ -428,12 +427,13 @@ func TestCopy_WithRootFilterOption(t *testing.T) {
 	}
 
 	// test copy with media type filter
+	dst := memory.New()
 	opts := oras.CopyOptions{
-		RootFilter: func(ctx context.Context, root ocispec.Descriptor) (ocispec.Descriptor, bool, error) {
+		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
 			if root.MediaType == ocispec.MediaTypeImageIndex {
-				return root, true, nil
+				return root, nil
 			} else {
-				return ocispec.Descriptor{}, false, nil
+				return ocispec.Descriptor{}, errdef.ErrNotFound
 			}
 		},
 	}
@@ -465,26 +465,29 @@ func TestCopy_WithRootFilterOption(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
 	}
 
-	// test copy with platform filter
+	// test copy with platform filter and custom CopyNode
+	dst = memory.New()
+	copyCount := int64(0)
 	opts = oras.CopyOptions{
-		RootFilter: func(ctx context.Context, root ocispec.Descriptor) (ocispec.Descriptor, bool, error) {
-			switch root.MediaType {
-			case ocispec.MediaTypeImageManifest:
-				return root, true, nil
-			case ocispec.MediaTypeImageIndex:
-				manifests, err := content.DownEdges(ctx, src, root)
-				if err != nil {
-					return ocispec.Descriptor{}, false, err
-				}
+		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+			manifests, err := content.DownEdges(ctx, src, root)
+			if err != nil {
+				return ocispec.Descriptor{}, errdef.ErrNotFound
+			}
 
-				// platform filter
-				for _, m := range manifests {
-					if m.Platform.Architecture == "test-arc-2" && m.Platform.OS == "test-os-2" {
-						return m, true, nil
-					}
+			// platform filter
+			for _, m := range manifests {
+				if m.Platform.Architecture == "test-arc-2" && m.Platform.OS == "test-os-2" {
+					return m, nil
 				}
 			}
-			return ocispec.Descriptor{}, false, nil
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		},
+		CopyGraphOptions: oras.CopyGraphOptions{
+			CopyNode: func(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error {
+				atomic.AddInt64(&copyCount, 1)
+				return oras.CopyNode(ctx, src, dst, desc)
+			},
 		},
 	}
 	wantDesc := descs[5]
@@ -497,7 +500,7 @@ func TestCopy_WithRootFilterOption(t *testing.T) {
 	}
 
 	// verify contents
-	for i, desc := range descs[4:6] {
+	for i, desc := range append([]ocispec.Descriptor{descs[0]}, descs[4:6]...) {
 		exists, err := dst.Exists(ctx, desc)
 		if err != nil {
 			t.Fatalf("dst.Exists(%d) error = %v", i, err)
@@ -513,17 +516,22 @@ func TestCopy_WithRootFilterOption(t *testing.T) {
 		t.Fatal("dst.Resolve() error =", err)
 	}
 	if !reflect.DeepEqual(gotDesc, wantDesc) {
-		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
+		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, wantDesc)
+	}
+
+	// verify API counts
+	if got, want := copyCount, int64(3); got != want {
+		t.Errorf("count(preCopyHandler()) = %v, want %v", got, want)
 	}
 
 	// test copy with root filter, but no matching node can be found
 	dst = memory.New()
 	opts = oras.CopyOptions{
-		RootFilter: func(ctx context.Context, root ocispec.Descriptor) (ocispec.Descriptor, bool, error) {
+		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
 			if root.MediaType == "test" {
-				return root, true, nil
+				return root, nil
 			} else {
-				return ocispec.Descriptor{}, false, nil
+				return ocispec.Descriptor{}, errdef.ErrNotFound
 			}
 		},
 	}
@@ -608,19 +616,14 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 	}
 
 	// test partial copy
-	var preCount int64
-	var postCount int64
+	var copyCount int64
 	var skippedCount int64
 	opts := oras.CopyGraphOptions{
-		PreCopyHandler: func(ctx context.Context, desc ocispec.Descriptor) error {
-			atomic.AddInt64(&preCount, 1)
-			return nil
+		CopyNode: func(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error {
+			atomic.AddInt64(&copyCount, 1)
+			return oras.CopyNode(ctx, src, dst, desc)
 		},
-		PostCopyHandler: func(ctx context.Context, desc ocispec.Descriptor) error {
-			atomic.AddInt64(&postCount, 1)
-			return nil
-		},
-		SkippedCopyHandler: func(ctx context.Context, desc ocispec.Descriptor) error {
+		CopySkipped: func(ctx context.Context, desc ocispec.Descriptor) error {
 			atomic.AddInt64(&skippedCount, 1)
 			return nil
 		},
@@ -647,11 +650,8 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 	}
 
 	// verify API counts
-	if got, want := preCount, int64(3); got != want {
+	if got, want := copyCount, int64(3); got != want {
 		t.Errorf("count(preCopyHandler()) = %v, want %v", got, want)
-	}
-	if got, want := postCount, int64(3); got != want {
-		t.Errorf("count(postCopyHandler()) = %v, want %v", got, want)
 	}
 	if got, want := skippedCount, int64(2); got != want {
 		t.Errorf("count(skippedCopyHandler()) = %v, want %v", got, want)
