@@ -18,11 +18,24 @@ package oras
 import (
 	"context"
 	"errors"
+	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/registry"
+)
+
+var (
+	// DefaultExtendedCopyOptions provides the default ExtendedCopyOptions.
+	DefaultExtendedCopyOptions = ExtendedCopyOptions{
+		ExtendedCopyGraphOptions: DefaultExtendedCopyGraphOptions,
+	}
+	// DefaultExtendedCopyGraphOptions provides the default ExtendedCopyGraphOptions.
+	DefaultExtendedCopyGraphOptions = ExtendedCopyGraphOptions{
+		CopyGraphOptions: DefaultCopyGraphOptions,
+	}
 )
 
 // ExtendedCopyOptions contains parameters for oras.ExtendedCopy.
@@ -38,12 +51,9 @@ type ExtendedCopyGraphOptions struct {
 	// If Depth is no specified, or the specified value is less or equal than 0,
 	// the depth limit will be considered as infinity.
 	Depth int
-	// UpEdgesFilter filters the up edges of the current node that is to be
-	// extended-copied. Returns the filtered up edges.
-	UpEdgesFilter func(ctx context.Context, node ocispec.Descriptor, upEdges []ocispec.Descriptor) ([]ocispec.Descriptor, error)
-	// UpEdgesFinder finds the up edges of the current node.
-	// If UpEdgesFinder is not provided, a default finder function will be used.
-	UpEdgesFinder func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
+	// FindUpEdges finds the up edges of the current node.
+	// If FindUpEdges is not provided, a default function will be used.
+	FindUpEdges func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
 // ExtendedCopy copies the directed acyclic graph (DAG) that are reachable from
@@ -62,16 +72,12 @@ func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Targe
 		dstRef = srcRef
 	}
 
-	node, err := src.Resolve(ctx, srcRef)
+	node, err := prepareExtendedCopy(ctx, src, srcRef, dst, dstRef, &opts)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
 	if err := ExtendedCopyGraph(ctx, src, dst, node, opts.ExtendedCopyGraphOptions); err != nil {
-		return ocispec.Descriptor{}, err
-	}
-
-	if err := dst.Tag(ctx, node, dstRef); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
@@ -98,12 +104,19 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 
 // findRoots finds the root nodes reachable from the given node through a
 // depth-first search.
-func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
+func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
 	visited := make(map[descriptor.Descriptor]bool)
 	roots := make(map[descriptor.Descriptor]ocispec.Descriptor)
 	addRoot := func(key descriptor.Descriptor, val ocispec.Descriptor) {
 		if _, exists := roots[key]; !exists {
 			roots[key] = val
+		}
+	}
+
+	// if FindUpEdges is not provided, use the default one
+	if opts.FindUpEdges == nil {
+		opts.FindUpEdges = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			return src.UpEdges(ctx, desc)
 		}
 	}
 
@@ -131,7 +144,7 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 			continue
 		}
 
-		upEdges, err := getUpEdges(ctx, finder, currentNode, opts)
+		upEdges, err := opts.FindUpEdges(ctx, storage, currentNode)
 		if err != nil {
 			return nil, err
 		}
@@ -156,21 +169,46 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 	return roots, nil
 }
 
-// getUpEdges returns the filtered up edges.
-func getUpEdges(ctx context.Context, finder content.UpEdgeFinder, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) ([]ocispec.Descriptor, error) {
-	upEdgesFinder := opts.UpEdgesFinder
-	if upEdgesFinder == nil {
-		upEdgesFinder = finder.UpEdges
+// prepareExtendedCopy prepares the the node to be tagged, and the options for
+// extended copy.
+func prepareExtendedCopy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string, opts *ExtendedCopyOptions) (ocispec.Descriptor, error) {
+	var node ocispec.Descriptor
+	var nodeContent io.ReadCloser
+	var err error
+	if fetcher, ok := src.(registry.ReferenceFetcher); ok {
+		node, nodeContent, err = fetcher.FetchReference(ctx, srcRef)
+	} else {
+		node, err = src.Resolve(ctx, srcRef)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		nodeContent, err = src.Fetch(ctx, node)
 	}
-
-	upEdges, err := upEdgesFinder(ctx, node)
 	if err != nil {
-		return nil, err
+		return ocispec.Descriptor{}, err
 	}
 
-	if opts.UpEdgesFilter != nil {
-		return opts.UpEdgesFilter(ctx, node, upEdges)
+	copyNode := opts.CopyNode
+	if copyNode == nil {
+		// if CopyNode is not provided, use the default one
+		copyNode = CopyNode
+	}
+	opts.CopyNode = func(ctx context.Context, srcStorage, dstStorage content.Storage, desc ocispec.Descriptor) error {
+		if desc.Digest != node.Digest {
+			// the current node is not node to be tagged, copy it directly
+			return copyNode(ctx, srcStorage, dstStorage, desc)
+		}
+
+		// the current node is the node to be tagged
+		if pusher, ok := dst.(registry.ReferencePusher); ok {
+			return pusher.PushReference(ctx, desc, nodeContent, dstRef)
+		}
+
+		if err := copyNode(ctx, srcStorage, dstStorage, desc); err != nil {
+			return err
+		}
+		return dst.Tag(ctx, desc, dstRef)
 	}
 
-	return upEdges, nil
+	return node, nil
 }

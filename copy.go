@@ -31,6 +31,17 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
+var (
+	// DefaultCopyOptions provides the default CopyOptions.
+	DefaultCopyOptions = CopyOptions{
+		CopyGraphOptions: DefaultCopyGraphOptions,
+	}
+	// DefaultCopyGraphOptions provides the default CopyGraphOptions.
+	DefaultCopyGraphOptions = CopyGraphOptions{
+		Concurrency: 3, // This value is consistent with dockerd and containerd.
+	}
+)
+
 // CopyOptions contains parameters for oras.Copy.
 type CopyOptions struct {
 	CopyGraphOptions
@@ -47,13 +58,9 @@ type CopyGraphOptions struct {
 	// CopySkipped will be called when the sub-DAG rooted by the current node is
 	// skipped.
 	CopySkipped func(ctx context.Context, desc ocispec.Descriptor) error
-	// CopyNode copies a single content from the source CAS to the destination CAS.
-	// If CopyNode is not provided, a default function will be used.
+	// CopyNode copies a single content from the source CAS to the destination
+	// CAS. If CopyNode is not provided, a default function will be used.
 	CopyNode func(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error
-}
-
-var DefaultCopyGraphOptions = CopyGraphOptions{
-	Concurrency: 3, // This value is consistent with dockerd and containerd.
 }
 
 // Copy copies a rooted directed acyclic graph (DAG) with the tagged root node
@@ -75,62 +82,16 @@ func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef str
 		dstRef = srcRef
 	}
 
-	proxy := cas.NewProxy(src, cas.NewMemory())
-	var root ocispec.Descriptor
-	var err error
-	if fetcher, ok := src.(registry.ReferenceFetcher); ok {
-		var rc io.ReadCloser
-		root, rc, err = fetcher.FetchReference(ctx, srcRef)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-		err = proxy.Cache.Push(ctx, root, rc)
-	} else {
-		root, err = src.Resolve(ctx, srcRef)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-		_, err = proxy.Fetch(ctx, root)
-	}
+	root, err := prepareCopy(ctx, src, srcRef, dst, dstRef, &opts)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
-	if opts.MapRoot != nil {
-		mapped, err := opts.MapRoot(ctx, proxy, root)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-		root = mapped
+	if err := CopyGraph(ctx, src, dst, root, opts.CopyGraphOptions); err != nil {
+		return ocispec.Descriptor{}, err
 	}
 
-	copyNode := opts.CopyNode
-	if copyNode == nil {
-		copyNode = CopyNode
-	}
-	opts.CopyNode = func(ctx context.Context, srcStorage, dstStorage content.Storage, desc ocispec.Descriptor) error {
-		if desc.Digest != root.Digest {
-			// non-root
-			return copyNode(ctx, srcStorage, dstStorage, desc)
-		}
-
-		rc, err := srcStorage.Fetch(ctx, desc)
-		if err != nil {
-			return err
-		}
-
-		// dst supports reference pusher
-		if pusher, ok := dst.(registry.ReferencePusher); ok {
-			return pusher.PushReference(ctx, desc, rc, dstRef)
-		}
-
-		if err := copyNode(ctx, srcStorage, dstStorage, desc); err != nil {
-			return err
-		}
-		return dst.Tag(ctx, desc, dstRef)
-	}
-
-	return root, CopyGraph(ctx, proxy, dst, root, opts.CopyGraphOptions)
+	return root, nil
 }
 
 // CopyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
@@ -142,6 +103,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 	// track content status
 	tracker := status.NewTracker()
 
+	// if CopyNode is not provided, use the default one
 	if opts.CopyNode == nil {
 		opts.CopyNode = CopyNode
 	}
@@ -233,4 +195,60 @@ func CopyNode(ctx context.Context, src, dst content.Storage, desc ocispec.Descri
 		return err
 	}
 	return nil
+}
+
+// prepareCopy prepares the the root node and the options for copy.
+func prepareCopy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string, opts *CopyOptions) (ocispec.Descriptor, error) {
+	var root ocispec.Descriptor
+	var rootContent io.ReadCloser
+	var err error
+	if fetcher, ok := src.(registry.ReferenceFetcher); ok {
+		root, rootContent, err = fetcher.FetchReference(ctx, srcRef)
+	} else {
+		root, err = src.Resolve(ctx, srcRef)
+	}
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	if opts.MapRoot != nil {
+		mapped, err := opts.MapRoot(ctx, src, root)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		// fetch the root content when:
+		// 1. root changes
+		// 2. root does not change, but its content is not fetched yet
+		if mapped.Digest != root.Digest || rootContent == nil {
+			rootContent, err = src.Fetch(ctx, root)
+			if err != nil {
+				return ocispec.Descriptor{}, err
+			}
+		}
+		root = mapped
+	}
+
+	copyNode := opts.CopyNode
+	if copyNode == nil {
+		// if CopyNode is not provided, use the default one
+		copyNode = CopyNode
+	}
+	opts.CopyNode = func(ctx context.Context, srcStorage, dstStorage content.Storage, desc ocispec.Descriptor) error {
+		if desc.Digest != root.Digest {
+			// the current node is not the root node, copy it directly
+			return copyNode(ctx, srcStorage, dstStorage, desc)
+		}
+
+		// the current node is the root node
+		if pusher, ok := dst.(registry.ReferencePusher); ok {
+			return pusher.PushReference(ctx, desc, rootContent, dstRef)
+		}
+
+		if err := copyNode(ctx, srcStorage, dstStorage, desc); err != nil {
+			return err
+		}
+		return dst.Tag(ctx, desc, dstRef)
+	}
+
+	return root, nil
 }

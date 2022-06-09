@@ -468,7 +468,7 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
-func TestExtendedCopy_WithFilterOptions(t *testing.T) {
+func TestExtendedCopy_WithFindUpEdgesOption(t *testing.T) {
 	// generate test content
 	var blobs [][]byte
 	var descs []ocispec.Descriptor
@@ -557,7 +557,11 @@ func TestExtendedCopy_WithFilterOptions(t *testing.T) {
 	// test extended copy by descs[3] with media type filter
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{
-		UpEdgesFilter: func(ctx context.Context, _ ocispec.Descriptor, upEdges []ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		FindUpEdges: func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			upEdges, err := src.UpEdges(ctx, desc)
+			if err != nil {
+				return nil, err
+			}
 			var filtered []ocispec.Descriptor
 			for _, u := range upEdges {
 				// filter media type
@@ -576,33 +580,6 @@ func TestExtendedCopy_WithFilterOptions(t *testing.T) {
 	// graph rooted by descs[5] and decs[7] should be copied
 	copiedIndice := []int{0, 1, 2, 3, 4, 5, 6, 7}
 	uncopiedIndice := []int{8, 9, 10, 11}
-	verifyCopy(dst, copiedIndice, uncopiedIndice)
-
-	// test extended copy by descs[3] with custom upEdges finder and media type filter
-	dst = memory.New()
-	opts = oras.ExtendedCopyGraphOptions{
-		UpEdgesFinder: func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-			return src.UpEdges(ctx, desc)
-		},
-		UpEdgesFilter: func(ctx context.Context, _ ocispec.Descriptor, upEdges []ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-			var filtered []ocispec.Descriptor
-			for _, u := range upEdges {
-				// filter media type
-				switch u.MediaType {
-				case ocispec.MediaTypeImageIndex:
-					filtered = append(filtered, u)
-				}
-			}
-
-			return filtered, nil
-		},
-	}
-	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[3], opts); err != nil {
-		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
-	}
-	// graph rooted by descs[11] should be copied
-	copiedIndice = []int{0, 1, 2, 3, 8, 9, 10, 11}
-	uncopiedIndice = []int{4, 5, 6, 7}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
