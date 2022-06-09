@@ -179,10 +179,6 @@ func prepareExtendedCopy(ctx context.Context, src Target, srcRef string, dst Tar
 		node, nodeContent, err = fetcher.FetchReference(ctx, srcRef)
 	} else {
 		node, err = src.Resolve(ctx, srcRef)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-		nodeContent, err = src.Fetch(ctx, node)
 	}
 	if err != nil {
 		return ocispec.Descriptor{}, err
@@ -201,13 +197,24 @@ func prepareExtendedCopy(ctx context.Context, src Target, srcRef string, dst Tar
 
 		// the current node is the node to be tagged
 		if pusher, ok := dst.(registry.ReferencePusher); ok {
+			if nodeContent == nil {
+				nodeContent, err = src.Fetch(ctx, node)
+				if err != nil {
+					return err
+				}
+			}
 			return pusher.PushReference(ctx, desc, nodeContent, dstRef)
+		} else {
+			if nodeContent != nil {
+				err = dstStorage.Push(ctx, desc, nodeContent)
+			} else {
+				err = copyNode(ctx, srcStorage, dstStorage, desc)
+			}
+			if err != nil {
+				return err
+			}
+			return dst.Tag(ctx, desc, dstRef)
 		}
-
-		if err := copyNode(ctx, srcStorage, dstStorage, desc); err != nil {
-			return err
-		}
-		return dst.Tag(ctx, desc, dstRef)
 	}
 
 	return node, nil

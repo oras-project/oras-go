@@ -216,14 +216,9 @@ func prepareCopy(ctx context.Context, src Target, srcRef string, dst Target, dst
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
-		// fetch the root content when:
-		// 1. root changes
-		// 2. root does not change, but its content is not fetched yet
-		if mapped.Digest != root.Digest || rootContent == nil {
-			rootContent, err = src.Fetch(ctx, root)
-			if err != nil {
-				return ocispec.Descriptor{}, err
-			}
+		if mapped.Digest != root.Digest {
+			// set the rootContent to nil when root changes
+			rootContent = nil
 		}
 		root = mapped
 	}
@@ -241,13 +236,24 @@ func prepareCopy(ctx context.Context, src Target, srcRef string, dst Target, dst
 
 		// the current node is the root node
 		if pusher, ok := dst.(registry.ReferencePusher); ok {
+			if rootContent == nil {
+				rootContent, err = srcStorage.Fetch(ctx, root)
+				if err != nil {
+					return err
+				}
+			}
 			return pusher.PushReference(ctx, desc, rootContent, dstRef)
+		} else {
+			if rootContent != nil {
+				err = dstStorage.Push(ctx, desc, rootContent)
+			} else {
+				err = copyNode(ctx, srcStorage, dstStorage, desc)
+			}
+			if err != nil {
+				return err
+			}
+			return dst.Tag(ctx, desc, dstRef)
 		}
-
-		if err := copyNode(ctx, srcStorage, dstStorage, desc); err != nil {
-			return err
-		}
-		return dst.Tag(ctx, desc, dstRef)
 	}
 
 	return root, nil
