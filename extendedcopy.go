@@ -18,13 +18,11 @@ package oras
 import (
 	"context"
 	"errors"
-	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
-	"oras.land/oras-go/v2/registry"
 )
 
 var (
@@ -72,12 +70,16 @@ func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Targe
 		dstRef = srcRef
 	}
 
-	node, err := prepareExtendedCopy(ctx, src, srcRef, dst, dstRef, &opts)
+	node, err := src.Resolve(ctx, srcRef)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
 	if err := ExtendedCopyGraph(ctx, src, dst, node, opts.ExtendedCopyGraphOptions); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	if err := dst.Tag(ctx, node, dstRef); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
@@ -167,55 +169,4 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 		}
 	}
 	return roots, nil
-}
-
-// prepareExtendedCopy prepares the the node to be tagged, and the options for
-// extended copy.
-func prepareExtendedCopy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string, opts *ExtendedCopyOptions) (ocispec.Descriptor, error) {
-	var node ocispec.Descriptor
-	var nodeContent io.ReadCloser
-	var err error
-	if fetcher, ok := src.(registry.ReferenceFetcher); ok {
-		node, nodeContent, err = fetcher.FetchReference(ctx, srcRef)
-	} else {
-		node, err = src.Resolve(ctx, srcRef)
-	}
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-
-	copyNode := opts.CopyNode
-	if copyNode == nil {
-		// if CopyNode is not provided, use the default one
-		copyNode = CopyNode
-	}
-	opts.CopyNode = func(ctx context.Context, srcStorage, dstStorage content.Storage, desc ocispec.Descriptor) error {
-		if desc.Digest != node.Digest {
-			// the current node is not node to be tagged, copy it directly
-			return copyNode(ctx, srcStorage, dstStorage, desc)
-		}
-
-		// the current node is the node to be tagged
-		if pusher, ok := dst.(registry.ReferencePusher); ok {
-			if nodeContent == nil {
-				nodeContent, err = src.Fetch(ctx, node)
-				if err != nil {
-					return err
-				}
-			}
-			return pusher.PushReference(ctx, desc, nodeContent, dstRef)
-		} else {
-			if nodeContent != nil {
-				err = dstStorage.Push(ctx, desc, nodeContent)
-			} else {
-				err = copyNode(ctx, srcStorage, dstStorage, desc)
-			}
-			if err != nil {
-				return err
-			}
-			return dst.Tag(ctx, desc, dstRef)
-		}
-	}
-
-	return node, nil
 }

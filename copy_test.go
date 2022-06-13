@@ -428,14 +428,13 @@ func TestCopy_WithOptions(t *testing.T) {
 
 	// test copy with media type filter
 	dst := memory.New()
-	opts := oras.CopyOptions{
-		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
-			if root.MediaType == ocispec.MediaTypeImageIndex {
-				return root, nil
-			} else {
-				return ocispec.Descriptor{}, errdef.ErrNotFound
-			}
-		},
+	opts := oras.DefaultCopyOptions
+	opts.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+		if root.MediaType == ocispec.MediaTypeImageIndex {
+			return root, nil
+		} else {
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		}
 	}
 	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", opts)
 	if err != nil {
@@ -465,9 +464,10 @@ func TestCopy_WithOptions(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
 	}
 
-	// test copy with platform filter and custom CopyNode
+	// test copy with platform filter and hooks
 	dst = memory.New()
-	copyCount := int64(0)
+	preCopyCount := int64(0)
+	postCopyCount := int64(0)
 	opts = oras.CopyOptions{
 		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
 			manifests, err := content.DownEdges(ctx, src, root)
@@ -484,9 +484,13 @@ func TestCopy_WithOptions(t *testing.T) {
 			return ocispec.Descriptor{}, errdef.ErrNotFound
 		},
 		CopyGraphOptions: oras.CopyGraphOptions{
-			CopyNode: func(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error {
-				atomic.AddInt64(&copyCount, 1)
-				return oras.CopyNode(ctx, src, dst, desc)
+			PreCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
+				atomic.AddInt64(&preCopyCount, 1)
+				return nil
+			},
+			PostCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
+				atomic.AddInt64(&postCopyCount, 1)
+				return nil
 			},
 		},
 	}
@@ -520,8 +524,11 @@ func TestCopy_WithOptions(t *testing.T) {
 	}
 
 	// verify API counts
-	if got, want := copyCount, int64(3); got != want {
-		t.Errorf("count(preCopyHandler()) = %v, want %v", got, want)
+	if got, want := preCopyCount, int64(3); got != want {
+		t.Errorf("count(PreCopy()) = %v, want %v", got, want)
+	}
+	if got, want := postCopyCount, int64(3); got != want {
+		t.Errorf("count(PostCopy()) = %v, want %v", got, want)
 	}
 
 	// test copy with root filter, but no matching node can be found
@@ -534,6 +541,7 @@ func TestCopy_WithOptions(t *testing.T) {
 				return ocispec.Descriptor{}, errdef.ErrNotFound
 			}
 		},
+		CopyGraphOptions: oras.DefaultCopyGraphOptions,
 	}
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
@@ -597,7 +605,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 
 	// initial copy
 	root := descs[3]
-	if err := oras.CopyGraph(ctx, src, dst, root, oras.CopyGraphOptions{}); err != nil {
+	if err := oras.CopyGraph(ctx, src, dst, root, oras.DefaultCopyGraphOptions); err != nil {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// verify contents
@@ -616,14 +624,19 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 	}
 
 	// test partial copy
-	var copyCount int64
+	var preCopyCount int64
+	var postCopyCount int64
 	var skippedCount int64
 	opts := oras.CopyGraphOptions{
-		CopyNode: func(ctx context.Context, src, dst content.Storage, desc ocispec.Descriptor) error {
-			atomic.AddInt64(&copyCount, 1)
-			return oras.CopyNode(ctx, src, dst, desc)
+		PreCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
+			atomic.AddInt64(&preCopyCount, 1)
+			return nil
 		},
-		CopySkipped: func(ctx context.Context, desc ocispec.Descriptor) error {
+		PostCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
+			atomic.AddInt64(&postCopyCount, 1)
+			return nil
+		},
+		OnCopySkipped: func(ctx context.Context, desc ocispec.Descriptor) error {
 			atomic.AddInt64(&skippedCount, 1)
 			return nil
 		},
@@ -650,10 +663,13 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 	}
 
 	// verify API counts
-	if got, want := copyCount, int64(3); got != want {
-		t.Errorf("count(preCopyHandler()) = %v, want %v", got, want)
+	if got, want := preCopyCount, int64(3); got != want {
+		t.Errorf("count(PreCopy()) = %v, want %v", got, want)
+	}
+	if got, want := postCopyCount, int64(3); got != want {
+		t.Errorf("count(PostCopy()) = %v, want %v", got, want)
 	}
 	if got, want := skippedCount, int64(2); got != want {
-		t.Errorf("count(skippedCopyHandler()) = %v, want %v", got, want)
+		t.Errorf("count(OnCopySkipped()) = %v, want %v", got, want)
 	}
 }

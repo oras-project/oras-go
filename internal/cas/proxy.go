@@ -31,7 +31,8 @@ import (
 // The subsequent fetch call will read from the local cache.
 type Proxy struct {
 	content.Storage
-	Cache content.Storage
+	Cache       content.Storage
+	StopCaching bool
 }
 
 // NewProxy creates a proxy for the `base` storage, using the `cache` storage as
@@ -45,6 +46,10 @@ func NewProxy(base, cache content.Storage) *Proxy {
 
 // Fetch fetches the content identified by the descriptor.
 func (p *Proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	if p.StopCaching {
+		return p.FetchCached(ctx, target)
+	}
+
 	rc, err := p.Cache.Fetch(ctx, target)
 	if err == nil {
 		return rc, nil
@@ -81,6 +86,20 @@ func (p *Proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 		Reader: io.TeeReader(rc, pw),
 		Closer: closer,
 	}, nil
+}
+
+// FetchCached fetches the content identified by the descriptor.
+// If the content is not cached, it will be fetched from the remote without
+// caching.
+func (p *Proxy) FetchCached(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	exists, err := p.Cache.Exists(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return p.Cache.Fetch(ctx, target)
+	}
+	return p.Storage.Fetch(ctx, target)
 }
 
 // Exists returns true if the described content exists.
