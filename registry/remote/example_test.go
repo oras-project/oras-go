@@ -48,7 +48,7 @@ const (
 var (
 	exampleLayerDigest    = ocidigest.FromBytes([]byte(exampleLayer)).String()
 	exampleManifestDigest = ocidigest.FromBytes([]byte(exampleManifest)).String()
-	exampleRefereceDigest = "sha256:aa477aa71f0a7f5a8339ac982d30569a4200dbef53aeae77e1df6c9999eb92be"
+	exampleRefereceDigest = "sha256:c13088aa3cf48bdb7a05b8a59e2df2af7d0c3ee26639950626269b9a1f1f04ad"
 )
 
 var host string
@@ -204,7 +204,7 @@ func ExampleRepository_Push_referenceManifest() {
 	}
 	rfedManifestContent, _ := json.Marshal(rfedManifest)
 	rfedManifestDescriptor := artifactspec.Descriptor{
-		MediaType:    ocispec.MediaTypeImageManifest,
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "referenced manifest descriptor",
 		Digest:       ocidigest.FromBytes(rfedManifestContent),
 		Size:         int64(len(rfedManifestContent)),
@@ -218,7 +218,7 @@ func ExampleRepository_Push_referenceManifest() {
 	}
 	rfingManifestContent, _ := json.Marshal(rfingManifest)
 	rfingManifestDescriptor := artifactspec.Descriptor{
-		MediaType:    ocispec.MediaTypeImageManifest,
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "referencing manifest descriptor",
 		Digest:       ocidigest.FromBytes(rfingManifestContent),
 		Size:         int64(len(rfingManifestContent)),
