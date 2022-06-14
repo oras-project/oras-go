@@ -48,6 +48,9 @@ var (
 type CopyOptions struct {
 	CopyGraphOptions
 	// MapRoot maps the resolved root node to a desired root node for copy.
+	// When MapRoot is provided, the descriptor resolved from the source
+	// reference will be passed to MapRoot, and the mapped descriptor will be
+	// used as the root node for copy.
 	MapRoot func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error)
 }
 
@@ -70,9 +73,6 @@ type CopyGraphOptions struct {
 // in the source Target to the destination Target.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
-// When MapRoot option is provided, the descriptor resolved from the source
-// reference will be passed to the MapRoot, and the mapped descriptor will
-// be used as the root node for copy.
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src Target, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
@@ -121,7 +121,7 @@ func CopyGraph(ctx context.Context, src, dst content.Storage, root ocispec.Descr
 }
 
 // copyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
-// the destination CAS.
+// the destination CAS with specified caching.
 func copyGraph(ctx context.Context, src, dst content.Storage, proxy *cas.Proxy, root ocispec.Descriptor, opts CopyGraphOptions) error {
 	// track content status
 	tracker := status.NewTracker()
@@ -255,39 +255,34 @@ func copyCachedNodeWithReference(ctx context.Context, src *cas.Proxy, dst regist
 
 // resolveRoot resolves the source reference to the root node.
 func resolveRoot(ctx context.Context, src Target, srcRef string, proxy *cas.Proxy) (ocispec.Descriptor, error) {
-	var root ocispec.Descriptor
-	var err error
-	if refFetcher, ok := src.(registry.ReferenceFetcher); ok {
-		// optimize performance for ReferenceFetcher targets
-		refProxy := &registryutil.Proxy{
-			ReferenceFetcher: refFetcher,
-			Proxy:            proxy,
-		}
-		// fetch the root node and cache it for later use
-		var rc io.ReadCloser
-		root, rc, err = refProxy.FetchReference(ctx, srcRef)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-		defer rc.Close()
-
-		// cache root if it is a non-leaf node
-		fetcher := content.FetcherFunc(func(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-			if descriptor.EqualOCI(target, root) {
-				return rc, nil
-			}
-			return nil, errors.New("fetching only root node expected")
-		})
-		_, err = content.DownEdges(ctx, fetcher, root)
-		// TODO: optimize special case where root is a leaf node (i.e. a blob)
-		//       and dst is a ReferencePusher.
-	} else {
-		root, err = src.Resolve(ctx, srcRef)
+	refFetcher, ok := src.(registry.ReferenceFetcher)
+	if !ok {
+		return src.Resolve(ctx, srcRef)
 	}
+
+	// optimize performance for ReferenceFetcher targets
+	refProxy := &registryutil.Proxy{
+		ReferenceFetcher: refFetcher,
+		Proxy:            proxy,
+	}
+	root, rc, err := refProxy.FetchReference(ctx, srcRef)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
+	defer rc.Close()
+	// cache root if it is a non-leaf node
+	fetcher := content.FetcherFunc(func(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+		if descriptor.EqualOCI(target, root) {
+			return rc, nil
+		}
+		return nil, errors.New("fetching only root node expected")
+	})
+	if _, err = content.DownEdges(ctx, fetcher, root); err != nil {
+		return ocispec.Descriptor{}, err
+	}
 
+	// TODO: optimize special case where root is a leaf node (i.e. a blob)
+	//       and dst is a ReferencePusher.
 	return root, nil
 }
 

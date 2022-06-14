@@ -78,7 +78,7 @@ func OCIToArtifact(desc ocispec.Descriptor) artifactspec.Descriptor {
 	}
 }
 
-// EqualOCI returns true if the given two OCI descriptor are equal.
+// EqualOCI returns true if two OCI descriptors point to the same content.
 func EqualOCI(a, b ocispec.Descriptor) bool {
 	return a.Digest == b.Digest && a.Size == b.Size && a.MediaType == b.MediaType
 }

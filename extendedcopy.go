@@ -125,7 +125,7 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 	var stack copyutil.Stack
 	// push the initial node to the stack, set the depth to 0
 	stack.Push(copyutil.NodeInfo{Node: node, Depth: 0})
-	for !stack.IsEmpty() {
+	for {
 		current, ok := stack.Pop()
 		if !ok {
 			// empty stack

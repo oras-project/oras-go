@@ -20,7 +20,6 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 )
 
@@ -78,14 +77,6 @@ type ReferencePusher interface {
 type ReferenceFetcher interface {
 	// FetchReference fetches the content identified by the reference.
 	FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
-}
-
-// ReferrersFetcher fetches referrers.
-type ReferrersFetcher interface {
-	// Referrers returns the manifest descriptors directly referencing the given
-	// manifest descriptor.
-	// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
-	Referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error) error
 }
 
 // Tags lists the tags available in the repository.

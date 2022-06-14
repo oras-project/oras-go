@@ -44,9 +44,6 @@ func TestRepositoryInterface(t *testing.T) {
 	if _, ok := repo.(registry.Repository); !ok {
 		t.Error("&Repository{} does not conform registry.Repository")
 	}
-	if _, ok := repo.(registry.ReferrersFetcher); !ok {
-		t.Error("&Repository{} does not conform registry.ReferrersFetcher")
-	}
 	if _, ok := repo.(oras.GraphTarget); !ok {
 		t.Error("&Repository{} does not conform oras.GraphTarget")
 	}
