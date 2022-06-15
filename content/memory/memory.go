@@ -56,7 +56,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 		return err
 	}
 
-	// index up edges.
+	// index predecessors.
 	// there is no data consistency issue as long as deletion is not implemented
 	// for the memory store.
 	return s.graph.Index(ctx, s.storage, expected)

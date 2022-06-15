@@ -50,7 +50,7 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 			return nil, err
 		}
 
-		// docker manifest and oci manifest are equivalent for down edges.
+		// docker manifest and oci manifest are equivalent for successors.
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(content, &manifest); err != nil {
 			return nil, err
@@ -62,7 +62,7 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 			return nil, err
 		}
 
-		// docker manifest list and oci index are equivalent for down edges.
+		// docker manifest list and oci index are equivalent for successors.
 		var index ocispec.Index
 		if err := json.Unmarshal(content, &index); err != nil {
 			return nil, err

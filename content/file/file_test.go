@@ -1935,7 +1935,7 @@ func TestStore_Predecessors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// verify up edges
+	// verify predecessors
 	wants := [][]ocispec.Descriptor{
 		descs[4:7],            // Blob 0
 		{descs[4], descs[6]},  // Blob 1
@@ -1954,12 +1954,12 @@ func TestStore_Predecessors(t *testing.T) {
 		nil,                   // Blob 14
 	}
 	for i, want := range wants {
-		upEdges, err := s.Predecessors(ctx, descs[i])
+		predecessors, err := s.Predecessors(ctx, descs[i])
 		if err != nil {
 			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
 		}
-		if !equalDescriptorSet(upEdges, want) {
-			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, upEdges, want)
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
 	}
 }

@@ -150,7 +150,7 @@ func copyGraph(ctx context.Context, src, dst content.Storage, proxy *cas.Proxy, 
 			return nil, graph.ErrSkipDesc
 		}
 
-		// find down edges while non-leaf nodes will be fetched and cached
+		// find successors while non-leaf nodes will be fetched and cached
 		return content.Successors(ctx, proxy, desc)
 	})
 
@@ -174,15 +174,15 @@ func copyGraph(ctx context.Context, src, dst content.Storage, proxy *cas.Proxy, 
 			return nil, copyNode(ctx, src, dst, desc, opts)
 		}
 
-		// for non-leaf nodes, wait for its down edges to complete
-		downEdges, err := content.Successors(ctx, proxy, desc)
+		// for non-leaf nodes, wait for its successors to complete
+		successors, err := content.Successors(ctx, proxy, desc)
 		if err != nil {
 			return nil, err
 		}
-		for _, node := range downEdges {
+		for _, node := range successors {
 			done, committed := tracker.TryCommit(node)
 			if committed {
-				return nil, fmt.Errorf("%s: %s: down edge not committed", desc.Digest, node.Digest)
+				return nil, fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
 			}
 			select {
 			case <-done:

@@ -715,7 +715,7 @@ func TestStore_Predecessors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// verify up edges
+	// verify predecessors
 	wants := [][]ocispec.Descriptor{
 		descs[4:7],            // Blob 0
 		{descs[4], descs[6]},  // Blob 1
@@ -734,12 +734,12 @@ func TestStore_Predecessors(t *testing.T) {
 		nil,                   // Blob 14
 	}
 	for i, want := range wants {
-		upEdges, err := s.Predecessors(ctx, descs[i])
+		predecessors, err := s.Predecessors(ctx, descs[i])
 		if err != nil {
 			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
 		}
-		if !equalDescriptorSet(upEdges, want) {
-			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, upEdges, want)
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
 	}
 }
@@ -947,7 +947,7 @@ func TestStore_ExistingStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// verify up edges
+	// verify predecessors
 	wants := [][]ocispec.Descriptor{
 		descs[4:7],                          // Blob 0
 		{descs[4], descs[6]},                // Blob 1
@@ -961,17 +961,17 @@ func TestStore_ExistingStore(t *testing.T) {
 		{descs[10]},                         // Blob 9
 		{descs[14]},                         // Blob 10
 		{artifactRootDescWithRef},           // Blob 11
-		nil,                                 // Blob 12, no upEdges
+		nil,                                 // Blob 12, no predecessors
 		{descs[14]},                         // Blob 13
 		{rootIndexDescWithRef},              // Blob 14
 	}
 	for i, want := range wants {
-		upEdges, err := anotherS.Predecessors(ctx, descs[i])
+		predecessors, err := anotherS.Predecessors(ctx, descs[i])
 		if err != nil {
 			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
 		}
-		if !equalDescriptorSet(upEdges, want) {
-			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, upEdges, want)
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
 	}
 

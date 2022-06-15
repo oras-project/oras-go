@@ -218,7 +218,7 @@ func (s *Store) loadIndex(ctx context.Context) error {
 			}
 		}
 
-		// traverse the whole DAG and index up edges for all the nodes.
+		// traverse the whole DAG and index predecessors for all the nodes.
 		if err := s.graph.IndexAll(ctx, s.storage, desc); err != nil {
 			return err
 		}
