@@ -59,15 +59,16 @@ func (p *Proxy) FetchReference(ctx context.Context, reference string) (ocispec.D
 		return ocispec.Descriptor{}, nil, err
 	}
 
+	// skip caching if the content already exists in cache
 	exists, err := p.Cache.Exists(ctx, target)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 	if exists {
-		// no need to cache
 		return target, rc, nil
 	}
 
+	// cache content while reading
 	pr, pw := io.Pipe()
 	var wg sync.WaitGroup
 	wg.Add(1)
