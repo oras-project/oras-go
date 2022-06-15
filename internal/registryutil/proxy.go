@@ -51,11 +51,21 @@ func NewProxy(base ReferenceStorage, cache content.Storage) *Proxy {
 	}
 }
 
-// FetchReference fetches the content identified by the reference.
+// FetchReference fetches the content identified by the reference from the
+// remote and cache the fetched content.
 func (p *Proxy) FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error) {
 	target, rc, err := p.ReferenceFetcher.FetchReference(ctx, reference)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
+	}
+
+	exists, err := p.Cache.Exists(ctx, target)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	if exists {
+		// no need to cache
+		return target, rc, nil
 	}
 
 	pr, pw := io.Pipe()
