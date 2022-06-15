@@ -21,15 +21,45 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
 )
+
+var (
+	// DefaultExtendedCopyOptions provides the default ExtendedCopyOptions.
+	DefaultExtendedCopyOptions = ExtendedCopyOptions{
+		ExtendedCopyGraphOptions: DefaultExtendedCopyGraphOptions,
+	}
+	// DefaultExtendedCopyGraphOptions provides the default ExtendedCopyGraphOptions.
+	DefaultExtendedCopyGraphOptions = ExtendedCopyGraphOptions{
+		CopyGraphOptions: DefaultCopyGraphOptions,
+	}
+)
+
+// ExtendedCopyOptions contains parameters for oras.ExtendedCopy.
+type ExtendedCopyOptions struct {
+	ExtendedCopyGraphOptions
+}
+
+// ExtendedCopyGraphOptions contains parameters for oras.ExtendedCopyGraph.
+type ExtendedCopyGraphOptions struct {
+	CopyGraphOptions
+	// Depth limits the maximum depth of the directed acyclic graph (DAG) that
+	// will be extended-copied.
+	// If Depth is no specified, or the specified value is less or equal than 0,
+	// the depth limit will be considered as infinity.
+	Depth int
+	// FindUpEdges finds the up edges of the current node.
+	// If FindUpEdges is not provided, a default function will be used.
+	FindUpEdges func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
+}
 
 // ExtendedCopy copies the directed acyclic graph (DAG) that are reachable from
 // the given tagged node from the source GraphTarget to the destination Target.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
 // Returns the descriptor of the tagged node on successful copy.
-func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Target, dstRef string) (ocispec.Descriptor, error) {
+func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Target, dstRef string, opts ExtendedCopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
 		return ocispec.Descriptor{}, errors.New("nil source graph target")
 	}
@@ -45,7 +75,7 @@ func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Targe
 		return ocispec.Descriptor{}, err
 	}
 
-	if err := ExtendedCopyGraph(ctx, src, dst, node); err != nil {
+	if err := ExtendedCopyGraph(ctx, src, dst, node, opts.ExtendedCopyGraphOptions); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
@@ -58,15 +88,15 @@ func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Targe
 
 // ExtendedCopyGraph copies the directed acyclic graph (DAG) that are reachable
 // from the given node from the source GraphStorage to the destination Storage.
-func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst content.Storage, node ocispec.Descriptor) error {
-	roots, err := findRoots(ctx, src, node)
+func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
+	roots, err := findRoots(ctx, src, node, opts)
 	if err != nil {
 		return err
 	}
 
 	// copy the sub-DAGs rooted by the root nodes
 	for _, root := range roots {
-		if err := CopyGraph(ctx, src, dst, root); err != nil {
+		if err := CopyGraph(ctx, src, dst, root, opts.CopyGraphOptions); err != nil {
 			return err
 		}
 	}
@@ -76,27 +106,47 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 
 // findRoots finds the root nodes reachable from the given node through a
 // depth-first search.
-func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.Descriptor) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
-	roots := make(map[descriptor.Descriptor]ocispec.Descriptor)
+func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
 	visited := make(map[descriptor.Descriptor]bool)
-	var stack []ocispec.Descriptor
+	roots := make(map[descriptor.Descriptor]ocispec.Descriptor)
+	addRoot := func(key descriptor.Descriptor, val ocispec.Descriptor) {
+		if _, exists := roots[key]; !exists {
+			roots[key] = val
+		}
+	}
 
-	// push the initial node to the stack
-	stack = append(stack, node)
-	for len(stack) > 0 {
-		// pop the current node from the stack
-		top := len(stack) - 1
-		current := stack[top]
-		stack = stack[:top]
+	// if FindUpEdges is not provided, use the default one
+	if opts.FindUpEdges == nil {
+		opts.FindUpEdges = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			return src.UpEdges(ctx, desc)
+		}
+	}
 
-		currentKey := descriptor.FromOCI(current)
+	var stack copyutil.Stack
+	// push the initial node to the stack, set the depth to 0
+	stack.Push(copyutil.NodeInfo{Node: node, Depth: 0})
+	for {
+		current, ok := stack.Pop()
+		if !ok {
+			// empty stack
+			break
+		}
+		currentNode := current.Node
+		currentKey := descriptor.FromOCI(currentNode)
+
 		if visited[currentKey] {
 			// skip the current node if it has been visited
 			continue
 		}
 		visited[currentKey] = true
 
-		upEdges, err := finder.UpEdges(ctx, current)
+		// stop finding parents if the target depth is reached
+		if opts.Depth > 0 && current.Depth == opts.Depth {
+			addRoot(currentKey, currentNode)
+			continue
+		}
+
+		upEdges, err := opts.FindUpEdges(ctx, storage, currentNode)
 		if err != nil {
 			return nil, err
 		}
@@ -104,9 +154,7 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 		// The current node has no parent node,
 		// which means it is a root node of a sub-DAG.
 		if len(upEdges) == 0 {
-			if _, exists := roots[currentKey]; !exists {
-				roots[currentKey] = current
-			}
+			addRoot(currentKey, currentNode)
 			continue
 		}
 
@@ -115,10 +163,10 @@ func findRoots(ctx context.Context, finder content.UpEdgeFinder, node ocispec.De
 		for _, upEdge := range upEdges {
 			upEdgeKey := descriptor.FromOCI(upEdge)
 			if !visited[upEdgeKey] {
-				stack = append(stack, upEdge)
+				// push the parent node with increased depth
+				stack.Push(copyutil.NodeInfo{Node: upEdge, Depth: current.Depth + 1})
 			}
 		}
 	}
-
 	return roots, nil
 }

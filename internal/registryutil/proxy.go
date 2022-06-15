@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cas
+package registryutil
 
 import (
 	"context"
@@ -22,43 +22,53 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/ioutil"
+	"oras.land/oras-go/v2/registry"
 )
 
-// Proxy is a caching proxy for the storage.
+// ReferenceStorage represents a CAS that supports registry.ReferenceFetcher.
+type ReferenceStorage interface {
+	content.Storage
+	registry.ReferenceFetcher
+}
+
+// Proxy is a caching proxy dedicated for registry.ReferenceFetcher.
 // The first fetch call of a described content will read from the remote and
 // cache the fetched content.
 // The subsequent fetch call will read from the local cache.
 type Proxy struct {
-	content.Storage
-	Cache       content.Storage
-	StopCaching bool
+	registry.ReferenceFetcher
+	*cas.Proxy
 }
 
-// NewProxy creates a proxy for the `base` storage, using the `cache` storage as
-// the cache.
-func NewProxy(base, cache content.Storage) *Proxy {
+// NewProxy creates a proxy for the `base` ReferenceStorage, using the `cache`
+// storage as the cache.
+func NewProxy(base ReferenceStorage, cache content.Storage) *Proxy {
 	return &Proxy{
-		Storage: base,
-		Cache:   cache,
+		ReferenceFetcher: base,
+		Proxy:            cas.NewProxy(base, cache),
 	}
 }
 
-// Fetch fetches the content identified by the descriptor.
-func (p *Proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	if p.StopCaching {
-		return p.FetchCached(ctx, target)
-	}
-
-	rc, err := p.Cache.Fetch(ctx, target)
-	if err == nil {
-		return rc, nil
-	}
-
-	rc, err = p.Storage.Fetch(ctx, target)
+// FetchReference fetches the content identified by the reference from the
+// remote and cache the fetched content.
+func (p *Proxy) FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error) {
+	target, rc, err := p.ReferenceFetcher.FetchReference(ctx, reference)
 	if err != nil {
-		return nil, err
+		return ocispec.Descriptor{}, nil, err
 	}
+
+	// skip caching if the content already exists in cache
+	exists, err := p.Cache.Exists(ctx, target)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	if exists {
+		return target, rc, nil
+	}
+
+	// cache content while reading
 	pr, pw := io.Pipe()
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -79,34 +89,11 @@ func (p *Proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 		return rcErr
 	})
 
-	return struct {
+	return target, struct {
 		io.Reader
 		io.Closer
 	}{
 		Reader: io.TeeReader(rc, pw),
 		Closer: closer,
 	}, nil
-}
-
-// FetchCached fetches the content identified by the descriptor.
-// If the content is not cached, it will be fetched from the remote without
-// caching.
-func (p *Proxy) FetchCached(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	exists, err := p.Cache.Exists(ctx, target)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return p.Cache.Fetch(ctx, target)
-	}
-	return p.Storage.Fetch(ctx, target)
-}
-
-// Exists returns true if the described content exists.
-func (p *Proxy) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	exists, err := p.Cache.Exists(ctx, target)
-	if err == nil && exists {
-		return true, nil
-	}
-	return p.Storage.Exists(ctx, target)
 }

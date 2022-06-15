@@ -34,6 +34,12 @@ type UpEdgeFinder interface {
 	UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
+// GraphStorage represents a CAS that supports parent node finding.
+type GraphStorage interface {
+	Storage
+	UpEdgeFinder
+}
+
 // DownEdges returns the nodes directly pointed by the current node.
 // In other words, returns the "children" of the current descriptor.
 func DownEdges(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
