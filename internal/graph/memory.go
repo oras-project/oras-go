@@ -25,13 +25,13 @@ import (
 	"oras.land/oras-go/v2/internal/status"
 )
 
-// Memory is a memory based UpEdgeFinder.
+// Memory is a memory based PredecessorFinder.
 type Memory struct {
 	upEdges sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
 	indexed sync.Map // map[descriptor.Descriptor]bool
 }
 
-// NewMemory creates a new memory UpEdgeFinder.
+// NewMemory creates a new memory PredecessorFinder.
 func NewMemory() *Memory {
 	return &Memory{}
 }
@@ -40,7 +40,7 @@ func NewMemory() *Memory {
 // There is no data consistency issue as long as deletion is not implemented
 // for the underlying storage.
 func (m *Memory) Index(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
-	downEdges, err := content.DownEdges(ctx, fetcher, node)
+	downEdges, err := content.Successors(ctx, fetcher, node)
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 			return nil, ErrSkipDesc
 		}
 
-		downEdges, err := content.DownEdges(ctx, fetcher, desc)
+		downEdges, err := content.Successors(ctx, fetcher, desc)
 		if err != nil {
 			return nil, err
 		}
@@ -88,11 +88,13 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 	return Dispatch(ctx, preHandler, postHandler, nil, node)
 }
 
-// UpEdges returns the nodes directly pointing to the current node.
-// UpEdges returns nil without error if the node does not exists in the store.
-// Like other operations, calling UpEdges() is go-routine safe. However, it does
-// not necessarily correspond to any consistent snapshot of the stored contents.
-func (m *Memory) UpEdges(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+// Predecessors returns the nodes directly pointing to the current node.
+// Predecessors returns nil without error if the node does not exists in the
+// store.
+// Like other operations, calling Predecessors() is go-routine safe. However,
+// it does not necessarily correspond to any consistent snapshot of the stored
+// contents.
+func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	key := descriptor.FromOCI(node)
 	value, exists := m.upEdges.Load(key)
 	if !exists {

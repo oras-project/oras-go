@@ -25,24 +25,24 @@ import (
 	"oras.land/oras-go/v2/internal/docker"
 )
 
-// UpEdgeFinder finds out the parent nodes of a given node of a directed acyclic
-// graph.
+// PredecessorFinder finds out the nodes directly pointing to a given node of a
+// directed acyclic graph.
 // In other words, returns the "parents" of the current descriptor.
-// UpEdgeFinder is an extension of Storage.
-type UpEdgeFinder interface {
-	// UpEdges returns the nodes directly pointing to the current node.
-	UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error)
+// PredecessorFinder is an extension of Storage.
+type PredecessorFinder interface {
+	// Predecessors returns the nodes directly pointing to the current node.
+	Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
-// GraphStorage represents a CAS that supports parent node finding.
+// GraphStorage represents a CAS that supports predecessor node finding.
 type GraphStorage interface {
 	Storage
-	UpEdgeFinder
+	PredecessorFinder
 }
 
-// DownEdges returns the nodes directly pointed by the current node.
+// Successors returns the nodes directly pointed by the current node.
 // In other words, returns the "children" of the current descriptor.
-func DownEdges(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	switch node.MediaType {
 	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
 		content, err := FetchAll(ctx, fetcher, node)

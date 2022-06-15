@@ -151,7 +151,7 @@ func copyGraph(ctx context.Context, src, dst content.Storage, proxy *cas.Proxy, 
 		}
 
 		// find down edges while non-leaf nodes will be fetched and cached
-		return content.DownEdges(ctx, proxy, desc)
+		return content.Successors(ctx, proxy, desc)
 	})
 
 	// prepare post-handler
@@ -175,7 +175,7 @@ func copyGraph(ctx context.Context, src, dst content.Storage, proxy *cas.Proxy, 
 		}
 
 		// for non-leaf nodes, wait for its down edges to complete
-		downEdges, err := content.DownEdges(ctx, proxy, desc)
+		downEdges, err := content.Successors(ctx, proxy, desc)
 		if err != nil {
 			return nil, err
 		}
@@ -277,7 +277,7 @@ func resolveRoot(ctx context.Context, src Target, srcRef string, proxy *cas.Prox
 		}
 		return nil, errors.New("fetching only root node expected")
 	})
-	if _, err = content.DownEdges(ctx, fetcher, root); err != nil {
+	if _, err = content.Successors(ctx, fetcher, root); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 

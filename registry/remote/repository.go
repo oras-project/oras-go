@@ -320,10 +320,10 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 	return parseLink(resp)
 }
 
-// UpEdges returns the manifest descriptors directly referencing the given
+// Predecessors returns the manifest descriptors directly referencing the given
 // manifest descriptor.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
-func (r *Repository) UpEdges(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	var res []ocispec.Descriptor
 	if err := r.Referrers(ctx, desc, func(referrers []artifactspec.Descriptor) error {
 		for _, referrer := range referrers {

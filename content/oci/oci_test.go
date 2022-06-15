@@ -71,8 +71,8 @@ func TestStoreInterface(t *testing.T) {
 	if _, ok := store.(oras.Target); !ok {
 		t.Error("&Store{} does not conform oras.Target")
 	}
-	if _, ok := store.(content.UpEdgeFinder); !ok {
-		t.Error("&Store{} does not conform content.UpEdgeFinder")
+	if _, ok := store.(content.PredecessorFinder); !ok {
+		t.Error("&Store{} does not conform content.PredecessorFinder")
 	}
 }
 
@@ -630,7 +630,7 @@ func TestStore_BadIndex(t *testing.T) {
 	}
 }
 
-func TestStore_UpEdges(t *testing.T) {
+func TestStore_Predecessors(t *testing.T) {
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
@@ -734,12 +734,12 @@ func TestStore_UpEdges(t *testing.T) {
 		nil,                   // Blob 14
 	}
 	for i, want := range wants {
-		upEdges, err := s.UpEdges(ctx, descs[i])
+		upEdges, err := s.Predecessors(ctx, descs[i])
 		if err != nil {
-			t.Errorf("Store.UpEdges(%d) error = %v", i, err)
+			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
 		}
 		if !equalDescriptorSet(upEdges, want) {
-			t.Errorf("Store.UpEdges(%d) = %v, want %v", i, upEdges, want)
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, upEdges, want)
 		}
 	}
 }
@@ -966,12 +966,12 @@ func TestStore_ExistingStore(t *testing.T) {
 		{rootIndexDescWithRef},              // Blob 14
 	}
 	for i, want := range wants {
-		upEdges, err := anotherS.UpEdges(ctx, descs[i])
+		upEdges, err := anotherS.Predecessors(ctx, descs[i])
 		if err != nil {
-			t.Errorf("Store.UpEdges(%d) error = %v", i, err)
+			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
 		}
 		if !equalDescriptorSet(upEdges, want) {
-			t.Errorf("Store.UpEdges(%d) = %v, want %v", i, upEdges, want)
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, upEdges, want)
 		}
 	}
 

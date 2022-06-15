@@ -49,9 +49,9 @@ type ExtendedCopyGraphOptions struct {
 	// If Depth is no specified, or the specified value is less or equal than 0,
 	// the depth limit will be considered as infinity.
 	Depth int
-	// FindUpEdges finds the up edges of the current node.
-	// If FindUpEdges is not provided, a default function will be used.
-	FindUpEdges func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
+	// FindPredecessors finds the predecessors of the current node.
+	// If FindPredecessors is not provided, a default function will be used.
+	FindPredecessors func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
 // ExtendedCopy copies the directed acyclic graph (DAG) that are reachable from
@@ -115,10 +115,10 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 		}
 	}
 
-	// if FindUpEdges is not provided, use the default one
-	if opts.FindUpEdges == nil {
-		opts.FindUpEdges = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-			return src.UpEdges(ctx, desc)
+	// if FindPredecessors is not provided, use the default one
+	if opts.FindPredecessors == nil {
+		opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			return src.Predecessors(ctx, desc)
 		}
 	}
 
@@ -146,7 +146,7 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 			continue
 		}
 
-		upEdges, err := opts.FindUpEdges(ctx, storage, currentNode)
+		upEdges, err := opts.FindPredecessors(ctx, storage, currentNode)
 		if err != nil {
 			return nil, err
 		}

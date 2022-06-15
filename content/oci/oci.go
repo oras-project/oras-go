@@ -151,10 +151,11 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 	return s.resolver.Resolve(ctx, reference)
 }
 
-// UpEdges returns the nodes directly pointing to the current node.
-// UpEdges returns nil without error if the node does not exists in the store.
-func (s *Store) UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	return s.graph.UpEdges(ctx, node)
+// Predecessors returns the nodes directly pointing to the current node.
+// Predecessors returns nil without error if the node does not exists in the
+// store.
+func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return s.graph.Predecessors(ctx, node)
 }
 
 // ensureOCILayoutFile ensures the `oci-layout` file.
