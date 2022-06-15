@@ -32,29 +32,27 @@ import (
 	"github.com/phayes/freeport"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/crypto/bcrypt"
+
 	iface "oras.land/oras-go/pkg/auth"
 )
 
-var (
-	testConfig   = "test.config"
-	testHtpasswd = "test.htpasswd"
-	testUsername = "alice"
-	testPassword = "wonderland"
+const (
+	tlsServerKey  = "./testdata/tls/server-key.pem"
+	tlsServerCert = "./testdata/tls/server-cert.pem"
+	tlsCA         = "./testdata/tls/ca-cert.pem"
+	tlsKey        = "./testdata/tls/client-key.pem"
+	tlsCert       = "./testdata/tls/client-cert.pem"
 )
 
-type DockerClientTestSuite struct {
+type DockerClientWithCATestSuite struct {
 	suite.Suite
 	DockerRegistryHost string
 	Client             *Client
 	TempTestDir        string
 }
 
-func newContext() context.Context {
-	return context.Background()
-}
-
-func (suite *DockerClientTestSuite) SetupSuite() {
-	tempDir, err := ioutil.TempDir("", "oras_auth_docker_test")
+func (suite *DockerClientWithCATestSuite) SetupSuite() {
+	tempDir, err := ioutil.TempDir("", "oras_auth_docker_test_ca")
 	suite.Nil(err, "no error creating temp directory for test")
 	suite.TempTestDir = tempDir
 
@@ -78,9 +76,24 @@ func (suite *DockerClientTestSuite) SetupSuite() {
 	port, err := freeport.GetFreePort()
 	suite.Nil(err, "no error finding free port for test registry")
 	suite.DockerRegistryHost = fmt.Sprintf("localhost:%d", port)
+
+	// HTTP config
 	config.HTTP.Addr = fmt.Sprintf(":%d", port)
 	config.HTTP.DrainTimeout = time.Duration(10) * time.Second
+
+	config.Log.Level = "debug"
+
+	// TLS config
+	// this set tlsConf.ClientAuth = tls.RequireAndVerifyClientCert in the
+	// server tls config
+	config.HTTP.TLS.Certificate = tlsServerCert
+	config.HTTP.TLS.Key = tlsServerKey
+	config.HTTP.TLS.ClientCAs = []string{tlsCA}
+
+	// Storage config
 	config.Storage = map[string]configuration.Parameters{"inmemory": map[string]interface{}{}}
+
+	// Auth config
 	config.Auth = configuration.Auth{
 		"htpasswd": configuration.Parameters{
 			"realm": "localhost",
@@ -91,7 +104,11 @@ func (suite *DockerClientTestSuite) SetupSuite() {
 	suite.Nil(err, "no error finding free port for test registry")
 
 	// Start Docker registry
-	go dockerRegistry.ListenAndServe()
+	go func() {
+		err := dockerRegistry.ListenAndServe()
+		suite.Nil(err, "no error starting docker registry with ca")
+	}()
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 	for {
@@ -107,6 +124,7 @@ func (suite *DockerClientTestSuite) SetupSuite() {
 			nil,
 		)
 		suite.Nil(err, "no error in generate a /v2/ request")
+
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			resp.Body.Close()
@@ -116,21 +134,11 @@ func (suite *DockerClientTestSuite) SetupSuite() {
 	}
 }
 
-func (suite *DockerClientTestSuite) TearDownSuite() {
+func (suite *DockerClientWithCATestSuite) TearDownSuite() {
 	os.RemoveAll(suite.TempTestDir)
 }
 
-func (suite *DockerClientTestSuite) Test_0_Login() {
-	var err error
-
-	err = suite.Client.Login(newContext(), suite.DockerRegistryHost, "oscar", "opponent", false)
-	suite.NotNil(err, "error logging into registry with invalid credentials")
-
-	err = suite.Client.Login(newContext(), suite.DockerRegistryHost, testUsername, testPassword, false)
-	suite.Nil(err, "no error logging into registry with valid credentials")
-}
-
-func (suite *DockerClientTestSuite) Test_1_LoginWithOpts() {
+func (suite *DockerClientWithCATestSuite) Test_1_LoginWithTLSOpts() {
 	var err error
 
 	opts := []iface.LoginOption{
@@ -138,6 +146,11 @@ func (suite *DockerClientTestSuite) Test_1_LoginWithOpts() {
 		iface.WithLoginHostname(suite.DockerRegistryHost),
 		iface.WithLoginUsername("oscar"),
 		iface.WithLoginSecret("opponent"),
+		iface.WithLoginTLS(
+			tlsCert,
+			tlsKey,
+			tlsCA,
+		),
 	}
 	err = suite.Client.LoginWithOpts(opts...)
 	suite.NotNil(err, "error logging into registry with invalid credentials (LoginWithOpts)")
@@ -147,12 +160,17 @@ func (suite *DockerClientTestSuite) Test_1_LoginWithOpts() {
 		iface.WithLoginHostname(suite.DockerRegistryHost),
 		iface.WithLoginUsername(testUsername),
 		iface.WithLoginSecret(testPassword),
+		iface.WithLoginTLS(
+			tlsCert,
+			tlsKey,
+			tlsCA,
+		),
 	}
 	err = suite.Client.LoginWithOpts(opts...)
 	suite.Nil(err, "no error logging into registry with valid credentials (LoginWithOpts)")
 }
 
-func (suite *DockerClientTestSuite) Test_2_Logout() {
+func (suite *DockerClientWithCATestSuite) Test_2_Logout() {
 	var err error
 
 	err = suite.Client.Logout(newContext(), "non-existing-host:42")
@@ -162,6 +180,6 @@ func (suite *DockerClientTestSuite) Test_2_Logout() {
 	suite.Nil(err, "no error logging out of registry")
 }
 
-func TestDockerClientTestSuite(t *testing.T) {
-	suite.Run(t, new(DockerClientTestSuite))
+func TestDockerClientWithCATestSuite(t *testing.T) {
+	suite.Run(t, new(DockerClientWithCATestSuite))
 }
