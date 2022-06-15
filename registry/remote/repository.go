@@ -322,6 +322,8 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 
 // Predecessors returns the manifest descriptors directly referencing the given
 // manifest descriptor.
+// Predecessors internally leverages Referrers, and converts the result artifact
+// descriptors to OCI descriptors.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	var res []ocispec.Descriptor
@@ -336,7 +338,7 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 	return res, nil
 }
 
-// Referrers returns the manifest descriptors directly referencing the given
+// Referrers lists the manifest descriptors directly referencing the given
 // manifest descriptor.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error) error {

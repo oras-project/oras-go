@@ -299,6 +299,7 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, ref string) er
 	return s.resolver.Tag(ctx, desc, ref)
 }
 
+// Predecessors returns the nodes directly pointing to the current node.
 // Predecessors returns nil without error if the node does not exists in the
 // store.
 func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {

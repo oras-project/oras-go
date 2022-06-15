@@ -85,7 +85,7 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 	return s.resolver.Tag(ctx, desc, reference)
 }
 
-// Predecessors returns the nodes directly pointing to the current node
+// Predecessors returns the nodes directly pointing to the current node.
 // Predecessors returns nil without error if the node does not exists in the
 // store.
 // Like other operations, calling Predecessors() is go-routine safe. However,
