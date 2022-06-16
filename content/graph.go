@@ -34,7 +34,7 @@ type PredecessorFinder interface {
 	Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
-// GraphStorage represents a CAS that supports predecessor node finding.
+// GraphStorage represents a CAS that supports direct predecessor node finding.
 type GraphStorage interface {
 	Storage
 	PredecessorFinder
