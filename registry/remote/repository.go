@@ -320,10 +320,12 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 	return parseLink(resp)
 }
 
-// UpEdges returns the manifest descriptors directly referencing the given
-// manifest descriptor.
+// Predecessors returns the descriptors of ORAS Artifact manifests directly
+// referencing the given manifest descriptor.
+// Predecessors internally leverages Referrers, and converts the result ORAS
+// Artifact descriptors to OCI descriptors.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
-func (r *Repository) UpEdges(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	var res []ocispec.Descriptor
 	if err := r.Referrers(ctx, desc, func(referrers []artifactspec.Descriptor) error {
 		for _, referrer := range referrers {
@@ -336,8 +338,8 @@ func (r *Repository) UpEdges(ctx context.Context, desc ocispec.Descriptor) ([]oc
 	return res, nil
 }
 
-// Referrers returns the manifest descriptors directly referencing the given
-// manifest descriptor.
+// Referrers lists the descriptors of ORAS Artifact manifests directly
+// referencing the given manifest descriptor.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error) error {
 	// TODO(shizhMSFT): filter artifact type

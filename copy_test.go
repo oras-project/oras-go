@@ -470,7 +470,7 @@ func TestCopy_WithOptions(t *testing.T) {
 	postCopyCount := int64(0)
 	opts = oras.CopyOptions{
 		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
-			manifests, err := content.DownEdges(ctx, src, root)
+			manifests, err := content.Successors(ctx, src, root)
 			if err != nil {
 				return ocispec.Descriptor{}, errdef.ErrNotFound
 			}

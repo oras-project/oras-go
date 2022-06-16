@@ -56,7 +56,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 		return err
 	}
 
-	// index up edges.
+	// index predecessors.
 	// there is no data consistency issue as long as deletion is not implemented
 	// for the memory store.
 	return s.graph.Index(ctx, s.storage, expected)
@@ -85,10 +85,12 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 	return s.resolver.Tag(ctx, desc, reference)
 }
 
-// UpEdges returns the nodes directly pointing to the current node.
-// UpEdges returns nil without error if the node does not exists in the store.
-// Like other operations, calling UpEdges() is go-routine safe. However, it does
-// not necessarily correspond to any consistent snapshot of the stored contents.
-func (s *Store) UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	return s.graph.UpEdges(ctx, node)
+// Predecessors returns the nodes directly pointing to the current node.
+// Predecessors returns nil without error if the node does not exists in the
+// store.
+// Like other operations, calling Predecessors() is go-routine safe. However,
+// it does not necessarily correspond to any consistent snapshot of the stored
+// contents.
+func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return s.graph.Predecessors(ctx, node)
 }

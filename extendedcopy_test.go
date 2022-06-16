@@ -468,7 +468,7 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
-func TestExtendedCopy_WithFindUpEdgesOption(t *testing.T) {
+func TestExtendedCopy_WithFindPredecessorsOption(t *testing.T) {
 	// generate test content
 	var blobs [][]byte
 	var descs []ocispec.Descriptor
@@ -557,17 +557,17 @@ func TestExtendedCopy_WithFindUpEdgesOption(t *testing.T) {
 	// test extended copy by descs[3] with media type filter
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{
-		FindUpEdges: func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-			upEdges, err := src.UpEdges(ctx, desc)
+		FindPredecessors: func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			predecessors, err := src.Predecessors(ctx, desc)
 			if err != nil {
 				return nil, err
 			}
 			var filtered []ocispec.Descriptor
-			for _, u := range upEdges {
+			for _, p := range predecessors {
 				// filter media type
-				switch u.MediaType {
+				switch p.MediaType {
 				case artifactspec.MediaTypeArtifactManifest:
-					filtered = append(filtered, u)
+					filtered = append(filtered, p)
 				}
 			}
 

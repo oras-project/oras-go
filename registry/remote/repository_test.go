@@ -807,7 +807,7 @@ func TestRepository_Tags(t *testing.T) {
 	}
 }
 
-func TestRepository_UpEdges(t *testing.T) {
+func TestRepository_Predecessors(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
@@ -901,9 +901,9 @@ func TestRepository_UpEdges(t *testing.T) {
 	repo.ReferrerListPageSize = 2
 
 	ctx := context.Background()
-	got, err := repo.UpEdges(ctx, manifestDesc)
+	got, err := repo.Predecessors(ctx, manifestDesc)
 	if err != nil {
-		t.Fatalf("Repository.UpEdges() error = %v", err)
+		t.Fatalf("Repository.Predecessors() error = %v", err)
 	}
 	var want []ocispec.Descriptor
 	for _, referrers := range referrerSet {
@@ -912,7 +912,7 @@ func TestRepository_UpEdges(t *testing.T) {
 		}
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Repository.UpEdges() = %v, want %v", got, want)
+		t.Errorf("Repository.Predecessors() = %v, want %v", got, want)
 	}
 }
 
