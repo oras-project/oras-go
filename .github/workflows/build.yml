@@ -23,10 +23,6 @@ jobs:
           check-latest: true
       - name: Run unit tests
         run: make test
-      - name: Run acceptance tests
-        run: |
-          export LOCAL_REGISTRY_HOSTNAME="$(hostname -I | awk '{print $1}')"
-          make acceptance
       - name: Upload coverage report
         uses: actions/upload-artifact@master
         with:
