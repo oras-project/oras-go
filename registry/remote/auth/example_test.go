@@ -12,7 +12,7 @@ limitations under the License.
 */
 // Package remote_test includes all the testable examples for remote repository type
 
-package auth
+package auth_test
 
 import (
 	"context"
@@ -24,6 +24,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 const (
@@ -111,9 +113,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// ExampleClient_Do_minimalClient gives an example of a minimal working client
+// ExampleClient_Do_minimalClient gives an example of a minimal working client.
 func ExampleClient_Do_minimalClient() {
-	var client Client
+	var client auth.Client
 	req, err := http.NewRequest(http.MethodGet, simpleDir, nil)
 	if err != nil {
 		panic(err)
@@ -126,16 +128,16 @@ func ExampleClient_Do_minimalClient() {
 		panic(resp.StatusCode)
 	}
 
-	fmt.Println("Done")
+	fmt.Println(resp.StatusCode)
 	// Output:
-	// Done
+	// 200
 }
 
-// ExampleClient_Do_basicAuth gives an example of using client with credentials
+// ExampleClient_Do_basicAuth gives an example of using client with credentials.
 func ExampleClient_Do_basicAuth() {
-	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
-			return Credential{
+	client := &auth.Client{
+		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
+			return auth.Credential{
 				Username: username,
 				Password: password,
 			}, nil
@@ -153,16 +155,16 @@ func ExampleClient_Do_basicAuth() {
 		panic(resp.StatusCode)
 	}
 
-	fmt.Println("Done")
+	fmt.Println(resp.StatusCode)
 	// Output:
-	// Done
+	// 200
 }
 
-// ExampleClient_Do_withAccessToken gives an example of using client with an access token
+// ExampleClient_Do_withAccessToken gives an example of using client with an access token.
 func ExampleClient_Do_withAccessToken() {
-	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
-			return Credential{
+	client := &auth.Client{
+		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
+			return auth.Credential{
 				AccessToken: accessToken,
 			}, nil
 		},
@@ -179,26 +181,26 @@ func ExampleClient_Do_withAccessToken() {
 		panic(resp.StatusCode)
 	}
 
-	fmt.Println("Done")
+	fmt.Println(resp.StatusCode)
 	// Output:
-	// Done
+	// 200
 }
 
 // ExampleClient_Do_clientConfiguration shows the client configurations available,
 // including using cache, setting user agent and configuring OAuth2.
 func ExampleClient_Do_clientConfiguration() {
-	client := &Client{
-		Credential: func(ctx context.Context, reg string) (Credential, error) {
-			return Credential{
+	client := &auth.Client{
+		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
+			return auth.Credential{
 				Username: username,
 				Password: password,
 			}, nil
 		},
 		ForceAttemptOAuth2: false,
-		Cache:              NewCache(),
+		Cache:              auth.NewCache(),
 	}
 	client.SetUserAgent("example user agent")
-	ctx := WithScopes(context.Background(), scopes...)
+	ctx := auth.WithScopes(context.Background(), scopes...)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigDir, nil)
 	if err != nil {
@@ -212,7 +214,7 @@ func ExampleClient_Do_clientConfiguration() {
 		panic(resp.StatusCode)
 	}
 
-	fmt.Println("Done")
+	fmt.Println(resp.StatusCode)
 	// Output:
-	// Done
+	// 200
 }
