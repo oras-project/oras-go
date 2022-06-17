@@ -49,9 +49,9 @@ type ExtendedCopyGraphOptions struct {
 	// If Depth is no specified, or the specified value is less or equal than 0,
 	// the depth limit will be considered as infinity.
 	Depth int
-	// FindUpEdges finds the up edges of the current node.
-	// If FindUpEdges is not provided, a default function will be used.
-	FindUpEdges func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
+	// FindPredecessors finds the predecessors of the current node.
+	// If FindPredecessors is not provided, a default function will be used.
+	FindPredecessors func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
 // ExtendedCopy copies the directed acyclic graph (DAG) that are reachable from
@@ -115,10 +115,10 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 		}
 	}
 
-	// if FindUpEdges is not provided, use the default one
-	if opts.FindUpEdges == nil {
-		opts.FindUpEdges = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-			return src.UpEdges(ctx, desc)
+	// if FindPredecessors is not provided, use the default one
+	if opts.FindPredecessors == nil {
+		opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			return src.Predecessors(ctx, desc)
 		}
 	}
 
@@ -140,31 +140,31 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 		}
 		visited[currentKey] = true
 
-		// stop finding parents if the target depth is reached
+		// stop finding predecessors if the target depth is reached
 		if opts.Depth > 0 && current.Depth == opts.Depth {
 			addRoot(currentKey, currentNode)
 			continue
 		}
 
-		upEdges, err := opts.FindUpEdges(ctx, storage, currentNode)
+		predecessors, err := opts.FindPredecessors(ctx, storage, currentNode)
 		if err != nil {
 			return nil, err
 		}
 
-		// The current node has no parent node,
+		// The current node has no predecessor node,
 		// which means it is a root node of a sub-DAG.
-		if len(upEdges) == 0 {
+		if len(predecessors) == 0 {
 			addRoot(currentKey, currentNode)
 			continue
 		}
 
-		// The current node has parent nodes, which means it is NOT a root node.
-		// Push the parent nodes to the stack and keep finding from there.
-		for _, upEdge := range upEdges {
-			upEdgeKey := descriptor.FromOCI(upEdge)
-			if !visited[upEdgeKey] {
-				// push the parent node with increased depth
-				stack.Push(copyutil.NodeInfo{Node: upEdge, Depth: current.Depth + 1})
+		// The current node has predecessor nodes, which means it is NOT a root node.
+		// Push the predecessor nodes to the stack and keep finding from there.
+		for _, predecessor := range predecessors {
+			predecessorKey := descriptor.FromOCI(predecessor)
+			if !visited[predecessorKey] {
+				// push the predecessor node with increased depth
+				stack.Push(copyutil.NodeInfo{Node: predecessor, Depth: current.Depth + 1})
 			}
 		}
 	}
