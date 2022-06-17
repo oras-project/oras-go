@@ -18,6 +18,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +38,7 @@ import (
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 func TestRepositoryInterface(t *testing.T) {
@@ -2202,4 +2204,53 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
 		t.Errorf("Manifests.FetchReference() = %v, want %v", got, manifest)
 	}
+}
+
+func Test_BlobStore_Push_Fetch_Iss177(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	repo, err := NewRepository("localhost:443/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = false
+	repo.Client = &auth.Client{
+		Client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
+		Credential: func(ctx context.Context, registry string) (auth.Credential, error) {
+			if registry == "localhost:443" {
+				return auth.Credential{
+					Username: "testuser",
+					Password: "testpassword",
+				}, nil
+			} else {
+				return auth.EmptyCredential, nil
+			}
+		},
+		Cache: auth.NewCache(),
+	}
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("Blobs.Push() error = %v", err)
+	}
+
+	rc, err := store.Fetch(ctx, blobDesc)
+	if err != nil {
+		t.Fatalf("Blobs.Fetch() error = %v", err)
+	}
+	pulledBlob, _ := io.ReadAll(rc)
+	fmt.Println(string(pulledBlob))
 }
