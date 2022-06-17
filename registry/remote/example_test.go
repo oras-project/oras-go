@@ -185,8 +185,8 @@ func ExampleRepository_Push() {
 	// Push finished
 }
 
-// ExampleRepository_Push_referenceManifest gives an example snippet for pushing a reference manifest.
-func ExampleRepository_Push_referenceManifest() {
+// ExampleRepository_Push_artifactReferenceManifest gives an example snippet for pushing a reference manifest.
+func ExampleRepository_Push_artifactReferenceManifest() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
 		panic(err)
@@ -198,34 +198,34 @@ func ExampleRepository_Push_referenceManifest() {
 	}
 
 	// 1. assemble the referenced manifest
-	rfedManifest := artifactspec.Manifest{
+	refereeManifest := artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "referenced manifest",
 	}
-	rfedManifestContent, _ := json.Marshal(rfedManifest)
-	rfedManifestDescriptor := artifactspec.Descriptor{
+	refereeManifestContent, _ := json.Marshal(refereeManifest)
+	refereeManifestDescriptor := artifactspec.Descriptor{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "referenced manifest descriptor",
-		Digest:       ocidigest.FromBytes(rfedManifestContent),
-		Size:         int64(len(rfedManifestContent)),
+		Digest:       ocidigest.FromBytes(refereeManifestContent),
+		Size:         int64(len(refereeManifestContent)),
 	}
 
 	// 2. assemble the referencing artifact manifest
-	rfingManifest := artifactspec.Manifest{
+	referrerManifest := artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "referencing manifest",
-		Subject:      rfedManifestDescriptor,
+		Subject:      refereeManifestDescriptor,
 	}
-	rfingManifestContent, _ := json.Marshal(rfingManifest)
-	rfingManifestDescriptor := artifactspec.Descriptor{
+	referrerManifestContent, _ := json.Marshal(referrerManifest)
+	referrerManifestDescriptor := artifactspec.Descriptor{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "referencing manifest descriptor",
-		Digest:       ocidigest.FromBytes(rfingManifestContent),
-		Size:         int64(len(rfingManifestContent)),
+		Digest:       ocidigest.FromBytes(referrerManifestContent),
+		Size:         int64(len(referrerManifestContent)),
 	}
 
 	// 3. push the manifest descriptor and content
-	err = repo.Push(ctx, descriptor.ArtifactToOCI(rfingManifestDescriptor), bytes.NewReader(rfingManifestContent))
+	err = repo.Push(ctx, descriptor.ArtifactToOCI(referrerManifestDescriptor), bytes.NewReader(referrerManifestContent))
 	if err != nil {
 		panic(err)
 	}
