@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2206,16 +2207,56 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	}
 }
 
-// Testing fix of Issue 177 with dummy client credential
-func Test_BlobStore_Push_Fetch_Iss177(t *testing.T) {
+func Test_BlobStore_Push_Port443(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
 		MediaType: "test",
 		Digest:    digest.FromBytes(blob),
 		Size:      int64(len(blob)),
 	}
+	l, err := net.Listen("tcp", "127.0.0.1:443")
+	if err != nil {
+		t.Fatalf("invalid net listener: %v", err)
+	}
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+			w.Header().Set("Location", "/v2/test/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/blobs/uploads/"+uuid:
+			if contentType := r.Header.Get("Content-Type"); contentType != "application/octet-stream" {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			if contentDigest := r.URL.Query().Get("digest"); contentDigest != blobDesc.Digest.String() {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	ts.Listener.Close()
+	ts.Listener = l
+	ts.StartTLS()
+	defer ts.Close()
 
-	repo, err := NewRepository("localhost:443/test")
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
@@ -2228,16 +2269,6 @@ func Test_BlobStore_Push_Fetch_Iss177(t *testing.T) {
 				},
 			},
 		},
-		Credential: func(ctx context.Context, registry string) (auth.Credential, error) {
-			if registry == "localhost:443" {
-				return auth.Credential{
-					Username: "testuser",
-					Password: "testpassword",
-				}, nil
-			} else {
-				return auth.EmptyCredential, nil
-			}
-		},
 		Cache: auth.NewCache(),
 	}
 	store := repo.Blobs()
@@ -2247,11 +2278,4 @@ func Test_BlobStore_Push_Fetch_Iss177(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Blobs.Push() error = %v", err)
 	}
-
-	rc, err := store.Fetch(ctx, blobDesc)
-	if err != nil {
-		t.Fatalf("Blobs.Fetch() error = %v", err)
-	}
-	pulledBlob, _ := io.ReadAll(rc)
-	fmt.Println(string(pulledBlob))
 }
