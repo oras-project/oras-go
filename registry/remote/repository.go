@@ -506,6 +506,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	if err != nil {
 		return err
 	}
+	hs := strings.Split(req.URL.Host, ":")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -522,6 +523,10 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	location, err := resp.Location()
 	if err != nil {
 		return err
+	}
+	// work-around solution for https://github.com/oras-project/oras-go/issues/177
+	if len(hs) == 2 && hs[1] == "443" {
+		location.Host = strings.Join(hs, ":")
 	}
 	url = location.String()
 	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, content)
