@@ -33,7 +33,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -223,8 +222,15 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 		Size:         int64(len(referrerManifestContent)),
 	}
 
-	// 3. push the manifest descriptor and content
-	err = repo.Push(ctx, descriptor.ArtifactToOCI(referrerManifestDescriptor), bytes.NewReader(referrerManifestContent))
+	// 3. convert the artifactspec.Descriptor to ocispec.Descriptor for push
+	referrerManifestOCIDesc := ocispec.Descriptor{
+		MediaType: referrerManifestDescriptor.MediaType,
+		Digest:    referrerManifestDescriptor.Digest,
+		Size:      referrerManifestDescriptor.Size,
+	}
+
+	// 4. push the manifest descriptor and content
+	err = repo.Push(ctx, referrerManifestOCIDesc, bytes.NewReader(referrerManifestContent))
 	if err != nil {
 		panic(err)
 	}
