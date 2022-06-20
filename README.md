@@ -36,9 +36,9 @@ changes are expected to occur regularly to meet new requirements.
 Any backward-incompatible changes will follow our [versioning policy](#versioning) and be reserved for the next major version of the library (`2`), which users may opt into.
 
 Examples for common use cases can be found below:
-- [Copy examples](https://github.com/oras-project/oras-go/blob/main/example_test.go)
-- [Registry interaction examples](https://github.com/oras-project/oras-go/blob/main/registry/example_test.go)
-- [Repository interaction examples](https://github.com/oras-project/oras-go/blob/main/registry/remote/repository_test.go)
+- [Copy examples](https://pkg.go.dev/oras.land/oras-go/v2#pkg-examples)
+- [Registry interaction examples](https://pkg.go.dev/oras.land/oras-go/v2/registry#pkg-examples)
+- [Repository interaction examples](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#pkg-examples)
 
 If you are seeking new features over stability, you should use the
 `main` branch (or a specific commit hash) when including the ORAS
