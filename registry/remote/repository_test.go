@@ -2206,6 +2206,7 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	}
 }
 
+// Test for issue 177 with dummy credential
 func Test_BlobStore_Push_Fetch_Iss177(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{

@@ -506,7 +506,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	if err != nil {
 		return err
 	}
-	hs := strings.Split(req.URL.Host, ":")
+	hs := strings.Split(req.URL.Host, ":") // host slice
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -528,6 +528,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	if len(hs) == 2 && hs[1] == "443" {
 		location.Host = strings.Join(hs, ":")
 	}
+
 	url = location.String()
 	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, content)
 	if err != nil {
