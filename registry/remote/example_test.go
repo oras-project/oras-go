@@ -48,7 +48,7 @@ const (
 var (
 	exampleLayerDigest    = ocidigest.FromBytes([]byte(exampleLayer)).String()
 	exampleManifestDigest = ocidigest.FromBytes([]byte(exampleManifest)).String()
-	exampleRefereceDigest = "sha256:c13088aa3cf48bdb7a05b8a59e2df2af7d0c3ee26639950626269b9a1f1f04ad"
+	exampleRefereceDigest = "sha256:ab78a0beac5bc230944b06c3a3932081423d1e8aabd798952ea715c96a37a5ed"
 )
 
 var host string
@@ -198,14 +198,13 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	}
 
 	// 1. assemble the referenced manifest
-	refereeManifest := artifactspec.Manifest{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
-		ArtifactType: "referenced manifest",
+	refereeManifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
 	}
 	refereeManifestContent, _ := json.Marshal(refereeManifest)
 	refereeManifestDescriptor := artifactspec.Descriptor{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
-		ArtifactType: "referenced manifest descriptor",
+		MediaType:    ocispec.MediaTypeImageManifest,
+		ArtifactType: "image manifest descriptor",
 		Digest:       ocidigest.FromBytes(refereeManifestContent),
 		Size:         int64(len(refereeManifestContent)),
 	}
@@ -213,13 +212,13 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	// 2. assemble the referencing artifact manifest
 	referrerManifest := artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
-		ArtifactType: "referencing manifest",
+		ArtifactType: "sbom/example",
 		Subject:      refereeManifestDescriptor,
 	}
 	referrerManifestContent, _ := json.Marshal(referrerManifest)
 	referrerManifestDescriptor := artifactspec.Descriptor{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
-		ArtifactType: "referencing manifest descriptor",
+		ArtifactType: "sbom manifest descriptor",
 		Digest:       ocidigest.FromBytes(referrerManifestContent),
 		Size:         int64(len(referrerManifestContent)),
 	}
