@@ -2106,7 +2106,7 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = false
+	repo.PlainHTTP = true
 	store := repo.Manifests()
 	ctx := context.Background()
 
