@@ -47,7 +47,7 @@ const (
 var (
 	exampleLayerDigest    = ocidigest.FromBytes([]byte(exampleLayer)).String()
 	exampleManifestDigest = ocidigest.FromBytes([]byte(exampleManifest)).String()
-	exampleRefereceDigest = "sha256:ab78a0beac5bc230944b06c3a3932081423d1e8aabd798952ea715c96a37a5ed"
+	exampleRefereceDigest = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
 )
 
 var host string
@@ -197,40 +197,31 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	}
 
 	// 1. assemble the referenced manifest
-	refereeManifest := ocispec.Manifest{
+	manifest := ocispec.Manifest{
 		MediaType: ocispec.MediaTypeImageManifest,
 	}
-	refereeManifestContent, _ := json.Marshal(refereeManifest)
-	refereeManifestDescriptor := artifactspec.Descriptor{
-		MediaType:    ocispec.MediaTypeImageManifest,
-		ArtifactType: "image manifest descriptor",
-		Digest:       ocidigest.FromBytes(refereeManifestContent),
-		Size:         int64(len(refereeManifestContent)),
+	manifestContent, _ := json.Marshal(manifest)
+	manifestDescriptor := artifactspec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    ocidigest.FromBytes(manifestContent),
+		Size:      int64(len(manifestContent)),
 	}
 
 	// 2. assemble the referencing artifact manifest
-	referrerManifest := artifactspec.Manifest{
+	referenceManifest := artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "sbom/example",
-		Subject:      refereeManifestDescriptor,
+		Subject:      manifestDescriptor,
 	}
-	referrerManifestContent, _ := json.Marshal(referrerManifest)
-	referrerManifestDescriptor := artifactspec.Descriptor{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
-		ArtifactType: "sbom manifest descriptor",
-		Digest:       ocidigest.FromBytes(referrerManifestContent),
-		Size:         int64(len(referrerManifestContent)),
-	}
-
-	// 3. convert the artifactspec.Descriptor to ocispec.Descriptor for push
-	referrerManifestOCIDesc := ocispec.Descriptor{
-		MediaType: referrerManifestDescriptor.MediaType,
-		Digest:    referrerManifestDescriptor.Digest,
-		Size:      referrerManifestDescriptor.Size,
+	referenceManifestContent, _ := json.Marshal(referenceManifest)
+	referenceManifestDescriptor := ocispec.Descriptor{
+		MediaType: artifactspec.MediaTypeArtifactManifest,
+		Digest:    ocidigest.FromBytes(referenceManifestContent),
+		Size:      int64(len(referenceManifestContent)),
 	}
 
-	// 4. push the manifest descriptor and content
-	err = repo.Push(ctx, referrerManifestOCIDesc, bytes.NewReader(referrerManifestContent))
+	// 3. push the manifest descriptor and content
+	err = repo.Push(ctx, referenceManifestDescriptor, bytes.NewReader(referenceManifestContent))
 	if err != nil {
 		panic(err)
 	}
