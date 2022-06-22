@@ -6,7 +6,8 @@ ORAS Go v2 completely re-implements the whole library, in order to make it:
 - Well tested
 - Well documented
 
-As a result, most APIs are re-designed in v2. The detailed documentation and examples can be found in the [GoDoc](https://pkg.go.dev/oras.land/oras-go/v2).
+As a result, most APIs are re-designed in v2.
+Documentation and examples can be found on [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
 
 ### Migrating from v1 to v2
 Starting from v2, the import path will be:
@@ -14,7 +15,7 @@ Starting from v2, the import path will be:
 "oras.land/oras-go/v2"
 ```
 
-Basically, you would need to run:
+Basically, you would run:
 
 ```
 go get oras.land/oras-go/v2
