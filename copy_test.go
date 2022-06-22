@@ -605,15 +605,30 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 
 	// initial copy
 	root := descs[3]
-	if err := oras.CopyGraph(ctx, src, dst, root, oras.DefaultCopyGraphOptions); err != nil {
+	opts := oras.DefaultCopyGraphOptions
+	opts.FindSuccessors = func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		successors, err := content.Successors(ctx, fetcher, desc)
+		if err != nil {
+			return nil, err
+		}
+		// filter media type
+		var filtered []ocispec.Descriptor
+		for _, s := range successors {
+			if s.MediaType != ocispec.MediaTypeImageConfig {
+				filtered = append(filtered, s)
+			}
+		}
+		return filtered, nil
+	}
+	if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// verify contents
 	contents := dst.Map()
-	if got, want := len(contents), len(blobs[:4]); got != want {
+	if got, want := len(contents), len(blobs[1:4]); got != want {
 		t.Fatalf("len(dst) = %v, wantErr %v", got, want)
 	}
-	for i := range blobs[:4] {
+	for i := 1; i < 4; i++ {
 		got, err := content.FetchAll(ctx, dst, descs[i])
 		if err != nil {
 			t.Fatalf("content[%d] error = %v, wantErr %v", i, err, false)
@@ -627,7 +642,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 	var preCopyCount int64
 	var postCopyCount int64
 	var skippedCount int64
-	opts := oras.CopyGraphOptions{
+	opts = oras.CopyGraphOptions{
 		PreCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
 			atomic.AddInt64(&preCopyCount, 1)
 			return nil
@@ -663,13 +678,13 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 	}
 
 	// verify API counts
-	if got, want := preCopyCount, int64(3); got != want {
+	if got, want := preCopyCount, int64(4); got != want {
 		t.Errorf("count(PreCopy()) = %v, want %v", got, want)
 	}
-	if got, want := postCopyCount, int64(3); got != want {
+	if got, want := postCopyCount, int64(4); got != want {
 		t.Errorf("count(PostCopy()) = %v, want %v", got, want)
 	}
-	if got, want := skippedCount, int64(2); got != want {
+	if got, want := skippedCount, int64(1); got != want {
 		t.Errorf("count(OnCopySkipped()) = %v, want %v", got, want)
 	}
 }
