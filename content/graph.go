@@ -83,3 +83,15 @@ func DownEdges(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([
 	}
 	return nil, nil
 }
+
+// IsManifest return whether the provided node is a supported manifest type.
+func IsManifest(node ocispec.Descriptor) bool {
+	switch node.MediaType {
+	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
+	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
+	case artifactspec.MediaTypeArtifactManifest:
+		return true
+	}
+	return false
+
+}
