@@ -1,17 +1,18 @@
 # Migration Guide
 
-ORAS Go v2 completely re-implements the whole library, in order to make it:
+ORAS Go library has been completely rewritten and has become:
 
-- Simpler to use
-- Easier to maintain
-- Well tested
-- Well documented
+- simpler to use
+- easier to maintain
+- well tested
+- well documented
 
-As a result, most APIs are re-designed in v2. Please see [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2) for the documentation and examples.
+As there are breaking changes of APIs, the version `v2` is introduced.
+Documentation and examples of the `v2` APIs can be found at [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
 
-## Migrating from v1 to v2
+## Migrating to `v2`
 
-Starting from v2, the import path will be:
+The import path of `v2` is:
 ```
 "oras.land/oras-go/v2"
 ```
@@ -23,7 +24,7 @@ go get oras.land/oras-go/v2
 go mod tidy
 ```
 
-## Major Changes in v2
+## Major Changes in `v2`
 
 - `content.FileStore` now becomes [file.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/file#Store)
 - `content.OCIStore` now becomes [oci.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/oci#Store)
