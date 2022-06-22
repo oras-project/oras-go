@@ -26,10 +26,10 @@ import (
 
 // Dispatch traverses a graph concurrently. To maximize the concurrency, the
 // resulted search is neither depth-first nor breadth-first. For a rooted DAG,
-// the root node is always traversed first and then its down edges.
+// the root node is always traversed first and then its successors.
 // On visiting a node,
-// - `preHandler` is called before traversing the down edges.
-// - `postHandler` is called after traversing the down edges.
+// - `preHandler` is called before traversing the successors.
+// - `postHandler` is called after traversing the successors.
 // An optional concurrency limiter can be passed in to control the concurrency
 // level.
 // A handler may return `ErrSkipDesc` to signal not traversing descendants.
@@ -76,7 +76,7 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 					}
 				}()
 
-				// handle down edges
+				// handle successors
 				if len(nodes) > 0 {
 					endLimitRegion(ctx, limiter)
 					shouldEndLimitRegion = false

@@ -25,18 +25,24 @@ import (
 	"oras.land/oras-go/v2/internal/docker"
 )
 
-// UpEdgeFinder finds out the parent nodes of a given node of a directed acyclic
-// graph.
+// PredecessorFinder finds out the nodes directly pointing to a given node of a
+// directed acyclic graph.
 // In other words, returns the "parents" of the current descriptor.
-// UpEdgeFinder is an extension of Storage.
-type UpEdgeFinder interface {
-	// UpEdges returns the nodes directly pointing to the current node.
-	UpEdges(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error)
+// PredecessorFinder is an extension of Storage.
+type PredecessorFinder interface {
+	// Predecessors returns the nodes directly pointing to the current node.
+	Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
-// DownEdges returns the nodes directly pointed by the current node.
+// GraphStorage represents a CAS that supports direct predecessor node finding.
+type GraphStorage interface {
+	Storage
+	PredecessorFinder
+}
+
+// Successors returns the nodes directly pointed by the current node.
 // In other words, returns the "children" of the current descriptor.
-func DownEdges(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	switch node.MediaType {
 	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
 		content, err := FetchAll(ctx, fetcher, node)
@@ -44,7 +50,7 @@ func DownEdges(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([
 			return nil, err
 		}
 
-		// docker manifest and oci manifest are equivalent for down edges.
+		// docker manifest and oci manifest are equivalent for successors.
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(content, &manifest); err != nil {
 			return nil, err
@@ -56,7 +62,7 @@ func DownEdges(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([
 			return nil, err
 		}
 
-		// docker manifest list and oci index are equivalent for down edges.
+		// docker manifest list and oci index are equivalent for successors.
 		var index ocispec.Index
 		if err := json.Unmarshal(content, &index); err != nil {
 			return nil, err

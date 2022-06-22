@@ -49,12 +49,6 @@ type Storage interface {
 	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
 }
 
-// GraphStorage represents a CAS that supports parent node finding.
-type GraphStorage interface {
-	Storage
-	UpEdgeFinder
-}
-
 // Deleter removes content.
 // Deleter is an extension of Storage.
 type Deleter interface {
@@ -71,4 +65,12 @@ func FetchAll(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) ([]
 	}
 	defer rc.Close()
 	return ioutil.ReadAll(rc, desc)
+}
+
+// FetcherFunc is the basic Fetch method defined in Fetcher.
+type FetcherFunc func(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error)
+
+// Fetch performs Fetch operation by the FetcherFunc.
+func (fn FetcherFunc) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	return fn(ctx, target)
 }
