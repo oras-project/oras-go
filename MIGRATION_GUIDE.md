@@ -23,8 +23,8 @@ go get oras.land/oras-go/v2
 go mod tidy
 ```
 
-Since breaking changes are introduced in `v2`, code refactoring is required for migrating from `v1` to `v2`.  
-However, you can still keep `v1` while using `v2`.
+Since breaking changes are introduced in `v2`, code refactoring is required for migrating from `v1` to `v2`.
+The migration can be done in an iterative fashion, as `v1` and `v2` can be imported and used at the same time.
 
 ## Major Changes in `v2`
 
