@@ -350,7 +350,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	var err error
 
 	url, err = r.referrers(ctx, desc, fn, url)
-	// Fallback to v1 url
+	// Fallback to legacy url
 	if errors.Is(err, errdef.ErrNotFound) {
 		url = buildArtifactReferrerURLLegacy(r.PlainHTTP, ref)
 		err = nil

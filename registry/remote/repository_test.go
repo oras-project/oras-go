@@ -876,7 +876,7 @@ func TestRepository_Predecessors(t *testing.T) {
 			referrers = referrerSet[2]
 		default:
 			if q.Get("digest") != manifestDesc.Digest.String() {
-				t.Errorf("digest not provided: %s %q", r.Method, r.URL)
+				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -990,7 +990,7 @@ func TestRepository_Referrers(t *testing.T) {
 			referrers = referrerSet[2]
 		default:
 			if q.Get("digest") != manifestDesc.Digest.String() {
-				t.Errorf("digest not provided: %s %q", r.Method, r.URL)
+				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
