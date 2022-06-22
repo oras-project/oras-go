@@ -348,6 +348,14 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildArtifactReferrerURL(r.PlainHTTP, ref)
 	var err error
+
+	url, err = r.referrers(ctx, desc, fn, url)
+	// Fallback to v1 url
+	if errors.Is(err, errdef.ErrNotFound) {
+		url = buildArtifactReferrerURLLegacy(r.PlainHTTP, ref)
+		err = nil
+	}
+
 	for err == nil {
 		url, err = r.referrers(ctx, desc, fn, url)
 	}
@@ -376,6 +384,9 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return "", errdef.ErrNotFound
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
 	}

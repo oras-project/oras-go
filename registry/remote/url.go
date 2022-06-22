@@ -86,13 +86,25 @@ func buildRepositoryBlobUploadURL(plainHTTP bool, ref registry.Reference) string
 	return buildRepositoryBaseURL(plainHTTP, ref) + "/blobs/uploads/"
 }
 
-// buildArtifactReferrerURL builds the URL for accessing the manifest referrers
-// API.
+// Builds the URL for accessing the manifest referrers API in artifact spec v1.0.0-draft.1.
 // Format: <scheme>://<registry>/oras/artifacts/v1/<repository>/manifests/<digest>/referrers
-// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
-func buildArtifactReferrerURL(plainHTTP bool, ref registry.Reference) string {
+// Reference: https://github.com/oras-project/artifacts-spec/blob/v1.0.0-draft.1/manifest-referrers-api.md
+func buildArtifactReferrerURLLegacy(plainHTTP bool, ref registry.Reference) string {
 	return fmt.Sprintf(
 		"%s://%s/oras/artifacts/v1/%s/manifests/%s/referrers",
+		buildScheme(plainHTTP),
+		ref.Host(),
+		ref.Repository,
+		ref.Reference,
+	)
+}
+
+// Builds the URL for accessing the manifest referrers API in artifact spec v1.0.0-rc.1.
+// Format: <scheme>://<registry>/v2/<repository>/_oras/artifacts/referrers?digest=<digest>
+// Reference: https://github.com/oras-project/artifacts-spec/blob/v1.0.0-rc.1/manifest-referrers-api.md
+func buildArtifactReferrerURL(plainHTTP bool, ref registry.Reference) string {
+	return fmt.Sprintf(
+		"%s://%s/v2/%s/_oras/artifacts/referrers?digest=%s",
 		buildScheme(plainHTTP),
 		ref.Host(),
 		ref.Repository,

@@ -854,7 +854,7 @@ func TestRepository_Predecessors(t *testing.T) {
 	}
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := "/oras/artifacts/v1/test/manifests/" + manifestDesc.Digest.String() + "/referrers"
+		path := "/v2/test/_oras/artifacts/referrers"
 		if r.Method != http.MethodGet || r.URL.Path != path {
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -875,6 +875,11 @@ func TestRepository_Predecessors(t *testing.T) {
 		case "bar":
 			referrers = referrerSet[2]
 		default:
+			if q.Get("digest") != manifestDesc.Digest.String() {
+				t.Errorf("digest not provided: %s %q", r.Method, r.URL)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
 			referrers = referrerSet[0]
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
@@ -963,9 +968,123 @@ func TestRepository_Referrers(t *testing.T) {
 	}
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/_oras/artifacts/referrers"
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 2 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var referrers []artifactspec.Descriptor
+		switch q.Get("test") {
+		case "foo":
+			referrers = referrerSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?n=2&test=bar>; rel="next"`, ts.URL, path))
+		case "bar":
+			referrers = referrerSet[2]
+		default:
+			if q.Get("digest") != manifestDesc.Digest.String() {
+				t.Errorf("digest not provided: %s %q", r.Method, r.URL)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			referrers = referrerSet[0]
+			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
+		}
+		result := struct {
+			References []artifactspec.Descriptor `json:"references"`
+		}{
+			References: referrers,
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListPageSize = 2
+
+	ctx := context.Background()
+	index := 0
+	if err := repo.Referrers(ctx, manifestDesc, func(got []artifactspec.Descriptor) error {
+		if index >= len(referrerSet) {
+			t.Fatalf("out of index bound: %d", index)
+		}
+		referrers := referrerSet[index]
+		index++
+		if !reflect.DeepEqual(got, referrers) {
+			t.Errorf("Repository.Referrers() = %v, want %v", got, referrers)
+		}
+		return nil
+	}); err != nil {
+		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+}
+
+func TestRepository_Referrers_Fallback(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	referrerSet := [][]artifactspec.Descriptor{
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         1,
+				Digest:       digest.FromString("1"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         2,
+				Digest:       digest.FromString("2"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         3,
+				Digest:       digest.FromString("3"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         4,
+				Digest:       digest.FromString("4"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         5,
+				Digest:       digest.FromString("5"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+	}
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := "/oras/artifacts/v1/test/manifests/" + manifestDesc.Digest.String() + "/referrers"
 		if r.Method != http.MethodGet || r.URL.Path != path {
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -1012,7 +1131,7 @@ func TestRepository_Referrers(t *testing.T) {
 	ctx := context.Background()
 	index := 0
 	if err := repo.Referrers(ctx, manifestDesc, func(got []artifactspec.Descriptor) error {
-		if index > 2 {
+		if index >= len(referrerSet) {
 			t.Fatalf("out of index bound: %d", index)
 		}
 		referrers := referrerSet[index]
