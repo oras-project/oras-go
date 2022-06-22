@@ -9,8 +9,7 @@ In version `v2`, ORAS Go library has been completely rewritten with:
 
 Documentation and examples can be found at [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
 
-
-## Migrating to `v2`
+## Migrating from `v1` to `v2`
 
 The import path of `v2` is:
 ```
@@ -24,7 +23,8 @@ go get oras.land/oras-go/v2
 go mod tidy
 ```
 
-Since breaking changes of APIs are introduced in `v2`, code refactoring is required for migration.  
+Since breaking changes are introduced in `v2`, code refactoring is required for migrating from `v1` to `v2`.  
+However, you can still keep `v1` while using `v2`.
 
 ## Major Changes in `v2`
 
