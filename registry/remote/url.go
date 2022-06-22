@@ -17,6 +17,7 @@ package remote
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"oras.land/oras-go/v2/registry"
@@ -87,25 +88,39 @@ func buildRepositoryBlobUploadURL(plainHTTP bool, ref registry.Reference) string
 }
 
 // buildArtifactReferrerURLLegacy builds the URL for accessing the manifest referrers API in artifact spec v1.0.0-draft.1.
-// Format: <scheme>://<registry>/oras/artifacts/v1/<repository>/manifests/<digest>/referrers
+// Format: <scheme>://<registry>/oras/artifacts/v1/<repository>/manifests/<digest>/referrers?artifactType=<artifactType>
 // Reference: https://github.com/oras-project/artifacts-spec/blob/v1.0.0-draft.1/manifest-referrers-api.md
-func buildArtifactReferrerURLLegacy(plainHTTP bool, ref registry.Reference) string {
+func buildArtifactReferrerURLLegacy(plainHTTP bool, ref registry.Reference, artifactType string) string {
+	var query string
+	if artifactType != "" {
+		v := url.Values{}
+		v.Set("artifactType", artifactType)
+		query = "?" + v.Encode()
+	}
+
 	return fmt.Sprintf(
-		"%s://%s/oras/artifacts/v1/%s/manifests/%s/referrers",
+		"%s://%s/oras/artifacts/v1/%s/manifests/%s/referrers%s",
 		buildScheme(plainHTTP),
 		ref.Host(),
 		ref.Repository,
 		ref.Reference,
+		query,
 	)
 }
 
 // buildArtifactReferrerURL builds the URL for accessing the manifest referrers API in artifact spec v1.0.0-rc.1.
-// Format: <scheme>://<registry>/v2/<repository>/_oras/artifacts/referrers?digest=<digest>
+// Format: <scheme>://<registry>/v2/<repository>/_oras/artifacts/referrers?digest=<digest>&artifactType=<artifactType>
 // Reference: https://github.com/oras-project/artifacts-spec/blob/v1.0.0-rc.1/manifest-referrers-api.md
-func buildArtifactReferrerURL(plainHTTP bool, ref registry.Reference) string {
+func buildArtifactReferrerURL(plainHTTP bool, ref registry.Reference, artifactType string) string {
+	v := url.Values{}
+	v.Set("digest", ref.Reference)
+	if artifactType != "" {
+		v.Set("artifactType", artifactType)
+	}
+
 	return fmt.Sprintf(
-		"%s/_oras/artifacts/referrers?digest=%s",
+		"%s/_oras/artifacts/referrers?%s",
 		buildRepositoryBaseURL(plainHTTP, ref),
-		ref.Reference,
+		v.Encode(),
 	)
 }
