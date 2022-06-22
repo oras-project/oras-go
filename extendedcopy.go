@@ -50,7 +50,7 @@ type ExtendedCopyGraphOptions struct {
 	// the depth limit will be considered as infinity.
 	Depth int
 	// FindPredecessors finds the predecessors of the current node.
-	// If FindPredecessors is not provided, a default function will be used.
+	// If FindPredecessors is nil, src.Predecessors will be adapted and used.
 	FindPredecessors func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 

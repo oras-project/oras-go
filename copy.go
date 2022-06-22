@@ -68,7 +68,11 @@ type CopyGraphOptions struct {
 	// is skipped.
 	OnCopySkipped func(ctx context.Context, desc ocispec.Descriptor) error
 	// FindSuccessors finds the successors of the current node.
-	// If FindSuccessors is not provided, a default function will be used.
+	// fetcher provides cached access to the source storage, and is suitable
+	// for fetching non-leaf nodes like manifests. Since anything fetched from
+	// fetcher will be cached in the memory, it is recommended to use original
+	// source storage to fetch large blobs.
+	// If FindSuccessors is nil, content.Successors will be used.
 	FindSuccessors func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
