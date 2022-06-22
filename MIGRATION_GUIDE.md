@@ -1,14 +1,14 @@
 # Migration Guide
 
-ORAS Go library has been completely rewritten and has become:
+In version `v2`, ORAS Go library has been completely rewritten with:
 
-- simpler to use
-- easier to maintain
-- well tested
-- well documented
+- More unified interfaces
+- Fewer dependencies
+- Higher test coverage
+- Better documentation
 
-As there are breaking changes of APIs, the version `v2` is introduced.
-Documentation and examples of the `v2` APIs can be found at [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
+Documentation and examples can be found at [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
+
 
 ## Migrating to `v2`
 
@@ -24,11 +24,14 @@ go get oras.land/oras-go/v2
 go mod tidy
 ```
 
+Since breaking changes of APIs are introduced in `v2`, code refactoring is required for migration.  
+
 ## Major Changes in `v2`
 
-- `content.FileStore` now becomes [file.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/file#Store)
-- `content.OCIStore` now becomes [oci.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/oci#Store)
-- `content.MemoryStore` now becomes [memory.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/memory#Store)
-- Supports [remote registry](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) APIs
+- Moves `content.FileStore` to [file.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/file#Store)
+- Moves `content.OCIStore` to [oci.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/oci#Store)
+- Moves `content.MemoryStore` to [memory.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/memory#Store)
 - Supports [Copy](https://pkg.go.dev/oras.land/oras-go/v2#Copy) with more flexible options
 - Supports [Extended Copy](https://pkg.go.dev/oras.land/oras-go/v2#ExtendedCopy) with options (experimental)
+- Supports [remote registry](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) APIs
+- No longer supports `docker.Login` and `docker.Logout` (removes the dependency on `docker`); instead, provides authentication through [auth.Client](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#Client)
