@@ -67,6 +67,13 @@ type CopyGraphOptions struct {
 	// OnCopySkipped will be called when the sub-DAG rooted by the current node
 	// is skipped.
 	OnCopySkipped func(ctx context.Context, desc ocispec.Descriptor) error
+	// FindSuccessors finds the successors of the current node.
+	// fetcher provides cached access to the source storage, and is suitable
+	// for fetching non-leaf nodes like manifests. Since anything fetched from
+	// fetcher will be cached in the memory, it is recommended to use original
+	// source storage to fetch large blobs.
+	// If FindSuccessors is nil, content.Successors will be used.
+	FindSuccessors func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
 // Copy copies a rooted directed acyclic graph (DAG) with the tagged root node
@@ -126,6 +133,11 @@ func copyGraph(ctx context.Context, src, dst content.Storage, proxy *cas.Proxy, 
 	// track content status
 	tracker := status.NewTracker()
 
+	// if FindSuccessors is not provided, use the default one
+	if opts.FindSuccessors == nil {
+		opts.FindSuccessors = content.Successors
+	}
+
 	// prepare pre-handler
 	preHandler := graph.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		// skip the descriptor if other go routine is working on it
@@ -151,7 +163,7 @@ func copyGraph(ctx context.Context, src, dst content.Storage, proxy *cas.Proxy, 
 		}
 
 		// find successors while non-leaf nodes will be fetched and cached
-		return content.Successors(ctx, proxy, desc)
+		return opts.FindSuccessors(ctx, proxy, desc)
 	})
 
 	// prepare post-handler
@@ -175,7 +187,7 @@ func copyGraph(ctx context.Context, src, dst content.Storage, proxy *cas.Proxy, 
 		}
 
 		// for non-leaf nodes, wait for its successors to complete
-		successors, err := content.Successors(ctx, proxy, desc)
+		successors, err := opts.FindSuccessors(ctx, proxy, desc)
 		if err != nil {
 			return nil, err
 		}
