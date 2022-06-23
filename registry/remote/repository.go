@@ -526,9 +526,10 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 		return err
 	}
 	// work-around solution for https://github.com/oras-project/oras-go/issues/177
-	// For some registries, if the port 443 is explicitly set to the hostname like myregistry:443/myrepo,
-	// blob push will fail since the hostname of the Location header in the response is set to myregistry
-	// instead of myregistry:443. For example: nv2.azurewebsites.net:443 becomes nv2.azurewebsites.net
+	// For some registries, if the port 443 is explicitly set to the hostname like
+	// myregistry:443/myrepo, blob push will fail since the hostname of the Location
+	// header in the response is set to myregistry instead of myregistry:443.
+	// For example: registry.wabbit-networks.io:443 becomes registry.wabbit-networks.io
 	locationHostname := location.Hostname()
 	locationPort := location.Port()
 	// if location port 443 is missing, add it back
