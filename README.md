@@ -44,6 +44,8 @@ If you are seeking new features over stability, you should use the
 `main` branch (or a specific commit hash) when including the ORAS
 Go library in your project's `go.mod`.
 
+To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md).
+
 ## Docs
 
 Documentation for the ORAS Go library is located on
