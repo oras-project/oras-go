@@ -135,10 +135,15 @@ func ExampleClient_Do_minimalClient() {
 func ExampleClient_Do_basicAuth() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
-			return auth.Credential{
-				Username: username,
-				Password: password,
-			}, nil
+			switch reg {
+			case host[8:]:
+				return auth.Credential{
+					Username: username,
+					Password: password,
+				}, nil
+			default:
+				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
+			}
 		},
 	}
 	req, err := http.NewRequest(http.MethodGet, basicAuthURL, nil)
@@ -183,10 +188,15 @@ func ExampleClient_Do_withAccessToken() {
 func ExampleClient_Do_clientConfiguration() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
-			return auth.Credential{
-				Username: username,
-				Password: password,
-			}, nil
+			switch reg {
+			case host[8:]:
+				return auth.Credential{
+					Username: username,
+					Password: password,
+				}, nil
+			default:
+				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
+			}
 		},
 		ForceAttemptOAuth2: false,
 		Cache:              auth.NewCache(),
