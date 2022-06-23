@@ -10,7 +10,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-// Package remote_test includes all the testable examples for remote repository type
+
+// Package auth_test includes the testable examples for the http client.
 
 package auth_test
 
@@ -35,10 +36,10 @@ const (
 )
 
 var host string
-var simpleDir string
-var basicAuthDir string
-var accessTokenDir string
-var clientConfigDir string
+var simpleURL string
+var basicAuthURL string
+var accessTokenURL string
+var clientConfigURL string
 var scopes = []string{
 	"repository:dst:pull,push",
 	"repository:src:pull",
@@ -104,10 +105,10 @@ func TestMain(m *testing.M) {
 	}))
 	defer ts.Close()
 	host = ts.URL
-	simpleDir = fmt.Sprintf("%s/simple", host)
-	basicAuthDir = fmt.Sprintf("%s/basicAuth", host)
-	accessTokenDir = fmt.Sprintf("%s/accessToken", host)
-	clientConfigDir = fmt.Sprintf("%s/clientConfig", host)
+	simpleURL = fmt.Sprintf("%s/simple", host)
+	basicAuthURL = fmt.Sprintf("%s/basicAuth", host)
+	accessTokenURL = fmt.Sprintf("%s/accessToken", host)
+	clientConfigURL = fmt.Sprintf("%s/clientConfig", host)
 	http.DefaultClient = ts.Client()
 
 	os.Exit(m.Run())
@@ -116,16 +117,13 @@ func TestMain(m *testing.M) {
 // ExampleClient_Do_minimalClient gives an example of a minimal working client.
 func ExampleClient_Do_minimalClient() {
 	var client auth.Client
-	req, err := http.NewRequest(http.MethodGet, simpleDir, nil)
+	req, err := http.NewRequest(http.MethodGet, simpleURL, nil)
 	if err != nil {
 		panic(err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		panic(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		panic(resp.StatusCode)
 	}
 
 	fmt.Println(resp.StatusCode)
@@ -143,16 +141,13 @@ func ExampleClient_Do_basicAuth() {
 			}, nil
 		},
 	}
-	req, err := http.NewRequest(http.MethodGet, basicAuthDir, nil)
+	req, err := http.NewRequest(http.MethodGet, basicAuthURL, nil)
 	if err != nil {
 		panic(err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		panic(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		panic(resp.StatusCode)
 	}
 
 	fmt.Println(resp.StatusCode)
@@ -169,16 +164,13 @@ func ExampleClient_Do_withAccessToken() {
 			}, nil
 		},
 	}
-	req, err := http.NewRequest(http.MethodGet, accessTokenDir, nil)
+	req, err := http.NewRequest(http.MethodGet, accessTokenURL, nil)
 	if err != nil {
 		panic(err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		panic(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		panic(resp.StatusCode)
 	}
 
 	fmt.Println(resp.StatusCode)
@@ -202,16 +194,13 @@ func ExampleClient_Do_clientConfiguration() {
 	client.SetUserAgent("example user agent")
 	ctx := auth.WithScopes(context.Background(), scopes...)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigDir, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigURL, nil)
 	if err != nil {
 		panic(err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		panic(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		panic(resp.StatusCode)
 	}
 
 	fmt.Println(resp.StatusCode)
