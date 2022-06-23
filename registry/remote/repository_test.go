@@ -18,10 +18,12 @@ package remote
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -37,6 +39,7 @@ import (
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 func TestRepositoryInterface(t *testing.T) {
@@ -2201,5 +2204,262 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
 		t.Errorf("Manifests.FetchReference() = %v, want %v", got, manifest)
+	}
+}
+
+type testTransport struct {
+	proxyHost           string
+	underlyingTransport http.RoundTripper
+	mockHost            string
+}
+
+func (t *testTransport) RoundTrip(originalReq *http.Request) (*http.Response, error) {
+	req := originalReq.Clone(originalReq.Context())
+	mockHostName, mockPort, err := net.SplitHostPort(t.mockHost)
+	// when t.mockHost is as form host:port
+	if err == nil && (req.URL.Hostname() != mockHostName || req.URL.Port() != mockPort) {
+		return nil, errors.New("bad request")
+	}
+	// when t.mockHost does not have specified port, in this case, err is not nil
+	if err != nil && req.URL.Hostname() != t.mockHost {
+		return nil, errors.New("bad request")
+	}
+	req.Host = t.proxyHost
+	req.URL.Host = t.proxyHost
+	resp, err := t.underlyingTransport.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	resp.Request.Host = t.mockHost
+	resp.Request.URL.Host = t.mockHost
+	return resp, nil
+}
+
+// Helper function to create a registry.BlobStore for Test_BlobStore_Push_Port443
+func BlobStore_Push_Port443_create_store(uri *url.URL, testRegistry string) (registry.BlobStore, error) {
+	repo, err := NewRepository(testRegistry + "/test")
+	repo.Client = &auth.Client{
+		Client: &http.Client{
+			Transport: &testTransport{
+				proxyHost:           uri.Host,
+				underlyingTransport: http.DefaultTransport,
+				mockHost:            testRegistry,
+			},
+		},
+		Cache: auth.NewCache(),
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	return store, err
+}
+
+func Test_BlobStore_Push_Port443(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+			w.Header().Set("Location", "http://registry.wabbit-networks.io/v2/test/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/blobs/uploads/"+uuid:
+			if contentType := r.Header.Get("Content-Type"); contentType != "application/octet-stream" {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			if contentDigest := r.URL.Query().Get("digest"); contentDigest != blobDesc.Digest.String() {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	// Test case with Host: "registry.wabbit-networks.io:443", Location: "registry.wabbit-networks.io"
+	testRegistry := "registry.wabbit-networks.io:443"
+	store, err := BlobStore_Push_Port443_create_store(uri, testRegistry)
+	if err != nil {
+		t.Fatalf("BlobStore_Push_Port443_create_store() error = %v", err)
+	}
+	ctx := context.Background()
+
+	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("Blobs.Push() error = %v", err)
+	}
+
+	// Test case with Host: "registry.wabbit-networks.io", Location: "registry.wabbit-networks.io"
+	testRegistry = "registry.wabbit-networks.io"
+	store, err = BlobStore_Push_Port443_create_store(uri, testRegistry)
+	if err != nil {
+		t.Fatalf("BlobStore_Push_Port443_create_store() error = %v", err)
+	}
+
+	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("Blobs.Push() error = %v", err)
+	}
+}
+
+// Helper function to create a registry.BlobStore for Test_BlobStore_Push_Port443_HTTPS
+func BlobStore_Push_Port443_HTTPS_create_store(uri *url.URL, testRegistry string) (registry.BlobStore, error) {
+	repo, err := NewRepository(testRegistry + "/test")
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+	repo.Client = &auth.Client{
+		Client: &http.Client{
+			Transport: &testTransport{
+				proxyHost:           uri.Host,
+				underlyingTransport: transport,
+				mockHost:            testRegistry,
+			},
+		},
+		Cache: auth.NewCache(),
+	}
+	repo.PlainHTTP = false
+	store := repo.Blobs()
+	return store, err
+}
+
+func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+			w.Header().Set("Location", "https://registry.wabbit-networks.io/v2/test/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/blobs/uploads/"+uuid:
+			if contentType := r.Header.Get("Content-Type"); contentType != "application/octet-stream" {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			if contentDigest := r.URL.Query().Get("digest"); contentDigest != blobDesc.Digest.String() {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test https server: %v", err)
+	}
+
+	ctx := context.Background()
+	// Test case with Host: "registry.wabbit-networks.io:443", Location: "registry.wabbit-networks.io"
+	testReistry := "registry.wabbit-networks.io:443"
+	store, err := BlobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	if err != nil {
+		t.Fatalf("BlobStore_Push_Port443_HTTPS_create_store() error = %v", err)
+	}
+	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("Blobs.Push() error = %v", err)
+	}
+
+	// Test case with Host: "registry.wabbit-networks.io", Location: "registry.wabbit-networks.io"
+	testReistry = "registry.wabbit-networks.io"
+	store, err = BlobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	if err != nil {
+		t.Fatalf("BlobStore_Push_Port443_HTTPS_create_store() error = %v", err)
+	}
+	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("Blobs.Push() error = %v", err)
+	}
+
+	ts = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+			w.Header().Set("Location", "https://registry.wabbit-networks.io:443/v2/test/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/blobs/uploads/"+uuid:
+			if contentType := r.Header.Get("Content-Type"); contentType != "application/octet-stream" {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			if contentDigest := r.URL.Query().Get("digest"); contentDigest != blobDesc.Digest.String() {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+	uri, err = url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test https server: %v", err)
+	}
+
+	// Test case with Host: "registry.wabbit-networks.io:443", Location: "registry.wabbit-networks.io:443"
+	testReistry = "registry.wabbit-networks.io:443"
+	store, err = BlobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	if err != nil {
+		t.Fatalf("BlobStore_Push_Port443_HTTPS_create_store() error = %v", err)
+	}
+	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("Blobs.Push() error = %v", err)
+	}
+
+	// Test case with Host: "registry.wabbit-networks.io", Location: "registry.wabbit-networks.io:443"
+	testReistry = "registry.wabbit-networks.io"
+	store, err = BlobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	if err != nil {
+		t.Fatalf("BlobStore_Push_Port443_HTTPS_create_store() error = %v", err)
+	}
+	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatalf("Blobs.Push() error = %v", err)
 	}
 }
