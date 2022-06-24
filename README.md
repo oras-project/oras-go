@@ -49,8 +49,8 @@ To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md).
 
 ## Docs
 
-Documentation for the ORAS Go library is located on
-the project website: [oras.land/client_libraries/go](https://oras.land/client_libraries/go/)
+- [oras.land/client_libraries/go](https://oras.land/client_libraries/go/): Documentation for the ORAS Go library
+- [Reviewing guide](https://github.com/oras-project/community/blob/main/REVIEWING.md): All reviewers must read the reviewing guide and agree to follow the project review guidelines.
 
 ## Code of Conduct
 
