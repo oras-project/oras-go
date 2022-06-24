@@ -884,7 +884,7 @@ func TestRepository_Predecessors(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			References []artifactspec.Descriptor `json:"references"`
+			References []artifactspec.Descriptor `json:"referrers"`
 		}{
 			References: referrers,
 		}
@@ -998,7 +998,7 @@ func TestRepository_Referrers(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			References []artifactspec.Descriptor `json:"references"`
+			References []artifactspec.Descriptor `json:"referrers"`
 		}{
 			References: referrers,
 		}
