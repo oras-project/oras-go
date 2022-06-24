@@ -2220,7 +2220,8 @@ func (t *testTransport) RoundTrip(originalReq *http.Request) (*http.Response, er
 	if err == nil && (req.URL.Hostname() != mockHostName || req.URL.Port() != mockPort) {
 		return nil, errors.New("bad request")
 	}
-	// when t.mockHost does not have specified port, in this case, err is not nil
+	// when t.mockHost does not have specified port, in this case,
+	// err is not nil
 	if err != nil && req.URL.Hostname() != t.mockHost {
 		return nil, errors.New("bad request")
 	}
@@ -2235,7 +2236,8 @@ func (t *testTransport) RoundTrip(originalReq *http.Request) (*http.Response, er
 	return resp, nil
 }
 
-// Helper function to create a registry.BlobStore for Test_BlobStore_Push_Port443
+// Helper function to create a registry.BlobStore for
+// Test_BlobStore_Push_Port443
 func BlobStore_Push_Port443_create_store(uri *url.URL, testRegistry string) (registry.BlobStore, error) {
 	repo, err := NewRepository(testRegistry + "/test")
 	repo.Client = &auth.Client{
