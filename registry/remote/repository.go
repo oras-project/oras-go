@@ -387,7 +387,7 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", errdef.ErrNotFound
+		return "", fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, errdef.ErrNotFound)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
