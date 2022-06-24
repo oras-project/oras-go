@@ -2393,8 +2393,8 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 	ctx := context.Background()
 	// Test case with Host: "registry.wabbit-networks.io:443",
 	// Location: "registry.wabbit-networks.io"
-	testReistry := "registry.wabbit-networks.io:443"
-	store, err := blobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	testRegistry := "registry.wabbit-networks.io:443"
+	store, err := blobStore_Push_Port443_HTTPS_create_store(uri, testRegistry)
 	if err != nil {
 		t.Fatalf("blobStore_Push_Port443_HTTPS_create_store() error = %v", err)
 	}
@@ -2405,8 +2405,8 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 
 	// Test case with Host: "registry.wabbit-networks.io",
 	// Location: "registry.wabbit-networks.io"
-	testReistry = "registry.wabbit-networks.io"
-	store, err = blobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	testRegistry = "registry.wabbit-networks.io"
+	store, err = blobStore_Push_Port443_HTTPS_create_store(uri, testRegistry)
 	if err != nil {
 		t.Fatalf("blobStore_Push_Port443_HTTPS_create_store() error = %v", err)
 	}
@@ -2450,8 +2450,8 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 
 	// Test case with Host: "registry.wabbit-networks.io:443",
 	// Location: "registry.wabbit-networks.io:443"
-	testReistry = "registry.wabbit-networks.io:443"
-	store, err = blobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	testRegistry = "registry.wabbit-networks.io:443"
+	store, err = blobStore_Push_Port443_HTTPS_create_store(uri, testRegistry)
 	if err != nil {
 		t.Fatalf("blobStore_Push_Port443_HTTPS_create_store() error = %v", err)
 	}
@@ -2462,8 +2462,8 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 
 	// Test case with Host: "registry.wabbit-networks.io",
 	// Location: "registry.wabbit-networks.io:443"
-	testReistry = "registry.wabbit-networks.io"
-	store, err = blobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	testRegistry = "registry.wabbit-networks.io"
+	store, err = blobStore_Push_Port443_HTTPS_create_store(uri, testRegistry)
 	if err != nil {
 		t.Fatalf("blobStore_Push_Port443_HTTPS_create_store() error = %v", err)
 	}
