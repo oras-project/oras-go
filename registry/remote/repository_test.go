@@ -884,9 +884,9 @@ func TestRepository_Predecessors(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			References []artifactspec.Descriptor `json:"referrers"`
+			Referrers []artifactspec.Descriptor `json:"referrers"`
 		}{
-			References: referrers,
+			Referrers: referrers,
 		}
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
@@ -998,9 +998,9 @@ func TestRepository_Referrers(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			References []artifactspec.Descriptor `json:"referrers"`
+			Referrers []artifactspec.Descriptor `json:"referrers"`
 		}{
-			References: referrers,
+			Referrers: referrers,
 		}
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
