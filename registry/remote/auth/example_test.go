@@ -12,7 +12,6 @@ limitations under the License.
 */
 
 // Package auth_test includes the testable examples for the http client.
-
 package auth_test
 
 import (
@@ -21,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -36,6 +36,7 @@ const (
 )
 
 var host string
+var hostAddress string
 var simpleURL string
 var basicAuthURL string
 var accessTokenURL string
@@ -105,6 +106,8 @@ func TestMain(m *testing.M) {
 	}))
 	defer ts.Close()
 	host = ts.URL
+	uri, _ := url.Parse(host)
+	hostAddress = uri.Host
 	simpleURL = fmt.Sprintf("%s/simple", host)
 	basicAuthURL = fmt.Sprintf("%s/basicAuth", host)
 	accessTokenURL = fmt.Sprintf("%s/accessToken", host)
@@ -136,7 +139,7 @@ func ExampleClient_Do_basicAuth() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
 			switch reg {
-			case host[8:]:
+			case hostAddress:
 				return auth.Credential{
 					Username: username,
 					Password: password,
@@ -164,9 +167,14 @@ func ExampleClient_Do_basicAuth() {
 func ExampleClient_Do_withAccessToken() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
-			return auth.Credential{
-				AccessToken: accessToken,
-			}, nil
+			switch reg {
+			case hostAddress:
+				return auth.Credential{
+					AccessToken: accessToken,
+				}, nil
+			default:
+				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
+			}
 		},
 	}
 	req, err := http.NewRequest(http.MethodGet, accessTokenURL, nil)
@@ -189,7 +197,7 @@ func ExampleClient_Do_clientConfiguration() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
 			switch reg {
-			case host[8:]:
+			case hostAddress:
 				return auth.Credential{
 					Username: username,
 					Password: password,
@@ -198,10 +206,22 @@ func ExampleClient_Do_clientConfiguration() {
 				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
 			}
 		},
+		// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant
+		// instead the distribution spec when authenticating using username and
+		// password.
 		ForceAttemptOAuth2: false,
-		Cache:              auth.NewCache(),
+		// Cache caches credentials for direct accessing the remote registry.
+		// If nil, no cache is used.
+		Cache: auth.NewCache(),
 	}
+	// SetUserAgent sets the user agent for all out-going requests.
 	client.SetUserAgent("example user agent")
+	// Tokens used by the registry are always restricted what resources they may
+	// be used to access, where those resources may be accessed, and what actions
+	// may be done on those resources. Such restrictions are represented and enforced
+	// as Scopes. Reference: https://docs.docker.com/registry/spec/auth/scope/
+	// Scopes are used as hints for the auth client to fetch bearer tokens with
+	// larger scopes. WithScopes returns a context with scopes added.
 	ctx := auth.WithScopes(context.Background(), scopes...)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigURL, nil)
