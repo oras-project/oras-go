@@ -2238,7 +2238,7 @@ func (t *testTransport) RoundTrip(originalReq *http.Request) (*http.Response, er
 
 // Helper function to create a registry.BlobStore for
 // Test_BlobStore_Push_Port443
-func BlobStore_Push_Port443_create_store(uri *url.URL, testRegistry string) (registry.BlobStore, error) {
+func blobStore_Push_Port443_create_store(uri *url.URL, testRegistry string) (registry.BlobStore, error) {
 	repo, err := NewRepository(testRegistry + "/test")
 	repo.Client = &auth.Client{
 		Client: &http.Client{
@@ -2299,9 +2299,9 @@ func Test_BlobStore_Push_Port443(t *testing.T) {
 	// Test case with Host: "registry.wabbit-networks.io:443",
 	// Location: "registry.wabbit-networks.io"
 	testRegistry := "registry.wabbit-networks.io:443"
-	store, err := BlobStore_Push_Port443_create_store(uri, testRegistry)
+	store, err := blobStore_Push_Port443_create_store(uri, testRegistry)
 	if err != nil {
-		t.Fatalf("BlobStore_Push_Port443_create_store() error = %v", err)
+		t.Fatalf("blobStore_Push_Port443_create_store() error = %v", err)
 	}
 	ctx := context.Background()
 
@@ -2313,9 +2313,9 @@ func Test_BlobStore_Push_Port443(t *testing.T) {
 	// Test case with Host: "registry.wabbit-networks.io",
 	// Location: "registry.wabbit-networks.io"
 	testRegistry = "registry.wabbit-networks.io"
-	store, err = BlobStore_Push_Port443_create_store(uri, testRegistry)
+	store, err = blobStore_Push_Port443_create_store(uri, testRegistry)
 	if err != nil {
-		t.Fatalf("BlobStore_Push_Port443_create_store() error = %v", err)
+		t.Fatalf("blobStore_Push_Port443_create_store() error = %v", err)
 	}
 
 	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
@@ -2326,7 +2326,7 @@ func Test_BlobStore_Push_Port443(t *testing.T) {
 
 // Helper function to create a registry.BlobStore for
 // Test_BlobStore_Push_Port443_HTTPS
-func BlobStore_Push_Port443_HTTPS_create_store(uri *url.URL, testRegistry string) (registry.BlobStore, error) {
+func blobStore_Push_Port443_HTTPS_create_store(uri *url.URL, testRegistry string) (registry.BlobStore, error) {
 	repo, err := NewRepository(testRegistry + "/test")
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
@@ -2394,9 +2394,9 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 	// Test case with Host: "registry.wabbit-networks.io:443",
 	// Location: "registry.wabbit-networks.io"
 	testReistry := "registry.wabbit-networks.io:443"
-	store, err := BlobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	store, err := blobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
 	if err != nil {
-		t.Fatalf("BlobStore_Push_Port443_HTTPS_create_store() error = %v", err)
+		t.Fatalf("blobStore_Push_Port443_HTTPS_create_store() error = %v", err)
 	}
 	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
 	if err != nil {
@@ -2406,9 +2406,9 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 	// Test case with Host: "registry.wabbit-networks.io",
 	// Location: "registry.wabbit-networks.io"
 	testReistry = "registry.wabbit-networks.io"
-	store, err = BlobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	store, err = blobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
 	if err != nil {
-		t.Fatalf("BlobStore_Push_Port443_HTTPS_create_store() error = %v", err)
+		t.Fatalf("blobStore_Push_Port443_HTTPS_create_store() error = %v", err)
 	}
 	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
 	if err != nil {
@@ -2451,9 +2451,9 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 	// Test case with Host: "registry.wabbit-networks.io:443",
 	// Location: "registry.wabbit-networks.io:443"
 	testReistry = "registry.wabbit-networks.io:443"
-	store, err = BlobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	store, err = blobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
 	if err != nil {
-		t.Fatalf("BlobStore_Push_Port443_HTTPS_create_store() error = %v", err)
+		t.Fatalf("blobStore_Push_Port443_HTTPS_create_store() error = %v", err)
 	}
 	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
 	if err != nil {
@@ -2463,9 +2463,9 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 	// Test case with Host: "registry.wabbit-networks.io",
 	// Location: "registry.wabbit-networks.io:443"
 	testReistry = "registry.wabbit-networks.io"
-	store, err = BlobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
+	store, err = blobStore_Push_Port443_HTTPS_create_store(uri, testReistry)
 	if err != nil {
-		t.Fatalf("BlobStore_Push_Port443_HTTPS_create_store() error = %v", err)
+		t.Fatalf("blobStore_Push_Port443_HTTPS_create_store() error = %v", err)
 	}
 	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
 	if err != nil {
