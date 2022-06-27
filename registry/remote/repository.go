@@ -348,8 +348,18 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	ctx = withScopeHint(ctx, ref, auth.ActionPull)
 	url := buildArtifactReferrerURL(r.PlainHTTP, ref)
 	var err error
+
+	var legacyAPI bool
+	url, err = r.referrers(ctx, desc, fn, url, legacyAPI)
+	// Fallback to legacy url
+	if errors.Is(err, errdef.ErrNotFound) {
+		url = buildArtifactReferrerURLLegacy(r.PlainHTTP, ref)
+		legacyAPI = true
+		err = nil
+	}
+
 	for err == nil {
-		url, err = r.referrers(ctx, desc, fn, url)
+		url, err = r.referrers(ctx, desc, fn, url, legacyAPI)
 	}
 	if err != errNoLink {
 		return err
@@ -359,7 +369,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 
 // referrers returns a single page of the manifest descriptors directly
 // referencing the given manifest descriptor with the next link.
-func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error, url string) (string, error) {
+func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error, url string, legacyAPI bool) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -376,18 +386,28 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, errdef.ErrNotFound)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
 	}
 
 	var page struct {
 		References []artifactspec.Descriptor `json:"references"`
+		Referrers  []artifactspec.Descriptor `json:"referrers"`
 	}
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
 		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
-	if err := fn(page.References); err != nil {
+	var refs []artifactspec.Descriptor
+	if legacyAPI {
+		refs = page.References
+	} else {
+		refs = page.Referrers
+	}
+	if err := fn(refs); err != nil {
 		return "", err
 	}
 
