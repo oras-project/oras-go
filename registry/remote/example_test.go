@@ -46,18 +46,15 @@ const (
 )
 
 var (
-	exampleLayerDigest    = digest.FromBytes([]byte(exampleLayer)).String()
-	exampleManifestDigest = digest.FromBytes([]byte(exampleManifest)).String()
-	exampleRefereceDigest = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
-)
-
-var (
+	exampleLayerDigest          = digest.FromBytes([]byte(exampleLayer)).String()
+	exampleManifestDigest       = digest.FromBytes([]byte(exampleManifest)).String()
+	exampleRefereceDigest       = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
 	exampleReferenceManifest, _ = json.Marshal(artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example reference manifest",
 		Subject:      artifactspec.Descriptor{Digest: digest.Digest(exampleManifestDigest)}})
 	exampleReferenceManifestDescriptor = ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
+		MediaType: artifactspec.MediaTypeArtifactManifest,
 		Digest:    digest.FromBytes(exampleReferenceManifest),
 		Size:      int64(len(exampleReferenceManifest)),
 	}
@@ -96,11 +93,11 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleRefereceDigest) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleReferenceManifestDescriptor.Digest) && m == "GET":
-			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleReferenceManifestDescriptor.Digest))
-			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleReferenceManifest))))
+			w.Header().Set("Content-Length", strconv.Itoa(len(exampleReferenceManifest)))
 			if m == "GET" {
-				w.Write([]byte(exampleReferenceManifest))
+				w.Write(exampleReferenceManifest)
 			}
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) || p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
