@@ -382,12 +382,11 @@ func ExampleRepository_Fetch_manifestByDigest() {
 }
 
 func ExampleRepository_Fetch_referenceManifest() {
-	reg, err := remote.NewRegistry(host)
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
 	if err != nil {
 		panic(err)
 	}
 	ctx := context.Background()
-	repo, err := reg.Repository(ctx, exampleRepositoryName)
 	if err != nil {
 		panic(err)
 	}
