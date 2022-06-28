@@ -46,13 +46,17 @@ const (
 )
 
 var (
-	exampleLayerDigest          = digest.FromBytes([]byte(exampleLayer)).String()
-	exampleManifestDigest       = digest.FromBytes([]byte(exampleManifest)).String()
+	exampleLayerDigest        = digest.FromBytes([]byte(exampleLayer)).String()
+	exampleManifestDigest     = digest.FromBytes([]byte(exampleManifest)).String()
+	exampleManifestDescriptor = artifactspec.Descriptor{
+		MediaType: artifactspec.MediaTypeArtifactManifest,
+		Digest:    digest.Digest(exampleManifestDigest),
+		Size:      int64(len(exampleManifest))}
 	exampleRefereceDigest       = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
 	exampleReferenceManifest, _ = json.Marshal(artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example reference manifest",
-		Subject:      artifactspec.Descriptor{Digest: digest.Digest(exampleManifestDigest)}})
+		Subject:      exampleManifestDescriptor})
 	exampleReferenceManifestDescriptor = ocispec.Descriptor{
 		MediaType: artifactspec.MediaTypeArtifactManifest,
 		Digest:    digest.FromBytes(exampleReferenceManifest),
