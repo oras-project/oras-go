@@ -35,16 +35,18 @@ const (
 	accessToken = "test/access/token"
 )
 
-var host string
-var hostAddress string
-var simpleURL string
-var basicAuthURL string
-var accessTokenURL string
-var clientConfigURL string
-var scopes = []string{
-	"repository:dst:pull,push",
-	"repository:src:pull",
-}
+var (
+	host                string
+	expectedHostAddress string
+	simpleURL           string
+	basicAuthURL        string
+	accessTokenURL      string
+	clientConfigURL     string
+	tokenScopes         = []string{
+		"repository:dst:pull,push",
+		"repository:src:pull",
+	}
+)
 
 func TestMain(m *testing.M) {
 	// create an authorization server
@@ -60,7 +62,7 @@ func TestMain(m *testing.M) {
 		if got := r.URL.Query().Get("service"); got != host {
 			w.WriteHeader(http.StatusUnauthorized)
 		}
-		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, scopes) {
+		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, tokenScopes) {
 			w.WriteHeader(http.StatusUnauthorized)
 		}
 		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, accessToken); err != nil {
@@ -87,7 +89,7 @@ func TestMain(m *testing.M) {
 		case "/accessToken":
 			wantedAuthHeader := "Bearer " + accessToken
 			if auth := r.Header.Get("Authorization"); auth != wantedAuthHeader {
-				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, host, strings.Join(scopes, " "))
+				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, host, strings.Join(tokenScopes, " "))
 				w.Header().Set("Www-Authenticate", challenge)
 				w.WriteHeader(http.StatusUnauthorized)
 			}
@@ -107,7 +109,7 @@ func TestMain(m *testing.M) {
 	defer ts.Close()
 	host = ts.URL
 	uri, _ := url.Parse(host)
-	hostAddress = uri.Host
+	expectedHostAddress = uri.Host
 	simpleURL = fmt.Sprintf("%s/simple", host)
 	basicAuthURL = fmt.Sprintf("%s/basicAuth", host)
 	accessTokenURL = fmt.Sprintf("%s/accessToken", host)
@@ -139,13 +141,14 @@ func ExampleClient_Do_basicAuth() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
 			switch reg {
-			case hostAddress:
+			case expectedHostAddress:
 				return auth.Credential{
 					Username: username,
 					Password: password,
 				}, nil
 			default:
-				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
+				// credential not found. Try anonymous access.
+				return auth.EmptyCredential, nil
 			}
 		},
 	}
@@ -168,7 +171,7 @@ func ExampleClient_Do_withAccessToken() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
 			switch reg {
-			case hostAddress:
+			case expectedHostAddress:
 				return auth.Credential{
 					AccessToken: accessToken,
 				}, nil
@@ -197,7 +200,7 @@ func ExampleClient_Do_clientConfiguration() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
 			switch reg {
-			case hostAddress:
+			case expectedHostAddress:
 				return auth.Credential{
 					Username: username,
 					Password: password,
@@ -210,7 +213,7 @@ func ExampleClient_Do_clientConfiguration() {
 		// instead the distribution spec when authenticating using username and
 		// password.
 		ForceAttemptOAuth2: false,
-		// Cache caches credentials for direct accessing the remote registry.
+		// Cache caches credentials for accessing the remote registry.
 		// If nil, no cache is used.
 		Cache: auth.NewCache(),
 	}
@@ -222,6 +225,10 @@ func ExampleClient_Do_clientConfiguration() {
 	// as Scopes. Reference: https://docs.docker.com/registry/spec/auth/scope/
 	// Scopes are used as hints for the auth client to fetch bearer tokens with
 	// larger scopes. WithScopes returns a context with scopes added.
+	scopes := []string{
+		"repository:dst:pull,push",
+		"repository:src:pull",
+	}
 	ctx := auth.WithScopes(context.Background(), scopes...)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigURL, nil)
