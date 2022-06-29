@@ -122,7 +122,7 @@ func TestMain(m *testing.M) {
 // ExampleClient_Do_minimalClient gives an example of a minimal working client.
 func ExampleClient_Do_minimalClient() {
 	var client auth.Client
-	// targetURL is of form http://ipaddr:port
+	// targetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequest(http.MethodGet, targetURL, nil)
 	if err != nil {
 		panic(err)
@@ -154,7 +154,7 @@ func ExampleClient_Do_basicAuth() {
 			}
 		},
 	}
-	// basicAuthTargetURL is of form http://ipaddr:port
+	// basicAuthTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequest(http.MethodGet, basicAuthTargetURL, nil)
 	if err != nil {
 		panic(err)
@@ -184,7 +184,7 @@ func ExampleClient_Do_withAccessToken() {
 			}
 		},
 	}
-	// accessTokenTargetURL is of form http://ipaddr:port
+	// accessTokenTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequest(http.MethodGet, accessTokenTargetURL, nil)
 	if err != nil {
 		panic(err)
@@ -232,7 +232,7 @@ func ExampleClient_Do_clientConfiguration() {
 	// WithScopes returns a context with scopes added.
 	ctx := auth.WithScopes(context.Background(), scopes...)
 
-	// clientConfigTargetURL is of form ipaddr:port
+	// clientConfigTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigTargetURL, nil)
 	if err != nil {
 		panic(err)
