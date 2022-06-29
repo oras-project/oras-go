@@ -124,3 +124,10 @@ func buildArtifactReferrerURL(plainHTTP bool, ref registry.Reference, artifactTy
 		v.Encode(),
 	)
 }
+
+// buildDiscoveryURL builds the URL for discovering extensions available on a repository.
+// Format: <scheme>://<registry>/v2/<repository>/_oci/ext/discover
+// Reference: https://github.com/oras-project/artifacts-spec/blob/v1.0.0-rc.1/manifest-referrers-api.md
+func buildDiscoveryURL(plainHTTP bool, ref registry.Reference) string {
+	return buildRepositoryBaseURL(plainHTTP, ref) + "/_oci/ext/discover"
+}

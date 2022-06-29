@@ -450,6 +450,59 @@ func filterReferrers(refs []artifactspec.Descriptor, artifactType string) []arti
 	return refs[:j]
 }
 
+// Extension provides information on extensions provided on a Registry.
+// Reference: https://github.com/opencontainers/distribution-spec/blob/main/extensions/_oci.md#extensions-property-descriptions
+type Extension struct {
+	Name        string   `json:"name"`
+	URL         string   `json:"url"`
+	Description *string  `json:"description,omitempty"`
+	Endpoints   []string `json:"endpoints"`
+}
+
+// DiscoverExtensions lists all supported extensions in current repository.
+// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#api-discovery
+func (r *Repository) DiscoverExtensions(ctx context.Context) ([]Extension, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildDiscoveryURL(r.PlainHTTP, r.Reference), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := r.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errutil.ParseErrorResponse(resp)
+	}
+
+	var discoveryResult struct {
+		Extensions []Extension `json:"extensions"`
+	}
+	lr := limitReader(resp.Body, r.MaxMetadataBytes)
+	if err := json.NewDecoder(lr).Decode(&discoveryResult); err != nil {
+		return nil, fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	return discoveryResult.Extensions, nil
+}
+
+// DiscoverExtension finds the first extension with give name in all supported extensions in current repository.
+// (nil, errdef.ErrNotFound) is returned if no such extension found.
+// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#api-discovery
+func (r *Repository) DiscoverExtension(ctx context.Context, name string) (*Extension, error) {
+	extensions, err := r.DiscoverExtensions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to discover extensions: %w", err)
+	}
+	for _, ext := range extensions {
+		if ext.Name == name {
+			ext := ext
+			return &ext, nil
+		}
+	}
+	return nil, errdef.ErrNotFound
+}
+
 // delete removes the content identified by the descriptor in the entity "blobs"
 // or "manifests".
 func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isManifest bool) error {

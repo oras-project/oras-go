@@ -1483,6 +1483,123 @@ func Test_filterReferrers_allMatch(t *testing.T) {
 	}
 }
 
+func TestRepository_DiscoverExtensions(t *testing.T) {
+	desc1 := "Lorem ipsum dolor sit amet, consectetur adipiscing elit."
+	desc2 := "ORAS referrers listing API"
+	exts := []Extension{
+		{
+			Name:        "foo.bar",
+			URL:         "https://example.com",
+			Description: &desc1,
+			Endpoints:   []string{"_foo/bar", "_foo/baz"},
+		},
+		{
+			Name:        "cncf.oras.referrers",
+			URL:         "https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md",
+			Description: &desc2,
+			Endpoints:   []string{"_oras/artifacts/referrers"},
+		},
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/_oci/ext/discover"
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		extList := struct {
+			Extensions []Extension `json:"extensions"`
+		}{
+			Extensions: exts,
+		}
+		if err := json.NewEncoder(w).Encode(extList); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	got, err := repo.DiscoverExtensions(ctx)
+	if err != nil {
+		t.Errorf("Repository.DiscoverExtentions() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, exts) {
+		t.Errorf("Repository.DiscoverExtentions(): got %v, want %v", got, exts)
+	}
+}
+
+func TestRepository_DiscoverExtension(t *testing.T) {
+	desc1 := "Lorem ipsum dolor sit amet, consectetur adipiscing elit."
+	desc2 := "ORAS referrers listing API"
+	exts := []Extension{
+		{
+			Name:        "foo.bar",
+			URL:         "https://example.com",
+			Description: &desc1,
+			Endpoints:   []string{"_foo/bar", "_foo/baz"},
+		},
+		{
+			Name:        "cncf.oras.referrers",
+			URL:         "https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md",
+			Description: &desc2,
+			Endpoints:   []string{"_oras/artifacts/referrers"},
+		},
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/_oci/ext/discover"
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		extList := struct {
+			Extensions []Extension `json:"extensions"`
+		}{
+			Extensions: exts,
+		}
+		if err := json.NewEncoder(w).Encode(extList); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	// Found
+	got, err := repo.DiscoverExtension(ctx, "foo.bar")
+	if err != nil {
+		t.Errorf("Repository.DiscoverExtention() error = %v", err)
+	}
+	if !reflect.DeepEqual(*got, exts[0]) {
+		t.Errorf("Repository.DiscoverExtention(): got %v, want %v", got, exts)
+	}
+
+	// Not found
+	got, err = repo.DiscoverExtension(ctx, "foo.baz")
+	if got != nil || !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Repository.DiscoverExtention(): got (%v, %v), want (nil, %v)", got, err, errdef.ErrNotFound)
+	}
+}
+
 func Test_BlobStore_Fetch(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
