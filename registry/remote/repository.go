@@ -327,7 +327,7 @@ func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	var res []ocispec.Descriptor
-	if err := r.Referrers(ctx, desc, func(referrers []artifactspec.Descriptor) error {
+	if err := r.Referrers(ctx, desc, "", func(referrers []artifactspec.Descriptor) error {
 		for _, referrer := range referrers {
 			res = append(res, descriptor.ArtifactToOCI(referrer))
 		}
@@ -339,27 +339,28 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 }
 
 // Referrers lists the descriptors of ORAS Artifact manifests directly
-// referencing the given manifest descriptor.
+// referencing the given manifest descriptor. fn is called for each page of
+// the referrers result. If artifactType is not empty, only referrers of the
+// same artifact type are fed to fn.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
-func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error) error {
-	// TODO(shizhMSFT): filter artifact type
+func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []artifactspec.Descriptor) error) error {
 	ref := r.Reference
 	ref.Reference = desc.Digest.String()
 	ctx = withScopeHint(ctx, ref, auth.ActionPull)
-	url := buildArtifactReferrerURL(r.PlainHTTP, ref)
+	url := buildArtifactReferrerURL(r.PlainHTTP, ref, artifactType)
 	var err error
 
 	var legacyAPI bool
-	url, err = r.referrers(ctx, desc, fn, url, legacyAPI)
+	url, err = r.referrers(ctx, artifactType, fn, url, legacyAPI)
 	// Fallback to legacy url
 	if errors.Is(err, errdef.ErrNotFound) {
-		url = buildArtifactReferrerURLLegacy(r.PlainHTTP, ref)
+		url = buildArtifactReferrerURLLegacy(r.PlainHTTP, ref, artifactType)
 		legacyAPI = true
 		err = nil
 	}
 
 	for err == nil {
-		url, err = r.referrers(ctx, desc, fn, url, legacyAPI)
+		url, err = r.referrers(ctx, artifactType, fn, url, legacyAPI)
 	}
 	if err != errNoLink {
 		return err
@@ -369,7 +370,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 
 // referrers returns a single page of the manifest descriptors directly
 // referencing the given manifest descriptor with the next link.
-func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn func(referrers []artifactspec.Descriptor) error, url string, legacyAPI bool) (string, error) {
+func (r *Repository) referrers(ctx context.Context, artifactType string, fn func(referrers []artifactspec.Descriptor) error, url string, legacyAPI bool) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -407,11 +408,33 @@ func (r *Repository) referrers(ctx context.Context, desc ocispec.Descriptor, fn 
 	} else {
 		refs = page.Referrers
 	}
-	if err := fn(refs); err != nil {
-		return "", err
+	// Server may not support filtering. We still need to filter on client side for sure.
+	refs = filterReferrers(refs, artifactType)
+	if len(refs) > 0 {
+		if err := fn(refs); err != nil {
+			return "", err
+		}
 	}
 
 	return parseLink(resp)
+}
+
+// filterReferrers filters a slice of referrers by artifactType in place.
+// The returned slice contains matching referrers.
+func filterReferrers(refs []artifactspec.Descriptor, artifactType string) []artifactspec.Descriptor {
+	if artifactType == "" {
+		return refs
+	}
+	var j int
+	for i, ref := range refs {
+		if ref.ArtifactType == artifactType {
+			if i != j {
+				refs[j] = ref
+			}
+			j++
+		}
+	}
+	return refs[:j]
 }
 
 // delete removes the content identified by the descriptor in the entity "blobs"
