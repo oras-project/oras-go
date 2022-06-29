@@ -1217,8 +1217,8 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 		case "bar":
 			referrers = referrerSet[2]
 		default:
-			if q.Get("digest") == "" {
-				t.Errorf("digest not provided: %s %q", r.Method, r.URL)
+			if q.Get("digest") != manifestDesc.Digest.String() {
+				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -1226,9 +1226,9 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			References []artifactspec.Descriptor `json:"references"`
+			Referrers []artifactspec.Descriptor `json:"referrers"`
 		}{
-			References: referrers,
+			Referrers: referrers,
 		}
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
@@ -1261,6 +1261,9 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+	if index != len(referrerSet) {
+		t.Errorf("fn invoked %d time(s), want %d", index, len(referrerSet))
 	}
 }
 
@@ -1350,8 +1353,8 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 		case "bar":
 			referrers = referrerSet[2]
 		default:
-			if q.Get("digest") == "" {
-				t.Errorf("digest not provided: %s %q", r.Method, r.URL)
+			if q.Get("digest") != manifestDesc.Digest.String() {
+				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -1359,9 +1362,9 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			References []artifactspec.Descriptor `json:"references"`
+			Referrers []artifactspec.Descriptor `json:"referrers"`
 		}{
-			References: referrers,
+			Referrers: referrers,
 		}
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
@@ -1394,6 +1397,9 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+	if index != len(filteredReferrerSet) {
+		t.Errorf("fn invoked %d time(s), want %d", index, len(referrerSet))
 	}
 }
 

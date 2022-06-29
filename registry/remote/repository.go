@@ -425,16 +425,16 @@ func filterReferrers(refs []artifactspec.Descriptor, artifactType string) []arti
 	if artifactType == "" {
 		return refs
 	}
-	var o int
-	for i := 0; i < len(refs); i++ {
-		if refs[i].ArtifactType == artifactType {
-			if i != o {
-				refs[o] = refs[i]
+	var j int
+	for i, ref := range refs {
+		if ref.ArtifactType == artifactType {
+			if i != j {
+				refs[j] = ref
 			}
-			o++
+			j++
 		}
 	}
-	return refs[:o]
+	return refs[:j]
 }
 
 // delete removes the content identified by the descriptor in the entity "blobs"
