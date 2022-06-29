@@ -36,13 +36,13 @@ const (
 )
 
 var (
-	host                string
-	expectedHostAddress string
-	simpleURL           string
-	basicAuthURL        string
-	accessTokenURL      string
-	clientConfigURL     string
-	tokenScopes         = []string{
+	host                  string
+	expectedHostAddress   string
+	targetURL             string
+	basicAuthTargetURL    string
+	accessTokenTargetURL  string
+	clientConfigTargetURL string
+	tokenScopes           = []string{
 		"repository:dst:pull,push",
 		"repository:src:pull",
 	}
@@ -110,10 +110,10 @@ func TestMain(m *testing.M) {
 	host = ts.URL
 	uri, _ := url.Parse(host)
 	expectedHostAddress = uri.Host
-	simpleURL = fmt.Sprintf("%s/simple", host)
-	basicAuthURL = fmt.Sprintf("%s/basicAuth", host)
-	accessTokenURL = fmt.Sprintf("%s/accessToken", host)
-	clientConfigURL = fmt.Sprintf("%s/clientConfig", host)
+	targetURL = fmt.Sprintf("%s/simple", host)
+	basicAuthTargetURL = fmt.Sprintf("%s/basicAuth", host)
+	accessTokenTargetURL = fmt.Sprintf("%s/accessToken", host)
+	clientConfigTargetURL = fmt.Sprintf("%s/clientConfig", host)
 	http.DefaultClient = ts.Client()
 
 	os.Exit(m.Run())
@@ -122,7 +122,8 @@ func TestMain(m *testing.M) {
 // ExampleClient_Do_minimalClient gives an example of a minimal working client.
 func ExampleClient_Do_minimalClient() {
 	var client auth.Client
-	req, err := http.NewRequest(http.MethodGet, simpleURL, nil)
+	// targetURL is of form http://ipaddr:port
+	req, err := http.NewRequest(http.MethodGet, targetURL, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -141,6 +142,7 @@ func ExampleClient_Do_basicAuth() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
 			switch reg {
+			// expectedHostAddress is of form ipaddr:port
 			case expectedHostAddress:
 				return auth.Credential{
 					Username: username,
@@ -152,7 +154,8 @@ func ExampleClient_Do_basicAuth() {
 			}
 		},
 	}
-	req, err := http.NewRequest(http.MethodGet, basicAuthURL, nil)
+	// basicAuthTargetURL is of form http://ipaddr:port
+	req, err := http.NewRequest(http.MethodGet, basicAuthTargetURL, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -171,6 +174,7 @@ func ExampleClient_Do_withAccessToken() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
 			switch reg {
+			// expectedHostAddress is of form ipaddr:port
 			case expectedHostAddress:
 				return auth.Credential{
 					AccessToken: accessToken,
@@ -180,7 +184,8 @@ func ExampleClient_Do_withAccessToken() {
 			}
 		},
 	}
-	req, err := http.NewRequest(http.MethodGet, accessTokenURL, nil)
+	// accessTokenTargetURL is of form http://ipaddr:port
+	req, err := http.NewRequest(http.MethodGet, accessTokenTargetURL, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -200,6 +205,7 @@ func ExampleClient_Do_clientConfiguration() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
 			switch reg {
+			// expectedHostAddress is of form ipaddr:port
 			case expectedHostAddress:
 				return auth.Credential{
 					Username: username,
@@ -231,7 +237,8 @@ func ExampleClient_Do_clientConfiguration() {
 	}
 	ctx := auth.WithScopes(context.Background(), scopes...)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigURL, nil)
+	// clientConfigTargetURL is of form ipaddr:port
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigTargetURL, nil)
 	if err != nil {
 		panic(err)
 	}
