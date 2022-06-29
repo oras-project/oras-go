@@ -216,7 +216,7 @@ func ExampleClient_Do_clientConfiguration() {
 			}
 		},
 		// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant.
-		ForceAttemptOAuth2: false,
+		ForceAttemptOAuth2: true,
 		// Cache caches credentials for accessing the remote registry.
 		Cache: auth.NewCache(),
 	}
