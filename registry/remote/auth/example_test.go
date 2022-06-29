@@ -215,26 +215,21 @@ func ExampleClient_Do_clientConfiguration() {
 				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
 			}
 		},
-		// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant
-		// instead the distribution spec when authenticating using username and
-		// password.
+		// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant.
 		ForceAttemptOAuth2: false,
 		// Cache caches credentials for accessing the remote registry.
-		// If nil, no cache is used.
 		Cache: auth.NewCache(),
 	}
 	// SetUserAgent sets the user agent for all out-going requests.
 	client.SetUserAgent("example user agent")
-	// Tokens used by the registry are always restricted what resources they may
-	// be used to access, where those resources may be accessed, and what actions
-	// may be done on those resources. Such restrictions are represented and enforced
-	// as Scopes. Reference: https://docs.docker.com/registry/spec/auth/scope/
-	// Scopes are used as hints for the auth client to fetch bearer tokens with
-	// larger scopes. WithScopes returns a context with scopes added.
+	// Tokens carry restrictions about what resources they can access and how.
+	// Such restrictions are represented and enforced as Scopes.
+	// Reference: https://docs.docker.com/registry/spec/auth/scope/
 	scopes := []string{
 		"repository:dst:pull,push",
 		"repository:src:pull",
 	}
+	// WithScopes returns a context with scopes added.
 	ctx := auth.WithScopes(context.Background(), scopes...)
 
 	// clientConfigTargetURL is of form ipaddr:port
