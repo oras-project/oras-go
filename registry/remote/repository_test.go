@@ -1024,7 +1024,7 @@ func TestRepository_Referrers(t *testing.T) {
 
 	ctx := context.Background()
 	index := 0
-	if err := repo.Referrers(ctx, manifestDesc, func(got []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []artifactspec.Descriptor) error {
 		if index >= len(referrerSet) {
 			t.Fatalf("out of index bound: %d", index)
 		}
@@ -1133,7 +1133,7 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 
 	ctx := context.Background()
 	index := 0
-	if err := repo.Referrers(ctx, manifestDesc, func(got []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []artifactspec.Descriptor) error {
 		if index >= len(referrerSet) {
 			t.Fatalf("out of index bound: %d", index)
 		}
@@ -1145,6 +1145,341 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+
+}
+
+func TestRepository_Referrers_ServerFiltering(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	referrerSet := [][]artifactspec.Descriptor{
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         1,
+				Digest:       digest.FromString("1"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         2,
+				Digest:       digest.FromString("2"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         3,
+				Digest:       digest.FromString("3"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         4,
+				Digest:       digest.FromString("4"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         5,
+				Digest:       digest.FromString("5"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+	}
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/_oras/artifacts/referrers"
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 2 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var referrers []artifactspec.Descriptor
+		switch q.Get("test") {
+		case "foo":
+			referrers = referrerSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?n=2&test=bar>; rel="next"`, ts.URL, path))
+		case "bar":
+			referrers = referrerSet[2]
+		default:
+			if q.Get("digest") != manifestDesc.Digest.String() {
+				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			referrers = referrerSet[0]
+			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
+		}
+		result := struct {
+			Referrers []artifactspec.Descriptor `json:"referrers"`
+		}{
+			Referrers: referrers,
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListPageSize = 2
+
+	ctx := context.Background()
+	index := 0
+	if err := repo.Referrers(ctx, manifestDesc, "application/vnd.test", func(got []artifactspec.Descriptor) error {
+		if index >= len(referrerSet) {
+			t.Fatalf("out of index bound: %d", index)
+		}
+		referrers := referrerSet[index]
+		index++
+		if !reflect.DeepEqual(got, referrers) {
+			t.Errorf("Repository.Referrers() = %v, want %v", got, referrers)
+		}
+		return nil
+	}); err != nil {
+		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+	if index != len(referrerSet) {
+		t.Errorf("fn invoked %d time(s), want %d", index, len(referrerSet))
+	}
+}
+
+func TestRepository_Referrers_ClientFiltering(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	referrerSet := [][]artifactspec.Descriptor{
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         1,
+				Digest:       digest.FromString("1"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         2,
+				Digest:       digest.FromString("2"),
+				ArtifactType: "application/vnd.foo",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         3,
+				Digest:       digest.FromString("3"),
+				ArtifactType: "application/vnd.test",
+			},
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         4,
+				Digest:       digest.FromString("4"),
+				ArtifactType: "application/vnd.bar",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         5,
+				Digest:       digest.FromString("5"),
+				ArtifactType: "application/vnd.baz",
+			},
+		},
+	}
+	filteredReferrerSet := [][]artifactspec.Descriptor{
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         1,
+				Digest:       digest.FromString("1"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+		{
+			{
+				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				Size:         3,
+				Digest:       digest.FromString("3"),
+				ArtifactType: "application/vnd.test",
+			},
+		},
+	}
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/_oras/artifacts/referrers"
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 2 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var referrers []artifactspec.Descriptor
+		switch q.Get("test") {
+		case "foo":
+			referrers = referrerSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?n=2&test=bar>; rel="next"`, ts.URL, path))
+		case "bar":
+			referrers = referrerSet[2]
+		default:
+			if q.Get("digest") != manifestDesc.Digest.String() {
+				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			referrers = referrerSet[0]
+			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
+		}
+		result := struct {
+			Referrers []artifactspec.Descriptor `json:"referrers"`
+		}{
+			Referrers: referrers,
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListPageSize = 2
+
+	ctx := context.Background()
+	index := 0
+	if err := repo.Referrers(ctx, manifestDesc, "application/vnd.test", func(got []artifactspec.Descriptor) error {
+		if index >= len(filteredReferrerSet) {
+			t.Fatalf("out of index bound: %d", index)
+		}
+		referrers := filteredReferrerSet[index]
+		index++
+		if !reflect.DeepEqual(got, referrers) {
+			t.Errorf("Repository.Referrers() = %v, want %v", got, referrers)
+		}
+		return nil
+	}); err != nil {
+		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+	if index != len(filteredReferrerSet) {
+		t.Errorf("fn invoked %d time(s), want %d", index, len(referrerSet))
+	}
+}
+
+func Test_filterReferrers(t *testing.T) {
+	refs := []artifactspec.Descriptor{
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         1,
+			Digest:       digest.FromString("1"),
+			ArtifactType: "application/vnd.test",
+		},
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         2,
+			Digest:       digest.FromString("2"),
+			ArtifactType: "application/vnd.foo",
+		},
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         3,
+			Digest:       digest.FromString("3"),
+			ArtifactType: "application/vnd.bar",
+		},
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         4,
+			Digest:       digest.FromString("4"),
+			ArtifactType: "application/vnd.test",
+		},
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         5,
+			Digest:       digest.FromString("5"),
+			ArtifactType: "application/vnd.baz",
+		},
+	}
+	got := filterReferrers(refs, "application/vnd.test")
+	want := []artifactspec.Descriptor{
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         1,
+			Digest:       digest.FromString("1"),
+			ArtifactType: "application/vnd.test",
+		},
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         4,
+			Digest:       digest.FromString("4"),
+			ArtifactType: "application/vnd.test",
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("filterReferrers() = %v, want %v", got, want)
+	}
+}
+
+func Test_filterReferrers_allMatch(t *testing.T) {
+	refs := []artifactspec.Descriptor{
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         1,
+			Digest:       digest.FromString("1"),
+			ArtifactType: "application/vnd.test",
+		},
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         4,
+			Digest:       digest.FromString("2"),
+			ArtifactType: "application/vnd.test",
+		},
+		{
+			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			Size:         5,
+			Digest:       digest.FromString("3"),
+			ArtifactType: "application/vnd.test",
+		},
+	}
+	got := filterReferrers(refs, "application/vnd.test")
+	if !reflect.DeepEqual(got, refs) {
+		t.Errorf("filterReferrers() = %v, want %v", got, refs)
 	}
 }
 
