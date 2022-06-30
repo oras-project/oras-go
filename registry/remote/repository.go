@@ -496,7 +496,6 @@ func (r *Repository) DiscoverExtension(ctx context.Context, name string) (*Exten
 	}
 	for _, ext := range extensions {
 		if ext.Name == name {
-			ext := ext
 			return &ext, nil
 		}
 	}
