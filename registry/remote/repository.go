@@ -486,20 +486,21 @@ func (r *Repository) DiscoverExtensions(ctx context.Context) ([]Extension, error
 	return discoveryResult.Extensions, nil
 }
 
-// DiscoverExtension finds the first extension with give name in all supported extensions in current repository.
-// (nil, errdef.ErrNotFound) is returned if no such extension found.
+// DiscoverExtension finds the first extension with give name in all supported
+// extensions in current repository.
+// Returns ErrNotFound if no such extension found.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#api-discovery
-func (r *Repository) DiscoverExtension(ctx context.Context, name string) (*Extension, error) {
+func (r *Repository) DiscoverExtension(ctx context.Context, name string) (Extension, error) {
 	extensions, err := r.DiscoverExtensions(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to discover extensions: %w", err)
+		return Extension{}, fmt.Errorf("Failed to discover extensions: %w", err)
 	}
 	for _, ext := range extensions {
 		if ext.Name == name {
-			return &ext, nil
+			return ext, nil
 		}
 	}
-	return nil, errdef.ErrNotFound
+	return Extension{}, errdef.ErrNotFound
 }
 
 // delete removes the content identified by the descriptor in the entity "blobs"

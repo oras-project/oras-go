@@ -1589,13 +1589,13 @@ func TestRepository_DiscoverExtension(t *testing.T) {
 	if err != nil {
 		t.Errorf("Repository.DiscoverExtention() error = %v", err)
 	}
-	if !reflect.DeepEqual(*got, exts[0]) {
+	if !reflect.DeepEqual(got, exts[0]) {
 		t.Errorf("Repository.DiscoverExtention(): got %v, want %v", got, exts)
 	}
 
 	// Not found
-	got, err = repo.DiscoverExtension(ctx, "foo.baz")
-	if got != nil || !errors.Is(err, errdef.ErrNotFound) {
+	_, err = repo.DiscoverExtension(ctx, "foo.baz")
+	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Repository.DiscoverExtention(): got (%v, %v), want (nil, %v)", got, err, errdef.ErrNotFound)
 	}
 }
