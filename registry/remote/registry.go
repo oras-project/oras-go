@@ -112,11 +112,13 @@ func (r *Registry) Ping(ctx context.Context) error {
 func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos []string) error) error {
 	ctx = auth.AppendScopes(ctx, auth.ScopeRegistryCatalog)
 	url := buildRegistryCatalogURL(r.PlainHTTP, r.Reference)
-	firstCall := true
 	var err error
 	for err == nil {
-		// firstCall will be set to false after the first call of r.repositories
-		url, err = r.repositories(ctx, last, fn, url, &firstCall)
+		url, err = r.repositories(ctx, last, fn, url)
+		// Setting last to "" means that for following r.repositories calls,
+		// the 'last' parameter is determined by the "Link" header of the
+		// catalog API response
+		last = ""
 	}
 	if err != errNoLink {
 		return err
@@ -125,7 +127,7 @@ func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos 
 }
 
 // repositories returns a single page of repository list with the next link.
-func (r *Registry) repositories(ctx context.Context, last string, fn func(repos []string) error, url string, firstCall *bool) (string, error) {
+func (r *Registry) repositories(ctx context.Context, last string, fn func(repos []string) error, url string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -134,9 +136,8 @@ func (r *Registry) repositories(ctx context.Context, last string, fn func(repos 
 	if r.RepositoryListPageSize > 0 {
 		q.Set("n", strconv.Itoa(r.RepositoryListPageSize))
 	}
-	if *firstCall && last != "" {
+	if last != "" {
 		q.Set("last", last)
-		*firstCall = false
 	}
 	req.URL.RawQuery = q.Encode()
 	resp, err := r.client().Do(req)

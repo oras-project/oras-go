@@ -283,11 +283,12 @@ func (r *Repository) parseReference(reference string) (registry.Reference, error
 func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
 	ctx = withScopeHint(ctx, r.Reference, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
-	firstCall := true
 	var err error
 	for err == nil {
-		// firstCall will be set to false after the first call of r.tags
-		url, err = r.tags(ctx, last, fn, url, &firstCall)
+		url, err = r.tags(ctx, last, fn, url)
+		// Setting last to "" means that for following r.tags calls, the 'last'
+		// parameter is determined by the "Link" header of the tags API response
+		last = ""
 	}
 	if err != errNoLink {
 		return err
@@ -296,7 +297,7 @@ func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []strin
 }
 
 // tags returns a single page of tag list with the next link.
-func (r *Repository) tags(ctx context.Context, last string, fn func(tags []string) error, url string, firstCall *bool) (string, error) {
+func (r *Repository) tags(ctx context.Context, last string, fn func(tags []string) error, url string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -305,9 +306,8 @@ func (r *Repository) tags(ctx context.Context, last string, fn func(tags []strin
 	if r.TagListPageSize > 0 {
 		q.Set("n", strconv.Itoa(r.TagListPageSize))
 	}
-	if *firstCall && last != "" {
+	if last != "" {
 		q.Set("last", last)
-		*firstCall = false
 	}
 	req.URL.RawQuery = q.Encode()
 	resp, err := r.client().Do(req)
