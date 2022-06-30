@@ -40,6 +40,7 @@ Examples for common use cases can be found below:
 - [Copy examples](https://pkg.go.dev/oras.land/oras-go/v2@main#pkg-examples)
 - [Registry interaction examples](https://pkg.go.dev/oras.land/oras-go/v2@main/registry#pkg-examples)
 - [Repository interaction examples](https://pkg.go.dev/oras.land/oras-go/v2@main/registry/remote#pkg-examples)
+- [Authentication examples](https://pkg.go.dev/oras.land/oras-go/v2@main/registry/remote/auth#pkg-examples)
 
 If you are seeking new features over stability, you should use the
 `main` branch (or a specific commit hash) when including the ORAS
