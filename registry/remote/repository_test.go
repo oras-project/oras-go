@@ -1596,7 +1596,7 @@ func TestRepository_DiscoverExtension(t *testing.T) {
 	// Not found
 	_, err = repo.DiscoverExtension(ctx, "foo.baz")
 	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Repository.DiscoverExtention(): got (%v, %v), want (nil, %v)", got, err, errdef.ErrNotFound)
+		t.Errorf("Repository.DiscoverExtention(): got %v, want %v", err, errdef.ErrNotFound)
 	}
 }
 
