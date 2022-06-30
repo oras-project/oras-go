@@ -52,11 +52,19 @@ type Repository interface {
 	// Note: When implemented by a remote registry, the tags API is called.
 	// However, not all registries supports pagination or conforms the
 	// specification.
+	// last argument is the 'last' parameter when invoking the tags API.
+	// If NOT "", starting from the specified last non-inclusively. That is to
+	// say, 'last' will not be included in the results, but tags after 'last'
+	// will be returned.
+	// If "", starting from the top of the Tags list.
+	// Note: the last argument should only be used during the first call of the
+	// tags API. Following 'last' parameters should be determined by the
+	// "Link" header of the tags API response.
 	// References:
 	// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#content-discovery
 	// - https://docs.docker.com/registry/spec/api/#tags
 	// See also `Tags()` in this package.
-	Tags(ctx context.Context, fn func(tags []string) error) error
+	Tags(ctx context.Context, last string, fn func(tags []string) error) error
 }
 
 // BlobStore is a CAS with the ability to stat and delete its content.
@@ -80,9 +88,10 @@ type ReferenceFetcher interface {
 }
 
 // Tags lists the tags available in the repository.
+// This function returns tags starting from the top of the list.
 func Tags(ctx context.Context, repo Repository) ([]string, error) {
 	var res []string
-	if err := repo.Tags(ctx, func(tags []string) error {
+	if err := repo.Tags(ctx, "", func(tags []string) error {
 		res = append(res, tags...)
 		return nil
 	}); err != nil {

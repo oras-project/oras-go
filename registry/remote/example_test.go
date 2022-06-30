@@ -138,7 +138,7 @@ func ExampleRepository_Tags() {
 		panic(err)
 	}
 
-	err = repo.Tags(ctx, func(tags []string) error {
+	err = repo.Tags(ctx, "", func(tags []string) error {
 		for _, tag := range tags {
 			fmt.Println(tag)
 		}
@@ -521,7 +521,7 @@ func ExampleRegistry_Repositories() {
 	// Uncomment below line to reset HTTP option:
 	// reg.PlainHTTP = true
 	ctx := context.Background()
-	err = reg.Repositories(ctx, func(repos []string) error {
+	err = reg.Repositories(ctx, "", func(repos []string) error {
 		for _, repo := range repos {
 			fmt.Println(repo)
 		}

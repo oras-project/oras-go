@@ -795,7 +795,7 @@ func TestRepository_Tags(t *testing.T) {
 
 	ctx := context.Background()
 	index := 0
-	if err := repo.Tags(ctx, func(got []string) error {
+	if err := repo.Tags(ctx, "", func(got []string) error {
 		if index > 2 {
 			t.Fatalf("out of index bound: %d", index)
 		}
@@ -2589,5 +2589,76 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
 	if err != nil {
 		t.Fatalf("Blobs.Push() error = %v", err)
+	}
+}
+
+func TestRepository_Tags_WithLastParam(t *testing.T) {
+	tagSet := strings.Split("abcdefghijklmnopqrstuvwxyz", "")
+	var offset int
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/test/tags/list" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 4 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		last := q.Get("last")
+		if last != "" {
+			offset = indexOf(last, tagSet) + 1
+		}
+		var tags []string
+		switch q.Get("test") {
+		case "foo":
+			tags = tagSet[offset : offset+n]
+			offset += n
+			w.Header().Set("Link", fmt.Sprintf(`<%s/v2/test/tags/list?n=4&last=v&test=bar>; rel="next"`, ts.URL))
+		case "bar":
+			tags = tagSet[offset : offset+n]
+		default:
+			tags = tagSet[offset : offset+n]
+			offset += n
+			w.Header().Set("Link", fmt.Sprintf(`<%s/v2/test/tags/list?n=4&last=r&test=foo>; rel="next"`, ts.URL))
+		}
+		result := struct {
+			Tags []string `json:"tags"`
+		}{
+			Tags: tags,
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.TagListPageSize = 4
+	last := "n"
+	startInd := indexOf(last, tagSet) + 1
+
+	ctx := context.Background()
+	if err := repo.Tags(ctx, last, func(got []string) error {
+		want := tagSet[startInd : startInd+repo.TagListPageSize]
+		startInd += repo.TagListPageSize
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Registry.Repositories() = %v, want %v", got, want)
+		}
+		return nil
+	}); err != nil {
+		t.Errorf("Repository.Tags() error = %v", err)
 	}
 }

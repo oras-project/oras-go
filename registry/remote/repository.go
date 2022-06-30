@@ -272,12 +272,22 @@ func (r *Repository) parseReference(reference string) (registry.Reference, error
 }
 
 // Tags lists the tags available in the repository.
-func (r *Repository) Tags(ctx context.Context, fn func(tags []string) error) error {
+// See also `TagListPageSize`.
+// If last argument is NOT "", starting from the specified last non-inclusively.
+// That is to say, 'last' will not be included in the results, but tags after
+// 'last' will be returned.
+// If last argument is "", starting from the top of the Tags list.
+// References:
+// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#content-discovery
+// - https://docs.docker.com/registry/spec/api/#tags
+func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
 	ctx = withScopeHint(ctx, r.Reference, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
+	firstCall := true
 	var err error
 	for err == nil {
-		url, err = r.tags(ctx, fn, url)
+		// firstCall will be set to false after the first call of r.tags
+		url, err = r.tags(ctx, last, fn, url, &firstCall)
 	}
 	if err != errNoLink {
 		return err
@@ -286,17 +296,20 @@ func (r *Repository) Tags(ctx context.Context, fn func(tags []string) error) err
 }
 
 // tags returns a single page of tag list with the next link.
-func (r *Repository) tags(ctx context.Context, fn func(tags []string) error, url string) (string, error) {
+func (r *Repository) tags(ctx context.Context, last string, fn func(tags []string) error, url string, firstCall *bool) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
+	q := req.URL.Query()
 	if r.TagListPageSize > 0 {
-		q := req.URL.Query()
 		q.Set("n", strconv.Itoa(r.TagListPageSize))
-		req.URL.RawQuery = q.Encode()
 	}
-
+	if *firstCall && last != "" {
+		q.Set("last", last)
+		*firstCall = false
+	}
+	req.URL.RawQuery = q.Encode()
 	resp, err := r.client().Do(req)
 	if err != nil {
 		return "", err
