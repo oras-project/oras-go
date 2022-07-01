@@ -62,7 +62,8 @@ func TestExtendedCopy_FullCopy(t *testing.T) {
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
 		var manifest artifactspec.Manifest
-		manifest.Subject = descriptor.OCIToArtifact(subject)
+		artifactSubject := descriptor.OCIToArtifact(subject)
+		manifest.Subject = &artifactSubject
 		for _, blob := range blobs {
 			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
 		}
@@ -162,7 +163,8 @@ func TestExtendedCopyGraph_FullCopy(t *testing.T) {
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
 		var manifest artifactspec.Manifest
-		manifest.Subject = descriptor.OCIToArtifact(subject)
+		artifactSubject := descriptor.OCIToArtifact(subject)
+		manifest.Subject = &artifactSubject
 		for _, blob := range blobs {
 			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
 		}
@@ -369,7 +371,8 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
 		var manifest artifactspec.Manifest
-		manifest.Subject = descriptor.OCIToArtifact(subject)
+		artifactSubject := descriptor.OCIToArtifact(subject)
+		manifest.Subject = &artifactSubject
 		for _, blob := range blobs {
 			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
 		}
@@ -503,7 +506,8 @@ func TestExtendedCopy_WithFindPredecessorsOption(t *testing.T) {
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
 		var manifest artifactspec.Manifest
-		manifest.Subject = descriptor.OCIToArtifact(subject)
+		artifactSubject := descriptor.OCIToArtifact(subject)
+		manifest.Subject = &artifactSubject
 		for _, blob := range blobs {
 			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
 		}
