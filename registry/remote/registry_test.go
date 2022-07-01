@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	"oras.land/oras-go/v2/errdef"
@@ -156,7 +157,7 @@ func TestRegistry_Repositories(t *testing.T) {
 
 	ctx := context.Background()
 	index := 0
-	if err := reg.Repositories(ctx, func(got []string) error {
+	if err := reg.Repositories(ctx, "", func(got []string) error {
 		if index > 2 {
 			t.Fatalf("out of index bound: %d", index)
 		}
@@ -193,4 +194,84 @@ func TestRegistry_Repository(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Registry.Repository() = %v, want %v", got, want)
 	}
+}
+
+// Testing `last` parameter for Repositories list
+func TestRegistry_Repositories_WithLastParam(t *testing.T) {
+	repoSet := strings.Split("abcdefghijklmnopqrstuvwxyz", "")
+	var offset int
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/_catalog" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 4 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		last := q.Get("last")
+		if last != "" {
+			offset = indexOf(last, repoSet) + 1
+		}
+		var repos []string
+		switch q.Get("test") {
+		case "foo":
+			repos = repoSet[offset : offset+n]
+			w.Header().Set("Link", fmt.Sprintf(`<%s/v2/_catalog?n=4&last=v&test=bar>; rel="next"`, ts.URL))
+		case "bar":
+			repos = repoSet[offset : offset+n]
+		default:
+			repos = repoSet[offset : offset+n]
+			w.Header().Set("Link", fmt.Sprintf(`<%s/v2/_catalog?n=4&last=r&test=foo>; rel="next"`, ts.URL))
+		}
+		result := struct {
+			Repositories []string `json:"repositories"`
+		}{
+			Repositories: repos,
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	reg.PlainHTTP = true
+	reg.RepositoryListPageSize = 4
+	last := "n"
+	startInd := indexOf(last, repoSet) + 1
+
+	ctx := context.Background()
+	if err := reg.Repositories(ctx, last, func(got []string) error {
+		want := repoSet[startInd : startInd+reg.RepositoryListPageSize]
+		startInd += reg.RepositoryListPageSize
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Registry.Repositories() = %v, want %v", got, want)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("Registry.Repositories() error = %v", err)
+	}
+}
+
+//indexOf returns the index of an element within a slice
+func indexOf(element string, data []string) int {
+	for ind, val := range data {
+		if element == val {
+			return ind
+		}
+	}
+	return -1 //not found.
 }
