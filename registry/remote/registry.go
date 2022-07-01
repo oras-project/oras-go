@@ -104,10 +104,9 @@ func (r *Registry) Ping(ctx context.Context) error {
 
 // Repositories lists the name of repositories available in the registry.
 // See also `RepositoryListPageSize`.
-// If last argument is NOT "", starting from the specified last non-inclusively.
-// That is to say, 'last' will not be included in the results, but repos after
-// 'last' will be returned.
-// If last argument is "", starting from the top of the Repositories list.
+// If `last` is NOT empty, the entries in the response start after the
+// repo specified by `last`. Otherwise, the response starts from the top
+// of the Repositories list.
 // Reference: https://docs.docker.com/registry/spec/api/#catalog
 func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos []string) error) error {
 	ctx = auth.AppendScopes(ctx, auth.ScopeRegistryCatalog)
@@ -115,9 +114,7 @@ func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos 
 	var err error
 	for err == nil {
 		url, err = r.repositories(ctx, last, fn, url)
-		// Setting last to "" means that for following r.repositories calls,
-		// the 'last' parameter is determined by the "Link" header of the
-		// catalog API response
+		// clear `last` for subsequent pages
 		last = ""
 	}
 	if err != errNoLink {
@@ -132,14 +129,16 @@ func (r *Registry) repositories(ctx context.Context, last string, fn func(repos 
 	if err != nil {
 		return "", err
 	}
-	q := req.URL.Query()
-	if r.RepositoryListPageSize > 0 {
-		q.Set("n", strconv.Itoa(r.RepositoryListPageSize))
+	if r.RepositoryListPageSize > 0 || last != "" {
+		q := req.URL.Query()
+		if r.RepositoryListPageSize > 0 {
+			q.Set("n", strconv.Itoa(r.RepositoryListPageSize))
+		}
+		if last != "" {
+			q.Set("last", last)
+		}
+		req.URL.RawQuery = q.Encode()
 	}
-	if last != "" {
-		q.Set("last", last)
-	}
-	req.URL.RawQuery = q.Encode()
 	resp, err := r.client().Do(req)
 	if err != nil {
 		return "", err

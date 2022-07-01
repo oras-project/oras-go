@@ -196,7 +196,7 @@ func TestRegistry_Repository(t *testing.T) {
 	}
 }
 
-// Testing 'last' parameter for Repositories list
+// Testing `last` parameter for Repositories list
 func TestRegistry_Repositories_WithLastParam(t *testing.T) {
 	repoSet := strings.Split("abcdefghijklmnopqrstuvwxyz", "")
 	var offset int
@@ -264,4 +264,14 @@ func TestRegistry_Repositories_WithLastParam(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Registry.Repositories() error = %v", err)
 	}
+}
+
+//indexOf returns the index of an element within a slice
+func indexOf(element string, data []string) int {
+	for ind, val := range data {
+		if element == val {
+			return ind
+		}
+	}
+	return -1 //not found.
 }

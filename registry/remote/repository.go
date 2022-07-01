@@ -273,10 +273,9 @@ func (r *Repository) parseReference(reference string) (registry.Reference, error
 
 // Tags lists the tags available in the repository.
 // See also `TagListPageSize`.
-// If last argument is NOT "", starting from the specified last non-inclusively.
-// That is to say, 'last' will not be included in the results, but tags after
-// 'last' will be returned.
-// If last argument is "", starting from the top of the Tags list.
+// If `last` is NOT empty, the entries in the response start after the
+// tag specified by `last`. Otherwise, the response starts from the top
+// of the Tags list.
 // References:
 // - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#content-discovery
 // - https://docs.docker.com/registry/spec/api/#tags
@@ -286,8 +285,7 @@ func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []strin
 	var err error
 	for err == nil {
 		url, err = r.tags(ctx, last, fn, url)
-		// Setting last to "" means that for following r.tags calls, the 'last'
-		// parameter is determined by the "Link" header of the tags API response
+		// clear `last` for subsequent pages
 		last = ""
 	}
 	if err != errNoLink {
@@ -302,14 +300,16 @@ func (r *Repository) tags(ctx context.Context, last string, fn func(tags []strin
 	if err != nil {
 		return "", err
 	}
-	q := req.URL.Query()
-	if r.TagListPageSize > 0 {
-		q.Set("n", strconv.Itoa(r.TagListPageSize))
+	if r.TagListPageSize > 0 || last != "" {
+		q := req.URL.Query()
+		if r.TagListPageSize > 0 {
+			q.Set("n", strconv.Itoa(r.TagListPageSize))
+		}
+		if last != "" {
+			q.Set("last", last)
+		}
+		req.URL.RawQuery = q.Encode()
 	}
-	if last != "" {
-		q.Set("last", last)
-	}
-	req.URL.RawQuery = q.Encode()
 	resp, err := r.client().Do(req)
 	if err != nil {
 		return "", err

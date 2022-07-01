@@ -71,14 +71,3 @@ func withScopeHint(ctx context.Context, ref registry.Reference, actions ...strin
 	scope := auth.ScopeRepository(ref.Repository, actions...)
 	return auth.AppendScopes(ctx, scope)
 }
-
-// Helper function for TestRegistry_Repositories_WithLastParam
-// and TestRepository_Tags_WithLastParam
-func indexOf(element string, data []string) int {
-	for ind, val := range data {
-		if element == val {
-			return ind
-		}
-	}
-	return -1 //not found.
-}

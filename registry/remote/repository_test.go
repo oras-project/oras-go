@@ -2927,6 +2927,7 @@ func Test_BlobStore_Push_Port443_HTTPS(t *testing.T) {
 	}
 }
 
+// Testing `last` parameter for Tags list
 func TestRepository_Tags_WithLastParam(t *testing.T) {
 	tagSet := strings.Split("abcdefghijklmnopqrstuvwxyz", "")
 	var offset int
