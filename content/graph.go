@@ -79,7 +79,7 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 			return nil, err
 		}
 		var nodes []ocispec.Descriptor
-		if descriptor.FromArtifact(*manifest.Subject) != descriptor.Empty {
+		if manifest.Subject != nil {
 			nodes = append(nodes, descriptor.ArtifactToOCI(*manifest.Subject))
 		}
 		for _, blob := range manifest.Blobs {
