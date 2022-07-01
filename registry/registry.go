@@ -31,7 +31,7 @@ type Registry interface {
 	// Note: When implemented by a remote registry, the catalog API is called.
 	// However, not all registries supports pagination or conforms the
 	// specification.
-	// References: https://docs.docker.com/registry/spec/api/#catalog
+	// Reference: https://docs.docker.com/registry/spec/api/#catalog
 	// See also `Repositories()` in this package.
 	Repositories(ctx context.Context, last string, fn func(repos []string) error) error
 
