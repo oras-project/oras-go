@@ -19,11 +19,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"reflect"
 	"testing"
+	"time"
+
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 
 	"github.com/opencontainers/go-digest"
+	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content/memory"
 )
@@ -31,6 +36,7 @@ import (
 func Test_Pack_Default(t *testing.T) {
 	s := memory.New()
 
+	// prepare test content
 	layer_1 := []byte("hello world")
 	desc_1 := ocispec.Descriptor{
 		MediaType: "test",
@@ -49,32 +55,32 @@ func Test_Pack_Default(t *testing.T) {
 		desc_2,
 	}
 
+	// test Pack
 	ctx := context.Background()
 	manifestDesc, err := Pack(ctx, s, layers, PackOptions{})
 	if err != nil {
 		t.Fatal("Oras.Pack() error =", err)
 	}
 
-	// test manifest
-	var manifest ocispec.Manifest
-	rc, err := s.Fetch(ctx, manifestDesc)
+	expectedConfigBytes := []byte("{}")
+	expectedManifest := ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config: ocispec.Descriptor{
+			MediaType: MediaTypeUnknownConfig,
+			Digest:    digest.FromBytes(expectedConfigBytes),
+			Size:      int64(len(expectedConfigBytes)),
+		},
+		Layers: layers,
+	}
+	expectedManifestBytes, err := json.Marshal(expectedManifest)
 	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
-	}
-	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
-		t.Fatal("error decoding manifest, error =", err)
-	}
-	if err := rc.Close(); err != nil {
-		t.Fatal("Store.Fetch().Close() error =", err)
-	}
-	if !reflect.DeepEqual(manifest.Layers, layers) {
-		t.Errorf("Store.Fetch() = %v, want %v", manifest.Layers, layers)
+		t.Fatal("failed to marshal manifest:", err)
 	}
 
-	// test config
-	config := manifest.Config
-	expected := []byte("{}")
-	rc, err = s.Fetch(ctx, config)
+	rc, err := s.Fetch(ctx, manifestDesc)
 	if err != nil {
 		t.Fatal("Store.Fetch() error =", err)
 	}
@@ -86,41 +92,116 @@ func Test_Pack_Default(t *testing.T) {
 	if err != nil {
 		t.Error("Store.Fetch().Close() error =", err)
 	}
-	if !bytes.Equal(got, expected) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, expected)
+	if !bytes.Equal(got, expectedManifestBytes) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, expectedManifestBytes)
+	}
+}
+
+func Test_Pack_WithOptions(t *testing.T) {
+	s := memory.New()
+
+	// prepare test content
+	layer_1 := []byte("hello world")
+	desc_1 := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(layer_1),
+		Size:      int64(len(layer_1)),
+	}
+
+	layer_2 := []byte("goodbye world")
+	desc_2 := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(layer_2),
+		Size:      int64(len(layer_2)),
+	}
+	layers := []ocispec.Descriptor{
+		desc_1,
+		desc_2,
+	}
+	configBytes := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: MediaTypeUnknownConfig,
+		Digest:    digest.FromBytes(configBytes),
+		Size:      int64(len(configBytes)),
+	}
+	annotations := map[string]string{
+		"foo": "bar",
+	}
+
+	// test Pack
+	ctx := context.Background()
+	opts := PackOptions{
+		ConfigDescriptor:    &configDesc,
+		ConfigAnnotations:   annotations,
+		ConfigMediaType:     ocispec.MediaTypeImageConfig,
+		ManifestAnnotations: annotations,
+	}
+	manifestDesc, err := Pack(ctx, s, layers, opts)
+	if err != nil {
+		t.Fatal("Oras.Pack() error =", err)
+	}
+
+	expectedManifest := ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType:   ocispec.MediaTypeImageManifest,
+		Config:      configDesc,
+		Layers:      layers,
+		Annotations: annotations,
+	}
+	expectedManifestBytes, err := json.Marshal(expectedManifest)
+	if err != nil {
+		t.Fatal("failed to marshal manifest:", err)
+	}
+
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, expectedManifestBytes) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, expectedManifestBytes)
 	}
 }
 
 func Test_Pack_NoLayer(t *testing.T) {
 	s := memory.New()
 
+	// test Pack
 	ctx := context.Background()
 	manifestDesc, err := Pack(ctx, s, nil, PackOptions{})
 	if err != nil {
 		t.Fatal("Oras.Pack() error =", err)
 	}
 
-	// test manifest
-	var manifest ocispec.Manifest
-	rc, err := s.Fetch(ctx, manifestDesc)
+	expectedConfigBytes := []byte("{}")
+	expectedManifest := ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config: ocispec.Descriptor{
+			MediaType: MediaTypeUnknownConfig,
+			Digest:    digest.FromBytes(expectedConfigBytes),
+			Size:      int64(len(expectedConfigBytes)),
+		},
+		Layers: []ocispec.Descriptor{},
+	}
+	expectedManifestBytes, err := json.Marshal(expectedManifest)
 	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
-	}
-	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
-		t.Fatal("error decoding manifest, error =", err)
-	}
-	if err := rc.Close(); err != nil {
-		t.Fatal("Store.Fetch().Close() error =", err)
-	}
-	expectedLayers := []ocispec.Descriptor{}
-	if !reflect.DeepEqual(manifest.Layers, expectedLayers) {
-		t.Errorf("Store.Fetch() = %v, want %v", manifest.Layers, expectedLayers)
+		t.Fatal("failed to marshal manifest:", err)
 	}
 
-	// test config
-	config := manifest.Config
-	expectedConfig := []byte("{}")
-	rc, err = s.Fetch(ctx, config)
+	// test manifest
+	rc, err := s.Fetch(ctx, manifestDesc)
 	if err != nil {
 		t.Fatal("Store.Fetch() error =", err)
 	}
@@ -132,7 +213,207 @@ func Test_Pack_NoLayer(t *testing.T) {
 	if err != nil {
 		t.Error("Store.Fetch().Close() error =", err)
 	}
-	if !bytes.Equal(got, expectedConfig) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, expectedConfig)
+	if !bytes.Equal(got, expectedManifestBytes) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, expectedManifestBytes)
+	}
+}
+
+func Test_PackArtifact_Default(t *testing.T) {
+	s := memory.New()
+
+	// prepare test content
+	blob_1 := []byte("hello world")
+	desc_1 := artifactspec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob_1),
+		Size:      int64(len(blob_1)),
+	}
+
+	blob_2 := []byte("goodbye world")
+	desc_2 := artifactspec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob_2),
+		Size:      int64(len(blob_2)),
+	}
+	blobs := []artifactspec.Descriptor{
+		desc_1,
+		desc_2,
+	}
+	artifactType := "application/vnd.test"
+
+	// test PackArtifact
+	ctx := context.Background()
+	manifestDesc, err := PackArtifact(ctx, s, blobs, artifactType, PackArtifactOptions{})
+	if err != nil {
+		t.Fatal("Oras.PackArtifact() error =", err)
+	}
+
+	// test blobs
+	var manifest artifactspec.Manifest
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		t.Fatal("error decoding manifest, error =", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal("Store.Fetch().Close() error =", err)
+	}
+	if !reflect.DeepEqual(manifest.Blobs, blobs) {
+		t.Errorf("Store.Fetch() = %v, want %v", manifest.Blobs, blobs)
+	}
+
+	// test media type
+	got := manifest.MediaType
+	if got != artifactspec.MediaTypeArtifactManifest {
+		t.Fatalf("got media type = %s, want %s", got, artifactspec.MediaTypeArtifactManifest)
+	}
+
+	// test artifact type
+	got = manifest.ArtifactType
+	if got != artifactType {
+		t.Fatalf("got artifact type = %s, want %s", got, artifactType)
+	}
+
+	// test created time annotation
+	createdTime, ok := manifest.Annotations[AnnotationArtifactCreated]
+	if !ok {
+		t.Errorf("Annotation %s = %v, want %v", AnnotationArtifactCreated, ok, true)
+	}
+	_, err = time.Parse(time.RFC3339, createdTime)
+	if err != nil {
+		t.Errorf("error parsing created time: %s, error = %v", createdTime, err)
+	}
+}
+
+func Test_PackArtifact_WithOptions(t *testing.T) {
+	s := memory.New()
+
+	// prepare test content
+	blob_1 := []byte("hello world")
+	desc_1 := artifactspec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob_1),
+		Size:      int64(len(blob_1)),
+	}
+
+	blob_2 := []byte("goodbye world")
+	desc_2 := artifactspec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob_2),
+		Size:      int64(len(blob_2)),
+	}
+	blobs := []artifactspec.Descriptor{
+		desc_1,
+		desc_2,
+	}
+
+	artifactType := "application/vnd.test"
+	subjectManifest := []byte(`{"layers":[]}`)
+	subjectDesc := artifactspec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(subjectManifest),
+		Size:      int64(len(subjectManifest)),
+	}
+	now := time.Now().UTC()
+	annotations := map[string]string{
+		AnnotationArtifactCreated: now.Format(time.RFC3339),
+	}
+
+	// test PackArtifact
+	ctx := context.Background()
+	opts := PackArtifactOptions{
+		Subject:             &subjectDesc,
+		ManifestAnnotations: annotations,
+	}
+	manifestDesc, err := PackArtifact(ctx, s, blobs, artifactType, opts)
+	if err != nil {
+		t.Fatal("Oras.PackArtifact() error =", err)
+	}
+
+	expectedManifest := artifactspec.Manifest{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: artifactType,
+		Blobs:        blobs,
+		Subject:      opts.Subject,
+		Annotations:  annotations,
+	}
+	expectedManifestBytes, err := json.Marshal(expectedManifest)
+	if err != nil {
+		t.Fatal("failed to marshal manifest:", err)
+	}
+
+	// test manifest
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, expectedManifestBytes) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, expectedManifestBytes)
+	}
+}
+
+func Test_PackArtifact_NoBlob(t *testing.T) {
+	s := memory.New()
+
+	// test Pack
+	ctx := context.Background()
+	artifactType := "application/vnd.test"
+	manifestDesc, err := PackArtifact(ctx, s, nil, artifactType, PackArtifactOptions{})
+	if err != nil {
+		t.Fatal("Oras.Pack() error =", err)
+	}
+
+	var manifest artifactspec.Manifest
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		t.Fatal("error decoding manifest, error =", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal("Store.Fetch().Close() error =", err)
+	}
+
+	// test media type
+	got := manifest.MediaType
+	if got != artifactspec.MediaTypeArtifactManifest {
+		t.Fatalf("got media type = %s, want %s", got, artifactspec.MediaTypeArtifactManifest)
+	}
+
+	// test artifact type
+	got = manifest.ArtifactType
+	if got != artifactType {
+		t.Fatalf("got artifact type = %s, want %s", got, artifactType)
+	}
+
+	// test created time annotation
+	createdTime, ok := manifest.Annotations[AnnotationArtifactCreated]
+	if !ok {
+		t.Errorf("Annotation %s = %v, want %v", AnnotationArtifactCreated, ok, true)
+	}
+	_, err = time.Parse(time.RFC3339, createdTime)
+	if err != nil {
+		t.Errorf("error parsing created time: %s, error = %v", createdTime, err)
+	}
+}
+
+func Test_PackArtifact_MissingArtifactType(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	_, err := PackArtifact(ctx, s, nil, "", PackArtifactOptions{})
+	if err == nil || !errors.Is(err, ErrMissingArtifactType) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, ErrMissingArtifactType)
 	}
 }
