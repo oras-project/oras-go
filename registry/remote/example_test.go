@@ -211,7 +211,7 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	referenceManifest := artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "sbom/example",
-		Subject:      manifestDescriptor,
+		Subject:      &manifestDescriptor,
 	}
 	referenceManifestContent, _ := json.Marshal(referenceManifest)
 	referenceManifestDescriptor := ocispec.Descriptor{
