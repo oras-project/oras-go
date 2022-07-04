@@ -870,6 +870,7 @@ func TestRepository_Predecessors(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []artifactspec.Descriptor
 		switch q.Get("test") {
 		case "foo":
@@ -984,6 +985,7 @@ func TestRepository_Referrers(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []artifactspec.Descriptor
 		switch q.Get("test") {
 		case "foo":
@@ -1036,6 +1038,90 @@ func TestRepository_Referrers(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+}
+
+func TestRepository_Referrers_Incompatible(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/_oras/artifacts/referrers"
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("ORAS-Api-Version", "oras/2.0")
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+
+	ctx := context.Background()
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []artifactspec.Descriptor) error {
+		return nil
+	}); err == nil {
+		t.Error("Repository.Referrers() incompatible version not rejected")
+	}
+}
+
+func Test_verifyOrasApiVersion(t *testing.T) {
+	params := []struct {
+		name       string
+		version    string
+		compatible bool
+	}{
+		{
+			name:       "exact",
+			version:    "oras/1.0",
+			compatible: true,
+		},
+		{
+			name:       "major same, minor different",
+			version:    "oras/1.11",
+			compatible: true,
+		},
+		{
+			name:       "major different",
+			version:    "oras/2.0",
+			compatible: false,
+		},
+		{
+			name:       "invalid prefix",
+			version:    "*oras/1.0",
+			compatible: false,
+		},
+		{
+			name:       "no version",
+			version:    "",
+			compatible: false,
+		},
+	}
+
+	for _, tt := range params {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &http.Response{Header: http.Header{}}
+			if tt.version != "" {
+				resp.Header.Set("ORAS-Api-Version", tt.version)
+			}
+			err := verifyOrasApiVersion(resp)
+			if (err == nil) != tt.compatible {
+				t.Errorf("verifyOrasApiVersion() compatible = %v, want = %v", err == nil, tt.compatible)
+			}
+		})
 	}
 }
 
@@ -1098,6 +1184,7 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []artifactspec.Descriptor
 		switch q.Get("test") {
 		case "foo":
@@ -1146,7 +1233,6 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-
 }
 
 func TestRepository_Referrers_ServerFiltering(t *testing.T) {
@@ -1209,6 +1295,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []artifactspec.Descriptor
 		switch q.Get("test") {
 		case "foo":
@@ -1345,6 +1432,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []artifactspec.Descriptor
 		switch q.Get("test") {
 		case "foo":
