@@ -56,11 +56,30 @@ var (
 	exampleReferenceManifest, _ = json.Marshal(artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example reference manifest",
-		Subject:      exampleManifestDescriptor})
-	exampleReferenceManifestDescriptor = ocispec.Descriptor{
+		Subject:      &exampleManifestDescriptor})
+	exampleReferenceManifestDescriptor = artifactspec.Descriptor{
 		MediaType: artifactspec.MediaTypeArtifactManifest,
 		Digest:    digest.FromBytes(exampleReferenceManifest),
-		Size:      int64(len(exampleReferenceManifest)),
+		Size:      int64(len(exampleReferenceManifest))}
+	exampleSignatureManifest, _ = json.Marshal(artifactspec.Manifest{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: "example/signature",
+		Subject:      &exampleManifestDescriptor})
+	exampleSignatureManifestDescriptor = artifactspec.Descriptor{
+		MediaType: artifactspec.MediaTypeArtifactManifest,
+		Digest:    digest.FromBytes(exampleSignatureManifest),
+		Size:      int64(len(exampleSignatureManifest))}
+	exampleSBoMManifest, _ = json.Marshal(artifactspec.Manifest{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: "example/SBoM",
+		Subject:      &exampleManifestDescriptor})
+	exampleSBoMManifestDescriptor = artifactspec.Descriptor{
+		MediaType: artifactspec.MediaTypeArtifactManifest,
+		Digest:    digest.FromBytes(exampleSBoMManifest),
+		Size:      int64(len(exampleSBoMManifest))}
+	exampleReferrerDescriptors = [][]artifactspec.Descriptor{
+		{exampleReferenceManifestDescriptor},                                // page 0
+		{exampleSBoMManifestDescriptor, exampleSignatureManifestDescriptor}, // page 1
 	}
 )
 
@@ -102,6 +121,42 @@ func TestMain(m *testing.M) {
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleReferenceManifest)))
 			if m == "GET" {
 				w.Write(exampleReferenceManifest)
+			}
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSignatureManifestDescriptor.Digest) && m == "GET":
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
+			if m == "GET" {
+				w.Write(exampleSignatureManifest)
+			}
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSBoMManifestDescriptor.Digest) && m == "GET":
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Digest", string(exampleSBoMManifestDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSBoMManifest)))
+			if m == "GET" {
+				w.Write(exampleSBoMManifest)
+			}
+		case p == fmt.Sprintf("/v2/%s/_oras/artifacts/referrers", exampleRepositoryName):
+			q := r.URL.Query()
+			n, err := strconv.Atoi(q.Get("n"))
+			if err != nil || n != 2 {
+				w.WriteHeader(http.StatusBadRequest)
+			}
+			var referrers []artifactspec.Descriptor
+			switch q.Get("test") {
+			case "page1":
+				referrers = exampleReferrerDescriptors[1]
+			default:
+				referrers = exampleReferrerDescriptors[0]
+				w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=page1>; rel="next"`, p))
+			}
+			result := struct {
+				Referrers []artifactspec.Descriptor `json:"referrers"`
+			}{
+				Referrers: referrers,
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
 			}
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) || p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
@@ -381,16 +436,19 @@ func ExampleRepository_Fetch_manifestByDigest() {
 	// Example manifest content
 }
 
-func ExampleRepository_Fetch_referenceManifest() {
+// ExampleRepository_Fetch_referenceManifestByDescriptor gives an example of fetching
+// an reference manifest by its descriptor.
+func ExampleRepository_Fetch_referenceManifestByDescriptor() {
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
 	if err != nil {
 		panic(err)
 	}
 	ctx := context.Background()
-	if err != nil {
-		panic(err)
-	}
-	rc, err := repo.Fetch(ctx, exampleReferenceManifestDescriptor)
+	rc, err := repo.Fetch(ctx, ocispec.Descriptor{
+		MediaType: exampleReferenceManifestDescriptor.MediaType,
+		Digest:    exampleReferenceManifestDescriptor.Digest,
+		Size:      exampleReferenceManifestDescriptor.Size,
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -404,6 +462,61 @@ func ExampleRepository_Fetch_referenceManifest() {
 	if exampleReferenceManifestDescriptor.Size != int64(len(pulledBlob)) || exampleReferenceManifestDescriptor.Digest != digest.FromBytes(pulledBlob) {
 		panic(err)
 	}
+	fmt.Println("Fetch finished")
+	// Output:
+	// Fetch finished
+}
+
+// ExampleRepository_Fetch_referenceManifestByReferrers gives an example of fetching
+// the reference manifests of a given manifest by using the Referrers API.
+func ExampleRepository_Fetch_referenceManifestByReferrers() {
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
+	repo.ReferrerListPageSize = 2
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+
+	// resolve a manifest by tag
+	tag := "latest"
+	descriptor, err := repo.Resolve(ctx, tag)
+	if err != nil {
+		panic(err)
+	}
+	// find its referrers by calling Referrers
+	ctx = context.Background()
+	page := 0
+	if err := repo.Referrers(ctx, descriptor, "", func(got []artifactspec.Descriptor) error {
+		// for each page of the returned value, do the following:
+		if page >= len(exampleReferrerDescriptors) {
+			panic("page index out of bound")
+		}
+		// for each item in this page, pull the manifest and verify its content
+		for i := 0; i < len(got); i++ {
+			desc := got[i]
+			rc, err := repo.Fetch(ctx, ocispec.Descriptor{
+				MediaType: desc.MediaType,
+				Digest:    desc.Digest,
+				Size:      desc.Size})
+			if err != nil {
+				panic(err)
+			}
+			defer rc.Close() // don't forget to close
+			pulledBlob, err := io.ReadAll(rc)
+			if err != nil {
+				panic(err)
+			}
+			// verify the fetched content
+			if exampleReferrerDescriptors[page][i].Size != int64(len(pulledBlob)) || exampleReferrerDescriptors[page][i].Digest != digest.FromBytes(pulledBlob) {
+				panic(err)
+			}
+		}
+		page++
+		return nil
+	}); err != nil {
+		panic(err)
+	}
+
 	fmt.Println("Fetch finished")
 	// Output:
 	// Fetch finished
