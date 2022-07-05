@@ -32,7 +32,7 @@ const (
 	username     = "test_user"
 	password     = "test_password"
 	accessToken  = "test/access/token"
-	refreshToken = "test/access/refreshToken"
+	refreshToken = "test/refresh/token"
 )
 
 var (
@@ -265,6 +265,7 @@ func ExampleClient_Do_withAccessToken() {
 	// 200
 }
 
+// ExampleClient_Do_withRefreshToken gives an example of using client with a refresh token.
 func ExampleClient_Do_withRefreshToken() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
