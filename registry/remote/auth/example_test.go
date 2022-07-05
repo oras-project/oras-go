@@ -22,7 +22,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -30,18 +29,20 @@ import (
 )
 
 const (
-	username    = "test_user"
-	password    = "test_password"
-	accessToken = "test/access/token"
+	username     = "test_user"
+	password     = "test_password"
+	accessToken  = "test/access/token"
+	refreshToken = "test/refresh/token"
 )
 
 var (
 	host                  string
 	expectedHostAddress   string
 	targetURL             string
+	clientConfigTargetURL string
 	basicAuthTargetURL    string
 	accessTokenTargetURL  string
-	clientConfigTargetURL string
+	refreshTokenTargetURL string
 	tokenScopes           = []string{
 		"repository:dst:pull,push",
 		"repository:src:pull",
@@ -51,20 +52,29 @@ var (
 func TestMain(m *testing.M) {
 	// create an authorization server
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusUnauthorized)
 			panic("unexecuted attempt of authorization service")
 		}
-		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-		if auth := r.Header.Get("Authorization"); auth != header {
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			panic("failed to parse form")
+		}
+		if got := r.PostForm.Get("service"); got != host {
 			w.WriteHeader(http.StatusUnauthorized)
 		}
-		if got := r.URL.Query().Get("service"); got != host {
+		// handles refresh token requests
+		if got := r.PostForm.Get("grant_type"); got != "refresh_token" {
 			w.WriteHeader(http.StatusUnauthorized)
 		}
-		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, tokenScopes) {
+		scope := strings.Join(tokenScopes, " ")
+		if got := r.PostForm.Get("scope"); got != scope {
 			w.WriteHeader(http.StatusUnauthorized)
 		}
+		if got := r.PostForm.Get("refresh_token"); got != refreshToken {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+		// writes back access token
 		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, accessToken); err != nil {
 			panic(err)
 		}
@@ -86,6 +96,13 @@ func TestMain(m *testing.M) {
 				w.Header().Set("Www-Authenticate", `Basic realm="Test Server"`)
 				w.WriteHeader(http.StatusUnauthorized)
 			}
+		case "/clientConfig":
+			wantedAuthHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+			authHeader := r.Header.Get("Authorization")
+			if authHeader != wantedAuthHeader {
+				w.Header().Set("Www-Authenticate", `Basic realm="Test Server"`)
+				w.WriteHeader(http.StatusUnauthorized)
+			}
 		case "/accessToken":
 			wantedAuthHeader := "Bearer " + accessToken
 			if auth := r.Header.Get("Authorization"); auth != wantedAuthHeader {
@@ -93,11 +110,11 @@ func TestMain(m *testing.M) {
 				w.Header().Set("Www-Authenticate", challenge)
 				w.WriteHeader(http.StatusUnauthorized)
 			}
-		case "/clientConfig":
-			wantedAuthHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-			authHeader := r.Header.Get("Authorization")
-			if authHeader != wantedAuthHeader {
-				w.Header().Set("Www-Authenticate", `Basic realm="Test Server"`)
+		case "/refreshToken":
+			wantedAuthHeader := "Bearer " + accessToken
+			if auth := r.Header.Get("Authorization"); auth != wantedAuthHeader {
+				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, host, strings.Join(tokenScopes, " "))
+				w.Header().Set("Www-Authenticate", challenge)
 				w.WriteHeader(http.StatusUnauthorized)
 			}
 		case "/simple":
@@ -112,8 +129,9 @@ func TestMain(m *testing.M) {
 	expectedHostAddress = uri.Host
 	targetURL = fmt.Sprintf("%s/simple", host)
 	basicAuthTargetURL = fmt.Sprintf("%s/basicAuth", host)
-	accessTokenTargetURL = fmt.Sprintf("%s/accessToken", host)
 	clientConfigTargetURL = fmt.Sprintf("%s/clientConfig", host)
+	accessTokenTargetURL = fmt.Sprintf("%s/accessToken", host)
+	refreshTokenTargetURL = fmt.Sprintf("%s/refreshToken", host)
 	http.DefaultClient = ts.Client()
 
 	os.Exit(m.Run())
@@ -169,39 +187,9 @@ func ExampleClient_Do_basicAuth() {
 	// 200
 }
 
-// ExampleClient_Do_withAccessToken gives an example of using client with an access token.
-func ExampleClient_Do_withAccessToken() {
-	client := &auth.Client{
-		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
-			switch reg {
-			// expectedHostAddress is of form ipaddr:port
-			case expectedHostAddress:
-				return auth.Credential{
-					AccessToken: accessToken,
-				}, nil
-			default:
-				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
-			}
-		},
-	}
-	// accessTokenTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
-	req, err := http.NewRequest(http.MethodGet, accessTokenTargetURL, nil)
-	if err != nil {
-		panic(err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println(resp.StatusCode)
-	// Output:
-	// 200
-}
-
-// ExampleClient_Do_clientConfiguration shows the client configurations available,
+// ExampleClient_Do_clientConfigurations shows the client configurations available,
 // including using cache, setting user agent and configuring OAuth2.
-func ExampleClient_Do_clientConfiguration() {
+func ExampleClient_Do_clientConfigurations() {
 	client := &auth.Client{
 		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
 			switch reg {
@@ -234,6 +222,67 @@ func ExampleClient_Do_clientConfiguration() {
 
 	// clientConfigTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigTargetURL, nil)
+	if err != nil {
+		panic(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(resp.StatusCode)
+	// Output:
+	// 200
+}
+
+// ExampleClient_Do_withAccessToken gives an example of using client with an access token.
+func ExampleClient_Do_withAccessToken() {
+	client := &auth.Client{
+		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
+			switch reg {
+			// expectedHostAddress is of form ipaddr:port
+			case expectedHostAddress:
+				return auth.Credential{
+					AccessToken: accessToken,
+				}, nil
+			default:
+				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
+			}
+		},
+	}
+	// accessTokenTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
+	req, err := http.NewRequest(http.MethodGet, accessTokenTargetURL, nil)
+	if err != nil {
+		panic(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(resp.StatusCode)
+	// Output:
+	// 200
+}
+
+// ExampleClient_Do_withRefreshToken gives an example of using client with a refresh token.
+func ExampleClient_Do_withRefreshToken() {
+	client := &auth.Client{
+		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
+			switch reg {
+			// expectedHostAddress is of form ipaddr:port
+			case expectedHostAddress:
+				return auth.Credential{
+					RefreshToken: refreshToken,
+				}, nil
+			default:
+				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
+			}
+		},
+	}
+
+	// refreshTokenTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
+	req, err := http.NewRequest(http.MethodGet, refreshTokenTargetURL, nil)
 	if err != nil {
 		panic(err)
 	}
