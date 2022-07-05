@@ -455,6 +455,7 @@ func filterReferrers(refs []artifactspec.Descriptor, artifactType string) []arti
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#api-discovery
 func (r *Repository) DiscoverExtensions(ctx context.Context) (extensions.ExtensionList, error) {
 	var extensionList extensions.ExtensionList
+	ctx = withScopeHint(ctx, r.Reference, auth.ActionPull)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildDiscoveryURL(r.PlainHTTP, r.Reference), nil)
 	if err != nil {
 		return extensionList, err
