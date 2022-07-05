@@ -1529,7 +1529,7 @@ func TestRepository_DiscoverExtensions(t *testing.T) {
 	if err != nil {
 		t.Errorf("Repository.DiscoverExtentions() error = %v", err)
 	}
-	if !reflect.DeepEqual(got, extList) {
+	if !reflect.DeepEqual(got, extList.Extensions) {
 		t.Errorf("Repository.DiscoverExtentions(): got %v, want %v", got, extList)
 	}
 }

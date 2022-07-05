@@ -453,28 +453,28 @@ func filterReferrers(refs []artifactspec.Descriptor, artifactType string) []arti
 
 // DiscoverExtensions lists all supported extensions in current repository.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#api-discovery
-func (r *Repository) DiscoverExtensions(ctx context.Context) (extensions.ExtensionList, error) {
-	var extensionList extensions.ExtensionList
+func (r *Repository) DiscoverExtensions(ctx context.Context) ([]extensions.Extension, error) {
 	ctx = withScopeHint(ctx, r.Reference, auth.ActionPull)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildDiscoveryURL(r.PlainHTTP, r.Reference), nil)
 	if err != nil {
-		return extensionList, err
+		return nil, err
 	}
 	resp, err := r.client().Do(req)
 	if err != nil {
-		return extensionList, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return extensionList, errutil.ParseErrorResponse(resp)
+		return nil, errutil.ParseErrorResponse(resp)
 	}
 
+	var extensionList extensions.ExtensionList
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&extensionList); err != nil {
-		return extensionList, fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
+		return nil, fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
-	return extensionList, nil
+	return extensionList.Extensions, nil
 }
 
 // delete removes the content identified by the descriptor in the entity "blobs"
