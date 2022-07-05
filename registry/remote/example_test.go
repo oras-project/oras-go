@@ -32,6 +32,7 @@ import (
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
+	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
 )
@@ -496,12 +497,8 @@ func ExampleRepository_Tag() {
 
 	// tag a manifest referenced by the exampleDigest below
 	exampleDigest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
-	descriptor, err := repo.Resolve(ctx, exampleDigest)
-	if err != nil {
-		panic(err)
-	}
 	tag := "latest"
-	err = repo.Tag(ctx, descriptor, tag)
+	err = oras.Tag(ctx, repo, exampleDigest, tag)
 	if err != nil {
 		panic(err)
 	}
