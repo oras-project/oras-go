@@ -42,7 +42,7 @@ import (
 
 // referrersApiRegex checks referrers API version.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#versioning
-var referrersApiRegex = regexp.MustCompile(`^oras/1.(0|\d+)$`)
+var referrersApiRegex = regexp.MustCompile(`^oras/1\.(0|[1-9]\d*)$`)
 
 // Client is an interface for a HTTP client.
 type Client interface {

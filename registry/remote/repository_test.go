@@ -1105,6 +1105,16 @@ func Test_verifyOrasApiVersion(t *testing.T) {
 			compatible: false,
 		},
 		{
+			name:       "invalid minor version",
+			version:    "oras/1.01",
+			compatible: false,
+		},
+		{
+			name:       "not dot",
+			version:    "oras/1#0",
+			compatible: false,
+		},
+		{
 			name:       "no version",
 			version:    "",
 			compatible: false,
