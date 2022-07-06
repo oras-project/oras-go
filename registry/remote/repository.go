@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/opencontainers/distribution-spec/specs-go/v1/extensions"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
@@ -456,6 +457,32 @@ func filterReferrers(refs []artifactspec.Descriptor, artifactType string) []arti
 		}
 	}
 	return refs[:j]
+}
+
+// DiscoverExtensions lists all supported extensions in current repository.
+// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#api-discovery
+func (r *Repository) DiscoverExtensions(ctx context.Context) ([]extensions.Extension, error) {
+	ctx = withScopeHint(ctx, r.Reference, auth.ActionPull)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildDiscoveryURL(r.PlainHTTP, r.Reference), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := r.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errutil.ParseErrorResponse(resp)
+	}
+
+	var extensionList extensions.ExtensionList
+	lr := limitReader(resp.Body, r.MaxMetadataBytes)
+	if err := json.NewDecoder(lr).Decode(&extensionList); err != nil {
+		return nil, fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	return extensionList.Extensions, nil
 }
 
 // delete removes the content identified by the descriptor in the entity "blobs"
