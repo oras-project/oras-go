@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/opencontainers/distribution-spec/specs-go/v1/extensions"
 	"github.com/opencontainers/go-digest"
@@ -94,6 +95,9 @@ type Repository struct {
 	// If zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 }
+
+// referrerConsumer is a callback that consumes a list of referrers artifacts.
+type referrerConsumer func([]artifactspec.Descriptor) error
 
 // NewRepository creates a client to the remote repository identified by a
 // reference.
@@ -381,7 +385,7 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 // the referrers result. If artifactType is not empty, only referrers of the
 // same artifact type are fed to fn.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
-func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []artifactspec.Descriptor) error) error {
+func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn referrerConsumer) error {
 	ref := r.Reference
 	ref.Reference = desc.Digest.String()
 	ctx = withScopeHint(ctx, ref, auth.ActionPull)
@@ -389,7 +393,8 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 	var err error
 
 	var legacyAPI bool
-	url, err = r.referrers(ctx, artifactType, fn, url, legacyAPI)
+	fn = decorateReferrerConsumer(fn, artifactType)
+	url, err = r.referrers(ctx, fn, url, legacyAPI)
 	// Fallback to legacy url
 	if errors.Is(err, errdef.ErrNotFound) {
 		url = buildArtifactReferrerURLLegacy(r.PlainHTTP, ref, artifactType)
@@ -398,7 +403,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 	}
 
 	for err == nil {
-		url, err = r.referrers(ctx, artifactType, fn, url, legacyAPI)
+		url, err = r.referrers(ctx, fn, url, legacyAPI)
 	}
 	if err != errNoLink {
 		return err
@@ -406,9 +411,30 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 	return nil
 }
 
+// decorateReferrerConsumer decorates a referrer consumer with extra filtering
+// and validation logic.
+func decorateReferrerConsumer(fn referrerConsumer, artifactType string) referrerConsumer {
+	var last *time.Time
+	return func(refs []artifactspec.Descriptor) error {
+		// Server may not support filtering. We still need to filter on client side for sure.
+		refs = filterReferrers(refs, artifactType)
+		if len(refs) == 0 {
+			return nil
+		}
+
+		var err error
+		last, err = validateReferrersSorting(refs, last)
+		if err != nil {
+			return err
+		}
+
+		return fn(refs)
+	}
+}
+
 // referrers returns a single page of the manifest descriptors directly
 // referencing the given manifest descriptor with the next link.
-func (r *Repository) referrers(ctx context.Context, artifactType string, fn func(referrers []artifactspec.Descriptor) error, url string, legacyAPI bool) (string, error) {
+func (r *Repository) referrers(ctx context.Context, fn func(referrers []artifactspec.Descriptor) error, url string, legacyAPI bool) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -451,12 +477,8 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 	} else {
 		refs = page.Referrers
 	}
-	// Server may not support filtering. We still need to filter on client side for sure.
-	refs = filterReferrers(refs, artifactType)
-	if len(refs) > 0 {
-		if err := fn(refs); err != nil {
-			return "", err
-		}
+	if err := fn(refs); err != nil {
+		return "", err
 	}
 
 	return parseLink(resp)
@@ -478,6 +500,35 @@ func filterReferrers(refs []artifactspec.Descriptor, artifactType string) []arti
 		}
 	}
 	return refs[:j]
+}
+
+// validateReferrersSorting validates that refs are ordered by created time
+// decreasingly.
+// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#sorting-results
+func validateReferrersSorting(refs []artifactspec.Descriptor, last *time.Time) (*time.Time, error) {
+	for _, ref := range refs {
+		// t has zero value if created time not found. This meets the order
+		// requirement that referrers without created time comes after others.
+		t, err := parseCreatedTime(ref)
+		if err != nil && !errors.Is(err, errdef.ErrNotFound) {
+			return nil, fmt.Errorf("Referrer created time in invalid format: %w", err)
+		}
+		if last != nil && t.After(*last) {
+			return nil, errors.New("Referrers not ordered by created time decreasingly")
+		}
+		last = &t
+	}
+	return last, nil
+}
+
+// parseCreatedTime parses the created time from artifact annotation.
+func parseCreatedTime(desc artifactspec.Descriptor) (time.Time, error) {
+	// TODO: use constant from artifact-spec
+	created, ok := desc.Annotations["io.cncf.oras.artifact.created"]
+	if !ok {
+		return time.Time{}, errdef.ErrNotFound
+	}
+	return time.Parse(time.RFC3339, created)
 }
 
 // DiscoverExtensions lists all supported extensions in current repository.
