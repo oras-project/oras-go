@@ -113,16 +113,12 @@ func TestMain(m *testing.M) {
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
-			if m == "GET" {
-				w.Write(exampleSignatureManifest)
-			}
+			w.Write(exampleSignatureManifest)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSBoMManifestDescriptor.Digest) && m == "GET":
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleSBoMManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSBoMManifest)))
-			if m == "GET" {
-				w.Write(exampleSBoMManifest)
-			}
+			w.Write(exampleSBoMManifest)
 		case p == fmt.Sprintf("/v2/%s/_oras/artifacts/referrers", exampleRepositoryName):
 			q := r.URL.Query()
 			var referrers []artifactspec.Descriptor
@@ -139,7 +135,7 @@ func TestMain(m *testing.M) {
 				Referrers: referrers,
 			}
 			if err := json.NewEncoder(w).Encode(result); err != nil {
-				w.WriteHeader(http.StatusBadRequest)
+				panic(err)
 			}
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) || p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestDigest):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
@@ -405,14 +401,15 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 		panic(err)
 	}
 	// find its referrers by calling Referrers
-	// for each page of the returned value, do the following:
-	if err := repo.Referrers(ctx, descriptor, "", func(got []artifactspec.Descriptor) error {
-		// for each item in this page, pull the manifest and verify its content
-		for _, desc := range got {
+
+	if err := repo.Referrers(ctx, descriptor, "", func(referrers []artifactspec.Descriptor) error {
+		// for each page of the results, do the following:
+		for _, referrer := range referrers {
+			// for each item in this page, pull the manifest and verify its content
 			rc, err := repo.Fetch(ctx, ocispec.Descriptor{
-				MediaType: desc.MediaType,
-				Digest:    desc.Digest,
-				Size:      desc.Size})
+				MediaType: referrer.MediaType,
+				Digest:    referrer.Digest,
+				Size:      referrer.Size})
 			if err != nil {
 				panic(err)
 			}
@@ -422,18 +419,18 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 				panic(err)
 			}
 			// verify the fetched content
-			if desc.Size != int64(len(pulledBlob)) || desc.Digest != digest.FromBytes(pulledBlob) {
+			if referrer.Size != int64(len(pulledBlob)) || referrer.Digest != digest.FromBytes(pulledBlob) {
 				panic("wrong content")
 			}
+			fmt.Println(string(pulledBlob))
 		}
 		return nil
 	}); err != nil {
 		panic(err)
 	}
-
-	fmt.Println("Fetch finished")
 	// Output:
-	// Fetch finished
+	// {"mediaType":"application/vnd.cncf.oras.artifact.manifest.v1+json","artifactType":"example/SBoM","blobs":null,"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
+	// {"mediaType":"application/vnd.cncf.oras.artifact.manifest.v1+json","artifactType":"example/signature","blobs":null,"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
 }
 
 // ExampleRepository_FetchReference_manifestByTag gives example snippets for downloading a manifest by tag with only one API call.
