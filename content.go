@@ -22,20 +22,24 @@ import (
 )
 
 // Tag tags a referenced descriptor with a new reference string.
-func Tag(ctx context.Context, target Target, srcRef, dstRef string) error {
-	if refReTagger, ok := target.(registry.ReferenceRetagger); ok {
-		err := refReTagger.TagReference(ctx, srcRef, dstRef)
-		if err != nil {
-			return err
-		}
-	} else {
-		// If target does not implement ReferenceRetagger, need to use
-		// Resolve to get the descriptor first, then tag it with Tag.
-		manifestDesc, err := target.Resolve(ctx, srcRef)
-		if err != nil {
-			return err
-		}
-		return target.Tag(ctx, manifestDesc, dstRef)
+func Tag(ctx context.Context, target Target, src, dst string) error {
+	if refTagger, ok := target.(registry.ReferenceTagger); ok {
+		return refTagger.TagReference(ctx, src, dst)
 	}
-	return nil
+	refFetcher, okFetch := target.(registry.ReferenceFetcher)
+	refPusher, okPush := target.(registry.ReferencePusher)
+	if okFetch && okPush {
+		desc, rc, err := refFetcher.FetchReference(ctx, src)
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		return refPusher.PushReference(ctx, desc, rc, dst)
+	} else {
+		desc, err := target.Resolve(ctx, src)
+		if err != nil {
+			return err
+		}
+		return target.Tag(ctx, desc, dst)
+	}
 }
