@@ -17,31 +17,33 @@ package oras
 
 import (
 	"context"
+	"io"
 
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry"
 )
 
-// Tag fetches the manifest identified by the srcRef, then
-// pushes the manifest with the dstRef
+// Tag tags a referenced descriptor with a new reference string.
 func Tag(ctx context.Context, target Target, srcRef, dstRef string) error {
-	if refFetcher, ok_fetch := target.(registry.ReferenceFetcher); ok_fetch {
-		manifestDesc, rc, err := refFetcher.FetchReference(ctx, srcRef)
+	var manifestDesc ocispec.Descriptor
+	var err error
+	if refFetcher, ok := target.(registry.ReferenceFetcher); ok {
+		var rc io.ReadCloser
+		manifestDesc, rc, err = refFetcher.FetchReference(ctx, srcRef)
 		if err != nil {
 			return err
 		}
 		defer rc.Close()
-		if refPusher, ok_push := target.(registry.ReferencePusher); ok_push {
+		if refPusher, ok := target.(registry.ReferencePusher); ok {
 			return refPusher.PushReference(ctx, manifestDesc, rc, dstRef)
 		}
-		// If target dose not implement ReferencePusher, need to use Tag.
-		return target.Tag(ctx, manifestDesc, dstRef)
 	} else {
 		// If target does not implement ReferenceFetcher, need to use
 		// Resolve to get the descriptor first, then tag it with Tag.
-		manifestDesc, err := target.Resolve(ctx, srcRef)
+		manifestDesc, err = target.Resolve(ctx, srcRef)
 		if err != nil {
 			return err
 		}
-		return target.Tag(ctx, manifestDesc, dstRef)
 	}
+	return target.Tag(ctx, manifestDesc, dstRef)
 }
