@@ -316,9 +316,8 @@ func Test_PackArtifact_WithOptions(t *testing.T) {
 		Digest:    digest.FromBytes(subjectManifest),
 		Size:      int64(len(subjectManifest)),
 	}
-	now := time.Now().UTC()
 	annotations := map[string]string{
-		AnnotationArtifactCreated: now.Format(time.RFC3339),
+		AnnotationArtifactCreated: "2000-01-01T00:00:00Z",
 	}
 
 	// test PackArtifact
@@ -415,5 +414,21 @@ func Test_PackArtifact_MissingArtifactType(t *testing.T) {
 	_, err := PackArtifact(ctx, s, "", nil, PackArtifactOptions{})
 	if err == nil || !errors.Is(err, ErrMissingArtifactType) {
 		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, ErrMissingArtifactType)
+	}
+}
+
+func Test_PackArtifact_InvalidDateTimeFormat(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	opts := PackArtifactOptions{
+		ManifestAnnotations: map[string]string{
+			AnnotationArtifactCreated: "2000/01/01 00:00:00",
+		},
+	}
+	artifactType := "application/vnd.test"
+	_, err := PackArtifact(ctx, s, artifactType, nil, opts)
+	if err == nil || !errors.Is(err, ErrInvalidDateTimeFormat) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, ErrInvalidDateTimeFormat)
 	}
 }

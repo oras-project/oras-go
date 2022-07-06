@@ -37,16 +37,23 @@ const (
 	MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
 
 	// AnnotationArtifactCreated is the annotation key representing the UTC date
-	// and time on which the artifact was created, in RFC3339 format.
+	// and time on which the artifact was created, in RFC 3339 format.
 	// References:
-	// - https://datatracker.ietf.org/doc/html/rfc3339#section-5.6
 	// - https://github.com/oras-project/artifacts-spec/blob/main/artifact-manifest.md#oras-artifact-manifest-properties
+	// - https://datatracker.ietf.org/doc/html/rfc3339#section-5.6
 	AnnotationArtifactCreated = "io.cncf.oras.artifact.created"
 )
 
-// ErrMissingArtifactType is returned by PackArtifact() when no artifact type is
-// specified.
-var ErrMissingArtifactType = errors.New("missing artifact type")
+var (
+	// ErrMissingArtifactType is returned by PackArtifact() when no artifact
+	// type is specified.
+	ErrMissingArtifactType = errors.New("missing artifact type")
+	// ErrInvalidDateTimeFormat is returned by PackArtifact() when
+	// AnnotationArtifactCreated is provided, but its value is not in RFC 3339
+	// format.
+	// Reference: https://datatracker.ietf.org/doc/html/rfc3339#section-5.6
+	ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
+)
 
 // PackOptions contains parameters for oras.Pack.
 type PackOptions struct {
@@ -137,17 +144,23 @@ func PackArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 		return ocispec.Descriptor{}, ErrMissingArtifactType
 	}
 
-	// copy the original annotation map
-	annotations := make(map[string]string, len(opts.ManifestAnnotations))
-	for k, v := range opts.ManifestAnnotations {
-		annotations[k] = v
-	}
-	_, ok := annotations[AnnotationArtifactCreated]
-	if !ok {
-		// set creation time in RFC3339 format, if not provided
+	if createdTime, ok := opts.ManifestAnnotations[AnnotationArtifactCreated]; ok {
+		// if AnnotationArtifactCreated is provided, validate its format
+		if _, err := time.Parse(time.RFC3339, createdTime); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("%w: %v", ErrInvalidDateTimeFormat, err)
+		}
+	} else {
+		// copy the original annotation map
+		annotations := make(map[string]string, len(opts.ManifestAnnotations)+1)
+		for k, v := range opts.ManifestAnnotations {
+			annotations[k] = v
+		}
+
+		// set creation time in RFC 3339 format
 		// reference: https://github.com/oras-project/artifacts-spec/blob/main/artifact-manifest.md#oras-artifact-manifest-properties
 		now := time.Now().UTC()
 		annotations[AnnotationArtifactCreated] = now.Format(time.RFC3339)
+		opts.ManifestAnnotations = annotations
 	}
 
 	if blobs == nil {
@@ -159,7 +172,7 @@ func PackArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 		ArtifactType: artifactType,
 		Blobs:        blobs,
 		Subject:      opts.Subject,
-		Annotations:  annotations,
+		Annotations:  opts.ManifestAnnotations,
 	}
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
