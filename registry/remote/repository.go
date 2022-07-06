@@ -23,6 +23,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -39,6 +40,10 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
+
+// referrersApiRegex checks referrers API version.
+// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#versioning
+var referrersApiRegex = regexp.MustCompile(`^oras/1\.(0|[1-9]\d*)$`)
 
 // Client is an interface for a HTTP client.
 type Client interface {
@@ -406,6 +411,9 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
+	}
+	if err := verifyOrasApiVersion(resp); err != nil {
+		return "", err
 	}
 
 	var page struct {
@@ -975,6 +983,16 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 	}
 	if contentDigest != expected {
 		return fmt.Errorf("%s: mismatch digest: %s", expected, contentDigest)
+	}
+	return nil
+}
+
+// verifyOrasApiVersion verifies "ORAS-Api-Version" header if present.
+// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#versioning
+func verifyOrasApiVersion(resp *http.Response) error {
+	versionStr := resp.Header.Get("ORAS-Api-Version")
+	if !referrersApiRegex.MatchString(versionStr) {
+		return fmt.Errorf("%w: Unsupported ORAS-Api-Version: %q", errdef.ErrUnsupportedVersion, versionStr)
 	}
 	return nil
 }
