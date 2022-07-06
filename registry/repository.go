@@ -37,7 +37,6 @@ type Repository interface {
 	BlobStore
 	content.TagResolver
 	ReferencePusher
-	ReferenceRetagger
 
 	// Blobs provides access to the blob CAS only, which contains config blobs,
 	// layers, and other generic blobs.
@@ -84,10 +83,10 @@ type ReferenceFetcher interface {
 	FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
 }
 
-// ReferenceRetagger provides retag with the tag service.
-type ReferenceRetagger interface {
-	// TagReference retags a reference string with a new reference string.
-	TagReference(ctx context.Context, srcRef, dstRef string) error
+// ReferenceTagger provides reference tagging with the tag service.
+type ReferenceTagger interface {
+	// TagReference tags reference src with a reference string dst.
+	TagReference(ctx context.Context, src, dst string) error
 }
 
 // Tags lists the tags available in the repository.
