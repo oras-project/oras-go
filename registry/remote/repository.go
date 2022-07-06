@@ -250,6 +250,105 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 	return r.Manifests().FetchReference(ctx, reference)
 }
 
+// TagReference retags the manifest identified by srcRef to dstRef.
+func (r *Repository) TagReference(ctx context.Context, srcRef, dstRef string) error {
+	s, ok := r.Manifests().(*manifestStore)
+	if !ok {
+		return errors.New("s does not implement registry.BlobStore")
+	}
+	ref, err := r.parseReference(srcRef)
+	if err != nil {
+		return err
+	}
+	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
+	// Fetching the manifest and the manifest descriptor according to srcRef
+	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", manifestAcceptHeader(s.repo.ManifestMediaTypes))
+	resp, err := s.repo.client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			resp.Body.Close()
+		}
+	}()
+	var manifestDesc ocispec.Descriptor
+	var rc io.ReadCloser
+	switch resp.StatusCode {
+	case http.StatusOK:
+		manifestDesc, err = s.generateDescriptor(resp, ref)
+		if err != nil {
+			return err
+		}
+		rc = resp.Body
+	case http.StatusNotFound:
+		return fmt.Errorf("%s: %w", ref.Reference, errdef.ErrNotFound)
+	default:
+		return errutil.ParseErrorResponse(resp)
+	}
+	defer rc.Close()
+
+	// Pushing the manifest with the new tag dstRef
+	parsedDstRef, err := r.parseReference(dstRef)
+	if err != nil {
+		return err
+	}
+	ref = r.Reference
+	ref.Reference = parsedDstRef.Reference
+	url = buildRepositoryManifestURL(r.PlainHTTP, ref)
+	// unwrap the content for optimizations of built-in types.
+	body := ioutil.UnwrapNopCloser(rc)
+	if _, ok := body.(io.ReadCloser); ok {
+		// undo unwrap if the nopCloser is intended.
+		body = rc
+	}
+	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, body)
+	if err != nil {
+		return err
+	}
+	if req.GetBody != nil && req.ContentLength != manifestDesc.Size {
+		// short circuit a size mismatch for built-in types.
+		return fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, manifestDesc.Size)
+	}
+	req.ContentLength = manifestDesc.Size
+	req.Header.Set("Content-Type", manifestDesc.MediaType)
+
+	// if the underlying client is an auth client, the content might be read
+	// more than once for obtaining the auth challenge and the actual request.
+	// To prevent double reading, the manifest is read and stored in the memory,
+	// and serve from the memory.
+	client := r.client()
+	if _, ok := client.(*auth.Client); ok && req.GetBody == nil {
+		store := cas.NewMemory()
+		err := store.Push(ctx, manifestDesc, rc)
+		if err != nil {
+			return err
+		}
+		req.GetBody = func() (io.ReadCloser, error) {
+			return store.Fetch(ctx, manifestDesc)
+		}
+		req.Body, err = req.GetBody()
+		if err != nil {
+			return err
+		}
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return errutil.ParseErrorResponse(resp)
+	}
+	return verifyContentDigest(resp, manifestDesc.Digest)
+}
+
 // parseReference validates the reference.
 // Both simplified or fully qualified references are accepted as input.
 // A fully qualified reference is returned on success.
