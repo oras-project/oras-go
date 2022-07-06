@@ -243,7 +243,7 @@ func Test_PackArtifact_Default(t *testing.T) {
 
 	// test PackArtifact
 	ctx := context.Background()
-	manifestDesc, err := PackArtifact(ctx, s, blobs, artifactType, PackArtifactOptions{})
+	manifestDesc, err := PackArtifact(ctx, s, artifactType, blobs, PackArtifactOptions{})
 	if err != nil {
 		t.Fatal("Oras.PackArtifact() error =", err)
 	}
@@ -327,7 +327,7 @@ func Test_PackArtifact_WithOptions(t *testing.T) {
 		Subject:             &subjectDesc,
 		ManifestAnnotations: annotations,
 	}
-	manifestDesc, err := PackArtifact(ctx, s, blobs, artifactType, opts)
+	manifestDesc, err := PackArtifact(ctx, s, artifactType, blobs, opts)
 	if err != nil {
 		t.Fatal("Oras.PackArtifact() error =", err)
 	}
@@ -368,7 +368,7 @@ func Test_PackArtifact_NoBlob(t *testing.T) {
 	// test Pack
 	ctx := context.Background()
 	artifactType := "application/vnd.test"
-	manifestDesc, err := PackArtifact(ctx, s, nil, artifactType, PackArtifactOptions{})
+	manifestDesc, err := PackArtifact(ctx, s, artifactType, nil, PackArtifactOptions{})
 	if err != nil {
 		t.Fatal("Oras.Pack() error =", err)
 	}
@@ -412,7 +412,7 @@ func Test_PackArtifact_MissingArtifactType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
-	_, err := PackArtifact(ctx, s, nil, "", PackArtifactOptions{})
+	_, err := PackArtifact(ctx, s, "", nil, PackArtifactOptions{})
 	if err == nil || !errors.Is(err, ErrMissingArtifactType) {
 		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, ErrMissingArtifactType)
 	}

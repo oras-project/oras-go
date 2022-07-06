@@ -24,10 +24,9 @@ import (
 	"time"
 
 	"github.com/opencontainers/go-digest"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
-
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 )
@@ -132,22 +131,23 @@ func Pack(ctx context.Context, pusher content.Pusher, layers []ocispec.Descripto
 // If succeeded, returns a descriptor of the manifest.
 // Returns ErrMissingArtifactType if artifactType is empty.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/artifact-manifest.md
-func PackArtifact(ctx context.Context, pusher content.Pusher, blobs []artifactspec.Descriptor, artifactType string, opts PackArtifactOptions) (ocispec.Descriptor, error) {
+func PackArtifact(ctx context.Context, pusher content.Pusher, artifactType string, blobs []artifactspec.Descriptor, opts PackArtifactOptions) (ocispec.Descriptor, error) {
 	if artifactType == "" {
 		// artifactType is required for ORAS Artifact Manifest
 		return ocispec.Descriptor{}, ErrMissingArtifactType
 	}
 
-	if opts.ManifestAnnotations == nil {
-		opts.ManifestAnnotations = make(map[string]string)
+	// copy the original annotation map
+	annotations := make(map[string]string, len(opts.ManifestAnnotations))
+	for k, v := range opts.ManifestAnnotations {
+		annotations[k] = v
 	}
-
-	_, ok := opts.ManifestAnnotations[AnnotationArtifactCreated]
+	_, ok := annotations[AnnotationArtifactCreated]
 	if !ok {
 		// set creation time in RFC3339 format, if not provided
 		// reference: https://github.com/oras-project/artifacts-spec/blob/main/artifact-manifest.md#oras-artifact-manifest-properties
 		now := time.Now().UTC()
-		opts.ManifestAnnotations[AnnotationArtifactCreated] = now.Format(time.RFC3339)
+		annotations[AnnotationArtifactCreated] = now.Format(time.RFC3339)
 	}
 
 	if blobs == nil {
@@ -159,7 +159,7 @@ func PackArtifact(ctx context.Context, pusher content.Pusher, blobs []artifactsp
 		ArtifactType: artifactType,
 		Blobs:        blobs,
 		Subject:      opts.Subject,
-		Annotations:  opts.ManifestAnnotations,
+		Annotations:  annotations,
 	}
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
