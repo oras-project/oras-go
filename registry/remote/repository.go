@@ -965,7 +965,7 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 func verifyOrasApiVersion(resp *http.Response) error {
 	versionStr := resp.Header.Get("ORAS-Api-Version")
 	if !referrersApiRegex.MatchString(versionStr) {
-		return fmt.Errorf("%w: Invalid ORAS-Api-Version: %q", errdef.ErrUnsupportedVersion, versionStr)
+		return fmt.Errorf("%w: Unsupported ORAS-Api-Version: %q", errdef.ErrUnsupportedVersion, versionStr)
 	}
 	return nil
 }
