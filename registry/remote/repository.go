@@ -523,8 +523,7 @@ func validateReferrersSorting(refs []artifactspec.Descriptor, last *time.Time) (
 
 // parseCreatedTime parses the created time from artifact annotation.
 func parseCreatedTime(desc artifactspec.Descriptor) (time.Time, error) {
-	// TODO: use constant from artifact-spec
-	created, ok := desc.Annotations["io.cncf.oras.artifact.created"]
+	created, ok := desc.Annotations[artifactspec.AnnotationArtifactCreated]
 	if !ok {
 		return time.Time{}, errdef.ErrNotFound
 	}
