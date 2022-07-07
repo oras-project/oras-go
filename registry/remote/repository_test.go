@@ -1195,7 +1195,6 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []artifactspec.Descriptor
 		switch q.Get("test") {
 		case "foo":
