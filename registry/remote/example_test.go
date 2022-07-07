@@ -405,7 +405,7 @@ func ExampleRepository_Fetch_manifestByDigest() {
 }
 
 // ExampleRepository_Fetch_artifactReferenceManifest gives an example of fetching
-// the reference manifests of a given manifest by using the Referrers API.
+// the referrers of a given manifest by using the Referrers API.
 func ExampleRepository_Fetch_artifactReferenceManifest() {
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
 	if err != nil {
@@ -420,7 +420,6 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 		panic(err)
 	}
 	// find its referrers by calling Referrers
-
 	if err := repo.Referrers(ctx, descriptor, "", func(referrers []artifactspec.Descriptor) error {
 		// for each page of the results, do the following:
 		for _, referrer := range referrers {
