@@ -109,15 +109,19 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ManifestDigest) && m == "PUT":
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ReferenceManifestDigest) && m == "PUT":
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSignatureManifestDescriptor.Digest) && m == "GET":
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
 			w.Write(exampleSignatureManifest)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSBoMManifestDescriptor.Digest) && m == "GET":
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleSBoMManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSBoMManifest)))
@@ -128,8 +132,10 @@ func TestMain(m *testing.M) {
 			switch q.Get("test") {
 			case "page1":
 				referrers = exampleReferrerDescriptors[1]
+				w.Header().Set("ORAS-Api-Version", "oras/1.0")
 			default:
 				referrers = exampleReferrerDescriptors[0]
+				w.Header().Set("ORAS-Api-Version", "oras/1.0")
 				w.Header().Set("Link", fmt.Sprintf(`<%s?n=1&test=page1>; rel="next"`, p))
 			}
 			result := struct {
