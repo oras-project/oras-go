@@ -431,8 +431,10 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
 	}
-	if err := verifyOrasApiVersion(resp); err != nil {
-		return "", err
+	if !legacyAPI {
+		if err := verifyOrasApiVersion(resp); err != nil {
+			return "", err
+		}
 	}
 
 	var page struct {
