@@ -35,11 +35,10 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 		}
 		defer rc.Close()
 		return refPusher.PushReference(ctx, desc, rc, dst)
-	} else {
-		desc, err := target.Resolve(ctx, src)
-		if err != nil {
-			return err
-		}
-		return target.Tag(ctx, desc, dst)
 	}
+	desc, err := target.Resolve(ctx, src)
+	if err != nil {
+		return err
+	}
+	return target.Tag(ctx, desc, dst)
 }

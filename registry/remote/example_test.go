@@ -483,8 +483,37 @@ func ExampleRepository_Fetch_layer() {
 	// layer content
 }
 
-// ExampleRepository_Tag gives example snippets for tagging a manifest.
+// ExampleRepository_Tag gives example snippets for tagging a descriptor.
 func ExampleRepository_Tag() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName)
+	if err != nil {
+		panic(err)
+	}
+
+	exampleDigest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
+	descriptor, err := repo.Resolve(ctx, exampleDigest)
+	if err != nil {
+		panic(err)
+	}
+	tag := "latest"
+	err = repo.Tag(ctx, descriptor, tag)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Succeed")
+
+	// Output:
+	// Succeed
+}
+
+// ExampleRepository_TagReference gives example snippets for tagging
+// a manifest.
+func ExampleRepository_TagReference() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
 		panic(err)
