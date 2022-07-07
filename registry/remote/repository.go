@@ -250,6 +250,25 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 	return r.Manifests().FetchReference(ctx, reference)
 }
 
+// TagReference retags the manifest identified by src to dst.
+func (r *Repository) TagReference(ctx context.Context, src, dst string) error {
+	srcRef, err := r.parseReference(src)
+	if err != nil {
+		return err
+	}
+	dstRef, err := r.parseReference(dst)
+	if err != nil {
+		return err
+	}
+	ctx = withScopeHint(ctx, srcRef, auth.ActionPull, auth.ActionPush)
+	manifestDesc, rc, err := r.FetchReference(ctx, src)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	return r.push(ctx, manifestDesc, rc, dstRef.Reference)
+}
+
 // parseReference validates the reference.
 // Both simplified or fully qualified references are accepted as input.
 // A fully qualified reference is returned on success.

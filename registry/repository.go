@@ -83,6 +83,12 @@ type ReferenceFetcher interface {
 	FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
 }
 
+// ReferenceTagger provides reference tagging.
+type ReferenceTagger interface {
+	// TagReference tags the descriptor identified by src with dst.
+	TagReference(ctx context.Context, src, dst string) error
+}
+
 // Tags lists the tags available in the repository.
 func Tags(ctx context.Context, repo Repository) ([]string, error) {
 	var res []string
