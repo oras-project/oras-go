@@ -38,11 +38,13 @@ import (
 )
 
 const (
-	exampleRepositoryName = "example"
-	exampleTag            = "latest"
-	exampleManifest       = "Example manifest content"
-	exampleLayer          = "Example layer content"
-	exampleUploadUUid     = "0bc84d80-837c-41d9-824e-1907463c53b3"
+	exampleRepositoryName   = "example"
+	exampleTag              = "latest"
+	exampleManifest         = "Example manifest content"
+	exampleLayer            = "Example layer content"
+	exampleUploadUUid       = "0bc84d80-837c-41d9-824e-1907463c53b3"
+	ManifestDigest          = "sha256:0b696106ecd0654e031f19e0a8cbd1aee4ad457d7c9cea881f07b12a930cd307"
+	ReferenceManifestDigest = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
 )
 
 var (
@@ -52,8 +54,7 @@ var (
 		MediaType: ocispec.MediaTypeImageManifest,
 		Digest:    digest.Digest(exampleManifestDigest),
 		Size:      int64(len(exampleManifest))}
-	exampleRefereceManifestDigest = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
-	exampleSignatureManifest, _   = json.Marshal(artifactspec.Manifest{
+	exampleSignatureManifest, _ = json.Marshal(artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
 		Subject:      &exampleManifestDescriptor})
@@ -107,7 +108,9 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
-		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleRefereceManifestDigest) && m == "PUT":
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ManifestDigest) && m == "PUT":
+			w.WriteHeader(http.StatusCreated)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ReferenceManifestDigest) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSignatureManifestDescriptor.Digest) && m == "GET":
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
@@ -237,7 +240,7 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	}
 	ctx := context.Background()
 
-	// 1. assemble the referenced manifest
+	// 1. assemble the referenced artifact manifest
 	manifest := ocispec.Manifest{
 		MediaType: ocispec.MediaTypeImageManifest,
 	}
@@ -248,7 +251,17 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 		Size:      int64(len(manifestContent)),
 	}
 
-	// 2. assemble the referencing artifact manifest
+	// 2. push the manifest descriptor and content
+	err = repo.Push(ctx, ocispec.Descriptor{
+		MediaType: manifestDescriptor.MediaType,
+		Digest:    manifestDescriptor.Digest,
+		Size:      manifestDescriptor.Size,
+	}, bytes.NewReader(manifestContent))
+	if err != nil {
+		panic(err)
+	}
+
+	// 3. assemble the reference artifact manifest
 	referenceManifest := artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "sbom/example",
@@ -261,7 +274,7 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 		Size:      int64(len(referenceManifestContent)),
 	}
 
-	// 3. push the manifest descriptor and content
+	// 4. push the reference manifest descriptor and content
 	err = repo.Push(ctx, referenceManifestDescriptor, bytes.NewReader(referenceManifestContent))
 	if err != nil {
 		panic(err)
