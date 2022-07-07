@@ -31,18 +31,9 @@ import (
 	"oras.land/oras-go/v2/errdef"
 )
 
-const (
-	// MediaTypeUnknownConfig is the default mediaType used when no
-	// config media type is specified.
-	MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
-
-	// AnnotationArtifactCreated is the annotation key representing the UTC date
-	// and time on which the artifact was created, in RFC 3339 format.
-	// References:
-	// - https://github.com/oras-project/artifacts-spec/blob/main/artifact-manifest.md#oras-artifact-manifest-properties
-	// - https://datatracker.ietf.org/doc/html/rfc3339#section-5.6
-	AnnotationArtifactCreated = "io.cncf.oras.artifact.created"
-)
+// MediaTypeUnknownConfig is the default mediaType used when no
+// config media type is specified.
+const MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
 
 var (
 	// ErrMissingArtifactType is returned by PackArtifact() when no artifact
@@ -144,7 +135,7 @@ func PackArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 		return ocispec.Descriptor{}, ErrMissingArtifactType
 	}
 
-	if createdTime, ok := opts.ManifestAnnotations[AnnotationArtifactCreated]; ok {
+	if createdTime, ok := opts.ManifestAnnotations[artifactspec.AnnotationArtifactCreated]; ok {
 		// if AnnotationArtifactCreated is provided, validate its format
 		if _, err := time.Parse(time.RFC3339, createdTime); err != nil {
 			return ocispec.Descriptor{}, fmt.Errorf("%w: %v", ErrInvalidDateTimeFormat, err)
@@ -159,7 +150,7 @@ func PackArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 		// set creation time in RFC 3339 format
 		// reference: https://github.com/oras-project/artifacts-spec/blob/main/artifact-manifest.md#oras-artifact-manifest-properties
 		now := time.Now().UTC()
-		annotations[AnnotationArtifactCreated] = now.Format(time.RFC3339)
+		annotations[artifactspec.AnnotationArtifactCreated] = now.Format(time.RFC3339)
 		opts.ManifestAnnotations = annotations
 	}
 
