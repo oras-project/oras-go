@@ -434,7 +434,7 @@ func decorateReferrerConsumer(fn referrerConsumer, artifactType string) referrer
 
 // referrers returns a single page of the manifest descriptors directly
 // referencing the given manifest descriptor with the next link.
-func (r *Repository) referrers(ctx context.Context, fn func(referrers []artifactspec.Descriptor) error, url string, legacyAPI bool) (string, error) {
+func (r *Repository) referrers(ctx context.Context, fn referrerConsumer, url string, legacyAPI bool) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
