@@ -814,7 +814,7 @@ func TestRepository_TagReference(t *testing.T) {
 	}
 
 	// test with manifest tag@digest
-	tagDigestRef := dst + "@" + indexDesc.Digest.String()
+	tagDigestRef := src + "@" + indexDesc.Digest.String()
 	err = repo.TagReference(ctx, tagDigestRef, dst)
 	if err != nil {
 		t.Fatalf("Repository.TagReference() error = %v", err)
