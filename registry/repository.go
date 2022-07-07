@@ -79,11 +79,11 @@ type ReferencePusher interface {
 
 // ReferenceFetcher provides advanced fetch with the tag service.
 type ReferenceFetcher interface {
-	// FetchReference fetches the content identified by the reference.
+	// TagReference tags the descriptor identified by src with dst.
 	FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
 }
 
-// ReferenceTagger provides reference tagging with the tag service.
+// ReferenceTagger provides reference tagging.
 type ReferenceTagger interface {
 	// TagReference tags reference src with a reference string dst.
 	TagReference(ctx context.Context, src, dst string) error

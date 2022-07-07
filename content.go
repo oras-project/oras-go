@@ -21,7 +21,7 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
-// Tag tags a referenced descriptor with a new reference string.
+// Tag tags the descriptor identified by src with dst.
 func Tag(ctx context.Context, target Target, src, dst string) error {
 	if refTagger, ok := target.(registry.ReferenceTagger); ok {
 		return refTagger.TagReference(ctx, src, dst)
