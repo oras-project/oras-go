@@ -277,9 +277,9 @@ func Test_PackArtifact_Default(t *testing.T) {
 	}
 
 	// test created time annotation
-	createdTime, ok := manifest.Annotations[AnnotationArtifactCreated]
+	createdTime, ok := manifest.Annotations[artifactspec.AnnotationArtifactCreated]
 	if !ok {
-		t.Errorf("Annotation %s = %v, want %v", AnnotationArtifactCreated, ok, true)
+		t.Errorf("Annotation %s = %v, want %v", artifactspec.AnnotationArtifactCreated, ok, true)
 	}
 	_, err = time.Parse(time.RFC3339, createdTime)
 	if err != nil {
@@ -317,7 +317,7 @@ func Test_PackArtifact_WithOptions(t *testing.T) {
 		Size:      int64(len(subjectManifest)),
 	}
 	annotations := map[string]string{
-		AnnotationArtifactCreated: "2000-01-01T00:00:00Z",
+		artifactspec.AnnotationArtifactCreated: "2000-01-01T00:00:00Z",
 	}
 
 	// test PackArtifact
@@ -397,9 +397,9 @@ func Test_PackArtifact_NoBlob(t *testing.T) {
 	}
 
 	// test created time annotation
-	createdTime, ok := manifest.Annotations[AnnotationArtifactCreated]
+	createdTime, ok := manifest.Annotations[artifactspec.AnnotationArtifactCreated]
 	if !ok {
-		t.Errorf("Annotation %s = %v, want %v", AnnotationArtifactCreated, ok, true)
+		t.Errorf("Annotation %s = %v, want %v", artifactspec.AnnotationArtifactCreated, ok, true)
 	}
 	_, err = time.Parse(time.RFC3339, createdTime)
 	if err != nil {
@@ -423,7 +423,7 @@ func Test_PackArtifact_InvalidDateTimeFormat(t *testing.T) {
 	ctx := context.Background()
 	opts := PackArtifactOptions{
 		ManifestAnnotations: map[string]string{
-			AnnotationArtifactCreated: "2000/01/01 00:00:00",
+			artifactspec.AnnotationArtifactCreated: "2000/01/01 00:00:00",
 		},
 	}
 	artifactType := "application/vnd.test"
