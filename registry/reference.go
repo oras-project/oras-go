@@ -56,33 +56,52 @@ type Reference struct {
 	Reference string
 }
 
-// ParseReference parses a string into a artifact reference.
+// ParseReference parses a string into an artifact reference.
 // If the reference contains both the tag and the digest, the tag will be
 // dropped.
 // Digest is recognized only if the corresponding algorithm is available.
 func ParseReference(raw string) (Reference, error) {
+	/*
+		The `raw` input can thus be parsed (lowercase implies opaque, uppercase implies resolute)
+			<---------------- raw -----------------------------------------------------> Decode `raw`
+			<=== REGISTRY ===> / <------------------ path -----------------------------> Decode `path``
+		    <=== REGISTRY ===> / <=== REPOSITORY ===> * <---------- reference ---------> Decode `reference`
+			<=== REGISTRY ===> / <=== REPOSITORY ===> @ <=================== DIGEST ===> Valid Form A
+			<=== REGISTRY ===> / <=== REPOSITORY ===> : <=== TAG ===> @ <=== DIGEST ===> Valid Form B
+			<=== REGISTRY ===> / <=== REPOSITORY ===> : <=== TAG ======================> Valid Form C
+			<=== REGISTRY ===> / <=== REPOSITORY ===>                                    Valid Form D
+
+        Note: DIGEST is itself, if present, of the form
+            <=========== DIGEST ==========>
+            <=== ALGO ===> : <=== HASH ===>
+
+        Note: Furthermore, in the case of Valid Form B, the TAG is effectively ignored/garbage.
+	*/
+
 	parts := strings.SplitN(raw, "/", 2)
 	if len(parts) == 1 {
+		// Invalid Form
 		return Reference{}, fmt.Errorf("%w: missing repository", errdef.ErrInvalidReference)
 	}
 	registry, path := parts[0], parts[1]
+
 	var repository string
 	var reference string
 	if index := strings.Index(path, "@"); index != -1 {
-		// digest found
+		// `digest` found; Valid Form A (if not B)
 		repository = path[:index]
 		reference = path[index+1:]
 
-		// drop tag since the digest is present.
 		if index := strings.Index(repository, ":"); index != -1 {
+			// `tag` found (and now dropped) since `the `digest` already present; Valid Form B
 			repository = repository[:index]
 		}
 	} else if index := strings.Index(path, ":"); index != -1 {
-		// tag found
+		// `tag` found; Valid Form C
 		repository = path[:index]
 		reference = path[index+1:]
 	} else {
-		// empty reference
+		// empty `reference`; Valid Form D
 		repository = path
 	}
 	res := Reference{
