@@ -16,6 +16,7 @@ limitations under the License.
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -895,7 +896,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return s.generateDescriptor(resp, ref)
+		return s.generateDescriptor(resp, ref, req.Method != "HEAD")
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
@@ -931,7 +932,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		desc, err = s.generateDescriptor(resp, ref)
+		desc, err = s.generateDescriptor(resp, ref, req.Method != "HEAD")
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
@@ -944,44 +945,97 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 }
 
 // generateDescriptor returns a descriptor generated from the response.
-func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference) (ocispec.Descriptor, error) {
+func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, calculateDigest bool) (ocispec.Descriptor, error) {
+	// 1. Validate Content-Type
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Content-Type: %w", resp.Request.Method, resp.Request.URL, err)
+		return ocispec.Descriptor{}, fmt.Errorf(
+			"%s %q: invalid response `Content-Type` header; %w",
+			resp.Request.Method,
+			resp.Request.URL,
+			err,
+		)
 	}
 
+	// 2. Validate Size
 	size := resp.ContentLength
 	if size == -1 {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
+		return ocispec.Descriptor{}, fmt.Errorf(
+			"%s %q: unknown response Content-Length",
+			resp.Request.Method,
+			resp.Request.URL,
+		)
 	}
 
-	// validate digest if ref is a digest
-	if refDigest, err := ref.Digest(); err == nil {
-		if err = verifyContentDigest(resp, refDigest); err != nil {
-			return ocispec.Descriptor{}, err
+	// 3. Validate Digest
+	var dgst, respDigest, refDigest, hdrDigest digest.Digest
+	var refDigestErr, hdrDigestErr error
+	if refDigest, err = ref.Digest(); err != nil {
+		refDigestErr = fmt.Errorf(
+			"%s %q: invalid reference digest: `%s`; %w",
+			resp.Request.Method,
+			resp.Request.URL,
+			respDigest,
+			err,
+		)
+	}
+	if hdrDigestStr := resp.Header.Get("Docker-Content-Digest"); hdrDigestStr != "" {
+		if hdrDigest, err = digest.Parse(hdrDigestStr); err != nil {
+			hdrDigestErr = fmt.Errorf(
+				"%s %q: invalid response header value `Docker-Content-Digest`: `%s`; %w",
+				resp.Request.Method,
+				resp.Request.URL,
+				hdrDigestStr,
+				err,
+			)
 		}
-		return ocispec.Descriptor{
-			MediaType: mediaType,
-			Digest:    refDigest,
-			Size:      size,
-		}, nil
 	}
 
-	digestStr := resp.Header.Get("Docker-Content-Digest")
-	if digestStr == "" {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Docker-Content-Digest", resp.Request.Method, resp.Request.URL)
-	}
-
-	contentDigest, err := digest.Parse(digestStr)
-	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
+	switch {
+	case calculateDigest:
+		if respDigest, err = calculateDigestFromResponse(resp); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
+		}
+		var digests = map[string]digest.Digest{
+			"server-supplied": hdrDigest, // via response header `Docker-Content-Digest`
+			"client-supplied": refDigest, // via request reference string
+		}
+		if err = verifyContentDigests(respDigest, digests); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("digest validation failure; %w", err)
+		}
+		dgst = respDigest
+	case refDigestErr == nil:
+		dgst = refDigest
+	case hdrDigestErr == nil:
+		dgst = hdrDigest
 	}
 
 	return ocispec.Descriptor{
 		MediaType: mediaType,
-		Digest:    contentDigest,
+		Digest:    dgst,
 		Size:      size,
 	}, nil
+}
+
+// calculateDigestFromResponse calculates the actual digest of the response body, taking care not to destroy it in the
+// process.
+func calculateDigestFromResponse(resp *http.Response) (digest.Digest, error) {
+	if _, err := resp.Body.Read(nil); err != nil {
+		return digest.Digest(""), err
+	}
+
+	var two bytes.Buffer
+	one := io.NopCloser(io.TeeReader(resp.Body, &two))
+
+	var err error
+	var d digest.Digest
+	if d, err = digest.FromReader(one); err != nil {
+		return d, fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+
+	resp.Body = io.NopCloser(bytes.NewReader(two.Bytes()))
+
+	return d, err
 }
 
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.
@@ -992,13 +1046,30 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 	if digestStr == "" {
 		return nil
 	}
-	contentDigest, err := digest.Parse(digestStr)
-	if err != nil {
+	if contentDigest, err := digest.Parse(digestStr); err != nil {
 		return fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
-	}
-	if contentDigest != expected {
+	} else if contentDigest != expected {
 		return fmt.Errorf("%s: mismatch digest: %s", expected, contentDigest)
 	}
+	return nil
+}
+
+// verifyContentDigests is a superset of verifyContentDigest; it takes in the actual (calculated) digest, and
+// verifies against that, the other two digests, both of which may or may not be set to the empty digest.  If empty,
+// there is no validation error, however is not empty, it ensures that the given digest is valid (matches the actual
+// digest)
+func verifyContentDigests(actualDigest digest.Digest, digests map[string]digest.Digest) error {
+	for src, d := range digests {
+		if d.IsEmpty() {
+			continue
+		}
+		if !actualDigest.IsIdenticalTo(d) {
+			return fmt.Errorf("`%v` digest mismatch: `%v` (given) vs `%v` (calculated)",
+				src, d, actualDigest,
+			)
+		}
+	}
+
 	return nil
 }
 
