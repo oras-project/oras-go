@@ -16,6 +16,7 @@ limitations under the License.
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -953,41 +954,83 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference) (ocispec.Descriptor, error) {
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Content-Type: %w", resp.Request.Method, resp.Request.URL, err)
+		return ocispec.Descriptor{}, fmt.Errorf(
+			"%s %q: invalid response Content-Type: %w",
+			resp.Request.Method,
+			resp.Request.URL,
+			err,
+		)
 	}
 
 	size := resp.ContentLength
 	if size == -1 {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
+		return ocispec.Descriptor{}, fmt.Errorf(
+			"%s %q: unknown response Content-Length",
+			resp.Request.Method,
+			resp.Request.URL,
+		)
 	}
 
-	// validate digest if ref is a digest
-	if refDigest, err := ref.Digest(); err == nil {
-		if err = verifyContentDigest(resp, refDigest); err != nil {
+	desc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.Digest(""),
+		Size:      size,
+	}
+
+	// Calculate the actual digest of the response body, if the response body is not closed.  If it is closed, then
+	// return the the empty digest
+	var respDigest digest.Digest
+	if respDigest, err = calculateDigestFromResponse(resp); err == io.EOF {
+		// response body was closed, we have to improvise... really?
+		if refDigest, err := ref.Digest(); err == nil {
+			// WARNING: used refDigest instead of calculating
+			desc.Digest = refDigest // good luck
+		} else if hdrDigestStr := resp.Header.Get("Docker-Content-Digest"); hdrDigestStr != "" {
+			if hdrDigest, err := digest.Parse(hdrDigestStr); err == nil {
+				// WARNING: used hdrDigest instead of calculating
+				desc.Digest = hdrDigest // good luck
+			} else {
+				return ocispec.Descriptor{}, err
+			}
+		}
+	} else if err != nil {
+		return ocispec.Descriptor{}, err
+	} else {
+		// don't care about the error, since we know that this `ref` is polymorphous; either a `tag`, or a `digest`, and
+		// where it's a `tag`, we expect an error.  What's important is the refDigest, which will be an actual digest when
+		// `ref` is a digest, and the empty digest/string otherwise (when a `tag`).
+		refDigest, _ := ref.Digest()
+
+		// 3-way validation
+		if err = verifyContentDigestForPull(resp, respDigest, refDigest); err != nil {
 			return ocispec.Descriptor{}, err
 		}
-		return ocispec.Descriptor{
-			MediaType: mediaType,
-			Digest:    refDigest,
-			Size:      size,
-		}, nil
+
+		desc.Digest = respDigest
 	}
 
-	digestStr := resp.Header.Get("Docker-Content-Digest")
-	if digestStr == "" {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Docker-Content-Digest", resp.Request.Method, resp.Request.URL)
+	return desc, nil
+}
+
+// calculateDigestFromResponse calculates the actual digest of the response body, taking care not to destroy it in the
+// process.
+func calculateDigestFromResponse(resp *http.Response) (digest.Digest, error) {
+	if _, err := resp.Body.Read(nil); err != nil {
+		return digest.Digest(""), err
 	}
 
-	contentDigest, err := digest.Parse(digestStr)
-	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
+	var two bytes.Buffer
+	one := io.NopCloser(io.TeeReader(resp.Body, &two))
+
+	var err error
+	var d digest.Digest
+	if d, err = digest.FromReader(one); err != nil {
+		return d, fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 
-	return ocispec.Descriptor{
-		MediaType: mediaType,
-		Digest:    contentDigest,
-		Size:      size,
-	}, nil
+	resp.Body = io.NopCloser(bytes.NewReader(two.Bytes()))
+
+	return d, err
 }
 
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.
@@ -1005,6 +1048,43 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 	if contentDigest != expected {
 		return fmt.Errorf("%s: mismatch digest: %s", expected, contentDigest)
 	}
+	return nil
+}
+
+// verifyContentDigestForPull is a superset of verifyContentDigest; it takes in the actual (calculated) digest, and
+// verifies against that, the other two digests, both of which may or may not be set to the empty digest.  If empty,
+// there is no validation error, however is not empty, it ensures that the given digest is valid (matches the actual
+// digest)
+func verifyContentDigestForPull(resp *http.Response, actualDigest, referenceDigest digest.Digest) error {
+	var contentDigest digest.Digest
+
+	if digestStr := resp.Header.Get("Docker-Content-Digest"); digestStr != "" {
+		var err error
+		contentDigest, err = digest.Parse(digestStr)
+		if err != nil {
+			return fmt.Errorf(
+				"%s %q: invalid response Docker-Content-Digest: %s",
+				resp.Request.Method,
+				resp.Request.URL,
+				digestStr,
+			)
+		}
+	}
+
+	for src, d := range map[string]digest.Digest{"content": contentDigest, "reference": referenceDigest} {
+		if d.IsEmpty() {
+			continue
+		}
+
+		if !actualDigest.IsIdenticalTo(d) {
+			return fmt.Errorf("%s %q: digest mismatch (%v): `%v` vs `%v`",
+				resp.Request.Method,
+				resp.Request.URL,
+				src, actualDigest, d,
+			)
+		}
+	}
+
 	return nil
 }
 
