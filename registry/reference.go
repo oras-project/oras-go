@@ -61,29 +61,29 @@ type Reference struct {
 // dropped.
 // Digest is recognized only if the corresponding algorithm is available.
 func ParseReference(raw string) (Reference, error) {
-	/*
-		The `raw` input can thus be parsed (lowercase implies opaque, uppercase implies resolute)
-			<---------------- raw -----------------------------------------------------> Decode `raw`
-			<=== REGISTRY ===> / <------------------ path -----------------------------> Decode `path``
-		    <=== REGISTRY ===> / <=== REPOSITORY ===> * <---------- reference ---------> Decode `reference`
-			<=== REGISTRY ===> / <=== REPOSITORY ===> @ <=================== DIGEST ===> Valid Form A
-			<=== REGISTRY ===> / <=== REPOSITORY ===> : <=== TAG ===> @ <=== DIGEST ===> Valid Form B
-			<=== REGISTRY ===> / <=== REPOSITORY ===> : <=== TAG ======================> Valid Form C
-			<=== REGISTRY ===> / <=== REPOSITORY ===>                                    Valid Form D
-
-        Note: DIGEST is itself, if present, of the form
-            <=========== DIGEST ==========>
-            <=== ALGO ===> : <=== HASH ===>
-
-        Note: Furthermore, in the case of Valid Form B, the TAG is effectively ignored/garbage.
-	*/
-
 	parts := strings.SplitN(raw, "/", 2)
 	if len(parts) == 1 {
 		// Invalid Form
 		return Reference{}, fmt.Errorf("%w: missing repository", errdef.ErrInvalidReference)
 	}
 	registry, path := parts[0], parts[1]
+	/*
+		The `raw` input can thus be parsed (lowercase implies opaque, uppercase implies resolute)
+			<---------------- raw -----------------------------------------------------> | Decode `raw`
+			<=== REGISTRY ===> / <------------------ path -----------------------------> |  - Decode `path``
+			<=== REGISTRY ===> / <=== REPOSITORY ===> * <---------- reference ---------> |    - Decode `reference`
+			<=== REGISTRY ===> / <=== REPOSITORY ===> @ <=================== DIGEST ===> |      - Valid Form A
+			<=== REGISTRY ===> / <=== REPOSITORY ===> : <=== TAG ===> @ <=== DIGEST ===> |      - Valid Form B
+			<=== REGISTRY ===> / <=== REPOSITORY ===> : <=== TAG ======================> |      - Valid Form C
+			<=== REGISTRY ===> / <=== REPOSITORY ======================================> |    - Valid Form D
+
+		Note: DIGEST is itself, if present, of the form
+			<=========== DIGEST ==========>
+			<=== ALGO ===> : <=== HASH ===>
+
+		Note: Furthermore, in the case of Valid Form B, the TAG is dropped without any validation or consideration
+			  whatsoever.
+	*/
 
 	var repository string
 	var reference string
@@ -93,7 +93,7 @@ func ParseReference(raw string) (Reference, error) {
 		reference = path[index+1:]
 
 		if index := strings.Index(repository, ":"); index != -1 {
-			// `tag` found (and now dropped) since `the `digest` already present; Valid Form B
+			// `tag` found (and now dropped without validation) since `the `digest` already present; Valid Form B
 			repository = repository[:index]
 		}
 	} else if index := strings.Index(path, ":"); index != -1 {
