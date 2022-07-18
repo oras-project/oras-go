@@ -31,6 +31,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/content/oci"
@@ -39,6 +40,23 @@ import (
 
 var exampleMemoryStore oras.Target
 var remoteHost string
+var (
+	exampleManifest, _ = json.Marshal(artifactspec.Manifest{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: "example/content"})
+	exampleManifestDescriptor = artifactspec.Descriptor{
+		MediaType: artifactspec.MediaTypeArtifactManifest,
+		Digest:    digest.Digest(digest.FromBytes(exampleManifest)),
+		Size:      int64(len(exampleManifest))}
+	exampleSignatureManifest, _ = json.Marshal(artifactspec.Manifest{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: "example/signature",
+		Subject:      &exampleManifestDescriptor})
+	exampleSignatureManifestDescriptor = ocispec.Descriptor{
+		MediaType: artifactspec.MediaTypeArtifactManifest,
+		Digest:    digest.FromBytes(exampleSignatureManifest),
+		Size:      int64(len(exampleSignatureManifest))}
+)
 
 func pushBlob(ctx context.Context, mediaType string, blob []byte, target oras.Target) (desc ocispec.Descriptor, err error) {
 	desc = ocispec.Descriptor{ // Generate descriptor based on the media type and blob content
@@ -99,6 +117,16 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusAccepted)
 		case strings.Contains(p, "/blobs/uploads/"+exampleUploadUUid) && m == "GET":
 			w.WriteHeader(http.StatusCreated)
+		case strings.Contains(p, string(exampleSignatureManifestDescriptor.Digest)):
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Docker-Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
+			w.Write(exampleSignatureManifest)
+		case strings.Contains(p, string(exampleManifestDescriptor.Digest)):
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
+			w.Write(exampleManifest)
 		case strings.Contains(p, "/manifests/") && (m == "HEAD" || m == "GET"):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Docker-Content-Digest", string(manifestDesc.Digest))
@@ -251,4 +279,25 @@ func ExampleCopy_localToRemote() {
 
 	// Output:
 	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+}
+
+func ExampleCopy_artifactManifestRemoteToLocal() {
+	src, err := remote.NewRepository(fmt.Sprintf("%s/%s", remoteHost, "source"))
+	if err != nil {
+		panic(err)
+	}
+	dst := memory.New()
+
+	ctx := context.Background()
+	err = oras.CopyGraph(ctx, src, dst, exampleSignatureManifestDescriptor, oras.DefaultCopyGraphOptions)
+	if err != nil {
+		panic(err)
+	}
+
+	// verify that the content of dst is described by exampleSignatureManifestDescriptor
+	contentExists, err := dst.Exists(ctx, exampleSignatureManifestDescriptor)
+	fmt.Println(contentExists)
+
+	// Output:
+	// true
 }
