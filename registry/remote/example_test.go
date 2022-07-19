@@ -488,18 +488,15 @@ func ExampleRepository_Fetch_blobsOfArtifactManifest() {
 	}
 	ctx := context.Background()
 
-	// fetch the artifact manifest described by exampleDescriptor
-	exampleDescriptor := ocispec.Descriptor{
-		MediaType: artifactspec.MediaTypeArtifactManifest,
-		Digest:    "sha256:73bccdadf23b5df306bf77b23e1b00944c7bbce44cf63439afe15507a73413b5",
-		Size:      398}
-	rc, err := repo.Fetch(ctx, exampleDescriptor)
+	// Fetch the artifact manifest by digest. The digest can be obtained from Referrers API.
+	exampleDigest := "sha256:73bccdadf23b5df306bf77b23e1b00944c7bbce44cf63439afe15507a73413b5"
+	_, rc, err := repo.FetchReference(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
 	}
 	defer rc.Close()
 
-	// parse the pulled manifest and fetch its blobs
+	// Parse the pulled manifest and fetch its blobs.
 	pulledContent, err := io.ReadAll(rc)
 	if err != nil {
 		panic(err)
@@ -511,7 +508,7 @@ func ExampleRepository_Fetch_blobsOfArtifactManifest() {
 		panic(err)
 	}
 	for _, blob := range pulledManifest.Blobs {
-		rc, err := repo.Fetch(ctx, ocispec.Descriptor{
+		content, err := content.FetchAll(ctx, repo, ocispec.Descriptor{
 			MediaType: blob.MediaType,
 			Digest:    blob.Digest,
 			Size:      blob.Size,
@@ -519,8 +516,6 @@ func ExampleRepository_Fetch_blobsOfArtifactManifest() {
 		if err != nil {
 			panic(err)
 		}
-		defer rc.Close()
-		content, err := io.ReadAll(rc)
 		fmt.Println(string(content))
 	}
 
