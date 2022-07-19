@@ -287,9 +287,15 @@ func ExampleCopy_artifactManifestRemoteToLocal() {
 		panic(err)
 	}
 	dst := memory.New()
-
 	ctx := context.Background()
-	err = oras.CopyGraph(ctx, src, dst, exampleSignatureManifestDescriptor, oras.DefaultCopyGraphOptions)
+
+	// The digest can be obtained from the Referrers API.
+	exampleDigest := "sha256:f9308ac4616a808210c12d049b4eb684754a5acf2c3c8d353a9fa2b3c47c274a"
+	exampleDescriptor, err := src.Resolve(ctx, exampleDigest)
+	if err != nil {
+		panic(err)
+	}
+	err = oras.CopyGraph(ctx, src, dst, exampleDescriptor, oras.DefaultCopyGraphOptions)
 	if err != nil {
 		panic(err)
 	}
