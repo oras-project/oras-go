@@ -27,7 +27,9 @@ import (
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/graph"
+	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/internal/status"
 	"oras.land/oras-go/v2/registry"
@@ -52,6 +54,41 @@ type CopyOptions struct {
 	// reference will be passed to MapRoot, and the mapped descriptor will be
 	// used as the root node for copy.
 	MapRoot func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error)
+}
+
+// selectPlatform implements platform filter and returns the descriptor of
+// the first matched manifest from the manifest list / image index
+func (o *CopyOptions) selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
+	if root.MediaType == docker.MediaTypeManifestList || root.MediaType == ocispec.MediaTypeImageIndex {
+		manifests, err := content.Successors(ctx, src, root)
+		if err != nil {
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		}
+
+		// platform filter
+		for _, m := range manifests {
+			matched := platform.MatchPlatform(m.Platform, p)
+			if matched {
+				return m, nil
+			}
+		}
+		return ocispec.Descriptor{}, errdef.ErrNotFound
+	}
+	return ocispec.Descriptor{}, errdef.ErrNotFound
+}
+
+// AddPlatformFilter adds the selectPlatform func into the MapRoot func
+func (o *CopyOptions) AddPlatformFilter(p *ocispec.Platform) {
+	mapRoot := o.MapRoot
+	o.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+		var err error
+		if mapRoot != nil {
+			if root, err = mapRoot(ctx, src, root); err != nil {
+				return ocispec.Descriptor{}, err
+			}
+		}
+		return o.selectPlatform(ctx, src, root, p)
+	}
 }
 
 // CopyGraphOptions contains parameters for oras.CopyGraph.
