@@ -478,6 +478,201 @@ func TestCopy_WithOptions(t *testing.T) {
 			Size:      int64(len(blob)),
 		})
 	}
+	appendManifest := func(arc, os string, mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+			Platform: &ocispec.Platform{
+				Architecture: arc,
+				OS:           os,
+			},
+		})
+	}
+	generateManifest := func(arc, os string, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendManifest(arc, os, ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config"))           // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))               // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))               // Blob 2
+	generateManifest("test-arc-1", "test-os-1", descs[0], descs[1:3]...) // Blob 3
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))             // Blob 4
+	generateManifest("test-arc-2", "test-os-2", descs[0], descs[4])      // Blob 5
+	generateIndex(descs[3], descs[5])                                    // Blob 6
+
+	ctx := context.Background()
+	for i := range blobs {
+		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	root := descs[6]
+	ref := "foobar"
+	err := src.Tag(ctx, root, ref)
+	if err != nil {
+		t.Fatal("fail to tag root node", err)
+	}
+
+	// test copy with media type filter
+	dst := memory.New()
+	opts := oras.DefaultCopyOptions
+	opts.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+		if root.MediaType == ocispec.MediaTypeImageIndex {
+			return root, nil
+		} else {
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		}
+	}
+	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", opts)
+	if err != nil {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
+	}
+	if !reflect.DeepEqual(gotDesc, root) {
+		t.Errorf("Copy() = %v, want %v", gotDesc, root)
+	}
+
+	// verify contents
+	for i, desc := range descs {
+		exists, err := dst.Exists(ctx, desc)
+		if err != nil {
+			t.Fatalf("dst.Exists(%d) error = %v", i, err)
+		}
+		if !exists {
+			t.Errorf("dst.Exists(%d) = %v, want %v", i, exists, true)
+		}
+	}
+
+	// verify tag
+	gotDesc, err = dst.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("dst.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, root) {
+		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
+	}
+
+	// test copy with platform filter and hooks
+	dst = memory.New()
+	preCopyCount := int64(0)
+	postCopyCount := int64(0)
+	opts = oras.CopyOptions{
+		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+			manifests, err := content.Successors(ctx, src, root)
+			if err != nil {
+				return ocispec.Descriptor{}, errdef.ErrNotFound
+			}
+
+			// platform filter
+			for _, m := range manifests {
+				if m.Platform.Architecture == "test-arc-2" && m.Platform.OS == "test-os-2" {
+					return m, nil
+				}
+			}
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		},
+		CopyGraphOptions: oras.CopyGraphOptions{
+			PreCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
+				atomic.AddInt64(&preCopyCount, 1)
+				return nil
+			},
+			PostCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
+				atomic.AddInt64(&postCopyCount, 1)
+				return nil
+			},
+		},
+	}
+	wantDesc := descs[5]
+	gotDesc, err = oras.Copy(ctx, src, ref, dst, "", opts)
+	if err != nil {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
+	}
+	if !reflect.DeepEqual(gotDesc, wantDesc) {
+		t.Errorf("Copy() = %v, want %v", gotDesc, wantDesc)
+	}
+
+	// verify contents
+	for i, desc := range append([]ocispec.Descriptor{descs[0]}, descs[4:6]...) {
+		exists, err := dst.Exists(ctx, desc)
+		if err != nil {
+			t.Fatalf("dst.Exists(%d) error = %v", i, err)
+		}
+		if !exists {
+			t.Errorf("dst.Exists(%d) = %v, want %v", i, exists, true)
+		}
+	}
+
+	// verify tag
+	gotDesc, err = dst.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("dst.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, wantDesc) {
+		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, wantDesc)
+	}
+
+	// verify API counts
+	if got, want := preCopyCount, int64(3); got != want {
+		t.Errorf("count(PreCopy()) = %v, want %v", got, want)
+	}
+	if got, want := postCopyCount, int64(3); got != want {
+		t.Errorf("count(PostCopy()) = %v, want %v", got, want)
+	}
+
+	// test copy with root filter, but no matching node can be found
+	dst = memory.New()
+	opts = oras.CopyOptions{
+		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+			if root.MediaType == "test" {
+				return root, nil
+			} else {
+				return ocispec.Descriptor{}, errdef.ErrNotFound
+			}
+		},
+		CopyGraphOptions: oras.DefaultCopyGraphOptions,
+	}
+
+	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+}
+
+func TestCopy_WithPlatformFilterOptions(t *testing.T) {
+	src := memory.New()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
 	appendManifest := func(arc, os, variant string, mediaType string, blob []byte) {
 		blobs = append(blobs, blob)
 		descs = append(descs, ocispec.Descriptor{
@@ -538,67 +733,16 @@ func TestCopy_WithOptions(t *testing.T) {
 		t.Fatal("fail to tag root node", err)
 	}
 
-	// test copy with media type filter
+	// test copy with platform filter
 	dst := memory.New()
-	opts := oras.DefaultCopyOptions
-	opts.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
-		if root.MediaType == ocispec.MediaTypeImageIndex {
-			return root, nil
-		} else {
-			return ocispec.Descriptor{}, errdef.ErrNotFound
-		}
-	}
-	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", opts)
-	if err != nil {
-		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
-	}
-	if !reflect.DeepEqual(gotDesc, root) {
-		t.Errorf("Copy() = %v, want %v", gotDesc, root)
-	}
-
-	// verify contents
-	for i, desc := range descs {
-		exists, err := dst.Exists(ctx, desc)
-		if err != nil {
-			t.Fatalf("dst.Exists(%d) error = %v", i, err)
-		}
-		if !exists {
-			t.Errorf("dst.Exists(%d) = %v, want %v", i, exists, true)
-		}
-	}
-
-	// verify tag
-	gotDesc, err = dst.Resolve(ctx, ref)
-	if err != nil {
-		t.Fatal("dst.Resolve() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, root) {
-		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
-	}
-
-	// test copy with platform filter and hooks
-	dst = memory.New()
-	preCopyCount := int64(0)
-	postCopyCount := int64(0)
-	opts = oras.CopyOptions{
-		CopyGraphOptions: oras.CopyGraphOptions{
-			PreCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
-				atomic.AddInt64(&preCopyCount, 1)
-				return nil
-			},
-			PostCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
-				atomic.AddInt64(&postCopyCount, 1)
-				return nil
-			},
-		},
-	}
+	opts := oras.CopyOptions{}
 	targetPlatform := ocispec.Platform{
 		Architecture: "test-arc-2",
 		OS:           "test-os-2",
 	}
-	opts.AddPlatformFilter(&targetPlatform)
+	opts.WithPlatformFilter(&targetPlatform)
 	wantDesc := descs[5]
-	gotDesc, err = oras.Copy(ctx, src, ref, dst, "", opts)
+	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", opts)
 	if err != nil {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
 	}
@@ -626,14 +770,6 @@ func TestCopy_WithOptions(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, wantDesc)
 	}
 
-	// verify API counts
-	if got, want := preCopyCount, int64(3); got != want {
-		t.Errorf("count(PreCopy()) = %v, want %v", got, want)
-	}
-	if got, want := postCopyCount, int64(3); got != want {
-		t.Errorf("count(PostCopy()) = %v, want %v", got, want)
-	}
-
 	// test copy with platform filter, if the multiple manifests match the required platform,
 	// return the first matching entry
 	dst = memory.New()
@@ -642,7 +778,7 @@ func TestCopy_WithOptions(t *testing.T) {
 		OS:           "test-os-1",
 	}
 	opts = oras.CopyOptions{}
-	opts.AddPlatformFilter(&targetPlatform)
+	opts.WithPlatformFilter(&targetPlatform)
 	wantDesc = descs[3]
 	gotDesc, err = oras.Copy(ctx, src, ref, dst, "", opts)
 	if err != nil {
@@ -672,7 +808,8 @@ func TestCopy_WithOptions(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, wantDesc)
 	}
 
-	// test copy with platform filter and exisiting MapRoot func, but no matching node can be found
+	// test copy with platform filter and existing MapRoot func, but no matching node can be found
+	// should return not found error
 	dst = memory.New()
 	opts = oras.CopyOptions{
 		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
@@ -687,29 +824,32 @@ func TestCopy_WithOptions(t *testing.T) {
 		Architecture: "test-arc-1",
 		OS:           "test-os-3",
 	}
-	opts.AddPlatformFilter(&targetPlatform)
+	opts.WithPlatformFilter(&targetPlatform)
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 
-	// test copy with root filter, but no matching node can be found
+	// test copy with platform filter, but the node's media type is not supported
+	// should return unsupported error
 	dst = memory.New()
-	opts = oras.CopyOptions{
-		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
-			if root.MediaType == "test" {
-				return root, nil
-			} else {
-				return ocispec.Descriptor{}, errdef.ErrNotFound
-			}
-		},
-		CopyGraphOptions: oras.DefaultCopyGraphOptions,
+	opts = oras.CopyOptions{}
+	targetPlatform = ocispec.Platform{
+		Architecture: "test-arc-1",
+		OS:           "test-os-1",
+	}
+	opts.WithPlatformFilter(&targetPlatform)
+
+	root = descs[7]
+	err = src.Tag(ctx, root, ref)
+	if err != nil {
+		t.Fatal("fail to tag root node", err)
 	}
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrUnsupported)
 	}
 }
 

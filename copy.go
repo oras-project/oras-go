@@ -57,37 +57,36 @@ type CopyOptions struct {
 }
 
 // selectPlatform implements platform filter and returns the descriptor of
-// the first matched manifest from the manifest list / image index
-func (o *CopyOptions) selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
-	if root.MediaType == docker.MediaTypeManifestList || root.MediaType == ocispec.MediaTypeImageIndex {
-		manifests, err := content.Successors(ctx, src, root)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
+// the first matched manifest from the manifest list / image index.
+func selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
+	if root.MediaType != docker.MediaTypeManifestList && root.MediaType != ocispec.MediaTypeImageIndex {
+		return ocispec.Descriptor{}, fmt.Errorf("%s: %s: %w", root.Digest, root.MediaType, errdef.ErrUnsupported)
+	}
 
-		// platform filter
-		for _, m := range manifests {
-			matched := platform.MatchPlatform(m.Platform, p)
-			if matched {
-				return m, nil
-			}
+	manifests, err := content.Successors(ctx, src, root)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	// platform filter
+	for _, m := range manifests {
+		if platform.MatchPlatform(m.Platform, p) {
+			return m, nil
 		}
-		return ocispec.Descriptor{}, errdef.ErrNotFound
 	}
 	return ocispec.Descriptor{}, errdef.ErrNotFound
 }
 
-// AddPlatformFilter adds the selectPlatform func into the MapRoot func
-func (o *CopyOptions) AddPlatformFilter(p *ocispec.Platform) {
+// WithPlatformFilter adds the check on the platform attributes.
+func (o *CopyOptions) WithPlatformFilter(p *ocispec.Platform) {
 	mapRoot := o.MapRoot
-	o.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
-		var err error
+	o.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (desc ocispec.Descriptor, err error) {
 		if mapRoot != nil {
 			if root, err = mapRoot(ctx, src, root); err != nil {
 				return ocispec.Descriptor{}, err
 			}
 		}
-		return o.selectPlatform(ctx, src, root, p)
+		return selectPlatform(ctx, src, root, p)
 	}
 }
 

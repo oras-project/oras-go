@@ -27,29 +27,29 @@ import (
 //   of the current platform.
 // Note: Variant, OSVersion and OSFeatures are optional fields, will skip the
 // comparison if the target platform does not provide specfic value.
-func MatchPlatform(curr *ocispec.Platform, target *ocispec.Platform) bool {
-	if curr.Architecture != target.Architecture || curr.OS != target.OS {
+func MatchPlatform(got *ocispec.Platform, want *ocispec.Platform) bool {
+	if got.Architecture != want.Architecture || got.OS != want.OS {
 		return false
 	}
 
-	if target.OSVersion != "" && curr.OSVersion != target.OSVersion {
+	if want.OSVersion != "" && got.OSVersion != want.OSVersion {
 		return false
 	}
 
-	if target.Variant != "" && curr.Variant != target.Variant {
+	if want.Variant != "" && got.Variant != want.Variant {
 		return false
 	}
 
-	if len(target.OSFeatures) != 0 && !isSubset(target.OSFeatures, curr.OSFeatures) {
+	if len(want.OSFeatures) != 0 && !isSubset(want.OSFeatures, got.OSFeatures) {
 		return false
 	}
 
 	return true
 }
 
-// isSubset returns true if all items in slice A are present in slice B
+// isSubset returns true if all items in slice A are present in slice B.
 func isSubset(a, b []string) bool {
-	set := make(map[string]bool)
+	set := make(map[string]bool, len(b))
 	for _, v := range b {
 		set[v] = true
 	}
