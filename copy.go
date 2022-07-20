@@ -352,12 +352,11 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 		if !descriptor.EqualOCI(desc, root) {
 			return nil
 		}
-		// copy reference for skipped root
+		// enforce tagging when root manifest is skipped
 		if refPusher, ok := dst.(registry.ReferencePusher); ok {
 			return copyCachedNodeWithReference(ctx, proxy, refPusher, desc, dstRef)
-		} else {
-			return dst.Tag(ctx, root, dstRef)
 		}
+		return dst.Tag(ctx, root, dstRef)
 	}
 
 	return nil
