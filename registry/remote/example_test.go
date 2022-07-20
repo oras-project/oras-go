@@ -45,7 +45,6 @@ const (
 	exampleUploadUUid       = "0bc84d80-837c-41d9-824e-1907463c53b3"
 	ManifestDigest          = "sha256:0b696106ecd0654e031f19e0a8cbd1aee4ad457d7c9cea881f07b12a930cd307"
 	ReferenceManifestDigest = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
-	formatTag               = "formats"
 )
 
 var (
@@ -479,30 +478,34 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 	// {"mediaType":"application/vnd.cncf.oras.artifact.manifest.v1+json","artifactType":"example/signature","blobs":null,"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
 }
 
-// ExampleRepository_Fetch_blobsOfArtifactManifest gives an example of pulling the blobs
+// ExampleRepository_fetchArtifactBlobs gives an example of pulling the blobs
 // of an artifact manifest.
-func ExampleRepository_Fetch_blobsOfArtifactManifest() {
+func ExampleRepository_fetchArtifactBlobs() {
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
 	if err != nil {
 		panic(err)
 	}
 	ctx := context.Background()
 
-	// Fetch the artifact manifest by digest. The digest can be obtained from Referrers API.
+	// 1. Fetch the artifact manifest by digest.
 	exampleDigest := "sha256:73bccdadf23b5df306bf77b23e1b00944c7bbce44cf63439afe15507a73413b5"
-	_, rc, err := repo.FetchReference(ctx, exampleDigest)
+	descriptor, rc, err := repo.FetchReference(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
 	}
 	defer rc.Close()
 
-	// Parse the pulled manifest and fetch its blobs.
 	pulledContent, err := io.ReadAll(rc)
 	if err != nil {
 		panic(err)
 	}
+	// verify the fetched manifest content
+	if descriptor.Size != int64(len(pulledContent)) || descriptor.Digest != digest.FromBytes(pulledContent) {
+		panic("wrong content")
+	}
 	fmt.Println(string(pulledContent))
 
+	// 2. Parse the pulled manifest and fetch its blobs.
 	var pulledManifest artifactspec.Manifest
 	if err := json.Unmarshal(pulledContent, &pulledManifest); err != nil {
 		panic(err)
