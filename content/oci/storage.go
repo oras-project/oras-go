@@ -26,8 +26,8 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/ioutil"
 )
 
 // bufPool is a pool of byte buffers that can be reused for copying content
@@ -137,7 +137,7 @@ func (s *Storage) Exists(_ context.Context, target ocispec.Descriptor) (bool, er
 }
 
 // ingest write the content into a temporary ingest file.
-func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path string, ingestErr error) {
+func (s *Storage) ingest(expected ocispec.Descriptor, reader io.Reader) (path string, ingestErr error) {
 	if err := ensureDir(s.ingestRoot); err != nil {
 		return "", fmt.Errorf("failed to ensure ingest dir: %w", err)
 	}
@@ -163,7 +163,7 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := ioutil.CopyBuffer(fp, content, *buf, expected); err != nil {
+	if err := content.CopyBuffer(fp, reader, *buf, expected); err != nil {
 		return "", fmt.Errorf("failed to ingest: %w", err)
 	}
 
