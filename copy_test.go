@@ -183,8 +183,18 @@ func TestCopy_ExistedRoot(t *testing.T) {
 		t.Fatal("fail to tag root node", err)
 	}
 
+	var skippedCount int64
+	copyOpts := oras.CopyOptions{
+		CopyGraphOptions: oras.CopyGraphOptions{
+			OnCopySkipped: func(ctx context.Context, desc ocispec.Descriptor) error {
+				atomic.AddInt64(&skippedCount, 1)
+				return nil
+			},
+		},
+	}
+
 	// copy with src tag
-	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", oras.CopyOptions{})
+	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", copyOpts)
 	if err != nil {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
 	}
@@ -192,7 +202,7 @@ func TestCopy_ExistedRoot(t *testing.T) {
 		t.Errorf("Copy() = %v, want %v", gotDesc, root)
 	}
 	// copy with new tag
-	gotDesc, err = oras.Copy(ctx, src, ref, dst, newTag, oras.CopyOptions{})
+	gotDesc, err = oras.Copy(ctx, src, ref, dst, newTag, copyOpts)
 	if err != nil {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
 	}
@@ -226,6 +236,10 @@ func TestCopy_ExistedRoot(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotDesc, root) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
+	}
+	// verify invocation of onCopySkipped()
+	if got, want := skippedCount, int64(1); got != want {
+		t.Errorf("count(OnCopySkipped()) = %v, want %v", got, want)
 	}
 }
 
