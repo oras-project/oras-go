@@ -62,7 +62,7 @@ func (o *CopyOptions) selectPlatform(ctx context.Context, src content.Storage, r
 	if root.MediaType == docker.MediaTypeManifestList || root.MediaType == ocispec.MediaTypeImageIndex {
 		manifests, err := content.Successors(ctx, src, root)
 		if err != nil {
-			return ocispec.Descriptor{}, errdef.ErrNotFound
+			return ocispec.Descriptor{}, err
 		}
 
 		// platform filter
