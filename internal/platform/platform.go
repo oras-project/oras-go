@@ -20,7 +20,7 @@ import (
 )
 
 // MatchPlatform checks whether the current platform matches the target platform.
-// MatchPlatform will return true if:
+// MatchPlatform will return true if all of the following conditions are met.
 // - Architecture and OS exactly match.
 // - Variant and OSVersion exactly match if target platform provided.
 // - OSFeatures of the target platform are the subsets of the OSFeatures array
@@ -40,24 +40,20 @@ func MatchPlatform(curr *ocispec.Platform, target *ocispec.Platform) bool {
 		return false
 	}
 
-	if len(target.OSFeatures) != 0 && !isSubset(curr.OSFeatures, target.OSFeatures) {
+	if len(target.OSFeatures) != 0 && !isSubset(target.OSFeatures, curr.OSFeatures) {
 		return false
 	}
 
 	return true
 }
 
-// isSubset returns true if all items in target slice are present in current slice
-func isSubset(curr, target []string) bool {
-	if len(curr) < len(target) {
-		return false
-	}
-
+// isSubset returns true if all items in slice A are present in slice B
+func isSubset(a, b []string) bool {
 	set := make(map[string]bool)
-	for _, v := range curr {
+	for _, v := range b {
 		set[v] = true
 	}
-	for _, v := range target {
+	for _, v := range a {
 		if _, ok := set[v]; !ok {
 			return false
 		}
