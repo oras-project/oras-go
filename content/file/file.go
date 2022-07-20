@@ -33,6 +33,7 @@ import (
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/graph"
+	"oras.land/oras-go/v2/internal/ioutil"
 	"oras.land/oras-go/v2/internal/resolver"
 )
 
@@ -379,7 +380,7 @@ func (s *Store) PackFiles(ctx context.Context, names []string) (ocispec.Descript
 }
 
 // saveFile saves content matching the descriptor to the given file.
-func (s *Store) saveFile(fp *os.File, expected ocispec.Descriptor, reader io.Reader) (err error) {
+func (s *Store) saveFile(fp *os.File, expected ocispec.Descriptor, content io.Reader) (err error) {
 	defer func() {
 		closeErr := fp.Close()
 		if err == nil {
@@ -390,7 +391,7 @@ func (s *Store) saveFile(fp *os.File, expected ocispec.Descriptor, reader io.Rea
 
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := content.CopyBuffer(fp, reader, *buf, expected); err != nil {
+	if err := ioutil.CopyBuffer(fp, content, *buf, expected); err != nil {
 		return fmt.Errorf("failed to copy content to %s: %w", path, err)
 	}
 
