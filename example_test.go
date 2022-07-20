@@ -281,7 +281,9 @@ func ExampleCopy_localToRemote() {
 	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
 }
 
-func ExampleCopy_artifactManifestRemoteToLocal() {
+// Example_copyArtifactManifestRemoteToLocal gives an example of copying
+// an artifact manifest from remote location to local.
+func Example_copyArtifactManifestRemoteToLocal() {
 	src, err := remote.NewRepository(fmt.Sprintf("%s/%s", remoteHost, "source"))
 	if err != nil {
 		panic(err)
@@ -302,6 +304,9 @@ func ExampleCopy_artifactManifestRemoteToLocal() {
 
 	// verify that the content of dst is described by exampleSignatureManifestDescriptor
 	contentExists, err := dst.Exists(ctx, exampleSignatureManifestDescriptor)
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println(contentExists)
 
 	// Output:
