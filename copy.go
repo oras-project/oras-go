@@ -342,5 +342,22 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 		}
 	}
 
+	onCopySkipped := opts.OnCopySkipped
+	opts.OnCopySkipped = func(ctx context.Context, desc ocispec.Descriptor) error {
+		if onCopySkipped != nil {
+			if err := onCopySkipped(ctx, desc); err != nil {
+				return err
+			}
+		}
+		if !descriptor.EqualOCI(desc, root) {
+			return nil
+		}
+		// enforce tagging when root is skipped
+		if refPusher, ok := dst.(registry.ReferencePusher); ok {
+			return copyCachedNodeWithReference(ctx, proxy, refPusher, desc, dstRef)
+		}
+		return dst.Tag(ctx, root, dstRef)
+	}
+
 	return nil
 }
