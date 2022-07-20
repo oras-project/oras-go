@@ -353,13 +353,11 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 			return nil
 		}
 		// copy reference for skipped root
-		var err error
 		if refPusher, ok := dst.(registry.ReferencePusher); ok {
-			err = copyCachedNodeWithReference(ctx, proxy, refPusher, desc, dstRef)
+			return copyCachedNodeWithReference(ctx, proxy, refPusher, desc, dstRef)
 		} else {
-			err = dst.Tag(ctx, root, dstRef)
+			return dst.Tag(ctx, root, dstRef)
 		}
-		return err
 	}
 
 	return nil
