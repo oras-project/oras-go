@@ -16,6 +16,7 @@ package content
 
 import (
 	"bytes"
+	_ "crypto/sha256"
 	"fmt"
 	"testing"
 
