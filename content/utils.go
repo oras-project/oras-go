@@ -17,6 +17,7 @@ package content
 
 import (
 	"errors"
+	"fmt"
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -24,22 +25,34 @@ import (
 )
 
 var (
-	ErrUnexpectedEOF    = errors.New("unexpected EOF")
-	ErrTrailingData     = errors.New("trailing data")
+	// ErrInvalidDescriptorSize means that the descriptor supplied
+	// to the reader has an invalid size (e.g. negative values).
+	ErrInvalidDescriptorSize = errors.New("invalid descriptor size")
+
+	// ErrMismatchedDigest means that the descriptor supplied
+	// to the reader has an invalid digest.
 	ErrMismatchedDigest = errors.New("mismatched digest")
+
+	// ErrTrailingData means that there exists trailing data unread
+	// when the read operation terminates.
+	ErrTrailingData = errors.New("trailing data")
 )
 
 // ReadAll safely reads the content described by the descriptor.
 // The read content is verified against the size and the digest.
 func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
+	if desc.Size < 0 {
+		return nil, ErrInvalidDescriptorSize
+	}
+	buf := make([]byte, desc.Size)
+
 	// verify while reading
 	verifier := desc.Digest.Verifier()
 	r = io.TeeReader(r, verifier)
-	buf := make([]byte, desc.Size)
 	_, err := io.ReadFull(r, buf)
 	// verify the size of the read content
 	if err != nil {
-		return nil, ErrUnexpectedEOF
+		return nil, fmt.Errorf("read failed: %w", err)
 	}
 	if err := ioutil.EnsureEOF(r); err != nil {
 		return nil, ErrTrailingData

@@ -18,6 +18,8 @@ package content
 import (
 	"bytes"
 	_ "crypto/sha256"
+	"errors"
+	"io"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -29,42 +31,83 @@ func TestReadAllCorrectDescriptor(t *testing.T) {
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
 		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content))}
+	r := bytes.NewReader([]byte(content))
+	got, err := ReadAll(r, desc)
+	if err != nil {
+		t.Fatal("ReadAll() error = ", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("ReadAll() = %v, want %v", got, content)
+	}
+}
+
+func TestReadAllReadSizeSmallerThanDescriptorSize(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content) + 1)}
+	r := bytes.NewReader([]byte(content))
+	_, err := ReadAll(r, desc)
+	if err == nil || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("ReadAll() error = %v, want %v", err, io.ErrUnexpectedEOF)
+	}
+}
+
+func TestReadAllReadSizeLargerThanDescriptorSize(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content) - 1)}
+	r := bytes.NewReader([]byte(content))
+	_, err := ReadAll(r, desc)
+	if err == nil || !errors.Is(err, ErrTrailingData) {
+		t.Errorf("ReadAll() error = %v, want %v", err, ErrTrailingData)
+	}
+}
+
+func TestReadAllInvalidDigest(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes([]byte("wrong content")),
+		Size:      int64(len(content))}
+	r := bytes.NewReader([]byte(content))
+	_, err := ReadAll(r, desc)
+	if err == nil || !errors.Is(err, ErrMismatchedDigest) {
+		t.Errorf("ReadAll() error = %v, want %v", err, ErrMismatchedDigest)
+	}
+}
+
+func TestReadAllEmptyContent(t *testing.T) {
+	content := []byte("")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)),
 	}
 	r := bytes.NewReader([]byte(content))
 	got, err := ReadAll(r, desc)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatal("ReadAll() error = ", err)
 	}
 	if !bytes.Equal(got, content) {
-		t.Fatal("Incorrect content")
+		t.Errorf("ReadAll() = %v, want %v", got, content)
 	}
 }
 
-func TestReadAllWrongSize(t *testing.T) {
+func TestReadAllInvalidDescriptorSize(t *testing.T) {
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
 		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content) + 1),
+		Size:      -1,
 	}
 	r := bytes.NewReader([]byte(content))
 	_, err := ReadAll(r, desc)
-	if err == nil || err != ErrUnexpectedEOF {
-		t.Fatal("expected err = ErrUnexpectedEOF, got error = ", err)
-	}
-}
-
-func TestReadAllWrongDigest(t *testing.T) {
-	content := []byte("example content")
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes([]byte("wrong content")),
-		Size:      int64(len(content)),
-	}
-	r := bytes.NewReader([]byte(content))
-	_, err := ReadAll(r, desc)
-	if err == nil || err != ErrMismatchedDigest {
-		t.Fatal("expected err = ErrMismatchedDigest, got error = ", err)
+	if err == nil || !errors.Is(err, ErrInvalidDescriptorSize) {
+		t.Errorf("ReadAll() error = %v, want %v", err, ErrInvalidDescriptorSize)
 	}
 }
