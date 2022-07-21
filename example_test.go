@@ -117,12 +117,12 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusAccepted)
 		case strings.Contains(p, "/blobs/uploads/"+exampleUploadUUid) && m == "GET":
 			w.WriteHeader(http.StatusCreated)
-		case strings.Contains(p, string(exampleSignatureManifestDescriptor.Digest)):
+		case strings.Contains(p, "/manifests/"+string(exampleSignatureManifestDescriptor.Digest)):
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
 			w.Write(exampleSignatureManifest)
-		case strings.Contains(p, string(exampleManifestDescriptor.Digest)):
+		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)):
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
@@ -282,7 +282,7 @@ func ExampleCopy_localToRemote() {
 }
 
 // Example_copyArtifactManifestRemoteToLocal gives an example of copying
-// an artifact manifest from remote location to local.
+// an artifact manifest from a remote repository to local.
 func Example_copyArtifactManifestRemoteToLocal() {
 	src, err := remote.NewRepository(fmt.Sprintf("%s/%s", remoteHost, "source"))
 	if err != nil {
@@ -292,17 +292,17 @@ func Example_copyArtifactManifestRemoteToLocal() {
 	ctx := context.Background()
 
 	exampleDigest := "sha256:f9308ac4616a808210c12d049b4eb684754a5acf2c3c8d353a9fa2b3c47c274a"
-	exampleDescriptor, err := src.Resolve(ctx, exampleDigest)
+	descriptor, err := src.Resolve(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
 	}
-	err = oras.CopyGraph(ctx, src, dst, exampleDescriptor, oras.DefaultCopyGraphOptions)
+	err = oras.CopyGraph(ctx, src, dst, descriptor, oras.DefaultCopyGraphOptions)
 	if err != nil {
 		panic(err)
 	}
 
-	// verify that the content of dst is described by exampleSignatureManifestDescriptor
-	contentExists, err := dst.Exists(ctx, exampleDescriptor)
+	// verify that the artifact manifest described by the descriptor exists in dst
+	contentExists, err := dst.Exists(ctx, descriptor)
 	if err != nil {
 		panic(err)
 	}
