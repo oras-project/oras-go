@@ -12,12 +12,12 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
 package content
 
 import (
 	"bytes"
 	_ "crypto/sha256"
-	"fmt"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -25,10 +25,10 @@ import (
 )
 
 func TestReadAll(t *testing.T) {
-	testContent := "example content"
+	testContent := []byte("example content")
 	testDescriptor := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes([]byte(testContent)),
+		Digest:    digest.FromBytes(testContent),
 		Size:      int64(len(testContent)),
 	}
 	r := bytes.NewReader([]byte(testContent))
@@ -36,5 +36,7 @@ func TestReadAll(t *testing.T) {
 	if err != nil {
 		t.Fatal("ReadAll error", err)
 	}
-	fmt.Println(string(readContent))
+	if !bytes.Equal(readContent, testContent) {
+		t.Fatal("Incorrect content")
+	}
 }
