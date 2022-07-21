@@ -76,6 +76,21 @@ var (
 		{exampleSBoMManifestDescriptor},      // page 0
 		{exampleSignatureManifestDescriptor}, // page 1
 	}
+	blobContent    = "example blob content"
+	blobDescriptor = artifactspec.Descriptor{
+		MediaType: "application/tar",
+		Digest:    digest.FromBytes([]byte(blobContent)),
+		Size:      int64(len(blobContent))}
+	exampleManifestWithBlobs, _ = json.Marshal(artifactspec.Manifest{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: "example/manifest",
+		Blobs:        []artifactspec.Descriptor{blobDescriptor},
+		Subject:      &exampleManifestDescriptor})
+	exampleManifestWithBlobsDescriptor = artifactspec.Descriptor{
+		MediaType:    artifactspec.MediaTypeArtifactManifest,
+		ArtifactType: "example/manifest",
+		Digest:       digest.FromBytes(exampleManifestWithBlobs),
+		Size:         int64(len(exampleManifestWithBlobs))}
 )
 
 var host string
@@ -126,6 +141,18 @@ func TestMain(m *testing.M) {
 			w.Header().Set("Content-Digest", string(exampleSBoMManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSBoMManifest)))
 			w.Write(exampleSBoMManifest)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestWithBlobsDescriptor.Digest) && m == "GET":
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Digest", string(exampleManifestWithBlobsDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifestWithBlobs)))
+			w.Write(exampleManifestWithBlobs)
+		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, blobDescriptor.Digest) && m == "GET":
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Digest", string(blobDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobContent)))
+			w.Write([]byte(blobContent))
 		case p == fmt.Sprintf("/v2/%s/_oras/artifacts/referrers", exampleRepositoryName):
 			q := r.URL.Query()
 			var referrers []artifactspec.Descriptor
@@ -449,6 +476,55 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 	// Output:
 	// {"mediaType":"application/vnd.cncf.oras.artifact.manifest.v1+json","artifactType":"example/SBoM","blobs":null,"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
 	// {"mediaType":"application/vnd.cncf.oras.artifact.manifest.v1+json","artifactType":"example/signature","blobs":null,"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
+}
+
+// ExampleRepository_fetchArtifactBlobs gives an example of pulling the blobs
+// of an artifact manifest.
+func ExampleRepository_fetchArtifactBlobs() {
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+
+	// 1. Fetch the artifact manifest by digest.
+	exampleDigest := "sha256:73bccdadf23b5df306bf77b23e1b00944c7bbce44cf63439afe15507a73413b5"
+	descriptor, rc, err := repo.FetchReference(ctx, exampleDigest)
+	if err != nil {
+		panic(err)
+	}
+	defer rc.Close()
+
+	pulledContent, err := io.ReadAll(rc)
+	if err != nil {
+		panic(err)
+	}
+	// verify the fetched manifest content
+	if descriptor.Size != int64(len(pulledContent)) || descriptor.Digest != digest.FromBytes(pulledContent) {
+		panic("wrong content")
+	}
+	fmt.Println(string(pulledContent))
+
+	// 2. Parse the pulled manifest and fetch its blobs.
+	var pulledManifest artifactspec.Manifest
+	if err := json.Unmarshal(pulledContent, &pulledManifest); err != nil {
+		panic(err)
+	}
+	for _, blob := range pulledManifest.Blobs {
+		content, err := content.FetchAll(ctx, repo, ocispec.Descriptor{
+			MediaType: blob.MediaType,
+			Digest:    blob.Digest,
+			Size:      blob.Size,
+		})
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(string(content))
+	}
+
+	// Output:
+	// {"mediaType":"application/vnd.cncf.oras.artifact.manifest.v1+json","artifactType":"example/manifest","blobs":[{"mediaType":"application/tar","digest":"sha256:8d6497c94694a292c04f85cd055d8b5c03eda835dd311e20dfbbf029ff9748cc","size":20}],"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
+	// example blob content
 }
 
 // ExampleRepository_FetchReference_manifestByTag gives example snippets for downloading a manifest by tag with only one API call.
