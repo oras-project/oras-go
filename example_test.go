@@ -284,7 +284,7 @@ func ExampleCopy_localToRemote() {
 // Example_copyArtifactManifestRemoteToLocal gives an example of copying
 // an artifact manifest from a remote repository to local.
 func Example_copyArtifactManifestRemoteToLocal() {
-	src, err := remote.NewRepository(fmt.Sprintf("%s/%s", remoteHost, "source"))
+	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
 	if err != nil {
 		panic(err)
 	}
