@@ -24,19 +24,47 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func TestReadAll(t *testing.T) {
-	testContent := []byte("example content")
-	testDescriptor := ocispec.Descriptor{
+func TestReadAllCorrectDescriptor(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(testContent),
-		Size:      int64(len(testContent)),
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
 	}
-	r := bytes.NewReader([]byte(testContent))
-	readContent, err := ReadAll(r, testDescriptor)
+	r := bytes.NewReader([]byte(content))
+	got, err := ReadAll(r, desc)
 	if err != nil {
-		t.Fatal("ReadAll error", err)
+		t.Fatal(err)
 	}
-	if !bytes.Equal(readContent, testContent) {
+	if !bytes.Equal(got, content) {
 		t.Fatal("Incorrect content")
+	}
+}
+
+func TestReadAllWrongSize(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content) + 1),
+	}
+	r := bytes.NewReader([]byte(content))
+	_, err := ReadAll(r, desc)
+	if err == nil || err != ErrUnexpectedEOF {
+		t.Fatal("expected err = ErrUnexpectedEOF, got error = ", err)
+	}
+}
+
+func TestReadAllWrongDigest(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes([]byte("wrong content")),
+		Size:      int64(len(content)),
+	}
+	r := bytes.NewReader([]byte(content))
+	_, err := ReadAll(r, desc)
+	if err == nil || err != ErrMismatchedDigest {
+		t.Fatal("expected err = ErrMismatchedDigest, got error = ", err)
 	}
 }

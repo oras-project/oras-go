@@ -17,11 +17,16 @@ package content
 
 import (
 	"errors"
-	"fmt"
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/internal/ioutil"
+)
+
+var (
+	ErrUnexpectedEOF    = errors.New("unexpected EOF")
+	ErrTrailingData     = errors.New("trailing data")
+	ErrMismatchedDigest = errors.New("mismatched digest")
 )
 
 // ReadAll safely reads the content described by the descriptor.
@@ -32,16 +37,16 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	r = io.TeeReader(r, verifier)
 	buf := make([]byte, desc.Size)
 	_, err := io.ReadFull(r, buf)
+	// verify the size of the read content
 	if err != nil {
-		return nil, fmt.Errorf("read failed: %w", err)
+		return nil, ErrUnexpectedEOF
 	}
-	if !verifier.Verified() {
-		return nil, errors.New("digest verification failed")
-	}
-
 	if err := ioutil.EnsureEOF(r); err != nil {
-		return nil, err
+		return nil, ErrTrailingData
 	}
-
+	// verify the digest of the read content
+	if !verifier.Verified() {
+		return nil, ErrMismatchedDigest
+	}
 	return buf, nil
 }

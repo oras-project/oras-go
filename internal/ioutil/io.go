@@ -52,6 +52,8 @@ func CopyBuffer(dst io.Writer, src io.Reader, buf []byte, desc ocispec.Descripto
 	return EnsureEOF(lr)
 }
 
+// EnsureEOF checks if the read operation ends with an EOF and no
+// trailing data is present.
 func EnsureEOF(r io.Reader) error {
 	var peek [1]byte
 	_, err := io.ReadFull(r, peek[:])
