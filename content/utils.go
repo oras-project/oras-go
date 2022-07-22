@@ -33,8 +33,8 @@ var (
 	// the descriptor has an invalid digest.
 	ErrMismatchedDigest = errors.New("mismatched digest")
 
-	// ErrTrailingData means that there exists trailing data unread
-	// when the read operation terminates.
+	// ErrTrailingData is returned by ReadAll() when
+	// there exists trailing data unread when the read terminates.
 	ErrTrailingData = errors.New("trailing data")
 )
 
@@ -50,7 +50,6 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	verifier := desc.Digest.Verifier()
 	r = io.TeeReader(r, verifier)
 	_, err := io.ReadFull(r, buf)
-	// verify the size of the read content
 	if err != nil {
 		return nil, fmt.Errorf("read failed: %w", err)
 	}
