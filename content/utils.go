@@ -25,12 +25,12 @@ import (
 )
 
 var (
-	// ErrInvalidDescriptorSize means that the descriptor supplied
-	// to the reader has an invalid size (e.g. negative values).
+	// ErrInvalidDescriptorSize is returned by ReadAll() when
+	// the descriptor has an invalid size.
 	ErrInvalidDescriptorSize = errors.New("invalid descriptor size")
 
-	// ErrMismatchedDigest means that the descriptor supplied
-	// to the reader has an invalid digest.
+	// ErrMismatchedDigest is returned by ReadAll() when
+	// the descriptor has an invalid digest.
 	ErrMismatchedDigest = errors.New("mismatched digest")
 
 	// ErrTrailingData means that there exists trailing data unread
