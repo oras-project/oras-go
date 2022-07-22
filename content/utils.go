@@ -49,8 +49,8 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	// verify while reading
 	verifier := desc.Digest.Verifier()
 	r = io.TeeReader(r, verifier)
-	_, err := io.ReadFull(r, buf)
-	if err != nil {
+	// verify the size of the read content
+	if _, err := io.ReadFull(r, buf); err != nil {
 		return nil, fmt.Errorf("read failed: %w", err)
 	}
 	if err := ioutil.EnsureEOF(r); err != nil {
