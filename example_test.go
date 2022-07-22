@@ -118,11 +118,13 @@ func TestMain(m *testing.M) {
 		case strings.Contains(p, "/blobs/uploads/"+exampleUploadUUid) && m == "GET":
 			w.WriteHeader(http.StatusCreated)
 		case strings.Contains(p, "/manifests/"+string(exampleSignatureManifestDescriptor.Digest)):
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
 			w.Write(exampleSignatureManifest)
 		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)):
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
@@ -310,4 +312,31 @@ func Example_copyArtifactManifestRemoteToLocal() {
 
 	// Output:
 	// true
+}
+
+func Example_copyArtifactManifestAndReferrersRemoteToLocal() {
+	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
+	if err != nil {
+		panic(err)
+	}
+	dst := memory.New()
+	ctx := context.Background()
+
+	exampleTag := "latest"
+	err = src.Tag(ctx, ocispec.Descriptor{
+		MediaType: exampleManifestDescriptor.MediaType,
+		Digest:    exampleManifestDescriptor.Digest,
+		Size:      exampleManifestDescriptor.Size}, exampleTag)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = oras.ExtendedCopy(ctx, src, exampleTag, dst, exampleTag, oras.DefaultExtendedCopyOptions)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("done")
+	// Output:
+	// done
 }
