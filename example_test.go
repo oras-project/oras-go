@@ -134,11 +134,8 @@ func TestMain(m *testing.M) {
 			w.Write(exampleSignatureManifest)
 		case strings.Contains(p, "/manifests/latest") && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
-		case strings.Contains(p, "/manifests/latest") && m == "HEAD":
-			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
-			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
-			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
-		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)):
+		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)),
+			strings.Contains(p, "/manifests/latest") && m == "HEAD":
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
