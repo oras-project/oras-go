@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -44,18 +45,26 @@ var (
 	exampleManifest, _ = json.Marshal(artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/content"})
-	exampleManifestDescriptor = artifactspec.Descriptor{
+	exampleManifestDescriptor = ocispec.Descriptor{
 		MediaType: artifactspec.MediaTypeArtifactManifest,
 		Digest:    digest.Digest(digest.FromBytes(exampleManifest)),
 		Size:      int64(len(exampleManifest))}
+	exampleManifestDescriptorArtifactspec = artifactspec.Descriptor{
+		MediaType: exampleManifestDescriptor.MediaType,
+		Digest:    exampleManifestDescriptor.Digest,
+		Size:      exampleManifestDescriptor.Size}
 	exampleSignatureManifest, _ = json.Marshal(artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
-		Subject:      &exampleManifestDescriptor})
+		Subject:      &exampleManifestDescriptorArtifactspec})
 	exampleSignatureManifestDescriptor = ocispec.Descriptor{
 		MediaType: artifactspec.MediaTypeArtifactManifest,
 		Digest:    digest.FromBytes(exampleSignatureManifest),
 		Size:      int64(len(exampleSignatureManifest))}
+	exampleSignatureManifestDescriptorArtifactspec = artifactspec.Descriptor{
+		MediaType: exampleSignatureManifestDescriptor.MediaType,
+		Digest:    exampleSignatureManifestDescriptor.Digest,
+		Size:      exampleSignatureManifestDescriptor.Size}
 )
 
 func pushBlob(ctx context.Context, mediaType string, blob []byte, target oras.Target) (desc ocispec.Descriptor, err error) {
@@ -123,12 +132,36 @@ func TestMain(m *testing.M) {
 			w.Header().Set("Docker-Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
 			w.Write(exampleSignatureManifest)
-		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)):
-			w.Header().Set("ORAS-Api-Version", "oras/1.0")
+		case strings.Contains(p, "/manifests/latest") && m == "PUT":
+			w.WriteHeader(http.StatusCreated)
+		case strings.Contains(p, "/manifests/latest") && m == "HEAD":
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
-			w.Write(exampleManifest)
+		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)):
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
+			if m == "GET" {
+				w.Write(exampleManifest)
+			}
+		case strings.Contains(p, "/artifacts/referrers"):
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
+			q := r.URL.Query()
+			var referrers []artifactspec.Descriptor
+			if q.Get("digest") == exampleManifestDescriptor.Digest.String() {
+				referrers = []artifactspec.Descriptor{exampleSignatureManifestDescriptorArtifactspec}
+			} else if q.Get("digest") == exampleSignatureManifestDescriptor.Digest.String() {
+				referrers = []artifactspec.Descriptor{}
+			}
+			result := struct {
+				Referrers []artifactspec.Descriptor `json:"referrers"`
+			}{
+				Referrers: referrers,
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				panic(err)
+			}
 		case strings.Contains(p, "/manifests/") && (m == "HEAD" || m == "GET"):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Docker-Content-Digest", string(manifestDesc.Digest))
@@ -322,21 +355,25 @@ func Example_copyArtifactManifestAndReferrersRemoteToLocal() {
 	dst := memory.New()
 	ctx := context.Background()
 
+	// tag exampleManifest as latest in the remote repository
 	exampleTag := "latest"
-	err = src.Tag(ctx, ocispec.Descriptor{
-		MediaType: exampleManifestDescriptor.MediaType,
-		Digest:    exampleManifestDescriptor.Digest,
-		Size:      exampleManifestDescriptor.Size}, exampleTag)
+	err = src.Tag(ctx, exampleManifestDescriptor, exampleTag)
 	if err != nil {
 		panic(err)
 	}
-
-	_, err = oras.ExtendedCopy(ctx, src, exampleTag, dst, exampleTag, oras.DefaultExtendedCopyOptions)
+	// copy this manifest and its referrer(exampleSignatureManifest) using ExtendedCopy
+	copiedDescriptor, err := oras.ExtendedCopy(ctx, src, exampleTag, dst, exampleTag, oras.DefaultExtendedCopyOptions)
 	if err != nil {
 		panic(err)
 	}
-
-	fmt.Println("done")
+	// verify that exampleManifest and its referrer exist in dst
+	fmt.Println(reflect.DeepEqual(copiedDescriptor, exampleManifestDescriptor))
+	manifestExists, _ := dst.Exists(ctx, exampleManifestDescriptor)
+	fmt.Println(manifestExists)
+	referrerExists, _ := dst.Exists(ctx, exampleSignatureManifestDescriptor)
+	fmt.Println(referrerExists)
 	// Output:
-	// done
+	// true
+	// true
+	// true
 }
