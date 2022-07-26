@@ -130,12 +130,16 @@ func (c *Client) SetUserAgent(userAgent string) {
 	c.Header.Set("User-Agent", userAgent)
 }
 
-// Do sends the request to the remote server with resolving authentication
-// attempted.
+// Do sends the request to the remote server, attempting to resolve
+// authentication if 'Authorization' header is not set.
 // On authentication failure due to bad credential,
 // - Do returns error if it fails to fetch token for bearer auth.
 // - Do returns the registry response without error for basic auth.
 func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
+	if auth := originalReq.Header.Get("Authorization"); auth != "" {
+		return c.send(originalReq)
+	}
+
 	ctx := originalReq.Context()
 	req := originalReq.Clone(ctx)
 
