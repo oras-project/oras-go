@@ -601,7 +601,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	// start an upload
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
-	ctx = withScopeHint(ctx, s.repo.Reference, auth.ActionPush)
+	ctx = withScopeHint(ctx, s.repo.Reference, auth.ActionPull, auth.ActionPush)
 	url := buildRepositoryBlobUploadURL(s.repo.PlainHTTP, s.repo.Reference)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
