@@ -20,6 +20,7 @@ import "errors"
 var (
 	ErrMissingName             = errors.New("missing name")
 	ErrDuplicateName           = errors.New("duplicate name")
+	ErrSkipUnnamed             = errors.New("unnamed descriptor skipped")
 	ErrPathTraversalDisallowed = errors.New("path traversal disallowed")
 	ErrOverwriteDisallowed     = errors.New("overwrite disallowed")
 	ErrStoreClosed             = errors.New("store already closed")

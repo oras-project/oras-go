@@ -86,6 +86,11 @@ type Store struct {
 	// When specified, saving files to existing paths will be disabled.
 	// Default value: false.
 	DisableOverwrite bool
+	// IgnoreNoName controls if push operations should ignore descriptors
+	// without a name. When specified, corresponding content will be discarded.
+	// Otherwise, content will be saved to a fallback storage.
+	// Default value: false.
+	IgnoreNoName bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -191,14 +196,18 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 }
 
 // Push pushes the content, matching the expected descriptor.
-// If name is not specified in the descriptor,
-// the content will be pushed to the fallback storage.
+// If name is not specified in the descriptor, the content will be either
+// discarded (Store.IgnoreNoName is true) or pushed to the fallback storage
+// (Store.IgnoreNoName is false).
 func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	if s.isClosedSet() {
 		return ErrStoreClosed
 	}
 
 	if err := s.push(ctx, expected, content); err != nil {
+		if errors.Is(err, ErrSkipUnnamed) {
+			return nil
+		}
 		return err
 	}
 
@@ -206,11 +215,15 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 }
 
 // push pushes the content, matching the expected descriptor.
-// If name is not specified in the descriptor,
-// the content will be pushed to the fallback storage.
+// If name is not specified in the descriptor, the content will be either
+// discarded (Store.IgnoreNoName is true) or pushed to the fallback storage
+// (Store.IgnoreNoName is false).
 func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	name := expected.Annotations[ocispec.AnnotationTitle]
 	if name == "" {
+		if s.IgnoreNoName {
+			return ErrSkipUnnamed
+		}
 		return s.fallbackStorage.Push(ctx, expected, content)
 	}
 

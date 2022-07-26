@@ -1486,6 +1486,61 @@ func TestStore_File_Push_DisableOverwrite(t *testing.T) {
 	}
 }
 
+func TestStore_File_Push_IgnoreNoName(t *testing.T) {
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: "config",
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "manifest.json")
+	if err := ioutil.WriteFile(path, manifestJSON, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	s := New(tempDir)
+	defer s.Close()
+	s.IgnoreNoName = true
+
+	// push an OCI manifest
+	ctx := context.Background()
+	err = s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON))
+	if err != nil {
+		t.Fatal("Store.Push() error = ", err)
+	}
+
+	// verify the manifest is not saved
+	exists, err := s.Exists(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if exists {
+		t.Errorf("Unnamed manifest is saved in file store")
+	}
+	// verify the manifest is not indexed
+	predecessors, err := s.Predecessors(ctx, configDesc)
+	if err != nil {
+		t.Fatal("Store.Predecessors() error = ", err)
+	}
+	if len(predecessors) != 0 {
+		t.Errorf("Unnamed manifest is indexed in file store")
+	}
+}
+
 func TestStore_File_Push_DisallowPathTraversal(t *testing.T) {
 	content := []byte("hello world")
 	name := "../test.txt"
