@@ -654,6 +654,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	q.Set("digest", expected.Digest.String())
 	req.URL.RawQuery = q.Encode()
 
+	// reuse credential from previous POST request
 	if auth := resp.Request.Header.Get("Authorization"); auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
