@@ -598,21 +598,10 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 // - https://docs.docker.com/registry/spec/api/#initiate-blob-upload
 // - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	// if the underlying client is an auth client, the content might be read
-	// more than once for obtaining the auth challenge and the actual request.
-	// To prevent double reading, the auth token used in the first POST request
-	// should be cached for the second PUT request.
-	client := s.repo.client()
-	if c, ok := client.(*auth.Client); ok && c.Cache == nil {
-		snapshot := *c
-		snapshot.Cache = auth.NewCache()
-		client = &snapshot
-	}
-
 	// start an upload
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
-	ctx = withScopeHint(ctx, s.repo.Reference, auth.ActionPull, auth.ActionPush)
+	ctx = withScopeHint(ctx, s.repo.Reference, auth.ActionPush)
 	url := buildRepositoryBlobUploadURL(s.repo.PlainHTTP, s.repo.Reference)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
@@ -621,6 +610,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	reqHostname := req.URL.Hostname()
 	reqPort := req.URL.Port()
 
+	client := s.repo.client()
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -664,6 +654,9 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	q.Set("digest", expected.Digest.String())
 	req.URL.RawQuery = q.Encode()
 
+	if auth := resp.Request.Header.Get("Authorization"); auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
 	resp, err = client.Do(req)
 	if err != nil {
 		return err
