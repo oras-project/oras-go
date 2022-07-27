@@ -86,6 +86,13 @@ type Store struct {
 	// When specified, saving files to existing paths will be disabled.
 	// Default value: false.
 	DisableOverwrite bool
+	// RestoreDuplicates controls if files with same content but different
+	// names are restored after push operations. When a DAG is copied, nodes
+	// with same content will be deduplicated, even if they have different
+	// names. If this is not the desired behavior for file store,
+	// RestoreDuplicates can be specified, which restores missing successor
+	// files after a node is pushed. Default value: false.
+	RestoreDuplicates bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -202,6 +209,12 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 		return err
 	}
 
+	if s.RestoreDuplicates {
+		if err := s.restoreDuplicates(ctx, expected); err != nil {
+			return fmt.Errorf("Failed to restore duplicated file: %w", err)
+		}
+	}
+
 	return s.graph.Index(ctx, s, expected)
 }
 
@@ -239,6 +252,40 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 
 	// update the name status as existed
 	status.exists = true
+	return nil
+}
+
+// restoreDuplicates restores successor files with same content but different names.
+// See Store.RestoreDuplicates for more info.
+func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) error {
+	successors, err := content.Successors(ctx, s, desc)
+	if err != nil {
+		return err
+	}
+	for _, successor := range successors {
+		name := successor.Annotations[ocispec.AnnotationTitle]
+		if name == "" || s.nameExists(name) {
+			continue
+		}
+		if err := func() error {
+			desc := ocispec.Descriptor{
+				MediaType: successor.MediaType,
+				Digest:    successor.Digest,
+				Size:      successor.Size,
+			}
+			rc, err := s.Fetch(ctx, desc)
+			if err != nil {
+				return fmt.Errorf("%q: %s: %w", name, desc.MediaType, err)
+			}
+			defer rc.Close()
+			if err := s.push(ctx, successor, rc); err != nil {
+				return fmt.Errorf("%q: %s: %w", name, desc.MediaType, err)
+			}
+			return nil
+		}(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
