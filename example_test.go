@@ -24,7 +24,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -127,7 +126,6 @@ func TestMain(m *testing.M) {
 		case strings.Contains(p, "/blobs/uploads/"+exampleUploadUUid) && m == "GET":
 			w.WriteHeader(http.StatusCreated)
 		case strings.Contains(p, "/manifests/"+string(exampleSignatureManifestDescriptor.Digest)):
-			w.Header().Set("ORAS-Api-Version", "oras/1.0")
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
@@ -344,7 +342,10 @@ func Example_copyArtifactManifestRemoteToLocal() {
 	// true
 }
 
-func Example_copyArtifactManifestAndReferrersRemoteToLocal() {
+// Example_extendedCopyArtifactManifestRemoteToLocal gives an example of
+// copying an artifact manifest, its predecessors and successors from a remote
+// repository to local.
+func Example_extendedCopyArtifactManifestRemoteToLocal() {
 	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
 	if err != nil {
 		panic(err)
@@ -352,25 +353,15 @@ func Example_copyArtifactManifestAndReferrersRemoteToLocal() {
 	dst := memory.New()
 	ctx := context.Background()
 
-	// tag exampleManifest as latest in the remote repository
-	exampleTag := "latest"
-	err = src.Tag(ctx, exampleManifestDescriptor, exampleTag)
-	if err != nil {
-		panic(err)
-	}
-	// copy this manifest and its referrer(exampleSignatureManifest) using ExtendedCopy
-	copiedDescriptor, err := oras.ExtendedCopy(ctx, src, exampleTag, dst, exampleTag, oras.DefaultExtendedCopyOptions)
+	tagName := "latest"
+	// ExtendedCopy will copy all reachable nodes from src (i.e. its
+	// predecessors and successors).
+	desc, err := oras.ExtendedCopy(ctx, src, tagName, dst, tagName, oras.DefaultExtendedCopyOptions)
 	if err != nil {
 		panic(err)
 	}
 	// verify that exampleManifest and its referrer exist in dst
-	fmt.Println(reflect.DeepEqual(copiedDescriptor, exampleManifestDescriptor))
-	manifestExists, _ := dst.Exists(ctx, exampleManifestDescriptor)
-	fmt.Println(manifestExists)
-	referrerExists, _ := dst.Exists(ctx, exampleSignatureManifestDescriptor)
-	fmt.Println(referrerExists)
+	fmt.Println(desc.Digest)
 	// Output:
-	// true
-	// true
-	// true
+	// sha256:1f3e679d4fc05dca20a699ae5af5fb2b7d481d5694aff929165d1c8b0f4c8598
 }
