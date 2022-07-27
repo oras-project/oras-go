@@ -196,9 +196,9 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 }
 
 // Push pushes the content, matching the expected descriptor.
-// If name is not specified in the descriptor, the content will be either
-// discarded (Store.IgnoreNoName is true) or pushed to the fallback storage
-// (Store.IgnoreNoName is false).
+// If name is not specified in the descriptor, the content will be pushed to
+// the fallback storage by default, or will be discarded when
+// Store.IgnoreNoName is true.
 func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	if s.isClosedSet() {
 		return ErrStoreClosed
@@ -215,9 +215,9 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 }
 
 // push pushes the content, matching the expected descriptor.
-// If name is not specified in the descriptor, the content will be either
-// discarded (Store.IgnoreNoName is true) or pushed to the fallback storage
-// (Store.IgnoreNoName is false).
+// If name is not specified in the descriptor, the content will be pushed to
+// the fallback storage by default, or will be discarded when
+// Store.IgnoreNoName is true.
 func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	name := expected.Annotations[ocispec.AnnotationTitle]
 	if name == "" {

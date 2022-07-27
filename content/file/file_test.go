@@ -1508,10 +1508,6 @@ func TestStore_File_Push_IgnoreNoName(t *testing.T) {
 		Size:      int64(len(manifestJSON)),
 	}
 	tempDir := t.TempDir()
-	path := filepath.Join(tempDir, "manifest.json")
-	if err := ioutil.WriteFile(path, manifestJSON, 0444); err != nil {
-		t.Fatal("error calling WriteFile(), error =", err)
-	}
 	s := New(tempDir)
 	defer s.Close()
 	s.IgnoreNoName = true
