@@ -23,9 +23,5 @@ jobs:
           check-latest: true
       - name: Run unit tests
         run: make test
-      - name: Upload coverage report
-        uses: actions/upload-artifact@master
-        with:
-          name: oras-coverage-report-${{ github.sha }}
-          path: .cover/
-        if: always()
+      - name: Upload coverage to codecov.io
+        uses: codecov/codecov-action@v3

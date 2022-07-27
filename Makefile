@@ -1,6 +1,6 @@
 .PHONY: test
 test: vendor check-encoding
-	./scripts/test.sh
+	go test -race -v -coverprofile=coverage.txt -covermode=atomic ./...
 
 .PHONY: covhtml
 covhtml:

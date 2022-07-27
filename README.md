@@ -24,6 +24,7 @@ to use releases with major version `1`.
 ### v2: experimental
 
 [![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=main)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Amain)
+[![codecov](https://codecov.io/gh/oras-project/oras-go/branch/main/graph/badge.svg)](https://codecov.io/gh/oras-project/oras-go)
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go/v2)](https://goreportcard.com/report/oras.land/oras-go/v2)
 [![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://pkg.go.dev/oras.land/oras-go/v2@main)
 
