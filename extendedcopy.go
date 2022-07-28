@@ -18,6 +18,7 @@ package oras
 import (
 	"context"
 	"errors"
+	"regexp"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
@@ -102,6 +103,26 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 	}
 
 	return nil
+}
+
+func (opts *ExtendedCopyGraphOptions) FilterOnAnnotation(key string, regex string) {
+	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		predecessors, err := src.Predecessors(ctx, desc)
+		if err != nil {
+			return nil, err
+		}
+		var filtered []ocispec.Descriptor
+		for _, p := range predecessors {
+			matched, err := regexp.MatchString(regex, p.Annotations[key])
+			if err != nil {
+				return nil, err
+			}
+			if matched {
+				filtered = append(filtered, p)
+			}
+		}
+		return filtered, nil
+	}
 }
 
 // findRoots finds the root nodes reachable from the given node through a
