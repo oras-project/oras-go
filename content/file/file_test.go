@@ -1321,6 +1321,49 @@ func TestStore_File_Push_RestoreDuplicates(t *testing.T) {
 	}
 }
 
+func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob1",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{desc},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	s := New(tempDir)
+	defer s.Close()
+	s.RestoreDuplicates = true
+	ctx := context.Background()
+
+	// push manifest before blob
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err == nil {
+		t.Error("Store.Push(): error wanted")
+	}
+}
+
 func TestStore_File_Fetch_SameDigest_NoName(t *testing.T) {
 	mediaType := "test"
 	content := []byte("hello world")
