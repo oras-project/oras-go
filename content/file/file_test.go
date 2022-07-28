@@ -1263,7 +1263,7 @@ func TestStore_File_Push_RestoreDuplicates(t *testing.T) {
 	}
 	config := []byte("{}")
 	configDesc := ocispec.Descriptor{
-		MediaType: "config",
+		MediaType: ocispec.MediaTypeImageConfig,
 		Digest:    digest.FromBytes(config),
 		Size:      int64(len(config)),
 	}

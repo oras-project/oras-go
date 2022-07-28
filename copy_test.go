@@ -664,6 +664,7 @@ func TestCopy_RestoreDuplicates(t *testing.T) {
 	temp := t.TempDir()
 	dst := file.New(temp)
 	dst.RestoreDuplicates = true
+	defer dst.Close()
 
 	// generate test content
 	var blobs [][]byte
