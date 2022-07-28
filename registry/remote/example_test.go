@@ -589,11 +589,6 @@ func ExampleRepository_Fetch_layer() {
 	}
 	fmt.Println(string(pulledBlob))
 
-	// verify the fetched content
-	if descriptor.Size != int64(len(pulledBlob)) || descriptor.Digest != digest.FromBytes(pulledBlob) {
-		panic("wrong content")
-	}
-
 	// option 2: random access, if the remote registry supports
 	if seeker, ok := rc.(io.ReadSeeker); ok {
 		offset := int64(8)
