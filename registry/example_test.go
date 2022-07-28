@@ -30,8 +30,6 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 )
 
-var host string
-
 func TestMain(m *testing.M) {
 	// Setup a local HTTPS registry
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -28,27 +28,6 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
-const (
-	username     = "test_user"
-	password     = "test_password"
-	accessToken  = "test/access/token"
-	refreshToken = "test/refresh/token"
-)
-
-var (
-	host                  string
-	expectedHostAddress   string
-	targetURL             string
-	clientConfigTargetURL string
-	basicAuthTargetURL    string
-	accessTokenTargetURL  string
-	refreshTokenTargetURL string
-	tokenScopes           = []string{
-		"repository:dst:pull,push",
-		"repository:src:pull",
-	}
-)
-
 func TestMain(m *testing.M) {
 	// create an authorization server
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
