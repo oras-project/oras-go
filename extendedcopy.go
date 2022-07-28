@@ -17,10 +17,12 @@ package oras
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
@@ -195,4 +197,46 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 		}
 	}
 	return roots, nil
+}
+
+func (opts *ExtendedCopyGraphOptions) IncludeArtifactType(exp string) {
+	opts.FindPredecessors = matchRegexArtifactType(true, exp)
+}
+
+func (opts *ExtendedCopyGraphOptions) ExcludeArtifactType(exp string) {
+	opts.FindPredecessors = matchRegexArtifactType(false, exp)
+}
+
+func matchRegexArtifactType(include bool, exp string) func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		predecessors, err := src.Predecessors(ctx, desc)
+		if err != nil {
+			return nil, err
+		}
+		var filtered []ocispec.Descriptor
+		for _, p := range predecessors {
+			if p.MediaType == artifactspec.MediaTypeArtifactManifest {
+				rc, err := src.Fetch(ctx, p)
+				if err != nil {
+					return nil, err
+				}
+				pulledContent, err := content.ReadAll(rc, p)
+				if err != nil {
+					return nil, err
+				}
+				var manifest artifactspec.Manifest
+				if err := json.Unmarshal(pulledContent, &manifest); err != nil {
+					return nil, err
+				}
+				matched, err := regexp.MatchString(exp, manifest.ArtifactType)
+				if err != nil {
+					return nil, err
+				}
+				if matched == include {
+					filtered = append(filtered, p)
+				}
+			}
+		}
+		return filtered, nil
+	}
 }
