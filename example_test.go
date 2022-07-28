@@ -360,7 +360,7 @@ func Example_extendedCopyArtifactManifestRemoteToLocal() {
 	if err != nil {
 		panic(err)
 	}
-	// verify that exampleManifest and its referrer exist in dst
+
 	fmt.Println(desc.Digest)
 	// Output:
 	// sha256:1f3e679d4fc05dca20a699ae5af5fb2b7d481d5694aff929165d1c8b0f4c8598
