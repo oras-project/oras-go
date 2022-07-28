@@ -611,7 +611,6 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 		}
 		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON, key, value)
 	}
-
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"), "bar", "blackpink") // descs[0]
 	generateArtifactManifest(descs[0], "bar", "bluebrown")                     // descs[1]
 	generateArtifactManifest(descs[0], "bar", "blackred")                      // descs[2]
@@ -636,7 +635,6 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 			}
 		}
 	}
-
 	src := memory.New()
 	for i := range blobs {
 		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
@@ -644,7 +642,6 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 			t.Fatalf("failed to push test content to src: %d: %v", i, err)
 		}
 	}
-
 	// test extended copy by descs[0] with annotation filter
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{}
@@ -652,7 +649,6 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
 		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
-	// graph rooted by descs[5] and decs[7] should be copied
 	copiedIndice := []int{0, 2, 3}
 	uncopiedIndice := []int{1, 4, 5}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
