@@ -1362,6 +1362,14 @@ func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
 	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err == nil {
 		t.Error("Store.Push(): error wanted")
 	}
+	// verify the manifest is not indexed
+	predecessors, err := s.Predecessors(ctx, configDesc)
+	if err != nil {
+		t.Fatal("Store.Predecessors() error = ", err)
+	}
+	if len(predecessors) != 0 {
+		t.Errorf("File should not be indexed after restore failure")
+	}
 }
 
 func TestStore_File_Fetch_SameDigest_NoName(t *testing.T) {
