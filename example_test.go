@@ -342,10 +342,9 @@ func Example_copyArtifactManifestRemoteToLocal() {
 	// true
 }
 
-// Example_extendedCopyArtifactManifestRemoteToLocal gives an example of
-// copying an artifact manifest, its predecessors and successors from a remote
-// repository to local.
-func Example_extendedCopyArtifactManifestRemoteToLocal() {
+// Example_extendedCopyArtifactAndReferrersRemoteToLocal gives an example of
+// copying an artifact along with its referrers from a remote repository to local.
+func Example_Example_extendedCopyArtifactAndReferrersRemoteToLocal() {
 	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
 	if err != nil {
 		panic(err)
@@ -354,8 +353,8 @@ func Example_extendedCopyArtifactManifestRemoteToLocal() {
 	ctx := context.Background()
 
 	tagName := "latest"
-	// ExtendedCopy will copy all reachable nodes from src (i.e. its
-	// predecessors and successors).
+	// ExtendedCopy will copy the artifact tagged by "latest" along with all of its
+	// referrers from src to dst.
 	desc, err := oras.ExtendedCopy(ctx, src, tagName, dst, tagName, oras.DefaultExtendedCopyOptions)
 	if err != nil {
 		panic(err)
