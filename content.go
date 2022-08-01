@@ -44,22 +44,29 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 	return target.Tag(ctx, desc, dst)
 }
 
+var (
+	// DefaultResolveOptions provides the default ResolveOptions.
+	DefaultResolveOptions = ResolveOptions{
+		TargetPlatform: nil,
+	}
+)
+
 // ResolveOptions contains parameters for oras.Resolve.
 type ResolveOptions struct {
-	// MatchPlaform is the target platform.
+	// TargetPlatform is the target platform.
 	// Will do the platform selection if specified.
-	MatchPlatform *ocispec.Platform
+	TargetPlatform *ocispec.Platform
 }
 
-// Resolve returns the resolved descriptor.
+// Resolve resolves a descriptor with provided reference from the target.
 func Resolve(ctx context.Context, target Target, ref string, opts ResolveOptions) (ocispec.Descriptor, error) {
 	desc, err := target.Resolve(ctx, ref)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
-	if opts.MatchPlatform != nil {
-		desc, err = selectPlatform(ctx, target, desc, opts.MatchPlatform)
+	if opts.TargetPlatform != nil {
+		desc, err = selectPlatform(ctx, target, desc, opts.TargetPlatform)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}

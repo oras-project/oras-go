@@ -88,12 +88,11 @@ func selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descr
 				if err != nil {
 					return ocispec.Descriptor{}, err
 				}
+				defer rc.Close()
 				var currPlatform ocispec.Platform
-				err = json.NewDecoder(rc).Decode(&currPlatform)
-				if err != nil {
+				if err = json.NewDecoder(rc).Decode(&currPlatform); err != nil {
 					return ocispec.Descriptor{}, err
 				}
-				defer rc.Close()
 
 				if platform.Match(&currPlatform, p) {
 					return root, nil

@@ -661,6 +661,12 @@ func TestCopy_WithOptions(t *testing.T) {
 
 func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 	src := memory.New()
+	arc_1 := "test-arc-1"
+	os_1 := "test-os-1"
+	variant_1 := "v1"
+	arc_2 := "test-arc-2"
+	os_2 := "test-os-2"
+	variant_2 := "v2"
 
 	// generate test content
 	var blobs [][]byte
@@ -714,14 +720,14 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 "architecture":"test-arc-1",
 "os":"test-os-1",
 "variant":"test-variant"}`)) // Blob 0
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                     // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))                     // Blob 2
-	generateManifest("test-arc-1", "test-os-1", "v1", descs[0], descs[1:3]...) // Blob 3
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello1"))                  // Blob 4
-	generateManifest("test-arc-2", "test-os-2", "v1", descs[0], descs[4])      // Blob 5
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello2"))                  // Blob 6
-	generateManifest("test-arc-1", "test-os-1", "v2", descs[0], descs[6])      // Blob 7
-	generateIndex(descs[3], descs[5], descs[7])                                // Blob 8
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))            // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))            // Blob 2
+	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1:3]...) // Blob 3
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello1"))         // Blob 4
+	generateManifest(arc_2, os_2, variant_1, descs[0], descs[4])      // Blob 5
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello2"))         // Blob 6
+	generateManifest(arc_1, os_1, variant_2, descs[0], descs[6])      // Blob 7
+	generateIndex(descs[3], descs[5], descs[7])                       // Blob 8
 
 	ctx := context.Background()
 	for i := range blobs {
@@ -742,8 +748,8 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 	dst := memory.New()
 	opts := oras.CopyOptions{}
 	targetPlatform := ocispec.Platform{
-		Architecture: "test-arc-2",
-		OS:           "test-os-2",
+		Architecture: arc_2,
+		OS:           os_2,
 	}
 	opts.WithPlatformFilter(&targetPlatform)
 	wantDesc := descs[5]
@@ -780,8 +786,8 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 	// matching entry.
 	dst = memory.New()
 	targetPlatform = ocispec.Platform{
-		Architecture: "test-arc-1",
-		OS:           "test-os-1",
+		Architecture: arc_1,
+		OS:           os_1,
 	}
 	opts = oras.CopyOptions{}
 	opts.WithPlatformFilter(&targetPlatform)
@@ -828,8 +834,8 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		},
 	}
 	targetPlatform = ocispec.Platform{
-		Architecture: "test-arc-1",
-		OS:           "test-os-3",
+		Architecture: arc_1,
+		OS:           os_2,
 	}
 	opts.WithPlatformFilter(&targetPlatform)
 
@@ -842,8 +848,8 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 	dst = memory.New()
 	opts = oras.CopyOptions{}
 	targetPlatform = ocispec.Platform{
-		Architecture: "test-arc-1",
-		OS:           "test-os-1",
+		Architecture: arc_1,
+		OS:           os_1,
 	}
 	opts.WithPlatformFilter(&targetPlatform)
 
@@ -887,9 +893,9 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 	dst = memory.New()
 	opts = oras.CopyOptions{}
 	targetPlatform = ocispec.Platform{
-		Architecture: "test-arc-1",
-		OS:           "test-os-1",
-		Variant:      "wrong-variant",
+		Architecture: arc_1,
+		OS:           os_1,
+		Variant:      variant_2,
 	}
 	opts.WithPlatformFilter(&targetPlatform)
 
@@ -903,8 +909,8 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 	dst = memory.New()
 	opts = oras.CopyOptions{}
 	targetPlatform = ocispec.Platform{
-		Architecture: "test-arc-1",
-		OS:           "test-os-1",
+		Architecture: arc_1,
+		OS:           os_1,
 	}
 	opts.WithPlatformFilter(&targetPlatform)
 

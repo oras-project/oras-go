@@ -24,9 +24,9 @@ import (
 
 func TestMatch(t *testing.T) {
 	tests := []struct {
-		curr   ocispec.Platform
-		target ocispec.Platform
-		want   bool
+		got       ocispec.Platform
+		want      ocispec.Platform
+		isMatched bool
 	}{{
 		ocispec.Platform{Architecture: "amd64", OS: "linux"},
 		ocispec.Platform{Architecture: "amd64", OS: "linux"},
@@ -90,12 +90,12 @@ func TestMatch(t *testing.T) {
 	}}
 
 	for _, tt := range tests {
-		currPlatforJSON, _ := json.Marshal(tt.curr)
-		targetPlatforJSON, _ := json.Marshal(tt.target)
-		name := string(currPlatforJSON) + string(targetPlatforJSON)
+		gotPlatformJSON, _ := json.Marshal(tt.got)
+		wantPlatformJSON, _ := json.Marshal(tt.want)
+		name := string(gotPlatformJSON) + string(wantPlatformJSON)
 		t.Run(name, func(t *testing.T) {
-			if got := Match(&tt.curr, &tt.target); got != tt.want {
-				t.Errorf("MatchPlatform() = %v, want %v", got, tt.want)
+			if actual := Match(&tt.got, &tt.want); actual != tt.isMatched {
+				t.Errorf("Match() = %v, want %v", actual, tt.isMatched)
 			}
 		})
 	}

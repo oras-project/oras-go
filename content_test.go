@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -30,6 +31,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/memory"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -184,5 +186,162 @@ func TestTag_Repository(t *testing.T) {
 	}
 	if !bytes.Equal(gotIndex, index) {
 		t.Errorf("Repository.TagReference() = %v, want %v", gotIndex, index)
+	}
+}
+
+func TestResolve_WithOptions(t *testing.T) {
+	target := memory.New()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
+	generateManifest(descs[0], descs[1:3]...)                  // Blob 3
+
+	ctx := context.Background()
+	for i := range blobs {
+		err := target.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	manifestDesc := descs[3]
+	ref := "foobar"
+	err := target.Tag(ctx, manifestDesc, ref)
+	if err != nil {
+		t.Fatal("fail to tag manifestDesc node", err)
+	}
+
+	// test Resolve with TargetPlatform
+	resolveOptions := oras.DefaultResolveOptions
+	gotDesc, err := oras.Resolve(ctx, target, ref, resolveOptions)
+
+	if err != nil {
+		t.Fatal("oras.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+}
+
+func TestResolve_WithTargetPlatformOptions(t *testing.T) {
+	target := memory.New()
+	arc_1 := "test-arc-1"
+	os_1 := "test-os-1"
+	variant_1 := "v1"
+	variant_2 := "v2"
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	appendManifest := func(arc, os, variant string, mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+			Platform: &ocispec.Platform{
+				Architecture: arc,
+				OS:           os,
+				Variant:      variant,
+			},
+		})
+	}
+	generateManifest := func(arc, os, variant string, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendManifest(arc, os, variant, ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte(`{"mediaType":"application/vnd.oci.image.config.v1+json",
+"created":"2022-07-29T08:13:55Z",
+"author":"test author",
+"architecture":"test-arc-1",
+"os":"test-os-1",
+"variant":"test-variant"}`)) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))            // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))            // Blob 2
+	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1:3]...) // Blob 3
+
+	ctx := context.Background()
+	for i := range blobs {
+		err := target.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	manifestDesc := descs[3]
+	ref := "foobar"
+	err := target.Tag(ctx, manifestDesc, ref)
+	if err != nil {
+		t.Fatal("fail to tag manifestDesc node", err)
+	}
+
+	// test Resolve with TargetPlatform
+	resolveOptions := oras.ResolveOptions{
+		TargetPlatform: &ocispec.Platform{
+			Architecture: arc_1,
+			OS:           os_1,
+		},
+	}
+	gotDesc, err := oras.Resolve(ctx, target, ref, resolveOptions)
+
+	if err != nil {
+		t.Fatal("oras.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test Resolve with TargetPlatform but there is no matching node
+	// Should return not found error
+	resolveOptions = oras.ResolveOptions{
+		TargetPlatform: &ocispec.Platform{
+			Architecture: arc_1,
+			OS:           os_1,
+			Variant:      variant_2,
+		},
+	}
+	_, err = oras.Resolve(ctx, target, ref, resolveOptions)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
