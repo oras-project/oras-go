@@ -199,17 +199,30 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 	return roots, nil
 }
 
-func (opts *ExtendedCopyGraphOptions) IncludeArtifactType(exp string) {
-	opts.FindPredecessors = matchRegexArtifactType(true, exp)
+// FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
+// whose artifact type matches a given regex pattern. The regex syntax supported
+// is RE2. Reference: https://github.com/google/re2/wiki/Syntax.
+func (opts *ExtendedCopyGraphOptions) FilterArtifactType(exp string) {
+	opts.FindPredecessors = matchRegexArtifactType(exp, opts.FindPredecessors)
 }
 
-func (opts *ExtendedCopyGraphOptions) ExcludeArtifactType(exp string) {
-	opts.FindPredecessors = matchRegexArtifactType(false, exp)
-}
-
-func matchRegexArtifactType(include bool, exp string) func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	return func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-		predecessors, err := src.Predecessors(ctx, desc)
+// matchRegexArtifactType takes an old opts.FindPredecessors function and return
+// a new one with regex filter applied.
+func matchRegexArtifactType(exp string,
+	fp func(ctx context.Context,
+		src content.GraphStorage,
+		desc ocispec.Descriptor) ([]ocispec.Descriptor, error)) func(ctx context.Context,
+	src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return func(ctx context.Context,
+		src content.GraphStorage,
+		desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		var predecessors []ocispec.Descriptor
+		var err error
+		if fp == nil {
+			predecessors, err = src.Predecessors(ctx, desc)
+		} else {
+			predecessors, err = fp(ctx, src, desc)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -232,7 +245,7 @@ func matchRegexArtifactType(include bool, exp string) func(ctx context.Context, 
 				if err != nil {
 					return nil, err
 				}
-				if matched == include {
+				if matched {
 					filtered = append(filtered, p)
 				}
 			}
