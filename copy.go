@@ -17,6 +17,7 @@ package oras
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -57,24 +58,52 @@ type CopyOptions struct {
 }
 
 // selectPlatform implements platform filter and returns the descriptor of
-// the first matched manifest from the manifest list / image index.
+// the first matched manifest if the root is a manifest list / image index.
+// If the root is a manifest, then return the root descriptor if platform
+// matches.
 func selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
-	if root.MediaType != docker.MediaTypeManifestList && root.MediaType != ocispec.MediaTypeImageIndex {
+	switch root.MediaType {
+	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
+		manifests, err := content.Successors(ctx, src, root)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+
+		// platform filter
+		for _, m := range manifests {
+			if platform.Match(m.Platform, p) {
+				return m, nil
+			}
+		}
+		return ocispec.Descriptor{}, errdef.ErrNotFound
+	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
+		descs, err := content.Successors(ctx, src, root)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+
+		for _, desc := range descs {
+			if desc.MediaType == docker.MediaTypeImage || desc.MediaType == ocispec.MediaTypeImageConfig {
+				rc, err := src.Fetch(ctx, desc)
+				if err != nil {
+					return ocispec.Descriptor{}, err
+				}
+				var currPlatform ocispec.Platform
+				err = json.NewDecoder(rc).Decode(&currPlatform)
+				if err != nil {
+					return ocispec.Descriptor{}, err
+				}
+				defer rc.Close()
+
+				if platform.Match(&currPlatform, p) {
+					return root, nil
+				}
+			}
+		}
+		return ocispec.Descriptor{}, errdef.ErrNotFound
+	default:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %s: %w", root.Digest, root.MediaType, errdef.ErrUnsupported)
 	}
-
-	manifests, err := content.Successors(ctx, src, root)
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-
-	// platform filter
-	for _, m := range manifests {
-		if platform.MatchPlatform(m.Platform, p) {
-			return m, nil
-		}
-	}
-	return ocispec.Descriptor{}, errdef.ErrNotFound
 }
 
 // WithPlatformFilter adds the check on the platform attributes.

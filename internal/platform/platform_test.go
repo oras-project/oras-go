@@ -22,7 +22,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func TestMatchPlatform(t *testing.T) {
+func TestMatch(t *testing.T) {
 	tests := []struct {
 		curr   ocispec.Platform
 		target ocispec.Platform
@@ -94,7 +94,7 @@ func TestMatchPlatform(t *testing.T) {
 		targetPlatforJSON, _ := json.Marshal(tt.target)
 		name := string(currPlatforJSON) + string(targetPlatforJSON)
 		t.Run(name, func(t *testing.T) {
-			if got := MatchPlatform(&tt.curr, &tt.target); got != tt.want {
+			if got := Match(&tt.curr, &tt.target); got != tt.want {
 				t.Errorf("MatchPlatform() = %v, want %v", got, tt.want)
 			}
 		})

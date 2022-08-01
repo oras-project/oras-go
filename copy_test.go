@@ -708,7 +708,12 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 
-	appendBlob(ocispec.MediaTypeImageConfig, []byte("config"))                 // Blob 0
+	appendBlob(ocispec.MediaTypeImageConfig, []byte(`{"mediaType":"application/vnd.oci.image.config.v1+json",
+"created":"2022-07-29T08:13:55Z",
+"author":"test author",
+"architecture":"test-arc-1",
+"os":"test-os-1",
+"variant":"test-variant"}`)) // Blob 0
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                     // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))                     // Blob 2
 	generateManifest("test-arc-1", "test-os-1", "v1", descs[0], descs[1:3]...) // Blob 3
@@ -733,7 +738,7 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		t.Fatal("fail to tag root node", err)
 	}
 
-	// test copy with platform filter
+	// test copy with platform filter for the image index
 	dst := memory.New()
 	opts := oras.CopyOptions{}
 	targetPlatform := ocispec.Platform{
@@ -770,8 +775,9 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, wantDesc)
 	}
 
-	// test copy with platform filter, if the multiple manifests match the required platform,
-	// return the first matching entry
+	// test copy with platform filter for the image index, and multiple
+	// manifests match the required platform. Should return the first
+	// matching entry.
 	dst = memory.New()
 	targetPlatform = ocispec.Platform{
 		Architecture: "test-arc-1",
@@ -808,8 +814,9 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, wantDesc)
 	}
 
-	// test copy with platform filter and existing MapRoot func, but no matching node can be found
-	// should return not found error
+	// test copy with platform filter and existing MapRoot func for the
+	// image index, but there is no matching node. Should return not found
+	// error.
 	dst = memory.New()
 	opts = oras.CopyOptions{
 		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
@@ -831,8 +838,7 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 
-	// test copy with platform filter, but the node's media type is not supported
-	// should return unsupported error
+	// test copy with platform filter for the manifest
 	dst = memory.New()
 	opts = oras.CopyOptions{}
 	targetPlatform = ocispec.Platform{
@@ -842,6 +848,67 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 	opts.WithPlatformFilter(&targetPlatform)
 
 	root = descs[7]
+	err = src.Tag(ctx, root, ref)
+	if err != nil {
+		t.Fatal("fail to tag root node", err)
+	}
+
+	wantDesc = descs[7]
+	gotDesc, err = oras.Copy(ctx, src, ref, dst, "", opts)
+	if err != nil {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
+	}
+	if !reflect.DeepEqual(gotDesc, wantDesc) {
+		t.Errorf("Copy() = %v, want %v", gotDesc, wantDesc)
+	}
+
+	// verify contents
+	for i, desc := range append([]ocispec.Descriptor{descs[0]}, descs[6]) {
+		exists, err := dst.Exists(ctx, desc)
+		if err != nil {
+			t.Fatalf("dst.Exists(%d) error = %v", i, err)
+		}
+		if !exists {
+			t.Errorf("dst.Exists(%d) = %v, want %v", i, exists, true)
+		}
+	}
+
+	// verify tag
+	gotDesc, err = dst.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("dst.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, wantDesc) {
+		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, wantDesc)
+	}
+
+	// test copy with platform filter for the manifest, but there is no
+	// matching node. Should return not found error.
+	dst = memory.New()
+	opts = oras.CopyOptions{}
+	targetPlatform = ocispec.Platform{
+		Architecture: "test-arc-1",
+		OS:           "test-os-1",
+		Variant:      "wrong-variant",
+	}
+	opts.WithPlatformFilter(&targetPlatform)
+
+	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	// test copy with platform filter, but the node's media type is not
+	// supported. Should return unsupported error
+	dst = memory.New()
+	opts = oras.CopyOptions{}
+	targetPlatform = ocispec.Platform{
+		Architecture: "test-arc-1",
+		OS:           "test-os-1",
+	}
+	opts.WithPlatformFilter(&targetPlatform)
+
+	root = descs[1]
 	err = src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)

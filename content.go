@@ -18,6 +18,7 @@ package oras
 import (
 	"context"
 
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -41,4 +42,28 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 		return err
 	}
 	return target.Tag(ctx, desc, dst)
+}
+
+// ResolveOptions contains parameters for oras.Resolve.
+type ResolveOptions struct {
+	// MatchPlaform is the target platform.
+	// Will do the platform selection if specified.
+	MatchPlatform *ocispec.Platform
+}
+
+// Resolve returns the resolved descriptor.
+func Resolve(ctx context.Context, target Target, ref string, opts ResolveOptions) (ocispec.Descriptor, error) {
+	desc, err := target.Resolve(ctx, ref)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	if opts.MatchPlatform != nil {
+		desc, err = selectPlatform(ctx, target, desc, opts.MatchPlatform)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+	}
+
+	return desc, nil
 }
