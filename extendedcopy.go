@@ -105,9 +105,25 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 	return nil
 }
 
-func (opts *ExtendedCopyGraphOptions) FilterOnAnnotation(key string, regex string) {
-	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-		predecessors, err := src.Predecessors(ctx, desc)
+func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex string) {
+	opts.FindPredecessors = matchRegexAnnotation(key, regex, opts.FindPredecessors)
+}
+
+func matchRegexAnnotation(key string, regex string,
+	fp func(ctx context.Context,
+		src content.GraphStorage,
+		desc ocispec.Descriptor) ([]ocispec.Descriptor, error)) func(ctx context.Context,
+	src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return func(ctx context.Context,
+		src content.GraphStorage,
+		desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		var predecessors []ocispec.Descriptor
+		var err error
+		if fp == nil {
+			predecessors, err = src.Predecessors(ctx, desc)
+		} else {
+			predecessors, err = fp(ctx, src, desc)
+		}
 		if err != nil {
 			return nil, err
 		}

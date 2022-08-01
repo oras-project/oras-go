@@ -645,7 +645,7 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 	// test extended copy by descs[0] with annotation filter
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{}
-	opts.FilterOnAnnotation("bar", "black.")
+	opts.FilterAnnotation("bar", "black.")
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
 		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
