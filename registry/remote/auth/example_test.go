@@ -25,7 +25,30 @@ import (
 	"strings"
 	"testing"
 
+	. "oras.land/oras-go/v2/internal/playable"
 	"oras.land/oras-go/v2/registry/remote/auth"
+)
+
+const (
+	username     = "test_user"
+	password     = "test_password"
+	accessToken  = "test/access/token"
+	refreshToken = "test/refresh/token"
+	_            = ExampleUnplayable
+)
+
+var (
+	host                  string
+	expectedHostAddress   string
+	targetURL             string
+	clientConfigTargetURL string
+	basicAuthTargetURL    string
+	accessTokenTargetURL  string
+	refreshTokenTargetURL string
+	tokenScopes           = []string{
+		"repository:dst:pull,push",
+		"repository:src:pull",
+	}
 )
 
 func TestMain(m *testing.M) {

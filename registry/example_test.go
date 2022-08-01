@@ -26,9 +26,14 @@ import (
 	"os"
 	"testing"
 
+	. "oras.land/oras-go/v2/internal/playable"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 )
+
+var host string
+
+const _ = ExampleUnplayable
 
 func TestMain(m *testing.M) {
 	// Setup a local HTTPS registry
