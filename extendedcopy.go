@@ -202,13 +202,13 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 // FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
 // whose artifact type matches a given regex pattern. The regex syntax supported
 // is RE2. Reference: https://github.com/google/re2/wiki/Syntax.
-func (opts *ExtendedCopyGraphOptions) FilterArtifactType(exp string) {
-	opts.FindPredecessors = matchRegexArtifactType(exp, opts.FindPredecessors)
+func (opts *ExtendedCopyGraphOptions) FilterArtifactType(pattern string) {
+	opts.FindPredecessors = matchRegexArtifactType(pattern, opts.FindPredecessors)
 }
 
 // matchRegexArtifactType takes an old opts.FindPredecessors function and return
 // a new one with regex filter applied.
-func matchRegexArtifactType(exp string,
+func matchRegexArtifactType(pattern string,
 	fp func(ctx context.Context,
 		src content.GraphStorage,
 		desc ocispec.Descriptor) ([]ocispec.Descriptor, error)) func(ctx context.Context,
@@ -216,8 +216,11 @@ func matchRegexArtifactType(exp string,
 	return func(ctx context.Context,
 		src content.GraphStorage,
 		desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		regex, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, err
+		}
 		var predecessors []ocispec.Descriptor
-		var err error
 		if fp == nil {
 			predecessors, err = src.Predecessors(ctx, desc)
 		} else {
@@ -233,6 +236,7 @@ func matchRegexArtifactType(exp string,
 				if err != nil {
 					return nil, err
 				}
+				defer rc.Close()
 				pulledContent, err := content.ReadAll(rc, p)
 				if err != nil {
 					return nil, err
@@ -241,11 +245,7 @@ func matchRegexArtifactType(exp string,
 				if err := json.Unmarshal(pulledContent, &manifest); err != nil {
 					return nil, err
 				}
-				matched, err := regexp.MatchString(exp, manifest.ArtifactType)
-				if err != nil {
-					return nil, err
-				}
-				if matched {
+				if regex.MatchString(manifest.ArtifactType) {
 					filtered = append(filtered, p)
 				}
 			}
