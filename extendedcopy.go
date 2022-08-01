@@ -105,11 +105,16 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 	return nil
 }
 
-func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex string) {
-	opts.FindPredecessors = matchRegexAnnotation(key, regex, opts.FindPredecessors)
+// FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
+// whose annotation matches a given regex pattern. The regex syntax supported
+// is RE2. Reference: https://github.com/google/re2/wiki/Syntax.
+func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, pattern string) {
+	opts.FindPredecessors = matchRegexAnnotation(key, pattern, opts.FindPredecessors)
 }
 
-func matchRegexAnnotation(key string, regex string,
+// matchRegexAnnotation takes an old opts.FindPredecessors function and return
+// a new one with regex filter applied.
+func matchRegexAnnotation(key string, pattern string,
 	fp func(ctx context.Context,
 		src content.GraphStorage,
 		desc ocispec.Descriptor) ([]ocispec.Descriptor, error)) func(ctx context.Context,
@@ -117,8 +122,11 @@ func matchRegexAnnotation(key string, regex string,
 	return func(ctx context.Context,
 		src content.GraphStorage,
 		desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		regex, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, err
+		}
 		var predecessors []ocispec.Descriptor
-		var err error
 		if fp == nil {
 			predecessors, err = src.Predecessors(ctx, desc)
 		} else {
@@ -129,11 +137,7 @@ func matchRegexAnnotation(key string, regex string,
 		}
 		var filtered []ocispec.Descriptor
 		for _, p := range predecessors {
-			matched, err := regexp.MatchString(regex, p.Annotations[key])
-			if err != nil {
-				return nil, err
-			}
-			if matched {
+			if regex.MatchString(p.Annotations[key]) {
 				filtered = append(filtered, p)
 			}
 		}
