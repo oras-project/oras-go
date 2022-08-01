@@ -716,7 +716,7 @@ func TestCopy_RestoreDuplicates(t *testing.T) {
 	}
 
 	root := descs[3]
-	ref := "foobar"
+	ref := "latest"
 	err := src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)
@@ -749,6 +749,91 @@ func TestCopy_RestoreDuplicates(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotDesc, root) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
+	}
+}
+
+func TestCopy_DiscardDuplicates(t *testing.T) {
+	src := memory.New()
+	temp := t.TempDir()
+	dst := file.New(temp)
+	defer dst.Close()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte, title string) {
+		blobs = append(blobs, blob)
+		desc := ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		}
+		if title != "" {
+			desc.Annotations = map[string]string{
+				ocispec.AnnotationTitle: title,
+			}
+		}
+		descs = append(descs, desc)
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON, "")
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("{}"), "") // Blob 0
+	// 2 blobs with same content
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"), "foo.txt") // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"), "bar.txt") // Blob 2
+	generateManifest(descs[0], descs[1:3]...)                           // Blob 3
+
+	ctx := context.Background()
+	for i := range blobs {
+		exists, err := src.Exists(ctx, descs[i])
+		if err != nil {
+			t.Fatalf("failed to check existence in src: %d: %v", i, err)
+		}
+		if exists {
+			continue
+		}
+		if err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i])); err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	root := descs[3]
+	ref := "latest"
+	err := src.Tag(ctx, root, ref)
+	if err != nil {
+		t.Fatal("fail to tag root node", err)
+	}
+
+	// test copy
+	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", oras.CopyOptions{})
+	if err != nil {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
+	}
+	if !reflect.DeepEqual(gotDesc, root) {
+		t.Errorf("Copy() = %v, want %v", gotDesc, root)
+	}
+
+	// verify only one of foo.txt and bar.txt exists
+	fooExists, err := dst.Exists(ctx, descs[1])
+	if err != nil {
+		t.Fatalf("dst.Exists(foo) error = %v", err)
+	}
+	barExists, err := dst.Exists(ctx, descs[2])
+	if err != nil {
+		t.Fatalf("dst.Exists(bar) error = %v", err)
+	}
+	if fooExists == barExists {
+		t.Error("Only one of foo.txt and bar.txt should exist")
 	}
 }
 
