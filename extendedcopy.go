@@ -203,18 +203,8 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 // whose artifact type matches a given regex pattern. The regex syntax supported
 // is RE2. Reference: https://github.com/google/re2/wiki/Syntax.
 func (opts *ExtendedCopyGraphOptions) FilterArtifactType(pattern string) {
-	opts.FindPredecessors = matchRegexArtifactType(pattern, opts.FindPredecessors)
-}
-
-// matchRegexArtifactType takes an old opts.FindPredecessors function and return
-// a new one with regex filter applied.
-func matchRegexArtifactType(pattern string,
-	fp func(ctx context.Context,
-		src content.GraphStorage,
-		desc ocispec.Descriptor) ([]ocispec.Descriptor, error)) func(ctx context.Context,
-	src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	return func(ctx context.Context,
-		src content.GraphStorage,
+	fp := opts.FindPredecessors
+	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage,
 		desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		regex, err := regexp.Compile(pattern)
 		if err != nil {
