@@ -344,7 +344,7 @@ func Example_copyArtifactManifestRemoteToLocal() {
 
 // Example_extendedCopyArtifactAndReferrersRemoteToLocal gives an example of
 // copying an artifact along with its referrers from a remote repository to local.
-func Example_Example_extendedCopyArtifactAndReferrersRemoteToLocal() {
+func Example_extendedCopyArtifactAndReferrersRemoteToLocal() {
 	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
 	if err != nil {
 		panic(err)
