@@ -109,18 +109,8 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 // whose annotation matches a given regex pattern. The regex syntax supported
 // is RE2. Reference: https://github.com/google/re2/wiki/Syntax.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, pattern string) {
-	opts.FindPredecessors = matchRegexAnnotation(key, pattern, opts.FindPredecessors)
-}
-
-// matchRegexAnnotation takes an old opts.FindPredecessors function and return
-// a new one with regex filter applied.
-func matchRegexAnnotation(key string, pattern string,
-	fp func(ctx context.Context,
-		src content.GraphStorage,
-		desc ocispec.Descriptor) ([]ocispec.Descriptor, error)) func(ctx context.Context,
-	src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	return func(ctx context.Context,
-		src content.GraphStorage,
+	fp := opts.FindSuccessors
+	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage,
 		desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		regex, err := regexp.Compile(pattern)
 		if err != nil {
