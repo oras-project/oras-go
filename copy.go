@@ -57,10 +57,30 @@ type CopyOptions struct {
 	MapRoot func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error)
 }
 
-// selectPlatform implements platform filter and returns the descriptor of
-// the first matched manifest if the root is a manifest list / image index.
-// If the root is a manifest, then return the root descriptor if platform
-// matches.
+// getPlatformFromConfig returns a platform object which is made up from the
+// fields in config blob.
+func getPlatformFromConfig(ctx context.Context, src content.Storage, desc ocispec.Descriptor, targetConfigMediaType string) (*ocispec.Platform, error) {
+	if desc.MediaType != targetConfigMediaType {
+		return nil, fmt.Errorf("mismatch MediaType %s: expect %s", desc.MediaType, targetConfigMediaType)
+	}
+
+	rc, err := src.Fetch(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+
+	var platform *ocispec.Platform
+	if err = json.NewDecoder(rc).Decode(&platform); err != nil {
+		return nil, err
+	}
+
+	return platform, nil
+}
+
+// selectPlatform implements platform filter and returns the descriptor of the
+// first matched manifest if the root is a manifest list. If the root is a
+// manifest, then return the root descriptor if platform matches.
 func selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
 	switch root.MediaType {
 	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
@@ -82,22 +102,21 @@ func selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descr
 			return ocispec.Descriptor{}, err
 		}
 
-		for _, desc := range descs {
-			if desc.MediaType == docker.MediaTypeImage || desc.MediaType == ocispec.MediaTypeImageConfig {
-				rc, err := src.Fetch(ctx, desc)
-				if err != nil {
-					return ocispec.Descriptor{}, err
-				}
-				defer rc.Close()
-				var currPlatform ocispec.Platform
-				if err = json.NewDecoder(rc).Decode(&currPlatform); err != nil {
-					return ocispec.Descriptor{}, err
-				}
+		configMediaType := docker.MediaTypeConfig
+		if root.MediaType == ocispec.MediaTypeImageManifest {
+			configMediaType = ocispec.MediaTypeImageConfig
+		}
 
-				if platform.Match(&currPlatform, p) {
-					return root, nil
-				}
-			}
+		cfgPlatform, err := getPlatformFromConfig(ctx, src, descs[0], configMediaType)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		if cfgPlatform == nil {
+			return ocispec.Descriptor{}, fmt.Errorf("%s: missing platform info", descs[0].Digest)
+		}
+
+		if platform.Match(cfgPlatform, p) {
+			return root, nil
 		}
 		return ocispec.Descriptor{}, errdef.ErrNotFound
 	default:
@@ -105,8 +124,8 @@ func selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descr
 	}
 }
 
-// WithPlatformFilter adds the check on the platform attributes.
-func (o *CopyOptions) WithPlatformFilter(p *ocispec.Platform) {
+// WithTargetPlatform adds the check on the platform attributes.
+func (o *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
 	mapRoot := o.MapRoot
 	o.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (desc ocispec.Descriptor, err error) {
 		if mapRoot != nil {

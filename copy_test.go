@@ -21,6 +21,7 @@ import (
 	_ "crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"sync/atomic"
@@ -34,6 +35,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
+	"oras.land/oras-go/v2/internal/docker"
 )
 
 // storageTracker tracks storage API counts.
@@ -659,7 +661,7 @@ func TestCopy_WithOptions(t *testing.T) {
 	}
 }
 
-func TestCopy_WithPlatformFilterOptions(t *testing.T) {
+func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	src := memory.New()
 	arc_1 := "test-arc-1"
 	os_1 := "test-os-1"
@@ -719,7 +721,7 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 "author":"test author",
 "architecture":"test-arc-1",
 "os":"test-os-1",
-"variant":"test-variant"}`)) // Blob 0
+"variant":"v1"}`)) // Blob 0
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))            // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))            // Blob 2
 	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1:3]...) // Blob 3
@@ -751,7 +753,7 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		Architecture: arc_2,
 		OS:           os_2,
 	}
-	opts.WithPlatformFilter(&targetPlatform)
+	opts.WithTargetPlatform(&targetPlatform)
 	wantDesc := descs[5]
 	gotDesc, err := oras.Copy(ctx, src, ref, dst, "", opts)
 	if err != nil {
@@ -782,15 +784,15 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 	}
 
 	// test copy with platform filter for the image index, and multiple
-	// manifests match the required platform. Should return the first
-	// matching entry.
+	// manifests match the required platform. Should return the first matching
+	// entry.
 	dst = memory.New()
 	targetPlatform = ocispec.Platform{
 		Architecture: arc_1,
 		OS:           os_1,
 	}
 	opts = oras.CopyOptions{}
-	opts.WithPlatformFilter(&targetPlatform)
+	opts.WithTargetPlatform(&targetPlatform)
 	wantDesc = descs[3]
 	gotDesc, err = oras.Copy(ctx, src, ref, dst, "", opts)
 	if err != nil {
@@ -820,9 +822,8 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, wantDesc)
 	}
 
-	// test copy with platform filter and existing MapRoot func for the
-	// image index, but there is no matching node. Should return not found
-	// error.
+	// test copy with platform filter and existing MapRoot func for the image
+	// index, but there is no matching node. Should return not found error.
 	dst = memory.New()
 	opts = oras.CopyOptions{
 		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
@@ -837,7 +838,7 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		Architecture: arc_1,
 		OS:           os_2,
 	}
-	opts.WithPlatformFilter(&targetPlatform)
+	opts.WithTargetPlatform(&targetPlatform)
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
 	if !errors.Is(err, errdef.ErrNotFound) {
@@ -851,7 +852,7 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		Architecture: arc_1,
 		OS:           os_1,
 	}
-	opts.WithPlatformFilter(&targetPlatform)
+	opts.WithTargetPlatform(&targetPlatform)
 
 	root = descs[7]
 	err = src.Tag(ctx, root, ref)
@@ -888,8 +889,8 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, wantDesc)
 	}
 
-	// test copy with platform filter for the manifest, but there is no
-	// matching node. Should return not found error.
+	// test copy with platform filter for the manifest, but there is no matching
+	// node. Should return not found error.
 	dst = memory.New()
 	opts = oras.CopyOptions{}
 	targetPlatform = ocispec.Platform{
@@ -897,7 +898,7 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		OS:           os_1,
 		Variant:      variant_2,
 	}
-	opts.WithPlatformFilter(&targetPlatform)
+	opts.WithTargetPlatform(&targetPlatform)
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
 	if !errors.Is(err, errdef.ErrNotFound) {
@@ -912,7 +913,7 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 		Architecture: arc_1,
 		OS:           os_1,
 	}
-	opts.WithPlatformFilter(&targetPlatform)
+	opts.WithTargetPlatform(&targetPlatform)
 
 	root = descs[1]
 	err = src.Tag(ctx, root, ref)
@@ -923,6 +924,50 @@ func TestCopy_WithPlatformFilterOptions(t *testing.T) {
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
 	if !errors.Is(err, errdef.ErrUnsupported) {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrUnsupported)
+	}
+
+	// generate incorrect test content
+	blobs = nil
+	descs = nil
+	appendBlob(docker.MediaTypeConfig, []byte(`{"mediaType":"application/vnd.oci.image.config.v1+json",
+"created":"2022-07-29T08:13:55Z",
+"author":"test author 1",
+"architecture":"test-arc-1",
+"os":"test-os-1",
+"variant":"v1"}`)) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo1"))      // Blob 1
+	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1]) // Blob 2
+	generateIndex(descs[2])                                      // Blob 3
+
+	ctx = context.Background()
+	for i := range blobs {
+		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	dst = memory.New()
+	opts = oras.CopyOptions{}
+	targetPlatform = ocispec.Platform{
+		Architecture: arc_1,
+		OS:           os_1,
+	}
+	opts.WithTargetPlatform(&targetPlatform)
+
+	// test copy with platform filter for the manifest, but the manifest is
+	// invalid by having docker mediaType config in the manifest and oci
+	// mediaType in the image config. Should return error.
+	root = descs[2]
+	err = src.Tag(ctx, root, ref)
+	if err != nil {
+		t.Fatal("fail to tag root node", err)
+	}
+
+	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
+	expected := fmt.Sprintf("mismatch MediaType %s: expect %s", docker.MediaTypeConfig, ocispec.MediaTypeImageConfig)
+	if err.Error() != expected {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
 }
 

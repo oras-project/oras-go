@@ -235,7 +235,7 @@ func TestResolve_WithOptions(t *testing.T) {
 		t.Fatal("fail to tag manifestDesc node", err)
 	}
 
-	// test Resolve with TargetPlatform
+	// test Resolve with default resolve options
 	resolveOptions := oras.DefaultResolveOptions
 	gotDesc, err := oras.Resolve(ctx, target, ref, resolveOptions)
 
@@ -247,7 +247,7 @@ func TestResolve_WithOptions(t *testing.T) {
 	}
 }
 
-func TestResolve_WithTargetPlatformOptions(t *testing.T) {
+func TestResolve_Memory_WithTargetPlatformOptions(t *testing.T) {
 	target := memory.New()
 	arc_1 := "test-arc-1"
 	os_1 := "test-os-1"
@@ -295,7 +295,7 @@ func TestResolve_WithTargetPlatformOptions(t *testing.T) {
 "author":"test author",
 "architecture":"test-arc-1",
 "os":"test-os-1",
-"variant":"test-variant"}`)) // Blob 0
+"variant":"v1"}`)) // Blob 0
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))            // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))            // Blob 2
 	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1:3]...) // Blob 3
@@ -341,6 +341,98 @@ func TestResolve_WithTargetPlatformOptions(t *testing.T) {
 		},
 	}
 	_, err = oras.Resolve(ctx, target, ref, resolveOptions)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+}
+
+func TestResolve_Repository_WithTargetPlatformOptions(t *testing.T) {
+	arc_1 := "test-arc-1"
+	arc_2 := "test-arc-2"
+	os_1 := "test-os-1"
+	var digest_1 digest.Digest = "sha256:11ec3af9dfeb49c89ef71877ba85249be527e4dda9d1d74d99dc618d1a5fa151"
+
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest_1,
+		Size:      484,
+		Platform: &ocispec.Platform{
+			Architecture: arc_1,
+			OS:           os_1,
+		},
+	}
+
+	index := []byte(`{"manifests":[{
+"mediaType":"application/vnd.oci.image.manifest.v1+json",
+"digest":"sha256:11ec3af9dfeb49c89ef71877ba85249be527e4dda9d1d74d99dc618d1a5fa151",
+"size":484,
+"platform":{"architecture":"test-arc-1","os":"test-os-1"}},{
+"mediaType":"application/vnd.oci.image.manifest.v1+json",
+"digest":"sha256:b955aefa63749f07fad84ab06a45a951368e3ac79799bc44a158fac1bb8ca208",
+"size":337,
+"platform":{"architecture":"test-arc-2","os":"test-os-2"}}]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	src := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && (r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String() || r.URL.Path == "/v2/test/manifests/"+src):
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			if _, err := w.Write(index); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repoName := uri.Host + "/test"
+	repo, err := remote.NewRepository(repoName)
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	// test Resolve with TargetPlatform
+	resolveOptions := oras.ResolveOptions{
+		TargetPlatform: &ocispec.Platform{
+			Architecture: arc_1,
+			OS:           os_1,
+		},
+	}
+	gotDesc, err := oras.Resolve(ctx, repo, src, resolveOptions)
+	if err != nil {
+		t.Fatal("oras.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test Resolve with TargetPlatform but there is no matching node
+	// Should return not found error
+	resolveOptions = oras.ResolveOptions{
+		TargetPlatform: &ocispec.Platform{
+			Architecture: arc_1,
+			OS:           arc_2,
+		},
+	}
+	_, err = oras.Resolve(ctx, repo, src, resolveOptions)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
