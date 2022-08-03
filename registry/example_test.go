@@ -26,8 +26,8 @@ import (
 	"os"
 	"testing"
 
-	. "oras.land/oras-go/v2/internal/playable"
 	"oras.land/oras-go/v2/registry"
+	. "oras.land/oras-go/v2/registry/internal/doc"
 	"oras.land/oras-go/v2/registry/remote"
 )
 

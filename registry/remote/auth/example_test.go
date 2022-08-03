@@ -25,7 +25,7 @@ import (
 	"strings"
 	"testing"
 
-	. "oras.land/oras-go/v2/internal/playable"
+	. "oras.land/oras-go/v2/registry/internal/doc"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
