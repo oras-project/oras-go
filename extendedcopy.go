@@ -105,18 +105,13 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 	return nil
 }
 
-// FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
-// whose annotation matches a given regex pattern. The regex syntax supported
-// is RE2. Reference: https://github.com/google/re2/wiki/Syntax.
-func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, pattern string) {
+// FilterAnnotation will configure opts.FindPredecessors to filter the predecessors
+// whose annotation matches a given regex pattern.
+func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
 	fp := opts.FindSuccessors
-	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage,
-		desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-		regex, err := regexp.Compile(pattern)
-		if err != nil {
-			return nil, err
-		}
+	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		var predecessors []ocispec.Descriptor
+		var err error
 		if fp == nil {
 			predecessors, err = src.Predecessors(ctx, desc)
 		} else {
