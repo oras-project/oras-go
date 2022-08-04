@@ -89,6 +89,9 @@ type Store struct {
 	// IgnoreNoName controls if push operations should ignore descriptors
 	// without a name. When specified, corresponding content will be discarded.
 	// Otherwise, content will be saved to a fallback storage.
+	// A typical scenario is pulling an arbitrary artifact masqueraded as OCI
+	// image to file store. This option can be specified to discard unnamed
+	// manifest and config file, while leaving only named layer files.
 	// Default value: false.
 	IgnoreNoName bool
 
