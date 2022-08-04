@@ -34,6 +34,7 @@ import (
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
+	. "oras.land/oras-go/v2/registry/internal/doc"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -45,6 +46,7 @@ const (
 	exampleUploadUUid       = "0bc84d80-837c-41d9-824e-1907463c53b3"
 	ManifestDigest          = "sha256:0b696106ecd0654e031f19e0a8cbd1aee4ad457d7c9cea881f07b12a930cd307"
 	ReferenceManifestDigest = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
+	_                       = ExampleUnplayable
 )
 
 var (
