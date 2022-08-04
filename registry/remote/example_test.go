@@ -383,13 +383,9 @@ func ExampleRepository_Fetch_manifestByTag() {
 		panic(err)
 	}
 	defer rc.Close() // don't forget to close
-	pulledBlob, err := io.ReadAll(rc)
+	pulledBlob, err := content.ReadAll(rc, descriptor)
 	if err != nil {
 		panic(err)
-	}
-	// verify the fetched content
-	if descriptor.Size != int64(len(pulledBlob)) || descriptor.Digest != digest.FromBytes(pulledBlob) {
-		panic("wrong content")
 	}
 
 	fmt.Println(string(pulledBlob))
@@ -417,13 +413,9 @@ func ExampleRepository_Fetch_manifestByDigest() {
 		panic(err)
 	}
 	defer rc.Close() // don't forget to close
-	pulled, err := io.ReadAll(rc)
+	pulled, err := content.ReadAll(rc, descriptor)
 	if err != nil {
 		panic(err)
-	}
-	// verify the fetched content
-	if descriptor.Size != int64(len(pulled)) || descriptor.Digest != digest.FromBytes(pulled) {
-		panic("wrong content")
 	}
 
 	fmt.Println(string(pulled))
@@ -459,13 +451,12 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 				panic(err)
 			}
 			defer rc.Close() // don't forget to close
-			pulledBlob, err := io.ReadAll(rc)
+			pulledBlob, err := content.ReadAll(rc, ocispec.Descriptor{
+				MediaType: referrer.MediaType,
+				Digest:    referrer.Digest,
+				Size:      referrer.Size})
 			if err != nil {
 				panic(err)
-			}
-			// verify the fetched content
-			if referrer.Size != int64(len(pulledBlob)) || referrer.Digest != digest.FromBytes(pulledBlob) {
-				panic("wrong content")
 			}
 			fmt.Println(string(pulledBlob))
 		}
@@ -495,13 +486,9 @@ func ExampleRepository_fetchArtifactBlobs() {
 	}
 	defer rc.Close()
 
-	pulledContent, err := io.ReadAll(rc)
+	pulledContent, err := content.ReadAll(rc, descriptor)
 	if err != nil {
 		panic(err)
-	}
-	// verify the fetched manifest content
-	if descriptor.Size != int64(len(pulledContent)) || descriptor.Digest != digest.FromBytes(pulledContent) {
-		panic("wrong content")
 	}
 	fmt.Println(string(pulledContent))
 
@@ -541,13 +528,9 @@ func ExampleRepository_FetchReference_manifestByTag() {
 		panic(err)
 	}
 	defer rc.Close() // don't forget to close
-	pulledBlob, err := io.ReadAll(rc)
+	pulledBlob, err := content.ReadAll(rc, descriptor)
 	if err != nil {
 		panic(err)
-	}
-	// verify the fetched content
-	if descriptor.Size != int64(len(pulledBlob)) || descriptor.Digest != digest.FromBytes(pulledBlob) {
-		panic("wrong content")
 	}
 
 	fmt.Println(string(pulledBlob))
@@ -570,13 +553,9 @@ func ExampleRepository_FetchReference_manifestByDigest() {
 		panic(err)
 	}
 	defer rc.Close() // don't forget to close
-	pulled, err := io.ReadAll(rc)
+	pulled, err := content.ReadAll(rc, descriptor)
 	if err != nil {
 		panic(err)
-	}
-	// verify the fetched content
-	if descriptor.Size != int64(len(pulled)) || descriptor.Digest != digest.FromBytes(pulled) {
-		panic("wrong content")
 	}
 
 	fmt.Println(string(pulled))
@@ -604,16 +583,11 @@ func ExampleRepository_Fetch_layer() {
 	defer rc.Close() // don't forget to close
 
 	// option 1: sequential fetch
-	pulledBlob, err := io.ReadAll(rc)
+	pulledBlob, err := content.ReadAll(rc, descriptor)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println(string(pulledBlob))
-
-	// verify the fetched content
-	if descriptor.Size != int64(len(pulledBlob)) || descriptor.Digest != digest.FromBytes(pulledBlob) {
-		panic("wrong content")
-	}
 
 	// option 2: random access, if the remote registry supports
 	if seeker, ok := rc.(io.ReadSeeker); ok {
