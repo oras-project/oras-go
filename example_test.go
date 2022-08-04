@@ -44,18 +44,26 @@ var (
 	exampleManifest, _ = json.Marshal(artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/content"})
-	exampleManifestDescriptor = artifactspec.Descriptor{
+	exampleManifestDescriptor = ocispec.Descriptor{
 		MediaType: artifactspec.MediaTypeArtifactManifest,
 		Digest:    digest.Digest(digest.FromBytes(exampleManifest)),
 		Size:      int64(len(exampleManifest))}
+	exampleManifestDescriptorArtifactspec = artifactspec.Descriptor{
+		MediaType: exampleManifestDescriptor.MediaType,
+		Digest:    exampleManifestDescriptor.Digest,
+		Size:      exampleManifestDescriptor.Size}
 	exampleSignatureManifest, _ = json.Marshal(artifactspec.Manifest{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
-		Subject:      &exampleManifestDescriptor})
+		Subject:      &exampleManifestDescriptorArtifactspec})
 	exampleSignatureManifestDescriptor = ocispec.Descriptor{
 		MediaType: artifactspec.MediaTypeArtifactManifest,
 		Digest:    digest.FromBytes(exampleSignatureManifest),
 		Size:      int64(len(exampleSignatureManifest))}
+	exampleSignatureManifestDescriptorArtifactspec = artifactspec.Descriptor{
+		MediaType: exampleSignatureManifestDescriptor.MediaType,
+		Digest:    exampleSignatureManifestDescriptor.Digest,
+		Size:      exampleSignatureManifestDescriptor.Size}
 )
 
 func pushBlob(ctx context.Context, mediaType string, blob []byte, target oras.Target) (desc ocispec.Descriptor, err error) {
@@ -122,11 +130,33 @@ func TestMain(m *testing.M) {
 			w.Header().Set("Docker-Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
 			w.Write(exampleSignatureManifest)
-		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)):
+		case strings.Contains(p, "/manifests/latest") && m == "PUT":
+			w.WriteHeader(http.StatusCreated)
+		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)),
+			strings.Contains(p, "/manifests/latest") && m == "HEAD":
 			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
-			w.Write(exampleManifest)
+			if m == "GET" {
+				w.Write(exampleManifest)
+			}
+		case strings.Contains(p, "/artifacts/referrers"):
+			w.Header().Set("ORAS-Api-Version", "oras/1.0")
+			q := r.URL.Query()
+			var referrers []artifactspec.Descriptor
+			if q.Get("digest") == exampleManifestDescriptor.Digest.String() {
+				referrers = []artifactspec.Descriptor{exampleSignatureManifestDescriptorArtifactspec}
+			} else if q.Get("digest") == exampleSignatureManifestDescriptor.Digest.String() {
+				referrers = []artifactspec.Descriptor{}
+			}
+			result := struct {
+				Referrers []artifactspec.Descriptor `json:"referrers"`
+			}{
+				Referrers: referrers,
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				panic(err)
+			}
 		case strings.Contains(p, "/manifests/") && (m == "HEAD" || m == "GET"):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Docker-Content-Digest", string(manifestDesc.Digest))
@@ -310,4 +340,27 @@ func Example_copyArtifactManifestRemoteToLocal() {
 
 	// Output:
 	// true
+}
+
+// Example_extendedCopyArtifactAndReferrersRemoteToLocal gives an example of
+// copying an artifact along with its referrers from a remote repository to local.
+func Example_extendedCopyArtifactAndReferrersRemoteToLocal() {
+	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
+	if err != nil {
+		panic(err)
+	}
+	dst := memory.New()
+	ctx := context.Background()
+
+	tagName := "latest"
+	// ExtendedCopy will copy the artifact tagged by "latest" along with all of its
+	// referrers from src to dst.
+	desc, err := oras.ExtendedCopy(ctx, src, tagName, dst, tagName, oras.DefaultExtendedCopyOptions)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(desc.Digest)
+	// Output:
+	// sha256:1f3e679d4fc05dca20a699ae5af5fb2b7d481d5694aff929165d1c8b0f4c8598
 }
