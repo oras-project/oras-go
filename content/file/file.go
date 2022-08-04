@@ -94,6 +94,14 @@ type Store struct {
 	// ForceCAS can be specified to enforce CAS style dedup.
 	// Default value: false.
 	ForceCAS bool
+	// IgnoreNoName controls if push operations should ignore descriptors
+	// without a name. When specified, corresponding content will be discarded.
+	// Otherwise, content will be saved to a fallback storage.
+	// A typical scenario is pulling an arbitrary artifact masqueraded as OCI
+	// image to file store. This option can be specified to discard unnamed
+	// manifest and config file, while leaving only named layer files.
+	// Default value: false.
+	IgnoreNoName bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -199,14 +207,18 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 }
 
 // Push pushes the content, matching the expected descriptor.
-// If name is not specified in the descriptor,
-// the content will be pushed to the fallback storage.
+// If name is not specified in the descriptor, the content will be pushed to
+// the fallback storage by default, or will be discarded when
+// Store.IgnoreNoName is true.
 func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	if s.isClosedSet() {
 		return ErrStoreClosed
 	}
 
 	if err := s.push(ctx, expected, content); err != nil {
+		if errors.Is(err, errSkipUnnamed) {
+			return nil
+		}
 		return err
 	}
 
@@ -220,11 +232,15 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 }
 
 // push pushes the content, matching the expected descriptor.
-// If name is not specified in the descriptor,
-// the content will be pushed to the fallback storage.
+// If name is not specified in the descriptor, the content will be pushed to
+// the fallback storage by default, or will be discarded when
+// Store.IgnoreNoName is true.
 func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	name := expected.Annotations[ocispec.AnnotationTitle]
 	if name == "" {
+		if s.IgnoreNoName {
+			return errSkipUnnamed
+		}
 		return s.fallbackStorage.Push(ctx, expected, content)
 	}
 
