@@ -1242,6 +1242,190 @@ func TestStore_File_Push_DuplicateName(t *testing.T) {
 	}
 }
 
+func TestStore_File_Push_ForceCAS(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	desc1 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob1",
+		},
+	}
+	desc2 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob2",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{desc1, desc2},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	s := New(tempDir)
+	s.ForceCAS = true
+	defer s.Close()
+	ctx := context.Background()
+
+	// push blob1
+	if err := s.Push(ctx, desc1, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	// push manifest
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// verify blob2 not exists
+	exists, err := s.Exists(ctx, desc2)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if exists {
+		t.Error("Blob2 is restored")
+	}
+}
+
+func TestStore_File_Push_RestoreDuplicates(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	desc1 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob1",
+		},
+	}
+	desc2 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob2",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{desc1, desc2},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	s := New(tempDir)
+	defer s.Close()
+	ctx := context.Background()
+
+	// push blob1
+	if err := s.Push(ctx, desc1, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	// push manifest
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// verify blob2 is restored
+	exists, err := s.Exists(ctx, desc2)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Error("Blob2 is not restored")
+	}
+	rc, err := s.Fetch(ctx, desc2)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, content)
+	}
+}
+
+func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob1",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{desc},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	s := New(tempDir)
+	defer s.Close()
+	ctx := context.Background()
+
+	// push manifest before blob is fine
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Error("Store.Push(): error = ", err)
+	}
+}
+
 func TestStore_File_Fetch_SameDigest_NoName(t *testing.T) {
 	mediaType := "test"
 	content := []byte("hello world")
