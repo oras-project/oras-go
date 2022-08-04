@@ -663,7 +663,6 @@ func TestCopy_RestoreDuplicates(t *testing.T) {
 	src := memory.New()
 	temp := t.TempDir()
 	dst := file.New(temp)
-	dst.RestoreDuplicates = true
 	defer dst.Close()
 
 	// generate test content
@@ -756,6 +755,7 @@ func TestCopy_DiscardDuplicates(t *testing.T) {
 	src := memory.New()
 	temp := t.TempDir()
 	dst := file.New(temp)
+	dst.ForceCAS = true
 	defer dst.Close()
 
 	// generate test content

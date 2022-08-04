@@ -86,13 +86,14 @@ type Store struct {
 	// When specified, saving files to existing paths will be disabled.
 	// Default value: false.
 	DisableOverwrite bool
-	// RestoreDuplicates controls if files with same content but different
-	// names are restored after push operations. When a DAG is copied, nodes
-	// with same content will be deduplicated, even if they have different
-	// names. If this is not the desired behavior for file store,
-	// RestoreDuplicates can be specified, which restores missing successor
-	// files after a node is pushed. Default value: false.
-	RestoreDuplicates bool
+	// ForceCAS controls if files with same content but different names are
+	// deduped after push operations. When a DAG is copied between CAS
+	// targets, nodes are deduped by content. By default, file store restores
+	// deduped successor files after a node is copied. This may result in two
+	// files with identical content. If this is not the desired behavior,
+	// ForceCAS can be specified to enforce CAS style dedup.
+	// Default value: false.
+	ForceCAS bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -209,7 +210,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 		return err
 	}
 
-	if s.RestoreDuplicates {
+	if !s.ForceCAS {
 		if err := s.restoreDuplicates(ctx, expected); err != nil {
 			return fmt.Errorf("Failed to restore duplicated file: %w", err)
 		}
@@ -256,7 +257,7 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 }
 
 // restoreDuplicates restores successor files with same content but different names.
-// See Store.RestoreDuplicates for more info.
+// See Store.ForceCAS for more info.
 func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) error {
 	successors, err := content.Successors(ctx, s, desc)
 	if err != nil {
@@ -282,7 +283,7 @@ func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) 
 				return fmt.Errorf("%q: %s: %w", name, desc.MediaType, err)
 			}
 			return nil
-		}(); err != nil {
+		}(); err != nil && !errors.Is(err, errdef.ErrNotFound) {
 			return err
 		}
 	}

@@ -1242,6 +1242,70 @@ func TestStore_File_Push_DuplicateName(t *testing.T) {
 	}
 }
 
+func TestStore_File_Push_ForceCAS(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	desc1 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob1",
+		},
+	}
+	desc2 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob2",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{desc1, desc2},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	s := New(tempDir)
+	s.ForceCAS = true
+	defer s.Close()
+	ctx := context.Background()
+
+	// push blob1
+	if err := s.Push(ctx, desc1, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	// push manifest
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// verify blob2 not exists
+	exists, err := s.Exists(ctx, desc2)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if exists {
+		t.Error("Blob2 is restored")
+	}
+}
+
 func TestStore_File_Push_RestoreDuplicates(t *testing.T) {
 	mediaType := "test"
 	content := []byte("hello world")
@@ -1284,7 +1348,6 @@ func TestStore_File_Push_RestoreDuplicates(t *testing.T) {
 	tempDir := t.TempDir()
 	s := New(tempDir)
 	defer s.Close()
-	s.RestoreDuplicates = true
 	ctx := context.Background()
 
 	// push blob1
@@ -1355,20 +1418,11 @@ func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
 	tempDir := t.TempDir()
 	s := New(tempDir)
 	defer s.Close()
-	s.RestoreDuplicates = true
 	ctx := context.Background()
 
-	// push manifest before blob
-	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err == nil {
-		t.Error("Store.Push(): error wanted")
-	}
-	// verify the manifest is not indexed
-	predecessors, err := s.Predecessors(ctx, configDesc)
-	if err != nil {
-		t.Fatal("Store.Predecessors() error = ", err)
-	}
-	if len(predecessors) != 0 {
-		t.Errorf("File should not be indexed after restore failure")
+	// push manifest before blob is fine
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Error("Store.Push(): error = ", err)
 	}
 }
 
