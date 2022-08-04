@@ -732,7 +732,8 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithRegex(t *testing.T) {
 	exp := ".bar."
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{}
-	opts.FilterArtifactType(exp)
+	regex := regexp.MustCompile(exp)
+	opts.FilterArtifactType(regex)
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
 		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
@@ -805,64 +806,14 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex(t *testing.T) {
 	exp2 := "bad."
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{}
-	opts.FilterArtifactType(exp1)
-	opts.FilterArtifactType(exp2)
+	regex1 := regexp.MustCompile(exp1)
+	regex2 := regexp.MustCompile(exp2)
+	opts.FilterArtifactType(regex1)
+	opts.FilterArtifactType(regex2)
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
 		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	copiedIndice := []int{0, 3, 4}
 	uncopiedIndice := []int{1, 2, 5}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
-}
-
-func TestExtendedCopyGraph_FilterArtifactTypeWithRegexInvalidRegex(t *testing.T) {
-	// generate test content
-	var blobs [][]byte
-	var descs []ocispec.Descriptor
-	appendBlob := func(mediaType string, blob []byte) {
-		blobs = append(blobs, blob)
-		descs = append(descs, ocispec.Descriptor{
-			MediaType: mediaType,
-			Digest:    digest.FromBytes(blob),
-			Size:      int64(len(blob)),
-		})
-	}
-	generateArtifactManifest := func(subject ocispec.Descriptor, artifactType string) {
-		var manifest artifactspec.Manifest
-		artifactSubject := descriptor.OCIToArtifact(subject)
-		manifest.Subject = &artifactSubject
-		manifest.ArtifactType = artifactType
-		manifestJSON, err := json.Marshal(manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
-	}
-
-	appendBlob(ocispec.MediaTypeImageConfig, []byte("foo")) // descs[0]
-	generateArtifactManifest(descs[0], "good-bar-yellow")   // descs[1]
-	generateArtifactManifest(descs[0], "bad-woo-red")       // descs[2]
-	generateArtifactManifest(descs[0], "bad-bar-blue")      // descs[3]
-	generateArtifactManifest(descs[0], "bad-bar-red")       // descs[4]
-	generateArtifactManifest(descs[0], "good-woo-pink")     // descs[5]
-
-	ctx := context.Background()
-
-	src := memory.New()
-	for i := range blobs {
-		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
-		if err != nil {
-			t.Fatalf("failed to push test content to src: %d: %v", i, err)
-		}
-	}
-
-	// exp is an invalid regex
-	exp := "ab???ba"
-	dst := memory.New()
-	opts := oras.ExtendedCopyGraphOptions{}
-	opts.FilterArtifactType(exp)
-	err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts)
-	if err == nil {
-		t.Fatalf("Invalid regex input uncaught")
-	}
 }
