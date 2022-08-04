@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	. "oras.land/oras-go/v2/registry/internal/doc"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
@@ -33,6 +34,7 @@ const (
 	password     = "test_password"
 	accessToken  = "test/access/token"
 	refreshToken = "test/refresh/token"
+	_            = ExampleUnplayable
 )
 
 var (
