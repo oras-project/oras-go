@@ -225,12 +225,8 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 				func() {
 					defer rc.Close()
 				}()
-				pulledContent, err := content.ReadAll(rc, p)
-				if err != nil {
-					return nil, err
-				}
 				var manifest artifactspec.Manifest
-				if err := json.Unmarshal(pulledContent, &manifest); err != nil {
+				if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
 					return nil, err
 				}
 				if regex.MatchString(manifest.ArtifactType) {
