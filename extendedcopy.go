@@ -200,8 +200,7 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 }
 
 // FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
-// whose artifact type matches a given regex pattern. The regex syntax supported
-// is RE2. Reference: https://github.com/google/re2/wiki/Syntax.
+// whose artifact type matches a given regex pattern.
 func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
