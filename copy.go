@@ -70,12 +70,12 @@ func getPlatformFromConfig(ctx context.Context, src content.Storage, desc ocispe
 	}
 	defer rc.Close()
 
-	var platform *ocispec.Platform
-	if err = json.NewDecoder(rc).Decode(&platform); err != nil {
+	var platform ocispec.Platform
+	if err = json.NewDecoder(rc).Decode(&platform); err != nil && err != io.EOF {
 		return nil, err
 	}
 
-	return platform, nil
+	return &platform, nil
 }
 
 // selectPlatform implements platform filter and returns the descriptor of the
@@ -110,9 +110,6 @@ func selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descr
 		cfgPlatform, err := getPlatformFromConfig(ctx, src, descs[0], configMediaType)
 		if err != nil {
 			return ocispec.Descriptor{}, err
-		}
-		if cfgPlatform == nil {
-			return ocispec.Descriptor{}, fmt.Errorf("%s: missing platform info", descs[0].Digest)
 		}
 
 		if platform.Match(cfgPlatform, p) {

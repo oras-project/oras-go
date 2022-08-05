@@ -969,6 +969,80 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	if err.Error() != expected {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
+
+	// generate test content with null config blob
+	blobs = nil
+	descs = nil
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("null"))     // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo2"))      // Blob 1
+	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1]) // Blob 2
+	generateIndex(descs[2])                                      // Blob 3
+
+	ctx = context.Background()
+	for i := range blobs {
+		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	dst = memory.New()
+	opts = oras.CopyOptions{}
+	targetPlatform = ocispec.Platform{
+		Architecture: arc_1,
+		OS:           os_1,
+	}
+	opts.WithTargetPlatform(&targetPlatform)
+
+	// test copy with platform filter for the manifest with null config blob
+	// should return not found error
+	root = descs[2]
+	err = src.Tag(ctx, root, ref)
+	if err != nil {
+		t.Fatal("fail to tag root node", err)
+	}
+
+	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	// generate test content with empty config blob
+	blobs = nil
+	descs = nil
+	appendBlob(ocispec.MediaTypeImageConfig, []byte(""))         // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo3"))      // Blob 1
+	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1]) // Blob 2
+	generateIndex(descs[2])                                      // Blob 3
+
+	ctx = context.Background()
+	for i := range blobs {
+		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	dst = memory.New()
+	opts = oras.CopyOptions{}
+	targetPlatform = ocispec.Platform{
+		Architecture: arc_1,
+		OS:           os_1,
+	}
+	opts.WithTargetPlatform(&targetPlatform)
+
+	// test copy with platform filter for the manifest with empty config blob
+	// should return not found error
+	root = descs[2]
+	err = src.Tag(ctx, root, ref)
+	if err != nil {
+		t.Fatal("fail to tag root node", err)
+	}
+
+	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
 }
 
 func TestCopy_RestoreDuplicates(t *testing.T) {
