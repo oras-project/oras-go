@@ -217,19 +217,22 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 		var filtered []ocispec.Descriptor
 		for _, p := range predecessors {
 			if p.MediaType == artifactspec.MediaTypeArtifactManifest {
-				rc, err := src.Fetch(ctx, p)
-				if err != nil {
-					return nil, err
-				}
-				func() {
+				if err = func() error {
+					rc, err := src.Fetch(ctx, p)
+					if err != nil {
+						return err
+					}
 					defer rc.Close()
-				}()
-				var manifest artifactspec.Manifest
-				if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+					var manifest artifactspec.Manifest
+					if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+						return err
+					}
+					if regex.MatchString(manifest.ArtifactType) {
+						filtered = append(filtered, p)
+					}
+					return nil
+				}(); err != nil {
 					return nil, err
-				}
-				if regex.MatchString(manifest.ArtifactType) {
-					filtered = append(filtered, p)
 				}
 			}
 		}
