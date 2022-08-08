@@ -26,6 +26,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/registry"
 )
 
 var (
@@ -207,7 +208,27 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 		var predecessors []ocispec.Descriptor
 		var err error
 		if fp == nil {
-			predecessors, err = src.Predecessors(ctx, desc)
+			rf, ok := src.(registry.ReferrerFinder)
+			if ok {
+				if err = rf.Referrers(ctx, desc, "", func(referrers []artifactspec.Descriptor) error {
+					// for each page of the results, do the following:
+					for _, referrer := range referrers {
+						if regex.MatchString(referrer.ArtifactType) {
+							predecessors = append(predecessors, ocispec.Descriptor{
+								MediaType: referrer.MediaType,
+								Digest:    referrer.Digest,
+								Size:      referrer.Size,
+							})
+						}
+					}
+					return nil
+				}); err != nil {
+					return nil, err
+				}
+				return predecessors, nil
+			} else {
+				predecessors, err = src.Predecessors(ctx, desc)
+			}
 		} else {
 			predecessors, err = fp(ctx, src, desc)
 		}
