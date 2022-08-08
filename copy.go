@@ -121,10 +121,17 @@ func selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descr
 	}
 }
 
-// WithTargetPlatform adds the check on the platform attributes.
-func (o *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
-	mapRoot := o.MapRoot
-	o.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (desc ocispec.Descriptor, err error) {
+// WithTargetPlatform configures opts.MapRoot to select the manifest whose
+// platform matches the given platform. When MapRoot is provided, the platform
+// selection will be applied on the mapped root node.
+// - If the root node is a manifest, it will remain the same if platform
+// matches, otherwise ErrNotFound will be returned.
+// - If the root node is a manifest list, it will be mapped to the first
+// matching manifest if exists, otherwise ErrNotFound will be returned.
+// - Otherwise ErrUnsupported will be returned.
+func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
+	mapRoot := opts.MapRoot
+	opts.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (desc ocispec.Descriptor, err error) {
 		if mapRoot != nil {
 			if root, err = mapRoot(ctx, src, root); err != nil {
 				return ocispec.Descriptor{}, err
