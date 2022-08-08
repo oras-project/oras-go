@@ -97,7 +97,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	configBlob := []byte("Hello config")
-	configDesc, err := pushBlob(ctx, ocispec.MediaTypeImageLayer, configBlob, exampleMemoryStore) // push config blob
+	configDesc, err := pushBlob(ctx, ocispec.MediaTypeImageConfig, configBlob, exampleMemoryStore) // push config blob
 	if err != nil {
 		panic(err)
 	}
@@ -221,7 +221,7 @@ func ExampleCopy_remoteToRemote() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 func ExampleCopy_remoteToLocal() {
@@ -245,7 +245,7 @@ func ExampleCopy_remoteToLocal() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 func ExampleCopy_localToLocal() {
@@ -261,7 +261,7 @@ func ExampleCopy_localToLocal() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 func ExampleCopy_localToOciFile() {
@@ -285,7 +285,7 @@ func ExampleCopy_localToOciFile() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 func ExampleCopy_localToRemote() {
@@ -308,7 +308,7 @@ func ExampleCopy_localToRemote() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 // Example_copyArtifactManifestRemoteToLocal gives an example of copying
