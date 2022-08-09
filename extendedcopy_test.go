@@ -20,8 +20,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -33,6 +38,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/registry/remote"
 )
 
 func TestExtendedCopy_FullCopy(t *testing.T) {
@@ -205,7 +211,7 @@ func TestExtendedCopyGraph_FullCopy(t *testing.T) {
 			}
 		}
 		for _, i := range uncopiedIndice {
-			if _, err := dst.Fetch(ctx, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
+			if _, err := content.FetchAll(ctx, dst, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
 				t.Errorf("content[%d] error = %v, wantErr %v", i, err, errdef.ErrNotFound)
 			}
 		}
@@ -413,7 +419,7 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 			}
 		}
 		for _, i := range uncopiedIndice {
-			if _, err := dst.Fetch(ctx, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
+			if _, err := content.FetchAll(ctx, dst, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
 				t.Errorf("content[%d] error = %v, wantErr %v", i, err, errdef.ErrNotFound)
 			}
 		}
@@ -545,7 +551,7 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 			}
 		}
 		for _, i := range uncopiedIndice {
-			if _, err := dst.Fetch(ctx, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
+			if _, err := content.FetchAll(ctx, dst, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
 				t.Errorf("content[%d] error = %v, wantErr %v", i, err, errdef.ErrNotFound)
 			}
 		}
@@ -631,7 +637,7 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 			}
 		}
 		for _, i := range uncopiedIndice {
-			if _, err := dst.Fetch(ctx, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
+			if _, err := content.FetchAll(ctx, dst, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
 				t.Errorf("content[%d] error = %v, wantErr %v", i, err, errdef.ErrNotFound)
 			}
 		}
@@ -713,7 +719,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithRegex(t *testing.T) {
 			}
 		}
 		for _, i := range uncopiedIndice {
-			if _, err := dst.Fetch(ctx, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
+			if _, err := content.FetchAll(ctx, dst, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
 				t.Errorf("content[%d] error = %v, wantErr %v", i, err, errdef.ErrNotFound)
 			}
 		}
@@ -746,6 +752,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex(t *testing.T) {
 	// generate test content
 	var blobs [][]byte
 	var descs []ocispec.Descriptor
+	var referrerSet []artifactspec.Descriptor
 	appendBlob := func(mediaType string, blob []byte) {
 		blobs = append(blobs, blob)
 		descs = append(descs, ocispec.Descriptor{
@@ -765,13 +772,86 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex(t *testing.T) {
 		}
 		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
 	}
-
+	pushReferrers := func(desc ocispec.Descriptor, artifactType string) {
+		referrerSet = append(referrerSet, artifactspec.Descriptor{
+			MediaType:    desc.MediaType,
+			ArtifactType: artifactType,
+			Digest:       desc.Digest,
+			Size:         desc.Size,
+		})
+	}
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("foo")) // descs[0]
 	generateArtifactManifest(descs[0], "good-bar-yellow")   // descs[1]
 	generateArtifactManifest(descs[0], "bad-woo-red")       // descs[2]
 	generateArtifactManifest(descs[0], "bad-bar-blue")      // descs[3]
 	generateArtifactManifest(descs[0], "bad-bar-red")       // descs[4]
 	generateArtifactManifest(descs[0], "good-woo-pink")     // descs[5]
+	pushReferrers(descs[1], "good-bar-yellow")
+	pushReferrers(descs[2], "bad-woo-red")
+	pushReferrers(descs[3], "bad-bar-blue")
+	pushReferrers(descs[4], "bad-bar-red")
+	pushReferrers(descs[5], "good-woo-pink")
+
+	// set up test server
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		w.Header().Set("ORAS-Api-Version", "oras/1.0")
+		switch {
+		case strings.Contains(p, descs[0].Digest.String()):
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageConfig)
+			w.Header().Set("Content-Digest", descs[0].Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[0])))
+			w.Write(blobs[0])
+		case strings.Contains(p, descs[1].Digest.String()):
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Digest", descs[1].Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[1])))
+			w.Write(blobs[1])
+		case strings.Contains(p, descs[2].Digest.String()):
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Digest", descs[2].Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[2])))
+			w.Write(blobs[2])
+		case strings.Contains(p, descs[3].Digest.String()):
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Digest", descs[3].Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[3])))
+			w.Write(blobs[3])
+		case strings.Contains(p, descs[4].Digest.String()):
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Digest", descs[4].Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[4])))
+			w.Write(blobs[4])
+		case strings.Contains(p, descs[5].Digest.String()):
+			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Digest", descs[5].Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[5])))
+			w.Write(blobs[5])
+		case strings.Contains(p, "referrers"):
+			q := r.URL.Query()
+			var referrers []artifactspec.Descriptor
+			if q.Get("digest") == descs[0].Digest.String() {
+				referrers = referrerSet
+			}
+			result := struct {
+				Referrers []artifactspec.Descriptor `json:"referrers"`
+			}{
+				Referrers: referrers,
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
 
 	ctx := context.Background()
 	verifyCopy := func(dst content.Fetcher, copiedIndice []int, uncopiedIndice []int) {
@@ -862,18 +942,15 @@ func TestExtendedCopyGraph_FilterArtifactTypeByReferrersWithMultipleRegex(t *tes
 			}
 		}
 		for _, i := range uncopiedIndice {
-			if _, err := dst.Fetch(ctx, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
+			if _, err := content.FetchAll(ctx, dst, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
 				t.Errorf("content[%d] error = %v, wantErr %v", i, err, errdef.ErrNotFound)
 			}
 		}
 	}
 
-	src := memory.New() // a repo! TODO
-	for i := range blobs {
-		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
-		if err != nil {
-			t.Fatalf("failed to push test content to src: %d: %v", i, err)
-		}
+	src, err := remote.NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
 	}
 
 	// test extended copy by descs[0], include the predecessors whose artifact

@@ -90,7 +90,7 @@ type ReferenceTagger interface {
 	TagReference(ctx context.Context, src, dst string) error
 }
 
-// write a good doc comment later
+// ReferrerFinder provides the Referrers API.
 type ReferrerFinder interface {
 	Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []artifactspec.Descriptor) error) error
 }

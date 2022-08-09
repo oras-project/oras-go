@@ -212,6 +212,9 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 			rf, ok := src.(registry.ReferrerFinder)
 			if ok {
 				predecessors, err = findReferrersAndFilter(rf, ctx, desc, regex)
+				if err != nil {
+					return predecessors, nil
+				}
 			} else {
 				predecessors, err = src.Predecessors(ctx, desc)
 			}
@@ -222,6 +225,7 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 			return nil, err
 		}
 		var filtered []ocispec.Descriptor
+		// for each predecessor, decode the manifest and check its artifact type.
 		for _, p := range predecessors {
 			if p.MediaType == artifactspec.MediaTypeArtifactManifest {
 				if err = func() error {
@@ -247,6 +251,7 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 	}
 }
 
+// findReferrersAndFilter filters the predecessors with Referrers.
 func findReferrersAndFilter(rf registry.ReferrerFinder, ctx context.Context, desc ocispec.Descriptor, regex *regexp.Regexp) ([]ocispec.Descriptor, error) {
 	var predecessors []ocispec.Descriptor
 	if err := rf.Referrers(ctx, desc, "", func(referrers []artifactspec.Descriptor) error {
