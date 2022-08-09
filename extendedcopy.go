@@ -208,24 +208,10 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 		var predecessors []ocispec.Descriptor
 		var err error
 		if fp == nil {
+			// if src is a ReferrerFinder, use Referrers() to filter the predecessors.
 			rf, ok := src.(registry.ReferrerFinder)
 			if ok {
-				if err = rf.Referrers(ctx, desc, "", func(referrers []artifactspec.Descriptor) error {
-					// for each page of the results, do the following:
-					for _, referrer := range referrers {
-						if regex.MatchString(referrer.ArtifactType) {
-							predecessors = append(predecessors, ocispec.Descriptor{
-								MediaType: referrer.MediaType,
-								Digest:    referrer.Digest,
-								Size:      referrer.Size,
-							})
-						}
-					}
-					return nil
-				}); err != nil {
-					return nil, err
-				}
-				return predecessors, nil
+				predecessors, err = findReferrersAndFilter(rf, ctx, desc, regex)
 			} else {
 				predecessors, err = src.Predecessors(ctx, desc)
 			}
@@ -259,4 +245,24 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 		}
 		return filtered, nil
 	}
+}
+
+func findReferrersAndFilter(rf registry.ReferrerFinder, ctx context.Context, desc ocispec.Descriptor, regex *regexp.Regexp) ([]ocispec.Descriptor, error) {
+	var predecessors []ocispec.Descriptor
+	if err := rf.Referrers(ctx, desc, "", func(referrers []artifactspec.Descriptor) error {
+		// for each page of the results, do the following:
+		for _, referrer := range referrers {
+			if regex.MatchString(referrer.ArtifactType) {
+				predecessors = append(predecessors, ocispec.Descriptor{
+					MediaType: referrer.MediaType,
+					Digest:    referrer.Digest,
+					Size:      referrer.Size,
+				})
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return predecessors, nil
 }

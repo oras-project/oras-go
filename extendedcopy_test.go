@@ -817,3 +817,79 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex(t *testing.T) {
 	uncopiedIndice := []int{1, 2, 5}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
+
+func TestExtendedCopyGraph_FilterArtifactTypeByReferrersWithMultipleRegex(t *testing.T) {
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateArtifactManifest := func(subject ocispec.Descriptor, artifactType string) {
+		var manifest artifactspec.Manifest
+		artifactSubject := descriptor.OCIToArtifact(subject)
+		manifest.Subject = &artifactSubject
+		manifest.ArtifactType = artifactType
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("foo")) // descs[0]
+	generateArtifactManifest(descs[0], "good-bar-yellow")   // descs[1]
+	generateArtifactManifest(descs[0], "bad-woo-red")       // descs[2]
+	generateArtifactManifest(descs[0], "bad-bar-blue")      // descs[3]
+	generateArtifactManifest(descs[0], "bad-bar-red")       // descs[4]
+	generateArtifactManifest(descs[0], "good-woo-pink")     // descs[5]
+
+	ctx := context.Background()
+	verifyCopy := func(dst content.Fetcher, copiedIndice []int, uncopiedIndice []int) {
+		for _, i := range copiedIndice {
+			got, err := content.FetchAll(ctx, dst, descs[i])
+			if err != nil {
+				t.Errorf("content[%d] error = %v, wantErr %v", i, err, false)
+				continue
+			}
+			if want := blobs[i]; !bytes.Equal(got, want) {
+				t.Errorf("content[%d] = %v, want %v", i, got, want)
+			}
+		}
+		for _, i := range uncopiedIndice {
+			if _, err := dst.Fetch(ctx, descs[i]); !errors.Is(err, errdef.ErrNotFound) {
+				t.Errorf("content[%d] error = %v, wantErr %v", i, err, errdef.ErrNotFound)
+			}
+		}
+	}
+
+	src := memory.New() // a repo! TODO
+	for i := range blobs {
+		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// test extended copy by descs[0], include the predecessors whose artifact
+	// type matches exp1 and exp2.
+	exp1 := ".foo|bar."
+	exp2 := "bad."
+	dst := memory.New()
+	opts := oras.ExtendedCopyGraphOptions{}
+	regex1 := regexp.MustCompile(exp1)
+	regex2 := regexp.MustCompile(exp2)
+	opts.FilterArtifactType(regex1)
+	opts.FilterArtifactType(regex2)
+	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+	}
+	copiedIndice := []int{0, 3, 4}
+	uncopiedIndice := []int{1, 2, 5}
+	verifyCopy(dst, copiedIndice, uncopiedIndice)
+}
