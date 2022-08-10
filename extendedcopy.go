@@ -254,9 +254,10 @@ func findReferrersAndFilter(rf registry.ReferrerFinder, ctx context.Context, des
 		for _, referrer := range referrers {
 			if regex.MatchString(referrer.ArtifactType) {
 				predecessors = append(predecessors, ocispec.Descriptor{
-					MediaType: referrer.MediaType,
-					Digest:    referrer.Digest,
-					Size:      referrer.Size,
+					MediaType:   referrer.MediaType,
+					Digest:      referrer.Digest,
+					Size:        referrer.Size,
+					Annotations: referrer.Annotations,
 				})
 			}
 		}
