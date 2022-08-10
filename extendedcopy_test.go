@@ -94,7 +94,7 @@ func TestExtendedCopy_FullCopy(t *testing.T) {
 	for i := range blobs {
 		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
 		if err != nil {
-			t.Errorf("failed to push test content to src: %d: %v", i, err)
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
 		}
 	}
 
@@ -108,7 +108,7 @@ func TestExtendedCopy_FullCopy(t *testing.T) {
 	// test extended copy
 	gotDesc, err := oras.ExtendedCopy(ctx, src, ref, dst, "", oras.ExtendedCopyOptions{})
 	if err != nil {
-		t.Errorf("Copy() error = %v, wantErr %v", err, false)
+		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
 	}
 	if !reflect.DeepEqual(gotDesc, manifest) {
 		t.Errorf("Copy() = %v, want %v", gotDesc, manifest)
@@ -118,7 +118,7 @@ func TestExtendedCopy_FullCopy(t *testing.T) {
 	for i, desc := range descs {
 		exists, err := dst.Exists(ctx, desc)
 		if err != nil {
-			t.Errorf("dst.Exists(%d) error = %v", i, err)
+			t.Fatalf("dst.Exists(%d) error = %v", i, err)
 		}
 		if !exists {
 			t.Errorf("dst.Exists(%d) = %v, want %v", i, exists, true)
@@ -221,14 +221,14 @@ func TestExtendedCopyGraph_FullCopy(t *testing.T) {
 	for i := range blobs {
 		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
 		if err != nil {
-			t.Errorf("failed to push test content to src: %d: %v", i, err)
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
 		}
 	}
 
 	// test extended copy by descs[0]
 	dst := memory.New()
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], oras.ExtendedCopyGraphOptions{}); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// graph rooted by descs[11] should be copied
 	copiedIndice := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
@@ -238,7 +238,7 @@ func TestExtendedCopyGraph_FullCopy(t *testing.T) {
 	// test extended copy by descs[4]
 	dst = memory.New()
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[4], oras.ExtendedCopyGraphOptions{}); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// graph rooted by descs[5] should be copied
 	copiedIndice = []int{0, 4, 5}
@@ -248,7 +248,7 @@ func TestExtendedCopyGraph_FullCopy(t *testing.T) {
 	// test extended copy by descs[14]
 	dst = memory.New()
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[14], oras.ExtendedCopyGraphOptions{}); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// graph rooted by descs[14] should be copied
 	copiedIndice = []int{12, 13, 14}
@@ -305,29 +305,29 @@ func TestExtendedCopyGraph_PartialCopy(t *testing.T) {
 	for i := range blobs {
 		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
 		if err != nil {
-			t.Errorf("failed to push test content to src: %d: %v", i, err)
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
 		}
 	}
 
 	// test copy a part of the graph
 	root := descs[3]
 	if err := oras.CopyGraph(ctx, src, dst, root, oras.CopyGraphOptions{}); err != nil {
-		t.Errorf("CopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// blobs [0-3] should be copied
 	for i := range blobs[:4] {
 		got, err := content.FetchAll(ctx, dst, descs[i])
 		if err != nil {
-			t.Errorf("content[%d] error = %v, wantErr %v", i, err, false)
+			t.Fatalf("content[%d] error = %v, wantErr %v", i, err, false)
 		}
 		if want := blobs[i]; !bytes.Equal(got, want) {
-			t.Errorf("content[%d] = %v, want %v", i, got, want)
+			t.Fatalf("content[%d] = %v, want %v", i, got, want)
 		}
 	}
 
 	// test extended copy by descs[0]
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], oras.ExtendedCopyGraphOptions{}); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 
 	// all blobs should be copied
@@ -429,7 +429,7 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 	for i := range blobs {
 		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
 		if err != nil {
-			t.Errorf("failed to push test content to src: %d: %v", i, err)
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
 		}
 	}
 
@@ -437,7 +437,7 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{}
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// graph rooted by descs[11] should be copied
 	copiedIndice := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
@@ -448,7 +448,7 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 	dst = memory.New()
 	opts = oras.ExtendedCopyGraphOptions{Depth: 1}
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// graph rooted by descs[3] and descs[5] should be copied
 	copiedIndice = []int{0, 1, 2, 3, 4, 5}
@@ -459,7 +459,7 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 	dst = memory.New()
 	opts = oras.ExtendedCopyGraphOptions{Depth: 2}
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// graph rooted by descs[11] should be copied
 	copiedIndice = []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
@@ -470,7 +470,7 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 	dst = memory.New()
 	opts = oras.ExtendedCopyGraphOptions{Depth: -1}
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// graph rooted by descs[11] should be copied
 	copiedIndice = []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
@@ -561,7 +561,7 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 	for i := range blobs {
 		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
 		if err != nil {
-			t.Errorf("failed to push test content to src: %d: %v", i, err)
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
 		}
 	}
 
@@ -586,12 +586,24 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 		},
 	}
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[3], opts); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	// graph rooted by descs[5] and decs[7] should be copied
 	copiedIndice := []int{0, 1, 2, 3, 4, 5, 6, 7}
 	uncopiedIndice := []int{8, 9, 10, 11}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
+}
+
+func TestExtendedCopy_NotFound(t *testing.T) {
+	src := memory.New()
+	dst := memory.New()
+
+	ref := "foobar"
+	ctx := context.Background()
+	_, err := oras.ExtendedCopy(ctx, src, ref, dst, "", oras.ExtendedCopyOptions{})
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("ExtendedCopy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
 }
 
 func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
@@ -646,7 +658,7 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 	for i := range blobs {
 		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
 		if err != nil {
-			t.Errorf("failed to push test content to src: %d: %v", i, err)
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
 		}
 	}
 	// test extended copy by descs[0] with annotation filter
@@ -656,23 +668,11 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 	regex := regexp.MustCompile(exp)
 	opts.FilterAnnotation("bar", regex)
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
-		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
 	copiedIndice := []int{0, 2, 3}
 	uncopiedIndice := []int{1, 4, 5}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
-}
-
-func TestExtendedCopy_NotFound(t *testing.T) {
-	src := memory.New()
-	dst := memory.New()
-
-	ref := "foobar"
-	ctx := context.Background()
-	_, err := oras.ExtendedCopy(ctx, src, ref, dst, "", oras.ExtendedCopyOptions{})
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("ExtendedCopy() error = %v, wantErr %v", err, errdef.ErrNotFound)
-	}
 }
 
 func TestExtendedCopyGraph_FilterArtifactTypeWithRegex(t *testing.T) {
