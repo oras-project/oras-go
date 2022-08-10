@@ -91,6 +91,7 @@ type ReferenceTagger interface {
 }
 
 // ReferrerFinder provides the Referrers API.
+// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 type ReferrerFinder interface {
 	Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []artifactspec.Descriptor) error) error
 }

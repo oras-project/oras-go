@@ -209,15 +209,10 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 		var err error
 		if fp == nil {
 			// if src is a ReferrerFinder, use Referrers() to filter the predecessors.
-			rf, ok := src.(registry.ReferrerFinder)
-			if ok {
-				predecessors, err = findReferrersAndFilter(rf, ctx, desc, regex)
-				if err != nil {
-					return predecessors, nil
-				}
-			} else {
-				predecessors, err = src.Predecessors(ctx, desc)
+			if rf, ok := src.(registry.ReferrerFinder); ok {
+				return findReferrersAndFilter(rf, ctx, desc, regex)
 			}
+			predecessors, err = src.Predecessors(ctx, desc)
 		} else {
 			predecessors, err = fp(ctx, src, desc)
 		}
