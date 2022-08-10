@@ -17,13 +17,16 @@ package oras
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/registry"
 )
 
 var (
@@ -105,31 +108,6 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 	return nil
 }
 
-// FilterAnnotation will configure opts.FindPredecessors to filter the predecessors
-// whose annotation matches a given regex pattern.
-func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
-	fp := opts.FindSuccessors
-	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-		var predecessors []ocispec.Descriptor
-		var err error
-		if fp == nil {
-			predecessors, err = src.Predecessors(ctx, desc)
-		} else {
-			predecessors, err = fp(ctx, src, desc)
-		}
-		if err != nil {
-			return nil, err
-		}
-		var filtered []ocispec.Descriptor
-		for _, p := range predecessors {
-			if regex.MatchString(p.Annotations[key]) {
-				filtered = append(filtered, p)
-			}
-		}
-		return filtered, nil
-	}
-}
-
 // findRoots finds the root nodes reachable from the given node through a
 // depth-first search.
 func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
@@ -195,4 +173,96 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 		}
 	}
 	return roots, nil
+}
+
+// FilterAnnotation will configure opts.FindPredecessors to filter the predecessors
+// whose annotation matches a given regex pattern. For performance consideration,
+// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
+// FilterArtifactType first.
+func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
+	fp := opts.FindSuccessors
+	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		var predecessors []ocispec.Descriptor
+		var err error
+		if fp == nil {
+			predecessors, err = src.Predecessors(ctx, desc)
+		} else {
+			predecessors, err = fp(ctx, src, desc)
+		}
+		if err != nil {
+			return nil, err
+		}
+		var filtered []ocispec.Descriptor
+		for _, p := range predecessors {
+			if regex.MatchString(p.Annotations[key]) {
+				filtered = append(filtered, p)
+			}
+		}
+		return filtered, nil
+	}
+}
+
+// FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
+// whose artifact type matches a given regex pattern. For performance consideration,
+// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
+// FilterArtifactType first.
+func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
+	fp := opts.FindPredecessors
+	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		var predecessors []ocispec.Descriptor
+		var err error
+		if fp == nil {
+			// if src is a ReferrerFinder, use Referrers() to filter the predecessors.
+			if rf, ok := src.(registry.ReferrerFinder); ok {
+				return findReferrersAndFilter(rf, ctx, desc, regex)
+			}
+			predecessors, err = src.Predecessors(ctx, desc)
+		} else {
+			predecessors, err = fp(ctx, src, desc)
+		}
+		if err != nil {
+			return nil, err
+		}
+		var filtered []ocispec.Descriptor
+		// for each predecessor, decode the manifest and check its artifact type.
+		for _, p := range predecessors {
+			if p.MediaType == artifactspec.MediaTypeArtifactManifest {
+				if err = func() error {
+					rc, err := src.Fetch(ctx, p)
+					if err != nil {
+						return err
+					}
+					defer rc.Close()
+					var manifest artifactspec.Manifest
+					if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+						return err
+					}
+					if regex.MatchString(manifest.ArtifactType) {
+						filtered = append(filtered, p)
+					}
+					return nil
+				}(); err != nil {
+					return nil, err
+				}
+			}
+		}
+		return filtered, nil
+	}
+}
+
+// findReferrersAndFilter filters the predecessors with Referrers.
+func findReferrersAndFilter(rf registry.ReferrerFinder, ctx context.Context, desc ocispec.Descriptor, regex *regexp.Regexp) ([]ocispec.Descriptor, error) {
+	var predecessors []ocispec.Descriptor
+	if err := rf.Referrers(ctx, desc, "", func(referrers []artifactspec.Descriptor) error {
+		// for each page of the results, do the following:
+		for _, referrer := range referrers {
+			if regex.MatchString(referrer.ArtifactType) {
+				predecessors = append(predecessors, descriptor.ArtifactToOCI(referrer))
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return predecessors, nil
 }
