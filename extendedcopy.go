@@ -26,6 +26,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -176,9 +177,7 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 }
 
 // FilterAnnotation will configure opts.FindPredecessors to filter the predecessors
-// whose annotation matches a given regex pattern. For performance consideration,
-// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
-// FilterArtifactType first.
+// whose annotation matches a given regex pattern.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
 	fp := opts.FindSuccessors
 	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
@@ -194,25 +193,35 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 		}
 		var filtered []ocispec.Descriptor
 		for _, p := range predecessors {
-			if p.Annotations == nil || p.Annotations[key] == "" {
-				if err = func() error {
-					rc, err := src.Fetch(ctx, p)
-					if err != nil {
-						return err
+			if p.Annotations == nil {
+				switch p.MediaType {
+				case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest,
+					docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
+					artifactspec.MediaTypeArtifactManifest:
+					if err = func() error {
+						rc, err := src.Fetch(ctx, p)
+						if err != nil {
+							return err
+						}
+						defer rc.Close()
+						var manifest struct {
+							Annotations map[string]string `json:"annotations"`
+						}
+						if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+							return err
+						}
+						if manifest.Annotations == nil {
+							p.Annotations = map[string]string{}
+						} else {
+							p.Annotations = manifest.Annotations
+						}
+						return nil
+					}(); err != nil {
+						return nil, err
 					}
-					defer rc.Close()
-					var manifest artifactspec.Manifest
-					if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
-						return err
-					}
-					if regex.MatchString(manifest.Annotations[key]) {
-						filtered = append(filtered, p)
-					}
-					return nil
-				}(); err != nil {
-					return nil, err
 				}
-			} else if regex.MatchString(p.Annotations[key]) {
+			}
+			if regex.MatchString(p.Annotations[key]) {
 				filtered = append(filtered, p)
 			}
 		}
@@ -221,9 +230,7 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 }
 
 // FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
-// whose artifact type matches a given regex pattern. For performance consideration,
-// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
-// FilterArtifactType first.
+// whose artifact type matches a given regex pattern.
 func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
