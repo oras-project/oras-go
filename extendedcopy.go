@@ -194,7 +194,25 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 		}
 		var filtered []ocispec.Descriptor
 		for _, p := range predecessors {
-			if regex.MatchString(p.Annotations[key]) {
+			if p.Annotations == nil || p.Annotations[key] == "" {
+				if err = func() error {
+					rc, err := src.Fetch(ctx, p)
+					if err != nil {
+						return err
+					}
+					defer rc.Close()
+					var manifest artifactspec.Manifest
+					if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+						return err
+					}
+					if regex.MatchString(manifest.Annotations[key]) {
+						filtered = append(filtered, p)
+					}
+					return nil
+				}(); err != nil {
+					return nil, err
+				}
+			} else if regex.MatchString(p.Annotations[key]) {
 				filtered = append(filtered, p)
 			}
 		}
