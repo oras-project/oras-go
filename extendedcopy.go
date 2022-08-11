@@ -26,6 +26,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -180,7 +181,7 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 // when using both FilterArtifactType and FilterAnnotation, it's recommended to call
 // FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
-	fp := opts.FindSuccessors
+	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		var predecessors []ocispec.Descriptor
 		var err error
@@ -194,6 +195,34 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 		}
 		var filtered []ocispec.Descriptor
 		for _, p := range predecessors {
+			if p.Annotations == nil {
+				switch p.MediaType {
+				case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest,
+					docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
+					artifactspec.MediaTypeArtifactManifest:
+					if err = func() error {
+						rc, err := src.Fetch(ctx, p)
+						if err != nil {
+							return err
+						}
+						defer rc.Close()
+						var manifest struct {
+							Annotations map[string]string `json:"annotations"`
+						}
+						if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+							return err
+						}
+						if manifest.Annotations == nil {
+							p.Annotations = map[string]string{}
+						} else {
+							p.Annotations = manifest.Annotations
+						}
+						return nil
+					}(); err != nil {
+						return nil, err
+					}
+				}
+			}
 			if regex.MatchString(p.Annotations[key]) {
 				filtered = append(filtered, p)
 			}
