@@ -177,7 +177,9 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 }
 
 // FilterAnnotation will configure opts.FindPredecessors to filter the predecessors
-// whose annotation matches a given regex pattern.
+// whose annotation matches a given regex pattern. For performance consideration,
+// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
+// FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
 	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
@@ -230,7 +232,9 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 }
 
 // FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
-// whose artifact type matches a given regex pattern.
+// whose artifact type matches a given regex pattern. For performance consideration,
+// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
+// FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
