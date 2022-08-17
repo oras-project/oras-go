@@ -1,6 +1,6 @@
 module oras.land/oras-go/v2
 
-go 1.17
+go 1.18
 
 require (
 	github.com/opencontainers/distribution-spec/specs-go v0.0.0-20220620172159-4ab4752c3b86
