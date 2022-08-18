@@ -72,10 +72,10 @@ type Repository struct {
 	// instead of HTTPS.
 	PlainHTTP bool
 
-	// ManifestMediaTypes is used in `Accept` header for resolving manifests from
-	// references. It is also used in identifying manifests and blobs from
-	// descriptors.
-	// If an empty list is present, default manifest media types are used.
+	// ManifestMediaTypes is used in `Accept` header for resolving manifests
+	// from references. It is also used in identifying manifests and blobs from
+	// descriptors.  If an empty list is present, default manifest media types
+	// are used.
 	ManifestMediaTypes []string
 
 	// TagListPageSize specifies the page size when invoking the tag list API.
@@ -452,7 +452,8 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 	} else {
 		refs = page.Referrers
 	}
-	// Server may not support filtering. We still need to filter on client side for sure.
+	// Server may not support filtering. We still need to filter on client side
+	// for sure.
 	refs = filterReferrers(refs, artifactType)
 	if len(refs) > 0 {
 		if err := fn(refs); err != nil {
@@ -896,7 +897,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return s.generateDescriptor(resp, ref, req.Method != "HEAD")
+		return s.generateDescriptor(resp, ref, req.Method)
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
@@ -932,7 +933,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		desc, err = s.generateDescriptor(resp, ref, req.Method != "HEAD")
+		desc, err = s.generateDescriptor(resp, ref, req.Method)
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
@@ -945,7 +946,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 }
 
 // generateDescriptor returns a descriptor generated from the response.
-func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, calculateDigest bool) (ocispec.Descriptor, error) {
+func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
 	// 1. Validate Content-Type
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
@@ -968,7 +969,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 	}
 
 	// 3. Validate Digest
-	var dgst, respDigest, refDigest, hdrDigest digest.Digest
+	var contentDigest, respDigest, refDigest, hdrDigest digest.Digest
 	var refDigestErr, hdrDigestErr error
 	if refDigest, err = ref.Digest(); err != nil {
 		refDigestErr = fmt.Errorf(
@@ -991,51 +992,57 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 		}
 	}
 
+	// HTTP HEAD Requests are usually equipped with the `Docker-Content-Digest`
+	// header.  Conversely, HTTP GET Requests are usually NOT equipped with the
+	// `Docker-Content-Digest` header.
+	// The following boolean, oblivious of that
+	// simply states: "If the HTTP method is NOT a HEAD (i.e., has a body), then
+	// attempt to calculate a digest.
+
 	switch {
-	case calculateDigest:
+	case httpMethod != "HEAD":
 		if respDigest, err = calculateDigestFromResponse(resp); err != nil {
 			return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
 		}
-		var digests = map[string]digest.Digest{
-			"server-supplied": hdrDigest, // via response header `Docker-Content-Digest`
-			"client-supplied": refDigest, // via request reference string
-		}
-		if err = verifyContentDigests(respDigest, digests); err != nil {
+		if err = verifyContentDigests(respDigest, hdrDigest, refDigest); err != nil {
 			return ocispec.Descriptor{}, fmt.Errorf("digest validation failure; %w", err)
 		}
-		dgst = respDigest
-	case refDigestErr == nil:
-		dgst = refDigest
-	case hdrDigestErr == nil:
-		dgst = hdrDigest
+		contentDigest = respDigest
+	case hdrDigestErr == nil: // server-supplied digest (via response header `Docker-Content-Digest`)
+		contentDigest = hdrDigest
+	case refDigestErr == nil: // client-supplied digest (via request reference string)
+		contentDigest = refDigest
 	}
 
 	return ocispec.Descriptor{
 		MediaType: mediaType,
-		Digest:    dgst,
+		Digest:    contentDigest,
 		Size:      size,
 	}, nil
 }
 
-// calculateDigestFromResponse calculates the actual digest of the response body, taking care not to destroy it in the
-// process.
+// calculateDigestFromResponse calculates the actual digest of the response body
+// taking care not to destroy it in the process.
 func calculateDigestFromResponse(resp *http.Response) (digest.Digest, error) {
-	if _, err := resp.Body.Read(nil); err != nil {
-		return digest.Digest(""), err
-	}
+	// Read from `resp.Body` and (via io.TeeReader), duplicate the read data
+	// into the new buffers.  This read will "deplete" resp.Body which, having
+	// no "rewind" button, will become useless.  At which point, one clone is
+	//used to calculate the digest, and another is used replace the now-defunct
+	// `resp.Body`.
+	var cloneForDigestCalculation io.Reader
+	var cloneForRestoration bytes.Buffer
 
-	var two bytes.Buffer
-	one := io.NopCloser(io.TeeReader(resp.Body, &two))
-
-	var err error
 	var d digest.Digest
-	if d, err = digest.FromReader(one); err != nil {
+	var err error
+	body := limitReader(resp.Body, 0)
+	cloneForDigestCalculation = io.TeeReader(body, &cloneForRestoration)
+	if d, err = digest.FromReader(cloneForDigestCalculation); err != nil {
 		return d, fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 
-	resp.Body = io.NopCloser(bytes.NewReader(two.Bytes()))
+	resp.Body = io.NopCloser(&cloneForRestoration)
 
-	return d, err
+	return d, nil
 }
 
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.
@@ -1054,18 +1061,33 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 	return nil
 }
 
-// verifyContentDigests is a superset of verifyContentDigest; it takes in the actual (calculated) digest, and
-// verifies against that, the other two digests, both of which may or may not be set to the empty digest.  If empty,
-// there is no validation error, however is not empty, it ensures that the given digest is valid (matches the actual
-// digest)
-func verifyContentDigests(actualDigest digest.Digest, digests map[string]digest.Digest) error {
-	for src, d := range digests {
-		if d.IsEmpty() {
-			continue
+// verifyContentDigests is a superset of verifyContentDigest; it takes in the
+// actual (calculated) digest, and verifies against that, the other two digests,
+// both of which may or may not be set to the empty digest.  If empty, there is
+// no validation error, however is not empty, it ensures that the given digest
+// is valid (matches the actual digest)
+func verifyContentDigests(actualDigest, serverSuppliedDigest, clientSuppliedDigest digest.Digest) error {
+	sL, sC := len(serverSuppliedDigest), len(clientSuppliedDigest)
+	if sL > 0 && sC > 0 && serverSuppliedDigest != clientSuppliedDigest {
+		return fmt.Errorf(
+			"ambiguous request; two conflicting digests found (server-supplied:`%v`, client-supplied:`%v`)",
+			serverSuppliedDigest,
+			clientSuppliedDigest,
+		)
+	}
+
+	if sL > 0 {
+		if actualDigest != serverSuppliedDigest {
+			return fmt.Errorf("digest mismatch: `%v` (server-supplied; given) vs `%v` (calculated)",
+				serverSuppliedDigest, actualDigest,
+			)
 		}
-		if !actualDigest.IsIdenticalTo(d) {
-			return fmt.Errorf("`%v` digest mismatch: `%v` (given) vs `%v` (calculated)",
-				src, d, actualDigest,
+	}
+
+	if sC > 0 {
+		if actualDigest != clientSuppliedDigest {
+			return fmt.Errorf("digest mismatch: `%v` (client-supplied; given) vs `%v` (calculated)",
+				clientSuppliedDigest, actualDigest,
 			)
 		}
 	}
