@@ -18,11 +18,14 @@ package oras
 import (
 	"context"
 	"fmt"
+	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -60,14 +63,25 @@ type ResolveOptions struct {
 }
 
 // Resolve resolves a descriptor with provided reference from the target.
-func Resolve(ctx context.Context, target Target, ref string, opts ResolveOptions) (ocispec.Descriptor, error) {
+func Resolve(ctx context.Context, target Target, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
 	if opts.TargetPlatform == nil {
-		return target.Resolve(ctx, ref)
+		return target.Resolve(ctx, reference)
+	}
+
+	proxy := cas.NewProxy(target, cas.NewMemory())
+	return resolve(ctx, target, proxy, reference, opts)
+}
+
+// resolve resolves a descriptor with provided reference from the target, with
+// specified caching.
+func resolve(ctx context.Context, target Target, proxy *cas.Proxy, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
+	if opts.TargetPlatform == nil {
+		return target.Resolve(ctx, reference)
 	}
 
 	if refFetcher, ok := target.(registry.ReferenceFetcher); ok {
 		// optimize performance for ReferenceFetcher targets
-		desc, rc, err := refFetcher.FetchReference(ctx, ref)
+		desc, rc, err := refFetcher.FetchReference(ctx, reference)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -76,25 +90,96 @@ func Resolve(ctx context.Context, target Target, ref string, opts ResolveOptions
 		switch desc.MediaType {
 		case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
 			docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
-			// create a proxy to cache the fetched descriptor
-			store := cas.NewMemory()
-			err = store.Push(ctx, desc, rc)
+			err = proxy.Cache.Push(ctx, desc, rc)
 			if err != nil {
 				return ocispec.Descriptor{}, err
 			}
-
-			proxy := cas.NewProxy(target, store)
 			proxy.StopCaching = true
-			return selectPlatform(ctx, proxy, desc, opts.TargetPlatform)
+			return platform.SelectManifest(ctx, proxy, desc, opts.TargetPlatform)
 		default:
 			return ocispec.Descriptor{}, fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrUnsupported)
 		}
 	}
 
-	desc, err := target.Resolve(ctx, ref)
+	desc, err := target.Resolve(ctx, reference)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
-	return selectPlatform(ctx, target, desc, opts.TargetPlatform)
+	return platform.SelectManifest(ctx, target, desc, opts.TargetPlatform)
+}
+
+// DefaultFetchManifestOptions provides the default FetchManifestOptions.
+var DefaultFetchManifestOptions FetchManifestOptions
+
+// FetchManifestOptions contains parameters for oras.FetchManifest.
+type FetchManifestOptions struct {
+	// ResolveOptions contains parameters for resolving reference.
+	ResolveOptions
+}
+
+// FetchManifest fetches the manifest identified by the reference.
+func FetchManifest(ctx context.Context, target Target, reference string, opts FetchManifestOptions) (ocispec.Descriptor, []byte, error) {
+	if opts.TargetPlatform == nil {
+		return fetchContent(ctx, target, reference)
+	}
+
+	proxy := cas.NewProxy(target, cas.NewMemory())
+	desc, err := resolve(ctx, target, proxy, reference, opts.ResolveOptions)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	bytes, err := content.FetchAll(ctx, proxy, desc)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	return desc, bytes, nil
+}
+
+// FetchBlob fetches the blob identified by the reference.
+func FetchBlob(ctx context.Context, target Target, ref string) (ocispec.Descriptor, []byte, error) {
+	if repo, ok := target.(registry.Repository); ok {
+		return fetchContent(ctx, repo.Blobs(), ref)
+	}
+	return fetchContent(ctx, target, ref)
+}
+
+// contentResolver provides content fetching and reference resolving.
+type contentResolver interface {
+	content.Fetcher
+	content.Resolver
+}
+
+// fetchContent fetches the content identified by the reference.
+func fetchContent(ctx context.Context, resolver contentResolver, reference string) (ocispec.Descriptor, []byte, error) {
+	var desc ocispec.Descriptor
+	var rc io.ReadCloser
+	var err error
+	var bytes []byte
+
+	if refFetcher, ok := resolver.(registry.ReferenceFetcher); ok {
+		desc, rc, err = refFetcher.FetchReference(ctx, reference)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		defer rc.Close()
+
+		bytes, err = content.ReadAll(rc, desc)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+
+		return desc, bytes, nil
+	}
+
+	desc, err = resolver.Resolve(ctx, reference)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	bytes, err = content.FetchAll(ctx, resolver, desc)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+
+	return desc, bytes, nil
 }
