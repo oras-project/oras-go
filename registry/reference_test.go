@@ -17,222 +17,106 @@ package registry
 
 import (
 	_ "crypto/sha256"
+	"fmt"
 	"reflect"
 	"testing"
 )
 
-func TestParseReference(t *testing.T) {
+// For a definition of what a "valid form [ABCD]" means, see reference.go.
+func TestParseReferenceGoodies(t *testing.T) {
 	tests := []struct {
-		name    string
-		raw     string
-		want    Reference
-		wantErr bool
+		name         string
+		image        string
+		wantTemplate Reference
 	}{
 		{
-			name: "basic reference",
-			raw:  "localhost/hello-world",
-			want: Reference{
-				Registry:   "localhost",
+			name:  "digest reference (valid form A)",
+			image: "hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			wantTemplate: Reference{
 				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 		},
 		{
-			name: "tag reference",
-			raw:  "localhost/hello-world:v1",
-			want: Reference{
-				Registry:   "localhost",
+			name:  "tag with digest (valid form B)",
+			image: "hello-world:v2@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			wantTemplate: Reference{
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+		},
+		{
+			name:  "tag reference (valid form C)",
+			image: "hello-world:v1",
+			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  "v1",
 			},
 		},
 		{
-			name: "digest reference",
-			raw:  "localhost/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "localhost",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name: "tag with digest",
-			raw:  "localhost/hello-world:v2@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "localhost",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name: "basic reference with non local DNS name",
-			raw:  "registry.example.com/hello-world",
-			want: Reference{
-				Registry:   "registry.example.com",
+			name:  "basic reference (valid form D)",
+			image: "hello-world",
+			wantTemplate: Reference{
 				Repository: "hello-world",
 			},
-		},
-		{
-			name: "tag reference with non local DNS name",
-			raw:  "registry.example.com/hello-world:v1",
-			want: Reference{
-				Registry:   "registry.example.com",
-				Repository: "hello-world",
-				Reference:  "v1",
-			},
-		},
-		{
-			name: "digest reference with non local DNS name",
-			raw:  "registry.example.com/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "registry.example.com",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name: "tag with digest with non local DNS name",
-			raw:  "registry.example.com/hello-world:v2@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "registry.example.com",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name: "basic reference with port",
-			raw:  "localhost:5000/hello-world",
-			want: Reference{
-				Registry:   "localhost:5000",
-				Repository: "hello-world",
-			},
-		},
-		{
-			name: "tag reference with port",
-			raw:  "localhost:5000/hello-world:v1",
-			want: Reference{
-				Registry:   "localhost:5000",
-				Repository: "hello-world",
-				Reference:  "v1",
-			},
-		},
-		{
-			name: "digest reference with port",
-			raw:  "localhost:5000/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "localhost:5000",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name: "tag with digest with port",
-			raw:  "localhost:5000/hello-world:v2@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "localhost:5000",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name: "basic reference with IP and port",
-			raw:  "127.0.0.1:5000/hello-world",
-			want: Reference{
-				Registry:   "127.0.0.1:5000",
-				Repository: "hello-world",
-			},
-		},
-		{
-			name: "tag reference with IP and port",
-			raw:  "127.0.0.1:5000/hello-world:v1",
-			want: Reference{
-				Registry:   "127.0.0.1:5000",
-				Repository: "hello-world",
-				Reference:  "v1",
-			},
-		},
-		{
-			name: "digest reference with IP and port",
-			raw:  "127.0.0.1:5000/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "127.0.0.1:5000",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name: "tag with digest with IP and port",
-			raw:  "127.0.0.1:5000/hello-world:v2@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "127.0.0.1:5000",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name: "basic reference with IPv6 and port",
-			raw:  "[::1]:5000/hello-world",
-			want: Reference{
-				Registry:   "[::1]:5000",
-				Repository: "hello-world",
-			},
-		},
-		{
-			name: "tag reference with IPv6 and port",
-			raw:  "[::1]:5000/hello-world:v1",
-			want: Reference{
-				Registry:   "[::1]:5000",
-				Repository: "hello-world",
-				Reference:  "v1",
-			},
-		},
-		{
-			name: "digest reference with IPv6 and port",
-			raw:  "[::1]:5000/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "[::1]:5000",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name: "tag with digest with IPv6 and port",
-			raw:  "[::1]:5000/hello-world:v2@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: Reference{
-				Registry:   "[::1]:5000",
-				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			},
-		},
-		{
-			name:    "no repo name",
-			raw:     "localhost",
-			wantErr: true,
-		},
-		{
-			name:    "missing registry",
-			raw:     "hello-world:linux",
-			wantErr: true,
-		},
-		{
-			name:    "invalid repo name",
-			raw:     "localhost/UPPERCASE/test",
-			wantErr: true,
-		},
-		{
-			name:    "invalid port",
-			raw:     "localhost:v1/hello-world",
-			wantErr: true,
 		},
 	}
+
+	registries := []string{
+		"localhost",
+		"registry.example.com",
+		"localhost:5000",
+		"127.0.0.1:5000",
+		"[::1]:5000",
+	}
+
+	for _, tt := range tests {
+		want := tt.wantTemplate
+		for _, registry := range registries {
+			want.Registry = registry
+			t.Run(tt.name, func(t *testing.T) {
+				got, err := ParseReference(fmt.Sprintf("%s/%s", registry, tt.image))
+				if err != nil {
+					t.Errorf("ParseReference() encountered unexpected error: %v", err)
+					return
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Errorf("ParseReference() = %v, want %v", got, tt.wantTemplate)
+				}
+			})
+		}
+	}
+}
+
+func TestParseReferenceUglies(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want Reference
+	}{
+		{
+			name: "no repo name",
+			raw:  "localhost",
+		},
+		{
+			name: "missing registry",
+			raw:  "hello-world:linux",
+		},
+		{
+			name: "invalid repo name",
+			raw:  "localhost/UPPERCASE/test",
+		},
+		{
+			name: "invalid port",
+			raw:  "localhost:v1/hello-world",
+		},
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseReference(tt.raw)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseReference() error = %v, wantErr %v", err, tt.wantErr)
+			if _, err := ParseReference(tt.raw); err == nil {
+				t.Errorf("ParseReference() expected an error, but got none")
 				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ParseReference() = %v, want %v", got, tt.want)
 			}
 		})
 	}
