@@ -42,6 +42,8 @@ import (
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
+const dockerContentDigestHeader = "Docker-Content-Digest"
+
 // referrersApiRegex checks referrers API version.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#versioning
 var referrersApiRegex = regexp.MustCompile(`^oras/1\.(0|[1-9]\d*)$`)
@@ -945,8 +947,12 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	}
 }
 
-// generateDescriptor returns a descriptor generated from the response.
 func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
+	return generateDescriptor(resp, ref, httpMethod)
+}
+
+// generateDescriptor returns a descriptor generated from the response.
+func generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
 	// 1. Validate Content-Type
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
@@ -968,52 +974,91 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 		)
 	}
 
-	// 3. Validate Digest
-	var contentDigest, respDigest, refDigest, hdrDigest digest.Digest
-	var refDigestErr, hdrDigestErr error
-	if refDigest, err = ref.Digest(); err != nil {
-		refDigestErr = fmt.Errorf(
-			"%s %q: invalid reference digest: `%s`; %w",
-			resp.Request.Method,
-			resp.Request.URL,
-			respDigest,
-			err,
-		)
-	}
-	if hdrDigestStr := resp.Header.Get("Docker-Content-Digest"); hdrDigestStr != "" {
-		if hdrDigest, err = digest.Parse(hdrDigestStr); err != nil {
-			hdrDigestErr = fmt.Errorf(
-				"%s %q: invalid response header value `Docker-Content-Digest`: `%s`; %w",
+	// 3. Validate Client Reference
+	var refDigest digest.Digest
+	refDigest, _ = ref.Digest()
+	/*
+		if refDigest, err = ref.Digest(); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf(
+				"%s %q: invalid reference digest: `%s`; %w",
 				resp.Request.Method,
 				resp.Request.URL,
+				ref,
+				err,
+			)
+		}
+	*/
+
+	// 4. Validate Server Digest (if present)
+	var hdrDigest digest.Digest
+	if hdrDigestStr := resp.Header.Get(dockerContentDigestHeader); hdrDigestStr != "" {
+		if hdrDigest, err = digest.Parse(hdrDigestStr); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf(
+				"%s %q: invalid response header value `%s`: `%s`; %w",
+				resp.Request.Method,
+				resp.Request.URL,
+				dockerContentDigestHeader,
 				hdrDigestStr,
 				err,
 			)
 		}
 	}
 
-	// HTTP HEAD Requests are usually equipped with the `Docker-Content-Digest`
-	// header.  Conversely, HTTP GET Requests are usually NOT equipped with the
-	// `Docker-Content-Digest` header.
-	// The following boolean, oblivious of that
-	// simply states: "If the HTTP method is NOT a HEAD (i.e., has a body), then
-	// attempt to calculate a digest.
+	/* 5. Now, look for specific error conditions
 
-	switch {
-	case httpMethod != "HEAD":
-		if respDigest, err = calculateDigestFromResponse(resp); err != nil {
+	This is the Truth Table for when to expect an error, and when not to. This
+	table is intended to be exhaustive and account for all possibilities.
+
+	Anything here with an exclamation mark indicates that the true response is
+	the opposite of what's expected; for example, `!PASS` means we expect a
+	`PASS`, even though it's actually a `FAIL`; that's a function of being
+	bling, and not performing the expensive validation here for performance
+	reasons, knowing that it will be calculated at a later point in time.
+
+	 ___________________________________________________________________________________
+	| ID | CLIENT        | SERVER         | GET                   | HEAD                |
+	|----+---------------+----------------+-----------------------+---------------------+
+	| 1  | tag           | missing        | CALCULATE,PASS        | FAIL                |
+	| 2  | tag           | presentValid   | TRUST,PASS            | TRUST,PASS          |
+	| 3  | tag           | presentInvalid | TRUST,!PASS           | TRUST,!PASS         |
+	| 4  | validDigest   | missing        | CALCULATE,VERIFY,PASS | FAIL                |
+	| 5  | validDigest   | presentValid   | TRUST,COMPARE,PASS    | TRUST,COMPARE,PASS  |
+	| 6  | validDigest   | presentInvalid | TRUST,COMPARE,FAIL    | TRUST,COMPARE,FAIL  |
+	| 7  | invalidDigest | missing        | CALCULATE,VERIFY,FAIL | FAIL                |
+	| 8  | invalidDigest | presentValid   | TRUST,COMPARE,FAIL    | TRUST,COMPARE,FAIL  |
+	| 9  | invalidDigest | presentInvalid | TRUST,COMPARE,!PASS   | TRUST,COMPARE,!PASS |
+	 -----------------------------------------------------------------------------------
+	*/
+	var contentDigest digest.Digest
+
+	// 5a. Set contentDigest if no early error conditions are encountered
+	var calculatedDigest digest.Digest
+	if len(hdrDigest) == 0 {
+		if httpMethod == "HEAD" {
+			// HEAD without server `Docker-Content-Digest` header is an
+			// immediate fail; HEAD
+			return ocispec.Descriptor{}, fmt.Errorf(
+				"HTTP %s request missing required header `%s`",
+				httpMethod, dockerContentDigestHeader,
+			)
+		}
+
+		// GET without server `Docker-Content-Digest` header forces the
+		// expensive calculation
+		if calculatedDigest, err = calculateDigestFromResponse(resp); err != nil {
 			return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
 		}
-		if err = verifyContentDigests(respDigest, hdrDigest, refDigest); err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("digest validation failure; %w", err)
-		}
-		contentDigest = respDigest
-	case hdrDigestErr == nil: // server-supplied digest (via response header `Docker-Content-Digest`)
+		contentDigest = calculatedDigest
+	} else {
 		contentDigest = hdrDigest
-	case refDigestErr == nil: // client-supplied digest (via request reference string)
-		contentDigest = refDigest
 	}
 
+	// 5b. With all 3 digests appropriately set, perform final 3-way validation
+	if err = verifyContentDigests(calculatedDigest, hdrDigest, refDigest); err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("digest validation failure; %w", err)
+	}
+
+	// 6. Finally, if we made it this far, then all is good; return.
 	return ocispec.Descriptor{
 		MediaType: mediaType,
 		Digest:    contentDigest,
@@ -1049,26 +1094,27 @@ func calculateDigestFromResponse(resp *http.Response) (digest.Digest, error) {
 // OCI distribution-spec states the Docker-Content-Digest header is optional.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
 func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
-	digestStr := resp.Header.Get("Docker-Content-Digest")
+	digestStr := resp.Header.Get(dockerContentDigestHeader)
 	if digestStr == "" {
 		return nil
 	}
 	if contentDigest, err := digest.Parse(digestStr); err != nil {
-		return fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
+		return fmt.Errorf(
+			"%s %q: invalid response %s: %s",
+			resp.Request.Method, resp.Request.URL, dockerContentDigestHeader, digestStr,
+		)
 	} else if contentDigest != expected {
 		return fmt.Errorf("%s: mismatch digest: %s", expected, contentDigest)
 	}
 	return nil
 }
 
-// verifyContentDigests is a superset of verifyContentDigest; it takes in the
-// actual (calculated) digest, and verifies against that, the other two digests,
-// both of which may or may not be set to the empty digest.  If empty, there is
-// no validation error, however is not empty, it ensures that the given digest
-// is valid (matches the actual digest)
+// verifyContentDigests is a relatively dumb function; it takes 3 digests, and performs an N-way comparison
+// between all digests that are of length greater than zero.  It fails if any two non-zero digests are different.
 func verifyContentDigests(actualDigest, serverSuppliedDigest, clientSuppliedDigest digest.Digest) error {
-	sL, sC := len(serverSuppliedDigest), len(clientSuppliedDigest)
-	if sL > 0 && sC > 0 && serverSuppliedDigest != clientSuppliedDigest {
+	lenAD, lenSSD, lenCSD := len(actualDigest), len(serverSuppliedDigest), len(clientSuppliedDigest)
+
+	if lenSSD > 0 && lenCSD > 0 && serverSuppliedDigest != clientSuppliedDigest {
 		return fmt.Errorf(
 			"ambiguous request; two conflicting digests found (server-supplied:`%v`, client-supplied:`%v`)",
 			serverSuppliedDigest,
@@ -1076,20 +1122,18 @@ func verifyContentDigests(actualDigest, serverSuppliedDigest, clientSuppliedDige
 		)
 	}
 
-	if sL > 0 {
-		if actualDigest != serverSuppliedDigest {
-			return fmt.Errorf("digest mismatch: `%v` (server-supplied; given) vs `%v` (calculated)",
-				serverSuppliedDigest, actualDigest,
-			)
-		}
+	if lenSSD > 0 && lenAD > 0 && serverSuppliedDigest != actualDigest {
+		return fmt.Errorf("digest mismatch: `%v` (server-supplied; given) vs `%v` (calculated)",
+			serverSuppliedDigest,
+			actualDigest,
+		)
 	}
 
-	if sC > 0 {
-		if actualDigest != clientSuppliedDigest {
-			return fmt.Errorf("digest mismatch: `%v` (client-supplied; given) vs `%v` (calculated)",
-				clientSuppliedDigest, actualDigest,
-			)
-		}
+	if lenCSD > 0 && lenAD > 0 && clientSuppliedDigest != actualDigest {
+		return fmt.Errorf("digest mismatch: `%v` (client-supplied; given) vs `%v` (calculated)",
+			clientSuppliedDigest,
+			actualDigest,
+		)
 	}
 
 	return nil
