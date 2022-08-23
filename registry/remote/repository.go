@@ -1108,9 +1108,25 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 // verifyContentDigests is a relatively dumb function; it takes 3 digests, and performs an N-way comparison
 // between all digests that are of length greater than zero.  It fails if any two non-zero digests are different.
 func verifyContentDigests(actualDigest, serverSuppliedDigest, clientSuppliedDigest digest.Digest) error {
-	lenAD, lenSSD, lenCSD := len(actualDigest), len(serverSuppliedDigest), len(clientSuppliedDigest)
 
-	if lenSSD > 0 && lenCSD > 0 && serverSuppliedDigest != clientSuppliedDigest {
+	var digests = map[string]digest.Digest{
+		"ad":  actualDigest,
+		"ssd": serverSuppliedDigest,
+		"csd": clientSuppliedDigest,
+	}
+
+	for _, d := range digests {
+		if len(d) == 0 {
+			continue
+		}
+
+		_, err := digest.Parse(d.String())
+		if err != nil {
+			return fmt.Errorf("invalid digest: %s", d)
+		}
+	}
+
+	if len(digests["ssd"]) > 0 && len(digests["csd"]) > 0 && serverSuppliedDigest != clientSuppliedDigest {
 		return fmt.Errorf(
 			"ambiguous request; two conflicting digests found (server-supplied:`%v`, client-supplied:`%v`)",
 			serverSuppliedDigest,
@@ -1118,14 +1134,18 @@ func verifyContentDigests(actualDigest, serverSuppliedDigest, clientSuppliedDige
 		)
 	}
 
-	if lenSSD > 0 && lenAD > 0 && serverSuppliedDigest != actualDigest {
+	if len(digests["ad"]) == 0 {
+		return nil
+	}
+
+	if len(digests["ssd"]) > 0 && serverSuppliedDigest != actualDigest {
 		return fmt.Errorf("digest mismatch: `%v` (server-supplied; given) vs `%v` (calculated)",
 			serverSuppliedDigest,
 			actualDigest,
 		)
 	}
 
-	if lenCSD > 0 && lenAD > 0 && clientSuppliedDigest != actualDigest {
+	if len(digests["csd"]) > 0 && clientSuppliedDigest != actualDigest {
 		return fmt.Errorf("digest mismatch: `%v` (client-supplied; given) vs `%v` (calculated)",
 			clientSuppliedDigest,
 			actualDigest,
