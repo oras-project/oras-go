@@ -716,7 +716,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return s.generateDescriptor(resp, refDigest)
+		return generateBlobDescriptor(resp, refDigest)
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
@@ -762,13 +762,13 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 
 	switch resp.StatusCode {
 	case http.StatusOK: // server does not support seek as `Range` was ignored.
-		desc, err = s.generateDescriptor(resp, refDigest)
+		desc, err = generateBlobDescriptor(resp, refDigest)
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
 		return desc, resp.Body, nil
 	case http.StatusPartialContent:
-		desc, err = s.generateDescriptor(resp, refDigest)
+		desc, err = generateBlobDescriptor(resp, refDigest)
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
@@ -780,8 +780,8 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 	}
 }
 
-// generateDescriptor returns a descriptor generated from the response.
-func (s *blobStore) generateDescriptor(resp *http.Response, refDigest digest.Digest) (ocispec.Descriptor, error) {
+// generateBlobDescriptor returns a descriptor generated from the response.
+func generateBlobDescriptor(resp *http.Response, refDigest digest.Digest) (ocispec.Descriptor, error) {
 	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if mediaType == "" {
 		mediaType = "application/octet-stream"
@@ -899,7 +899,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return s.generateDescriptor(resp, ref, req.Method)
+		return generateManifestDescriptor(resp, ref, req.Method)
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
@@ -935,7 +935,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		desc, err = s.generateDescriptor(resp, ref, req.Method)
+		desc, err = generateManifestDescriptor(resp, ref, req.Method)
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
@@ -947,12 +947,8 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	}
 }
 
-func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
-	return generateDescriptor(resp, ref, httpMethod)
-}
-
-// generateDescriptor returns a descriptor generated from the response.
-func generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
+// generateBlobDescriptor returns a descriptor generated from the response.
+func generateManifestDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
 	// 1. Validate Content-Type
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {

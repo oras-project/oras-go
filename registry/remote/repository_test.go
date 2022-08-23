@@ -2210,7 +2210,7 @@ func Test_BlobStore_Resolve(t *testing.T) {
 	}
 }
 
-func Test_Manifest_generateDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
+func Test_Manifest_generateManifestDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
 	type testIOStruct struct {
 		name                    string
 		clientSuppliedReference string
@@ -2286,7 +2286,7 @@ func Test_Manifest_generateDescriptorWithVariousDockerContentDigestHeaders(t *te
 			resp.Request = &http.Request{
 				Method: method,
 			}
-			_, err := generateDescriptor(&resp, reference, method)
+			_, err := generateManifestDescriptor(&resp, reference, method)
 			if !errExpected && err != nil {
 				t.Errorf(
 					"%v; expected no error for %v request, but got err: %v",
