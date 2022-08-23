@@ -2268,10 +2268,10 @@ func Test_Manifest_generateManifestDescriptorWithVariousDockerContentDigestHeade
 	reference := registry.Reference{
 		Registry:   "eastern.haan.com",
 		Reference:  "<calculate>",
-		Repository: "25To220CE",
+		Repository: "from25to220ce",
 	}
 	for testName, dcdIOStruct := range tests {
-		for i, method := range []string{"GET", "HEAD"} {
+		for i, method := range []string{http.MethodGet, http.MethodHead} {
 			reference.Reference = dcdIOStruct.clientSuppliedReference
 			errExpected := []bool{dcdIOStruct.errExpectedOnGET, dcdIOStruct.errExpectedOnHEAD}[i]
 			resp := http.Response{
@@ -2280,13 +2280,13 @@ func Test_Manifest_generateManifestDescriptorWithVariousDockerContentDigestHeade
 					dockerContentDigestHeader: []string{dcdIOStruct.serverCalculatedDigest.String()},
 				},
 			}
-			if method == "GET" {
+			if method == http.MethodGet {
 				resp.Body = io.NopCloser(bytes.NewBufferString(theAmazingBanClan))
 			}
 			resp.Request = &http.Request{
 				Method: method,
 			}
-			_, err := generateManifestDescriptor(&resp, reference, method)
+			_, err := generateManifestDescriptor(&resp, reference, method, 0)
 			if !errExpected && err != nil {
 				t.Errorf(
 					"%v; expected no error for %v request, but got err: %v",
