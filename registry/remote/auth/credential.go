@@ -15,6 +15,8 @@ limitations under the License.
 
 package auth
 
+import "context"
+
 // EmptyCredential represents an empty credential.
 var EmptyCredential Credential
 
@@ -37,4 +39,14 @@ type Credential struct {
 	// An access token is often referred as a registry token.
 	// Reference: https://docs.docker.com/registry/spec/auth/token/
 	AccessToken string
+}
+
+// doc comment
+func StaticCredential(registry string, cred Credential) func(ctx context.Context, reg string) (Credential, error) {
+	return func(_ context.Context, reg string) (Credential, error) {
+		if reg == registry {
+			return cred, nil
+		}
+		return EmptyCredential, nil
+	}
 }
