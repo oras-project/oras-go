@@ -903,7 +903,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return generateManifestDescriptor(resp, ref, req.Method, s.repo.MaxMetadataBytes)
+		return s.generateDescriptor(resp, ref, req.Method)
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
@@ -939,7 +939,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		desc, err = generateManifestDescriptor(resp, ref, req.Method, s.repo.MaxMetadataBytes)
+		desc, err = s.generateDescriptor(resp, ref, req.Method)
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
@@ -951,7 +951,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	}
 }
 
-// generateBlobDescriptor returns a descriptor generated from the response.
+// generateDescriptor returns a descriptor generated from the response.
 //
 // The following truth table aims to cover the expected GET/HEAD request outcome
 // for all possible permutations of the client/server "containing a digest".
@@ -961,9 +961,9 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 // other hand, is said to "contain a digest" if the server responded with the
 // special header `Docker-Content-Digest`.
 //
-// In this table, anything denoted with an exclamation mark indicates that the
-// true response should actually be the opposite of what's expected; for example,
-// `!PASS` means we will get a `PASS`, even though the true answer would be its
+// In this table, anything denoted with an asterisk indicates that the true
+// response should actually be the opposite of what's expected; for example,
+// `*PASS` means we will get a `PASS`, even though the true answer would be its
 // diametric opposite--a `FAIL`. This may seem odd, and deserves an explanation.
 // This function has blind-spots, and while it can expend power to gain sight,
 // i.e., perform the expensive validation, we chose not to.  The reason is two-
@@ -976,15 +976,15 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 //	|----+---------------+----------------+-----------------------+---------------------+
 //	| 1  | tag           | missing        | CALCULATE,PASS        | FAIL                |
 //	| 2  | tag           | presentValid   | TRUST,PASS            | TRUST,PASS          |
-//	| 3  | tag           | presentInvalid | TRUST,!PASS           | TRUST,!PASS         |
-//	| 4  | validDigest   | missing        | CALCULATE,VERIFY,PASS | FAIL                |
+//	| 3  | tag           | presentInvalid | TRUST,*PASS           | TRUST,*PASS         |
+//	| 4  | validDigest   | missing        | TRUST,PASS            | TRUST,PASS          |
 //	| 5  | validDigest   | presentValid   | TRUST,COMPARE,PASS    | TRUST,COMPARE,PASS  |
 //	| 6  | validDigest   | presentInvalid | TRUST,COMPARE,FAIL    | TRUST,COMPARE,FAIL  |
-//	| 7  | invalidDigest | missing        | CALCULATE,VERIFY,FAIL | FAIL                |
-//	| 8  | invalidDigest | presentValid   | TRUST,COMPARE,FAIL    | TRUST,COMPARE,FAIL  |
-//	| 9  | invalidDigest | presentInvalid | TRUST,COMPARE,!PASS   | TRUST,COMPARE,!PASS |
+//	| 7  | invalidDigest | missing        | TRUST,FAIL            | TRUST,*PASS         | <TBA>
+//	| 8  | invalidDigest | presentValid   | TRUST,COMPARE,FAIL    | TRUST,COMPARE,FAIL  | <TBA>
+//	| 9  | invalidDigest | presentInvalid | TRUST,COMPARE,*PASS   | TRUST,COMPARE,*PASS | <TBA>
 //	 -----------------------------------------------------------------------------------
-func generateManifestDescriptor(resp *http.Response, ref registry.Reference, httpMethod string, maxMetadataBytes int64) (ocispec.Descriptor, error) {
+func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
 	// 1. Validate Content-Type
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
@@ -1032,25 +1032,27 @@ func generateManifestDescriptor(resp *http.Response, ref registry.Reference, htt
 	var calculatedDigest digest.Digest
 	if len(serverHeaderDigest) == 0 {
 		if httpMethod == http.MethodHead {
-			// HEAD without server `Docker-Content-Digest` header is an
-			// immediate fail; HEAD
-			return ocispec.Descriptor{}, fmt.Errorf(
-				"HTTP %s request missing required header `%s`",
-				httpMethod, dockerContentDigestHeader,
-			)
+			if len(refDigest) == 0 {
+				// HEAD without server `Docker-Content-Digest` header is an
+				// immediate fail; HEAD
+				return ocispec.Descriptor{}, fmt.Errorf(
+					"HTTP %s request missing required header `%s`",
+					httpMethod, dockerContentDigestHeader,
+				)
+			}
+		} else {
+			// GET without server `Docker-Content-Digest` header forces the
+			// expensive calculation
+			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.MaxMetadataBytes); err != nil {
+				return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
+			}
+			contentDigest = calculatedDigest
 		}
-
-		// GET without server `Docker-Content-Digest` header forces the
-		// expensive calculation
-		if calculatedDigest, err = calculateDigestFromResponse(resp, maxMetadataBytes); err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
-		}
-		contentDigest = calculatedDigest
 	} else {
 		contentDigest = serverHeaderDigest
 	}
 
-	if refDigest != "" && refDigest != contentDigest {
+	if len(refDigest) > 0 && len(contentDigest) > 0 && refDigest != contentDigest {
 		return ocispec.Descriptor{}, fmt.Errorf("%s: mismatch digest: %s", refDigest, contentDigest)
 	}
 
@@ -1087,14 +1089,21 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 		return nil
 	}
 
-	if contentDigest, err := digest.Parse(digestStr); err == nil {
-		if contentDigest != expected {
-			return fmt.Errorf("%s: mismatch digest: %s", expected, contentDigest)
-		}
-	} else {
+	contentDigest, err := digest.Parse(digestStr)
+	if err != nil {
 		return fmt.Errorf(
-			"%s %q: invalid response %s: %s",
-			resp.Request.Method, resp.Request.URL, dockerContentDigestHeader, digestStr,
+			"%s %q: invalid response header: `%s: %s`",
+			resp.Request.Method, resp.Request.URL,
+			dockerContentDigestHeader, digestStr,
+		)
+	}
+
+	if len(expected) > 0 && contentDigest != expected {
+		return fmt.Errorf(
+			"%s %q: invalid response; digest mismatch: `%s: %s` vs expected `%s`",
+			resp.Request.Method, resp.Request.URL,
+			dockerContentDigestHeader, contentDigest,
+			expected,
 		)
 	}
 

@@ -2210,98 +2210,6 @@ func Test_BlobStore_Resolve(t *testing.T) {
 	}
 }
 
-func Test_Manifest_generateManifestDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
-	type testIOStruct struct {
-		name                    string
-		clientSuppliedReference string
-		serverCalculatedDigest  digest.Digest // for non-HEAD (body-containing) requests only
-		errExpectedOnHEAD       bool
-		errExpectedOnGET        bool
-	}
-	const theAmazingBanClan = "Ban Gu, Ban Chao, Ban Zhao"
-	const theAmazingBanDigest = "b526a4f2be963a2f9b0990c001255669eab8a254ab1a6e3f84f1820212ac7078"
-	correctDigest := fmt.Sprintf("sha256:%v", theAmazingBanDigest)
-	incorrectDigest := fmt.Sprintf("sha256:%v", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-
-	// For the Truth Table that these tests are modeled on, see the following:
-	// https://github.com/nima/oras-go/blob/issues/225/registry/remote/repository.go#L1009-L1030
-	tests := map[string]testIOStruct{
-		"1. NoClient & NoServer": {
-			errExpectedOnHEAD: true,
-		},
-		"2. NoClient & ValidServer": {
-			serverCalculatedDigest: digest.Digest(correctDigest),
-		},
-		"3. NoClient & InvalidServer": {
-			serverCalculatedDigest: digest.Digest(incorrectDigest),
-		},
-		"4. ValidClient & NoServer": {
-			clientSuppliedReference: correctDigest,
-			errExpectedOnHEAD:       true,
-		},
-		"5. ValidClient & ValidServer": {
-			clientSuppliedReference: correctDigest,
-			serverCalculatedDigest:  digest.Digest(correctDigest),
-		},
-		"6. ValidClient & InvalidServer": {
-			clientSuppliedReference: correctDigest,
-			serverCalculatedDigest:  digest.Digest(incorrectDigest),
-			errExpectedOnHEAD:       true,
-			errExpectedOnGET:        true,
-		},
-		"7. InvalidClient & NoServer": {
-			clientSuppliedReference: incorrectDigest,
-			errExpectedOnHEAD:       true,
-			errExpectedOnGET:        true,
-		},
-		"8. InvalidClient & ValidServer": {
-			clientSuppliedReference: incorrectDigest,
-			serverCalculatedDigest:  digest.Digest(correctDigest),
-			errExpectedOnHEAD:       true,
-			errExpectedOnGET:        true,
-		},
-		"9. InvalidClient & InvalidServer": {
-			clientSuppliedReference: incorrectDigest,
-			serverCalculatedDigest:  digest.Digest(incorrectDigest),
-		},
-	}
-	reference := registry.Reference{
-		Registry:   "eastern.haan.com",
-		Reference:  "<calculate>",
-		Repository: "from25to220ce",
-	}
-	for testName, dcdIOStruct := range tests {
-		for i, method := range []string{http.MethodGet, http.MethodHead} {
-			reference.Reference = dcdIOStruct.clientSuppliedReference
-			errExpected := []bool{dcdIOStruct.errExpectedOnGET, dcdIOStruct.errExpectedOnHEAD}[i]
-			resp := http.Response{
-				Header: http.Header{
-					"Content-Type":            []string{"application/vnd.docker.distribution.manifest.v2+json"},
-					dockerContentDigestHeader: []string{dcdIOStruct.serverCalculatedDigest.String()},
-				},
-			}
-			if method == http.MethodGet {
-				resp.Body = io.NopCloser(bytes.NewBufferString(theAmazingBanClan))
-			}
-			resp.Request = &http.Request{
-				Method: method,
-			}
-			_, err := generateManifestDescriptor(&resp, reference, method, 0)
-			if !errExpected && err != nil {
-				t.Errorf(
-					"%v; expected no error for %v request, but got err: %v",
-					testName, method, err,
-				)
-			} else if errExpected && err == nil {
-				t.Errorf(
-					"%v; expected an error for %v request, but got none",
-					testName, method,
-				)
-			}
-		}
-	}
-}
-
 func Test_BlobStore_FetchReference(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
@@ -2589,6 +2497,103 @@ func Test_ManifestStore_Fetch(t *testing.T) {
 	_, err = store.Fetch(ctx, contentDesc)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Manifests.Fetch() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+}
+
+func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
+	type testIOStruct struct {
+		name                    string
+		clientSuppliedReference string
+		serverCalculatedDigest  digest.Digest // for non-HEAD (body-containing) requests only
+		errExpectedOnHEAD       bool
+		errExpectedOnGET        bool
+	}
+	const theAmazingBanClan = "Ban Gu, Ban Chao, Ban Zhao"
+	const theAmazingBanDigest = "b526a4f2be963a2f9b0990c001255669eab8a254ab1a6e3f84f1820212ac7078"
+	correctDigest := fmt.Sprintf("sha256:%v", theAmazingBanDigest)
+	incorrectDigest := fmt.Sprintf("sha256:%v", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+
+	// For the Truth Table that these tests are modeled on, see the following:
+	// https://github.com/nima/oras-go/blob/issues/225/registry/remote/repository.go#L1009-L1030
+	tests := map[string]testIOStruct{
+		"1. NoClient & NoServer": {
+			errExpectedOnHEAD: true,
+		},
+		"2. NoClient & ValidServer": {
+			serverCalculatedDigest: digest.Digest(correctDigest),
+		},
+		"3. NoClient & InvalidServer": {
+			serverCalculatedDigest: digest.Digest(incorrectDigest),
+		},
+		"4. ValidClient & NoServer": {
+			clientSuppliedReference: correctDigest,
+		},
+		"5. ValidClient & ValidServer": {
+			clientSuppliedReference: correctDigest,
+			serverCalculatedDigest:  digest.Digest(correctDigest),
+		},
+		"6. ValidClient & InvalidServer": {
+			clientSuppliedReference: correctDigest,
+			serverCalculatedDigest:  digest.Digest(incorrectDigest),
+			errExpectedOnHEAD:       true,
+			errExpectedOnGET:        true,
+		},
+		"7. InvalidClient & NoServer": {
+			clientSuppliedReference: incorrectDigest,
+			errExpectedOnGET:        true,
+		},
+		"8. InvalidClient & ValidServer": {
+			clientSuppliedReference: incorrectDigest,
+			serverCalculatedDigest:  digest.Digest(correctDigest),
+			errExpectedOnHEAD:       true,
+			errExpectedOnGET:        true,
+		},
+		"9. InvalidClient & InvalidServer": {
+			clientSuppliedReference: incorrectDigest,
+			serverCalculatedDigest:  digest.Digest(incorrectDigest),
+		},
+	}
+	reference := registry.Reference{
+		Registry:   "eastern.haan.com",
+		Reference:  "<calculate>",
+		Repository: "from25to220ce",
+	}
+	for testName, dcdIOStruct := range tests {
+		repo, err := NewRepository(fmt.Sprintf("%s/%s", reference.Repository, reference.Repository))
+		if err != nil {
+			t.Fatalf("failed to initialize repository")
+		}
+
+		s := manifestStore{repo: repo}
+
+		for i, method := range []string{http.MethodGet, http.MethodHead} {
+			reference.Reference = dcdIOStruct.clientSuppliedReference
+			errExpected := []bool{dcdIOStruct.errExpectedOnGET, dcdIOStruct.errExpectedOnHEAD}[i]
+			resp := http.Response{
+				Header: http.Header{
+					"Content-Type":            []string{"application/vnd.docker.distribution.manifest.v2+json"},
+					dockerContentDigestHeader: []string{dcdIOStruct.serverCalculatedDigest.String()},
+				},
+			}
+			if method == http.MethodGet {
+				resp.Body = io.NopCloser(bytes.NewBufferString(theAmazingBanClan))
+			}
+			resp.Request = &http.Request{
+				Method: method,
+			}
+			_, err := s.generateDescriptor(&resp, reference, method)
+			if !errExpected && err != nil {
+				t.Errorf(
+					"%v; expected no error for %v request, but got err: %v",
+					testName, method, err,
+				)
+			} else if errExpected && err == nil {
+				t.Errorf(
+					"%v; expected an error for %v request, but got none",
+					testName, method,
+				)
+			}
+		}
 	}
 }
 
