@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
 func TestCredential_StaticCredential_basicAuth(t *testing.T) {
@@ -224,14 +226,13 @@ func TestCredential_StaticCredential_withRefreshToken(t *testing.T) {
 	}
 
 	// create a test client with incorrect credentials
-	// expectedError := fmt.Errorf("%s %q: %s %q: unexpected status code %d: %s", http.MethodGet, refreshTokenURL, http.MethodPost, as.URL, 401, "Unauthorized")
-	// clientInvalid := &auth.Client{
-	// 	Credential: auth.StaticCredential(hostAddress, auth.Credential{
-	// 		RefreshToken: "bar",
-	// 	}),
-	// }
-	// _, err = clientInvalid.Do(req)
-	// if !errors.Is(err, expectedError) {
-	// 	t.Fatalf("got error = %v, expected %v", err, expectedError)
-	// }
+	clientInvalid := &auth.Client{
+		Credential: auth.StaticCredential(hostAddress, auth.Credential{
+			RefreshToken: "bar",
+		}),
+	}
+	_, err = clientInvalid.Do(req)
+	if !errors.Is(err, errutil.ErrUnauthorized) {
+		t.Errorf("incorrect error: %v, expected %v", err, errutil.ErrUnauthorized)
+	}
 }

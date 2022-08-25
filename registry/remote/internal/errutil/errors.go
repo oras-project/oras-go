@@ -17,6 +17,7 @@ package errutil
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,6 +30,8 @@ import (
 // A typical error message is around 200 bytes. Hence, 8 KiB should be
 // sufficient.
 var maxErrorBytes int64 = 8 * 1024 // 8 KiB
+
+var ErrUnauthorized error = errors.New("status unauthorized 401")
 
 // requestError contains a single error.
 type requestError struct {
@@ -79,6 +82,10 @@ func ParseErrorResponse(resp *http.Response) error {
 		errmsg = body.Errors.Error()
 	} else {
 		errmsg = http.StatusText(resp.StatusCode)
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("%s %q: unexpected status code %d: %s, error = %w", resp.Request.Method, resp.Request.URL, resp.StatusCode, errmsg, ErrUnauthorized)
 	}
 	return fmt.Errorf("%s %q: unexpected status code %d: %s", resp.Request.Method, resp.Request.URL, resp.StatusCode, errmsg)
 }
