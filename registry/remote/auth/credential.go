@@ -41,7 +41,8 @@ type Credential struct {
 	AccessToken string
 }
 
-// doc comment
+// StaticCredential is a utility method for specifying static credentials that
+// are used when creating a client.
 func StaticCredential(registry string, cred Credential) func(ctx context.Context, reg string) (Credential, error) {
 	return func(_ context.Context, reg string) (Credential, error) {
 		if reg == registry {
