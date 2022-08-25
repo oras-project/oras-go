@@ -982,14 +982,14 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 
 	// 4. Validate Server Digest (if present)
 	var serverHeaderDigest digest.Digest
-	if serverHeaderDigestErr := resp.Header.Get(dockerContentDigestHeader); serverHeaderDigestErr != "" {
-		if serverHeaderDigest, err = digest.Parse(serverHeaderDigestErr); err != nil {
+	if serverHeaderDigestStr := resp.Header.Get(dockerContentDigestHeader); serverHeaderDigestStr != "" {
+		if serverHeaderDigest, err = digest.Parse(serverHeaderDigestStr); err != nil {
 			return ocispec.Descriptor{}, fmt.Errorf(
 				"%s %q: invalid response header value `%s`: `%s`; %w",
 				resp.Request.Method,
 				resp.Request.URL,
 				dockerContentDigestHeader,
-				serverHeaderDigestErr,
+				serverHeaderDigestStr,
 				err,
 			)
 		}
@@ -998,20 +998,22 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 	/* 5. Now, look for specific error conditions; see truth table in method docstring */
 	var contentDigest digest.Digest
 
-	var calculatedDigest digest.Digest
 	if len(serverHeaderDigest) == 0 {
 		if httpMethod == http.MethodHead {
 			if len(refDigest) == 0 {
 				// HEAD without server `Docker-Content-Digest` header is an
-				// immediate fail; HEAD
+				// immediate fail
 				return ocispec.Descriptor{}, fmt.Errorf(
 					"HTTP %s request missing required header `%s`",
 					httpMethod, dockerContentDigestHeader,
 				)
 			}
+			// Otherwise, just trust the client-supplied digest
+			contentDigest = refDigest
 		} else {
 			// GET without server `Docker-Content-Digest` header forces the
 			// expensive calculation
+			var calculatedDigest digest.Digest
 			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.MaxMetadataBytes); err != nil {
 				return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
 			}
@@ -1021,7 +1023,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 		contentDigest = serverHeaderDigest
 	}
 
-	if len(refDigest) > 0 && len(contentDigest) > 0 && refDigest != contentDigest {
+	if len(refDigest) > 0 && refDigest != contentDigest {
 		return ocispec.Descriptor{}, fmt.Errorf("%s: mismatch digest: %s", refDigest, contentDigest)
 	}
 
@@ -1067,7 +1069,7 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 		)
 	}
 
-	if len(expected) > 0 && contentDigest != expected {
+	if contentDigest != expected {
 		return fmt.Errorf(
 			"%s %q: invalid response; digest mismatch: `%s: %s` vs expected `%s`",
 			resp.Request.Method, resp.Request.URL,

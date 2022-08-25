@@ -43,8 +43,6 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
-// For the Truth Table that these tests are modeled on, see the following:
-// https://github.com/nima/oras-go/blob/issues/225/registry/remote/repository.go#L1009-L1030
 type testIOStruct struct {
 	name                      string
 	isTag                     bool
@@ -2571,6 +2569,11 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 			}
 
 			errExpected := []bool{dcdIOStruct.errExpectedOnBlobGET, dcdIOStruct.errExpectedOnBlobHEAD}[i]
+			if len(d) == 0 {
+				// To avoid an otherwise impossible scenario in the tested code
+				// path, we set d so that verifyContentDigest does not break.
+				d = dcdIOStruct.serverCalculatedDigest
+			}
 			_, err = generateBlobDescriptor(&resp, d)
 			if !errExpected && err != nil {
 				t.Errorf(
