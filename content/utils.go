@@ -16,6 +16,7 @@ limitations under the License.
 package content
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -36,6 +37,9 @@ var (
 	// ErrTrailingData is returned by ReadAll() when
 	// there exists trailing data unread when the read terminates.
 	ErrTrailingData = errors.New("trailing data")
+
+	// ErrSizeExceedLimit is returned when the content size exceeds a limit.
+	ErrSizeExceedLimit = errors.New("size exceeds limit")
 )
 
 // ReadAll safely reads the content described by the descriptor.
@@ -61,4 +65,37 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 		return nil, ErrMismatchedDigest
 	}
 	return buf, nil
+}
+
+// FetchAll safely fetches the content described by the descriptor.
+// The fetched content is verified against the size and the digest.
+func FetchAll(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) ([]byte, error) {
+	rc, err := fetcher.Fetch(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return ReadAll(rc, desc)
+}
+
+// FetchAllWithLimit safely fetches the content described by the descriptor.
+// The fetched content is verified against the size and the digest.
+// The size of the fetched content cannot exceed the limit.
+func FetchAllWithLimit(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor, limit int64) ([]byte, error) {
+	if limit <= 0 {
+		return FetchAll(ctx, fetcher, desc)
+	}
+
+	if desc.Size > limit {
+		return nil, fmt.Errorf("content size %v exceeds max size limit %v: %w",
+			desc.Size,
+			limit,
+			ErrSizeExceedLimit)
+	}
+	rc, err := fetcher.Fetch(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return ReadAll(io.LimitReader(rc, limit), desc)
 }
