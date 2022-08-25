@@ -90,10 +90,12 @@ func resolve(ctx context.Context, target Target, proxy *cas.Proxy, reference str
 		switch desc.MediaType {
 		case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
 			docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
+			// cache the fetched content
 			err = proxy.Cache.Push(ctx, desc, rc)
 			if err != nil {
 				return ocispec.Descriptor{}, err
 			}
+			// stop caching as SelectManifest may fetch a config blob
 			proxy.StopCaching = true
 			return platform.SelectManifest(ctx, proxy, desc, opts.TargetPlatform)
 		default:
@@ -105,7 +107,6 @@ func resolve(ctx context.Context, target Target, proxy *cas.Proxy, reference str
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-
 	return platform.SelectManifest(ctx, target, desc, opts.TargetPlatform)
 }
 
@@ -129,6 +130,9 @@ func FetchManifest(ctx context.Context, target Target, reference string, opts Fe
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
+	// if the content exists in cache, fetch it from cache
+	// otherwise fetch without caching
+	proxy.StopCaching = true
 	bytes, err := content.FetchAll(ctx, proxy, desc)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -163,12 +167,10 @@ func fetchContent(ctx context.Context, resolver contentResolver, reference strin
 			return ocispec.Descriptor{}, nil, err
 		}
 		defer rc.Close()
-
 		bytes, err = content.ReadAll(rc, desc)
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
-
 		return desc, bytes, nil
 	}
 
@@ -180,6 +182,5 @@ func fetchContent(ctx context.Context, resolver contentResolver, reference strin
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-
 	return desc, bytes, nil
 }
