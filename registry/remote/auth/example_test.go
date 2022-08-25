@@ -160,19 +160,11 @@ func ExampleClient_Do_minimalClient() {
 // ExampleClient_Do_basicAuth gives an example of using client with credentials.
 func ExampleClient_Do_basicAuth() {
 	client := &auth.Client{
-		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
-			switch reg {
-			// expectedHostAddress is of form ipaddr:port
-			case expectedHostAddress:
-				return auth.Credential{
-					Username: username,
-					Password: password,
-				}, nil
-			default:
-				// credential not found. Try anonymous access.
-				return auth.EmptyCredential, nil
-			}
-		},
+		// expectedHostAddress is of form ipaddr:port
+		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+			Username: username,
+			Password: password,
+		}),
 	}
 	// basicAuthTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequest(http.MethodGet, basicAuthTargetURL, nil)
@@ -193,18 +185,11 @@ func ExampleClient_Do_basicAuth() {
 // including using cache, setting user agent and configuring OAuth2.
 func ExampleClient_Do_clientConfigurations() {
 	client := &auth.Client{
-		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
-			switch reg {
-			// expectedHostAddress is of form ipaddr:port
-			case expectedHostAddress:
-				return auth.Credential{
-					Username: username,
-					Password: password,
-				}, nil
-			default:
-				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
-			}
-		},
+		// expectedHostAddress is of form ipaddr:port
+		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+			Username: username,
+			Password: password,
+		}),
 		// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant.
 		ForceAttemptOAuth2: true,
 		// Cache caches credentials for accessing the remote registry.
@@ -240,17 +225,10 @@ func ExampleClient_Do_clientConfigurations() {
 // ExampleClient_Do_withAccessToken gives an example of using client with an access token.
 func ExampleClient_Do_withAccessToken() {
 	client := &auth.Client{
-		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
-			switch reg {
-			// expectedHostAddress is of form ipaddr:port
-			case expectedHostAddress:
-				return auth.Credential{
-					AccessToken: accessToken,
-				}, nil
-			default:
-				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
-			}
-		},
+		// expectedHostAddress is of form ipaddr:port
+		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+			AccessToken: accessToken,
+		}),
 	}
 	// accessTokenTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequest(http.MethodGet, accessTokenTargetURL, nil)
@@ -270,17 +248,10 @@ func ExampleClient_Do_withAccessToken() {
 // ExampleClient_Do_withRefreshToken gives an example of using client with a refresh token.
 func ExampleClient_Do_withRefreshToken() {
 	client := &auth.Client{
-		Credential: func(ctx context.Context, reg string) (auth.Credential, error) {
-			switch reg {
-			// expectedHostAddress is of form ipaddr:port
-			case expectedHostAddress:
-				return auth.Credential{
-					RefreshToken: refreshToken,
-				}, nil
-			default:
-				return auth.EmptyCredential, fmt.Errorf("credential not found for %v", reg)
-			}
-		},
+		// expectedHostAddress is of form ipaddr:port
+		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+			RefreshToken: refreshToken,
+		}),
 	}
 
 	// refreshTokenTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
