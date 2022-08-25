@@ -40,6 +40,12 @@ type GraphStorage interface {
 	PredecessorFinder
 }
 
+// GraphStorage represents an immutable GraphStorage.
+type ImmutableGraphStorage interface {
+	ImmutableStorage
+	PredecessorFinder
+}
+
 // Successors returns the nodes directly pointed by the current node.
 // In other words, returns the "children" of the current descriptor.
 func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
