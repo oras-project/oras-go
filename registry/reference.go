@@ -29,8 +29,8 @@ import (
 var (
 	// repositoryRegexp is adapted from the distribution implementation. The
 	// repository name set under OCI distribution spec is a subset of the docker
-	// spec. For maximum compability, the docker spec is verified at the client
-	// side. Further check is left to the server side.
+	// spec. For maximum compatability, the docker spec is verified client-side.
+	// Further checks are left to the server-side.
 	// References:
 	// - https://github.com/distribution/distribution/blob/v2.7.1/reference/regexp.go#L53
 	// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests
@@ -59,6 +59,7 @@ type Reference struct {
 // ParseReference parses a string (artifact) into an `artifact reference`.
 //
 // Note: An "image" is an "artifact", however, an "artifact" is not necessarily
+// an "image".
 //
 // The parameter `artifact` is an opaque polymorphic string, composed of two
 // other opaque tokens; namely `socketaddr` and `path`: These can in turn take
