@@ -16,7 +16,9 @@ limitations under the License.
 package oras
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -28,6 +30,8 @@ import (
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/registry"
 )
+
+var ErrMissingMediaType = errors.New("missing media type")
 
 // Tag tags the descriptor identified by src with dst.
 func Tag(ctx context.Context, target Target, src, dst string) error {
@@ -190,4 +194,43 @@ func FetchBytes(ctx context.Context, target ReadOnlyTarget, reference string, op
 	}
 
 	return desc, bytes, nil
+}
+
+func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, contentBytes []byte) (ocispec.Descriptor, error) {
+	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
+	r := bytes.NewReader(contentBytes)
+	if err := pusher.Push(ctx, desc, r); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	return desc, nil
+}
+
+func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, references ...string) (ocispec.Descriptor, error) {
+	if len(references) == 0 {
+		return PushBytes(ctx, target, mediaType, contentBytes)
+	}
+
+	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
+	// TODO: go routines
+	var r io.Reader
+	if refPusher, ok := target.(registry.ReferencePusher); ok {
+		for _, ref := range references {
+			r := bytes.NewReader(contentBytes)
+			if err := refPusher.PushReference(ctx, desc, r, ref); err != nil {
+				return ocispec.Descriptor{}, err
+			}
+		}
+	}
+
+	r = bytes.NewReader(contentBytes)
+	if err := target.Push(ctx, desc, r); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	for _, ref := range references {
+		if err := target.Tag(ctx, desc, ref); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+	}
+	return desc, nil
 }

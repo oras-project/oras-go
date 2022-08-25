@@ -34,6 +34,7 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -1284,5 +1285,249 @@ func TestFetchBytes_Repository(t *testing.T) {
 	_, _, err = oras.FetchBytes(ctx, repo.Blobs(), blobDesc.Digest.String(), opts)
 	if !errors.Is(err, errdef.ErrUnsupported) {
 		t.Fatalf("oras.FetchBytes() error = %v, wantErr %v", err, errdef.ErrUnsupported)
+	}
+}
+
+func TestPushBytes(t *testing.T) {
+	s := cas.NewMemory()
+
+	content := []byte("hello world")
+	mediaType := "test"
+	descTest := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	descOctet := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	descEmpty := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(nil),
+		Size:      0,
+	}
+
+	ctx := context.Background()
+	// test PushBytes with specified media type
+	gotDesc, err := oras.PushBytes(ctx, s, mediaType, content)
+	if err != nil {
+		t.Fatal("Memory.Push() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descTest) {
+		t.Errorf("oras.PushBytes() = %v, want %v", gotDesc, descTest)
+	}
+	rc, err := s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Memory.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Memory.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Memory.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
+	}
+
+	// test PushBytes with empty media type
+	gotDesc, err = oras.PushBytes(ctx, s, "", content)
+	if err != nil {
+		t.Fatal("Memory.Push() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descOctet) {
+		t.Errorf("oras.PushBytes() = %v, want %v", gotDesc, descOctet)
+	}
+	rc, err = s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Memory.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Memory.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Memory.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
+	}
+
+	// test PushBytes with empty content
+	gotDesc, err = oras.PushBytes(ctx, s, mediaType, nil)
+	if err != nil {
+		t.Fatal("Memory.Push() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descEmpty) {
+		t.Errorf("oras.PushBytes() = %v, want %v", gotDesc, descEmpty)
+	}
+	rc, err = s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Memory.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Memory.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Memory.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, nil) {
+		t.Errorf("Memory.Fetch() = %v, want %v", got, nil)
+	}
+}
+
+func TestTagBytes_Memory(t *testing.T) {
+	content := []byte("hello world")
+	mediaType := "test"
+	descTest := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	descOctet := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	descEmpty := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(nil),
+		Size:      0,
+	}
+
+	ctx := context.Background()
+	// test TagBytes with no reference
+	s := memory.New()
+	gotDesc, err := oras.TagBytes(ctx, s, mediaType, content)
+	if err != nil {
+		t.Fatal("oras.TagBytes() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descTest) {
+		t.Errorf("oras.TagBytes() = %v, want %v", gotDesc, descTest)
+	}
+	rc, err := s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Memory.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Memory.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Memory.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
+	}
+
+	// test TagBytes with multiple references
+	s = memory.New()
+	refs := []string{"foo", "bar", "baz"}
+	gotDesc, err = oras.TagBytes(ctx, s, mediaType, content, refs...)
+	if err != nil {
+		t.Fatal("oras.TagBytes() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descTest) {
+		t.Fatalf("oras.TagBytes() = %v, want %v", gotDesc, descTest)
+	}
+	for _, ref := range refs {
+		gotDesc, err := s.Resolve(ctx, ref)
+		if err != nil {
+			t.Fatal("Memory.Resolve() error =", err)
+		}
+		if !reflect.DeepEqual(gotDesc, descTest) {
+			t.Fatalf("oras.PushBytes() = %v, want %v", gotDesc, descTest)
+		}
+	}
+	rc, err = s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Memory.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Memory.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Memory.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
+	}
+
+	// test TagBytes with empty media type and multiple references
+	s = memory.New()
+	gotDesc, err = oras.TagBytes(ctx, s, "", content, refs...)
+	if err != nil {
+		t.Fatal("oras.TagBytes() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descOctet) {
+		t.Fatalf("oras.TagBytes() = %v, want %v", gotDesc, descOctet)
+	}
+	for _, ref := range refs {
+		gotDesc, err := s.Resolve(ctx, ref)
+		if err != nil {
+			t.Fatal("Memory.Resolve() error =", err)
+		}
+		if !reflect.DeepEqual(gotDesc, descOctet) {
+			t.Fatalf("oras.PushBytes() = %v, want %v", gotDesc, descOctet)
+		}
+	}
+	rc, err = s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Memory.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Memory.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Memory.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
+	}
+
+	// test PushBytes with empty content and multiple references
+	s = memory.New()
+	gotDesc, err = oras.TagBytes(ctx, s, mediaType, nil, refs...)
+	if err != nil {
+		t.Fatal("oras.TagBytes() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descEmpty) {
+		t.Fatalf("oras.TagBytes() = %v, want %v", gotDesc, descEmpty)
+	}
+	for _, ref := range refs {
+		gotDesc, err := s.Resolve(ctx, ref)
+		if err != nil {
+			t.Fatal("Memory.Resolve() error =", err)
+		}
+		if !reflect.DeepEqual(gotDesc, descEmpty) {
+			t.Fatalf("oras.PushBytes() = %v, want %v", gotDesc, descEmpty)
+		}
+	}
+	rc, err = s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Memory.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Memory.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Memory.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, nil) {
+		t.Errorf("Memory.Fetch() = %v, want %v", got, nil)
 	}
 }

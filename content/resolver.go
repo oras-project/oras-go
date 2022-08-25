@@ -28,10 +28,18 @@ type Resolver interface {
 	Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error)
 }
 
-// TagResolver provides reference tag indexing services.
-type TagResolver interface {
-	Resolver
-
+type Tagger interface {
 	// Tag tags a descriptor with a reference string.
 	Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error
+}
+
+// TagResolver provides reference tag indexing services.
+type TagResolver interface {
+	Tagger
+	Resolver
+}
+
+type TagPusher interface {
+	Tagger
+	Pusher
 }
