@@ -78,6 +78,7 @@ func TestCredential_StaticCredential_basicAuth(t *testing.T) {
 
 func TestCredential_StaticCredential_withAccessToken(t *testing.T) {
 	testAccessToken := "test/access/token"
+	scope := "repository:test:pull,push"
 
 	// create an authorization server
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,13 +92,13 @@ func TestCredential_StaticCredential_withAccessToken(t *testing.T) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
-			panic("unexpected access")
+			t.Fatal("unexpected access")
 		}
 		switch path {
 		case "/accessToken":
 			wantedAuthHeader := "Bearer " + testAccessToken
 			if auth := r.Header.Get("Authorization"); auth != wantedAuthHeader {
-				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, host, strings.Join(tokenScopes, " "))
+				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, host, scope)
 				w.Header().Set("Www-Authenticate", challenge)
 				w.WriteHeader(http.StatusUnauthorized)
 			}
@@ -108,41 +109,39 @@ func TestCredential_StaticCredential_withAccessToken(t *testing.T) {
 	defer ts.Close()
 	host := ts.URL
 	uri, _ := url.Parse(host)
-	expectedHostAddress := uri.Host
-	accessTokenTargetURL := fmt.Sprintf("%s/accessToken", host)
+	hostAddress := uri.Host
+	accessTokenURL := fmt.Sprintf("%s/accessToken", host)
 
-	// correct client
-	client := &auth.Client{
-		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+	// create a test client with the correct credentials
+	clientValid := &auth.Client{
+		Credential: auth.StaticCredential(hostAddress, auth.Credential{
 			AccessToken: testAccessToken,
 		}),
 	}
-	req, err := http.NewRequest(http.MethodGet, accessTokenTargetURL, nil)
+	req, err := http.NewRequest(http.MethodGet, accessTokenURL, nil)
 	if err != nil {
-		panic(err)
+		t.Fatalf("could not create request, err = %v", err)
 	}
-	resp, err := client.Do(req)
+	respValid, err := clientValid.Do(req)
 	if err != nil {
-		panic(err)
+		t.Fatalf("could not send request, err = %v", err)
+	}
+	if respValid.StatusCode != 200 {
+		t.Errorf("incorrect status code: %d, expected 200", respValid.StatusCode)
 	}
 
-	if resp.StatusCode != 200 {
-		t.Error("Bad")
-	}
-
-	// incorrect client
-	client2 := &auth.Client{
-		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
-			AccessToken: "bad",
+	// create a test client with incorrect credentials
+	clientInvalid := &auth.Client{
+		Credential: auth.StaticCredential(hostAddress, auth.Credential{
+			AccessToken: "foo",
 		}),
 	}
-	resp2, err := client2.Do(req)
+	respInvalid, err := clientInvalid.Do(req)
 	if err != nil {
-		panic(err)
+		t.Fatalf("could not send request, err = %v", err)
 	}
-
-	if resp2.StatusCode != 401 {
-		t.Error("Bad")
+	if respInvalid.StatusCode != 401 {
+		t.Errorf("incorrect status code: %d, expected 401", respInvalid.StatusCode)
 	}
 }
 
