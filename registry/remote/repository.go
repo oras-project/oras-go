@@ -1024,7 +1024,12 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 	}
 
 	if len(refDigest) > 0 && refDigest != contentDigest {
-		return ocispec.Descriptor{}, fmt.Errorf("%s: mismatch digest: %s", refDigest, contentDigest)
+		return ocispec.Descriptor{}, fmt.Errorf(
+			"%s %q: invalid response; digest mismatch: `%s: %s` vs expected `%s`",
+			resp.Request.Method, resp.Request.URL,
+			dockerContentDigestHeader, contentDigest,
+			refDigest,
+		)
 	}
 
 	// 6. Finally, if we made it this far, then all is good; return.

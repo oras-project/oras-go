@@ -44,14 +44,12 @@ import (
 )
 
 type testIOStruct struct {
-	name                      string
-	isTag                     bool
-	clientSuppliedReference   string
-	serverCalculatedDigest    digest.Digest // for non-HEAD (body-containing) requests only
-	errExpectedOnManifestHEAD bool
-	errExpectedOnManifestGET  bool
-	errExpectedOnBlobHEAD     bool
-	errExpectedOnBlobGET      bool
+	name                    string
+	isTag                   bool
+	clientSuppliedReference string
+	serverCalculatedDigest  digest.Digest // for non-HEAD (body-containing) requests only
+	errExpectedOnHEAD       bool
+	errExpectedOnGET        bool
 }
 
 const theAmazingBanClan = "Ban Gu, Ban Chao, Ban Zhao"
@@ -77,27 +75,24 @@ const theAmazingBanDigest = "b526a4f2be963a2f9b0990c001255669eab8a254ab1a6e3f84f
 // when checks are performed, and with that assumption, we have the luxury for
 // the second point, which is b) performance.
 //
-//	 ___________________________________________________________________________________________________________
-//	| ID | CLIENT        | SERVER         | Manifest.GET          | Blob.GET  | Manifest.HEAD       | Blob.HEAD |
-//	|----+---------------+----------------+-----------------------+-----------+---------------------+-----------+
-//	| 1! | tag           | missing        | CALCULATE,PASS        | PASS      | FAIL                | PASS      |
-//	| 2  | tag           | presentValid   | TRUST,PASS            | PASS      | TRUST,PASS          | PASS      |
-//	| 3  | tag           | presentInvalid | TRUST,*PASS           | PASS      | TRUST,*PASS         | PASS      |
-//	| 4  | validDigest   | missing        | TRUST,PASS            | PASS      | TRUST,PASS          | PASS      |
-//	| 5  | validDigest   | presentValid   | TRUST,COMPARE,PASS    | PASS      | TRUST,COMPARE,PASS  | PASS      |
-//	| 6  | validDigest   | presentInvalid | TRUST,COMPARE,FAIL    | FAIL      | TRUST,COMPARE,FAIL  | FAIL      |
-//	| 7! | invalidDigest | missing        | TRUST,FAIL            | PASS      | TRUST,*PASS         | PASS      | <TBA>
-//	| 8  | invalidDigest | presentValid   | TRUST,COMPARE,FAIL    | FAIL      | TRUST,COMPARE,FAIL  | FAIL      | <TBA>
-//	| 9  | invalidDigest | presentInvalid | TRUST,COMPARE,*PASS   | PASS      | TRUST,COMPARE,*PASS | PASS      | <TBA>
-//	 -----------------------------------------------------------------------------------------------------------
+//	 _______________________________________________________________________________________________________________
+//	| ID | CLIENT          | SERVER           | Manifest.GET          | Blob.GET  | Manifest.HEAD       | Blob.HEAD |
+//	|----+-----------------+------------------+-----------------------+-----------+---------------------+-----------+
+//	| 1  | tag             | missing          | CALCULATE,PASS        | n/a       | FAIL                | n/a       |
+//	| 2  | tag             | presentCorrect   | TRUST,PASS            | n/a       | TRUST,PASS          | n/a       |
+//	| 3  | tag             | presentIncorrect | TRUST,*PASS           | n/a       | TRUST,*PASS         | n/a       |
+//	| 4  | correctDigest   | missing          | TRUST,PASS            | PASS      | TRUST,PASS          | PASS      |
+//	| 5  | correctDigest   | presentCorrect   | TRUST,COMPARE,PASS    | PASS      | TRUST,COMPARE,PASS  | PASS      |
+//	| 6  | correctDigest   | presentIncorrect | TRUST,COMPARE,FAIL    | FAIL      | TRUST,COMPARE,FAIL  | FAIL      |
+//	 ---------------------------------------------------------------------------------------------------------------
 func getTestIOStructMapForGetDescriptorClass() map[string]testIOStruct {
 	correctDigest := fmt.Sprintf("sha256:%v", theAmazingBanDigest)
 	incorrectDigest := fmt.Sprintf("sha256:%v", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 
 	return map[string]testIOStruct{
 		"1. Client:Tag & Server:DigestMissing": {
-			isTag:                     true,
-			errExpectedOnManifestHEAD: true,
+			isTag:             true,
+			errExpectedOnHEAD: true,
 		},
 		"2. Client:Tag & Server:DigestValid": {
 			isTag:                  true,
@@ -115,28 +110,10 @@ func getTestIOStructMapForGetDescriptorClass() map[string]testIOStruct {
 			serverCalculatedDigest:  digest.Digest(correctDigest),
 		},
 		"6. Client:DigestValid & Server:DigestWrongButSyntacticallyValid": {
-			clientSuppliedReference:   correctDigest,
-			serverCalculatedDigest:    digest.Digest(incorrectDigest),
-			errExpectedOnManifestHEAD: true,
-			errExpectedOnManifestGET:  true,
-			errExpectedOnBlobHEAD:     true,
-			errExpectedOnBlobGET:      true,
-		},
-		"7. Client:DigestWrongButSyntacticallyValid & Server:DigestMissing": {
-			clientSuppliedReference:  incorrectDigest,
-			errExpectedOnManifestGET: true,
-		},
-		"8. Client:DigestWrongButSyntacticallyValid & Server:DigestValid": {
-			clientSuppliedReference:   incorrectDigest,
-			serverCalculatedDigest:    digest.Digest(correctDigest),
-			errExpectedOnManifestHEAD: true,
-			errExpectedOnManifestGET:  true,
-			errExpectedOnBlobHEAD:     true,
-			errExpectedOnBlobGET:      true,
-		},
-		"9. Client:DigestWrongButSyntacticallyValid & Server:DigestWrongButSyntacticallyValid": {
-			clientSuppliedReference: incorrectDigest,
+			clientSuppliedReference: correctDigest,
 			serverCalculatedDigest:  digest.Digest(incorrectDigest),
+			errExpectedOnHEAD:       true,
+			errExpectedOnGET:        true,
 		},
 	}
 }
@@ -2536,6 +2513,10 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 	}
 	tests := getTestIOStructMapForGetDescriptorClass()
 	for testName, dcdIOStruct := range tests {
+		if dcdIOStruct.isTag {
+			continue
+		}
+
 		for i, method := range []string{http.MethodGet, http.MethodHead} {
 			reference.Reference = dcdIOStruct.clientSuppliedReference
 
@@ -2554,21 +2535,14 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 
 			var err error
 			var d digest.Digest
-			d, err = reference.Digest()
-			if dcdIOStruct.isTag && err == nil {
-				t.Errorf(
-					"[Blob.%v] %v; failed to get digest from reference",
-					method, testName,
-				)
-			}
-			if !dcdIOStruct.isTag && err != nil {
+			if d, err = reference.Digest(); err != nil {
 				t.Errorf(
 					"[Blob.%v] %v; got digest from a tag reference unexpectedly",
 					method, testName,
 				)
 			}
 
-			errExpected := []bool{dcdIOStruct.errExpectedOnBlobGET, dcdIOStruct.errExpectedOnBlobHEAD}[i]
+			errExpected := []bool{dcdIOStruct.errExpectedOnGET, dcdIOStruct.errExpectedOnHEAD}[i]
 			if len(d) == 0 {
 				// To avoid an otherwise impossible scenario in the tested code
 				// path, we set d so that verifyContentDigest does not break.
@@ -3094,7 +3068,7 @@ func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(
 				Method: method,
 			}
 
-			errExpected := []bool{dcdIOStruct.errExpectedOnManifestGET, dcdIOStruct.errExpectedOnManifestHEAD}[i]
+			errExpected := []bool{dcdIOStruct.errExpectedOnGET, dcdIOStruct.errExpectedOnHEAD}[i]
 			_, err = s.generateDescriptor(&resp, reference, method)
 			if !errExpected && err != nil {
 				t.Errorf(
