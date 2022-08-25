@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -82,8 +81,8 @@ func TestCredential_StaticCredential_withAccessToken(t *testing.T) {
 
 	// create an authorization server
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("unexecuted attempt of authorization service")
 		w.WriteHeader(http.StatusUnauthorized)
+		t.Error("unexecuted attempt of authorization service")
 	}))
 	defer as.Close()
 
@@ -146,44 +145,37 @@ func TestCredential_StaticCredential_withAccessToken(t *testing.T) {
 }
 
 func TestCredential_StaticCredential_withRefreshToken(t *testing.T) {
+	var host string
 	testAccessToken := "test/access/token"
 	testRefreshToken := "test/refresh/token"
+	scope := "repository:test:pull,push"
 
 	// create an authorization server
-	var service string
-	scopes := []string{
-		"repository:dst:pull,push",
-		"repository:src:pull",
-	}
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/" {
-			t.Error("unexecuted attempt of authorization service")
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusUnauthorized)
-			return
+			t.Error("unexecuted attempt of authorization service")
 		}
 		if err := r.ParseForm(); err != nil {
-			t.Errorf("failed to parse form: %v", err)
 			w.WriteHeader(http.StatusUnauthorized)
-			return
+			t.Error("failed to parse form")
 		}
 		if got := r.PostForm.Get("service"); got != host {
-			t.Errorf("unexpected service: %v, want %v", got, service)
 			w.WriteHeader(http.StatusUnauthorized)
-			return
 		}
-		scope := strings.Join(scopes, " ")
-		if got := r.PostForm.Get("scope"); got != scope {
-			t.Errorf("unexpected scope: %v, want %v", got, scope)
+		// handles refresh token requests
+		if got := r.PostForm.Get("grant_type"); got != "refresh_token" {
 			w.WriteHeader(http.StatusUnauthorized)
-			return
+		}
+		if got := r.PostForm.Get("scope"); got != scope {
+			w.WriteHeader(http.StatusUnauthorized)
 		}
 		if got := r.PostForm.Get("refresh_token"); got != testRefreshToken {
-			// t.Errorf("unexpected refresh token: %v, want %v", got, testRefreshToken)
 			w.WriteHeader(http.StatusUnauthorized)
-			return
 		}
+		// writes back access token
 		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, testAccessToken); err != nil {
-			t.Errorf("failed to write %q: %v", r.URL, err)
+			t.Fatalf("could not write back access token, error = %v", err)
 		}
 	}))
 	defer as.Close()
@@ -199,7 +191,7 @@ func TestCredential_StaticCredential_withRefreshToken(t *testing.T) {
 		case "/refreshToken":
 			wantedAuthHeader := "Bearer " + testAccessToken
 			if auth := r.Header.Get("Authorization"); auth != wantedAuthHeader {
-				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, host, strings.Join(scopes, " "))
+				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, host, scope)
 				w.Header().Set("Www-Authenticate", challenge)
 				w.WriteHeader(http.StatusUnauthorized)
 			}
@@ -208,42 +200,40 @@ func TestCredential_StaticCredential_withRefreshToken(t *testing.T) {
 		}
 	}))
 	defer ts.Close()
-	host := ts.URL
+	host = ts.URL
 	uri, _ := url.Parse(host)
-	expectedHostAddress := uri.Host
-	refreshTokenTargetURL = fmt.Sprintf("%s/refreshToken", host)
+	hostAddress := uri.Host
+	refreshTokenURL := fmt.Sprintf("%s/refreshToken", host)
 
-	// correct client
-	client := &auth.Client{
-		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+	// create a test client with the correct credentials
+	clientValid := &auth.Client{
+		Credential: auth.StaticCredential(hostAddress, auth.Credential{
 			RefreshToken: testRefreshToken,
 		}),
 	}
-	req, err := http.NewRequest(http.MethodGet, refreshTokenTargetURL, nil)
+	req, err := http.NewRequest(http.MethodGet, refreshTokenURL, nil)
 	if err != nil {
-		panic(err)
+		t.Fatalf("could not create request, err = %v", err)
 	}
-	resp, err := client.Do(req)
+	respValid, err := clientValid.Do(req)
 	if err != nil {
-		panic(err)
+		t.Fatalf("could not send request, err = %v", err)
+	}
+	if respValid.StatusCode != 200 {
+		t.Errorf("incorrect status code: %d, expected 200", respValid.StatusCode)
 	}
 
-	if resp.StatusCode != 200 {
-		t.Error("Bad")
-	}
-
-	// incorrect client
-	// client2 := &auth.Client{
-	// 	Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
-	// 		RefreshToken: "bad",
+	// create a test client with the correct credentials
+	// clientInvalid := &auth.Client{
+	// 	Credential: auth.StaticCredential(hostAddress, auth.Credential{
+	// 		RefreshToken: "bar",
 	// 	}),
 	// }
-	// resp2, err := client2.Do(req)
+	// respInvalid, err := clientInvalid.Do(req)
 	// if err != nil {
-	// 	t.Error("Bad111")
+	// 	t.Fatalf("could not send request, err = %v", err)
 	// }
-
-	// if resp2.StatusCode != 401 {
-	// 	t.Error("Bad")
+	// if respInvalid.StatusCode != 401 {
+	// 	t.Errorf("incorrect status code: %d, expected 401", respInvalid.StatusCode)
 	// }
 }
