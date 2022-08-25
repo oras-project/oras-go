@@ -437,3 +437,41 @@ func TestResolve_Repository_WithTargetPlatformOptions(t *testing.T) {
 		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 }
+
+func TestGenerateDescriptor(t *testing.T) {
+	// create a descriptor successfully
+	desc, err := oras.GenerateDescriptor([]byte("foo"), "example media type")
+	if err != nil {
+		t.Errorf("could not generate descriptor, error = %v", err)
+	}
+	if desc.MediaType != "example media type" {
+		t.Error("wrong media type")
+	}
+	if desc.Digest != digest.FromBytes([]byte("foo")) {
+		t.Error("wrong digest")
+	}
+	if desc.Size != int64(len("foo")) {
+		t.Error("wrong size")
+	}
+
+	// an empty media type will cause GenerateDescriptor to fail
+	_, err = oras.GenerateDescriptor([]byte("bar"), "")
+	if !errors.Is(err, oras.ErrInvalidMediaType) {
+		t.Errorf("unexpected error. expected error = %v, got error = %v", oras.ErrInvalidMediaType, err)
+	}
+}
+
+func TestEqual(t *testing.T) {
+	descFoo := ocispec.Descriptor{
+		MediaType: "example media type",
+		Digest:    digest.FromBytes([]byte("foo")),
+		Size:      int64(len("foo")),
+	}
+	descGenerated, err := oras.GenerateDescriptor([]byte("foo"), "example media type")
+	if err != nil {
+		t.Errorf("could not generate descriptor, error = %v", err)
+	}
+	if !oras.Equal(descFoo, descGenerated) {
+		t.Error("The descriptors should be equal.")
+	}
+}
