@@ -223,17 +223,15 @@ func TestCredential_StaticCredential_withRefreshToken(t *testing.T) {
 		t.Errorf("incorrect status code: %d, expected 200", respValid.StatusCode)
 	}
 
-	// create a test client with the correct credentials
+	// create a test client with incorrect credentials
+	// expectedError := fmt.Errorf("%s %q: %s %q: unexpected status code %d: %s", http.MethodGet, refreshTokenURL, http.MethodPost, as.URL, 401, "Unauthorized")
 	// clientInvalid := &auth.Client{
 	// 	Credential: auth.StaticCredential(hostAddress, auth.Credential{
 	// 		RefreshToken: "bar",
 	// 	}),
 	// }
-	// respInvalid, err := clientInvalid.Do(req)
-	// if err != nil {
-	// 	t.Fatalf("could not send request, err = %v", err)
-	// }
-	// if respInvalid.StatusCode != 401 {
-	// 	t.Errorf("incorrect status code: %d, expected 401", respInvalid.StatusCode)
+	// _, err = clientInvalid.Do(req)
+	// if !errors.Is(err, expectedError) {
+	// 	t.Fatalf("got error = %v, expected %v", err, expectedError)
 	// }
 }
