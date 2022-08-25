@@ -952,38 +952,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 }
 
 // generateDescriptor returns a descriptor generated from the response.
-//
-// The following truth table aims to cover the expected GET/HEAD request outcome
-// for all possible permutations of the client/server "containing a digest".
-//
-// The client is said to "contain a digest" if the user-supplied reference string
-// is of the form that contains a digest rather than a tag.  The server, on the
-// other hand, is said to "contain a digest" if the server responded with the
-// special header `Docker-Content-Digest`.
-//
-// In this table, anything denoted with an asterisk indicates that the true
-// response should actually be the opposite of what's expected; for example,
-// `*PASS` means we will get a `PASS`, even though the true answer would be its
-// diametric opposite--a `FAIL`. This may seem odd, and deserves an explanation.
-// This function has blind-spots, and while it can expend power to gain sight,
-// i.e., perform the expensive validation, we chose not to.  The reason is two-
-// fold: a) we "know" that even if we say "!PASS", it will eventually fail later
-// when checks are performed, and with that assumption, we have the luxury for
-// the second point, which is b) performance.
-//
-//	 ___________________________________________________________________________________
-//	| ID | CLIENT        | SERVER         | GET                   | HEAD                |
-//	|----+---------------+----------------+-----------------------+---------------------+
-//	| 1  | tag           | missing        | CALCULATE,PASS        | FAIL                |
-//	| 2  | tag           | presentValid   | TRUST,PASS            | TRUST,PASS          |
-//	| 3  | tag           | presentInvalid | TRUST,*PASS           | TRUST,*PASS         |
-//	| 4  | validDigest   | missing        | TRUST,PASS            | TRUST,PASS          |
-//	| 5  | validDigest   | presentValid   | TRUST,COMPARE,PASS    | TRUST,COMPARE,PASS  |
-//	| 6  | validDigest   | presentInvalid | TRUST,COMPARE,FAIL    | TRUST,COMPARE,FAIL  |
-//	| 7  | invalidDigest | missing        | TRUST,FAIL            | TRUST,*PASS         | <TBA>
-//	| 8  | invalidDigest | presentValid   | TRUST,COMPARE,FAIL    | TRUST,COMPARE,FAIL  | <TBA>
-//	| 9  | invalidDigest | presentInvalid | TRUST,COMPARE,*PASS   | TRUST,COMPARE,*PASS | <TBA>
-//	 -----------------------------------------------------------------------------------
+// See the truth table at the top of `repository_test.go`
 func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
 	// 1. Validate Content-Type
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
