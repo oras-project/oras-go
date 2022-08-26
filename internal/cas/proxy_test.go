@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	_ "crypto/sha256"
+	"errors"
 	"io"
 	"testing"
 
@@ -245,6 +246,268 @@ func TestProxy_StopCaching(t *testing.T) {
 	if err != nil {
 		t.Fatal("Proxy.Push() error =", err)
 	}
+
+	// FetchCached should fetch from the base CAS
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Proxy.Exists() = %v, want %v", exists, true)
+	}
+
+	// test StopCaching
+	s.StopCaching = true
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Proxy.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Proxy.Fetch() = %v, want %v", got, content)
+	}
+
+	// the content should not exist in the cache
+	exists, err = s.Cache.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Cache.Exists() error =", err)
+	}
+
+	if exists {
+		t.Errorf("Proxy.Cache.Exists()() = %v, want %v", exists, false)
+	}
+}
+
+func TestImmutableProxyCache(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	base := NewMemory()
+	ctx := context.Background()
+
+	err := base.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Memory.Push() error =", err)
+	}
+
+	s := NewImmutableProxy(base, NewMemory())
+	// first fetch
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Proxy.Exists() = %v, want %v", exists, true)
+	}
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Proxy.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Proxy.Fetch() = %v, want %v", got, content)
+	}
+
+	// repeated fetch should not touch base CAS
+	// nil base will generate panic if the base CAS is touched
+	s.Storage = nil
+
+	exists, err = s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Proxy.Exists() = %v, want %v", exists, true)
+	}
+	rc, err = s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Proxy.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Proxy.Fetch() = %v, want %v", got, content)
+	}
+}
+
+func TestImmutableProxy_PushNotAllowed(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	s := NewImmutableProxy(NewMemory(), nil)
+	ctx := context.Background()
+
+	err := s.Push(ctx, desc, bytes.NewReader(content))
+	if !errors.Is(err, errPushNotAllowed) {
+		t.Errorf("Proxy.Push() error = %v, want %v", err, errPushNotAllowed)
+	}
+}
+
+func TestImmutableProxy_FetchCached_NotCachedContent(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	base := NewMemory()
+	ctx := context.Background()
+
+	err := base.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Memory.Push() error =", err)
+	}
+	s := NewImmutableProxy(base, NewMemory())
+
+	// FetchCached should fetch from the base CAS
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Proxy.Exists() = %v, want %v", exists, true)
+	}
+	rc, err := s.FetchCached(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Proxy.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Proxy.Fetch() = %v, want %v", got, content)
+	}
+
+	// the content should not exist in the cache
+	exists, err = s.Cache.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Cache.Exists() error =", err)
+	}
+
+	if exists {
+		t.Errorf("Proxy.Cache.Exists()() = %v, want %v", exists, false)
+	}
+}
+
+func TestImmutableProxy_FetchCached_CachedContent(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	base := NewMemory()
+	ctx := context.Background()
+
+	err := base.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Memory.Push() error =", err)
+	}
+	s := NewImmutableProxy(base, NewMemory())
+
+	// first fetch
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Proxy.Exists() = %v, want %v", exists, true)
+	}
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Proxy.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Proxy.Fetch() = %v, want %v", got, content)
+	}
+
+	// the subsequent FetchCached should not touch base CAS
+	// nil base will generate panic if the base CAS is touched
+	s.Storage = nil
+
+	exists, err = s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Proxy.Exists() = %v, want %v", exists, true)
+	}
+	rc, err = s.FetchCached(ctx, desc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Proxy.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Proxy.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Proxy.Fetch() = %v, want %v", got, content)
+	}
+}
+
+func TestImmutableProxy_StopCaching(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	base := NewMemory()
+	ctx := context.Background()
+
+	err := base.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Memory.Push() error =", err)
+	}
+	s := NewImmutableProxy(base, NewMemory())
 
 	// FetchCached should fetch from the base CAS
 	exists, err := s.Exists(ctx, desc)
