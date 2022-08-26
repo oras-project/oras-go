@@ -59,7 +59,7 @@ type CopyOptions struct {
 
 // getPlatformFromConfig returns a platform object which is made up from the
 // fields in config blob.
-func getPlatformFromConfig(ctx context.Context, src content.Storage, desc ocispec.Descriptor, targetConfigMediaType string) (*ocispec.Platform, error) {
+func getPlatformFromConfig(ctx context.Context, src content.ImmutableStorage, desc ocispec.Descriptor, targetConfigMediaType string) (*ocispec.Platform, error) {
 	if desc.MediaType != targetConfigMediaType {
 		return nil, fmt.Errorf("mismatch MediaType %s: expect %s", desc.MediaType, targetConfigMediaType)
 	}
@@ -81,7 +81,7 @@ func getPlatformFromConfig(ctx context.Context, src content.Storage, desc ocispe
 // selectPlatform implements platform filter and returns the descriptor of the
 // first matched manifest if the root is a manifest list. If the root is a
 // manifest, then return the root descriptor if platform matches.
-func selectPlatform(ctx context.Context, src content.Storage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
+func selectPlatform(ctx context.Context, src content.ImmutableStorage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
 	switch root.MediaType {
 	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
 		manifests, err := content.Successors(ctx, src, root)

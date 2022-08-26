@@ -60,7 +60,7 @@ type ResolveOptions struct {
 }
 
 // Resolve resolves a descriptor with provided reference from the target.
-func Resolve(ctx context.Context, target Target, ref string, opts ResolveOptions) (ocispec.Descriptor, error) {
+func Resolve(ctx context.Context, target ImmutableTarget, ref string, opts ResolveOptions) (ocispec.Descriptor, error) {
 	if opts.TargetPlatform == nil {
 		return target.Resolve(ctx, ref)
 	}
@@ -83,7 +83,7 @@ func Resolve(ctx context.Context, target Target, ref string, opts ResolveOptions
 				return ocispec.Descriptor{}, err
 			}
 
-			proxy := cas.NewProxy(target, store)
+			proxy := cas.NewImmutableProxy(target, store)
 			proxy.StopCaching = true
 			return selectPlatform(ctx, proxy, desc, opts.TargetPlatform)
 		default:

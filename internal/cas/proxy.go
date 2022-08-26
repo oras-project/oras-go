@@ -26,9 +26,6 @@ import (
 	"oras.land/oras-go/v2/internal/ioutil"
 )
 
-// errPushNotAllowed is returned when push is called on an immutable proxy.
-var errPushNotAllowed = errors.New("push not allowed")
-
 // Proxy is a caching proxy for the storage.
 // The first fetch call of a described content will read from the remote and
 // cache the fetched content.
@@ -47,6 +44,9 @@ func NewProxy(base, cache content.Storage) *Proxy {
 		Cache:   cache,
 	}
 }
+
+// errPushNotAllowed is returned when push is called on an immutable proxy.
+var errPushNotAllowed = errors.New("push not allowed")
 
 // immutableProxyStorage represents an immutable storage of a proxy.
 type immutableProxyStorage struct {
