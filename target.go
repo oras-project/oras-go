@@ -39,5 +39,5 @@ type ImmutableTarget interface {
 // ImmutableStorage represents an immutable GraphTarget.
 type ImmutableGraphTarget interface {
 	content.ImmutableGraphStorage
-	content.TagResolver
+	content.Resolver
 }
