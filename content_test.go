@@ -462,16 +462,41 @@ func TestGenerateDescriptor(t *testing.T) {
 }
 
 func TestEqual(t *testing.T) {
+	// descFoo and descFooGenerated are equal
 	descFoo := ocispec.Descriptor{
 		MediaType: "example media type",
 		Digest:    digest.FromBytes([]byte("foo")),
 		Size:      int64(len("foo")),
 	}
-	descGenerated, err := oras.GenerateDescriptor([]byte("foo"), "example media type")
+	descFooGenerated, err := oras.GenerateDescriptor([]byte("foo"), "example media type")
 	if err != nil {
 		t.Errorf("could not generate descriptor, error = %v", err)
 	}
-	if !oras.Equal(descFoo, descGenerated) {
+	if !oras.Equal(descFoo, descFooGenerated) {
 		t.Error("The descriptors should be equal.")
+	}
+
+	// descBar and descFooGenerated are not equal
+	descBar := ocispec.Descriptor{
+		MediaType: "example media type",
+		Digest:    digest.FromBytes([]byte("bar")),
+		Size:      int64(len("bar")),
+	}
+	if oras.Equal(descBar, descFooGenerated) {
+		t.Error("The descriptors should not be equal.")
+	}
+
+	// descBar and descBarGenerated are not equal
+	descBarGenerated, err := oras.GenerateDescriptor([]byte("bar"), "another media type")
+	if err != nil {
+		t.Errorf("could not generate descriptor, error = %v", err)
+	}
+	if oras.Equal(descBar, descBarGenerated) {
+		t.Error("The descriptors should not be equal.")
+	}
+
+	// descFooGenerated and descBarGenerated are not equal
+	if oras.Equal(descFooGenerated, descBarGenerated) {
+		t.Error("The descriptors should not be equal.")
 	}
 }
