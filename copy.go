@@ -27,7 +27,6 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/platform"
@@ -371,7 +370,7 @@ func resolveRoot(ctx context.Context, src ReadOnlyTarget, srcRef string, proxy *
 	defer rc.Close()
 	// cache root if it is a non-leaf node
 	fetcher := content.FetcherFunc(func(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-		if descriptor.EqualOCI(target, root) {
+		if Equal(target, root) {
 			return rc, nil
 		}
 		return nil, errors.New("fetching only root node expected")
@@ -396,7 +395,7 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 					return err
 				}
 			}
-			if !descriptor.EqualOCI(desc, root) {
+			if !Equal(desc, root) {
 				// for non-root node, do nothing
 				return nil
 			}
@@ -416,7 +415,7 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 	} else {
 		postCopy := opts.PostCopy
 		opts.PostCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
-			if descriptor.EqualOCI(desc, root) {
+			if Equal(desc, root) {
 				// for root node, tag it after copying it
 				if err := dst.Tag(ctx, root, dstRef); err != nil {
 					return err
@@ -436,7 +435,7 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 				return err
 			}
 		}
-		if !descriptor.EqualOCI(desc, root) {
+		if !Equal(desc, root) {
 			return nil
 		}
 		// enforce tagging when root is skipped

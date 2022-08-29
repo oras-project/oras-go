@@ -438,65 +438,91 @@ func TestResolve_Repository_WithTargetPlatformOptions(t *testing.T) {
 	}
 }
 
-func TestGenerateDescriptor(t *testing.T) {
-	// create a descriptor successfully
-	desc, err := oras.GenerateDescriptor([]byte("foo"), "example media type")
-	if err != nil {
-		t.Errorf("could not generate descriptor, error = %v", err)
-	}
-	if desc.MediaType != "example media type" {
-		t.Error("wrong media type")
-	}
-	if desc.Digest != digest.FromBytes([]byte("foo")) {
-		t.Error("wrong digest")
-	}
-	if desc.Size != int64(len("foo")) {
-		t.Error("wrong size")
-	}
+// func TestGenerateDescriptor(t *testing.T) {
+// 	// create a descriptor successfully
+// 	desc, err := oras.GenerateDescriptor([]byte("foo"), "example media type")
+// 	if err != nil {
+// 		t.Errorf("could not generate descriptor, error = %v", err)
+// 	}
+// 	if desc.MediaType != "example media type" {
+// 		t.Error("wrong media type")
+// 	}
+// 	if desc.Digest != digest.FromBytes([]byte("foo")) {
+// 		t.Error("wrong digest")
+// 	}
+// 	if desc.Size != int64(len("foo")) {
+// 		t.Error("wrong size")
+// 	}
 
-	// an empty media type will cause GenerateDescriptor to fail
-	_, err = oras.GenerateDescriptor([]byte("bar"), "")
-	if !errors.Is(err, oras.ErrInvalidMediaType) {
-		t.Errorf("unexpected error. expected error = %v, got error = %v", oras.ErrInvalidMediaType, err)
-	}
-}
+// 	// an empty media type will cause GenerateDescriptor to fail
+// 	_, err = oras.GenerateDescriptor([]byte("bar"), "")
+// 	if !errors.Is(err, oras.ErrInvalidMediaType) {
+// 		t.Errorf("unexpected error. expected error = %v, got error = %v", oras.ErrInvalidMediaType, err)
+// 	}
+// }
 
-func TestEqual(t *testing.T) {
-	// descFoo and descFooGenerated are equal
-	descFoo := ocispec.Descriptor{
-		MediaType: "example media type",
-		Digest:    digest.FromBytes([]byte("foo")),
-		Size:      int64(len("foo")),
-	}
-	descFooGenerated, err := oras.GenerateDescriptor([]byte("foo"), "example media type")
-	if err != nil {
-		t.Errorf("could not generate descriptor, error = %v", err)
-	}
-	if !oras.Equal(descFoo, descFooGenerated) {
-		t.Error("The descriptors should be equal.")
-	}
+// func TestEqual(t *testing.T) {
+// 	// descFoo and descFooGenerated are equal
+// 	descFoo := ocispec.Descriptor{
+// 		MediaType: "example media type",
+// 		Digest:    digest.FromBytes([]byte("foo")),
+// 		Size:      int64(len("foo")),
+// 	}
+// 	descFooGenerated, err := oras.GenerateDescriptor([]byte("foo"), "example media type")
+// 	if err != nil {
+// 		t.Errorf("could not generate descriptor, error = %v", err)
+// 	}
+// 	if !oras.Equal(descFoo, descFooGenerated) {
+// 		t.Error("The descriptors should be equal.")
+// 	}
 
-	// descBar and descFooGenerated are not equal
-	descBar := ocispec.Descriptor{
-		MediaType: "example media type",
-		Digest:    digest.FromBytes([]byte("bar")),
-		Size:      int64(len("bar")),
-	}
-	if oras.Equal(descBar, descFooGenerated) {
-		t.Error("The descriptors should not be equal.")
-	}
+// 	// descBar and descFooGenerated are not equal
+// 	descBar := ocispec.Descriptor{
+// 		MediaType: "example media type",
+// 		Digest:    digest.FromBytes([]byte("bar")),
+// 		Size:      int64(len("bar")),
+// 	}
+// 	if oras.Equal(descBar, descFooGenerated) {
+// 		t.Error("The descriptors should not be equal.")
+// 	}
 
-	// descBar and descBarGenerated are not equal
-	descBarGenerated, err := oras.GenerateDescriptor([]byte("bar"), "another media type")
-	if err != nil {
-		t.Errorf("could not generate descriptor, error = %v", err)
-	}
-	if oras.Equal(descBar, descBarGenerated) {
-		t.Error("The descriptors should not be equal.")
-	}
+// 	// descBar and descBarGenerated are not equal
+// 	descBarGenerated, err := oras.GenerateDescriptor([]byte("bar"), "another media type")
+// 	if err != nil {
+// 		t.Errorf("could not generate descriptor, error = %v", err)
+// 	}
+// 	if oras.Equal(descBar, descBarGenerated) {
+// 		t.Error("The descriptors should not be equal.")
+// 	}
 
-	// descFooGenerated and descBarGenerated are not equal
-	if oras.Equal(descFooGenerated, descBarGenerated) {
-		t.Error("The descriptors should not be equal.")
-	}
-}
+// 	// descFooGenerated and descBarGenerated are not equal
+// 	if oras.Equal(descFooGenerated, descBarGenerated) {
+// 		t.Error("The descriptors should not be equal.")
+// 	}
+// }
+
+// func TestEqual(t *testing.T) {
+// 	type args struct {
+// 		a ocispec.Descriptor
+// 		b ocispec.Descriptor
+// 	}
+// 	tests := []struct {
+// 		name string
+// 		args args
+// 		want bool
+// 	}{
+// 		// TODO: Add test cases.
+// 		{
+// 			name: "empty descriptor",
+// 			args: args{a: ocispec.Descriptor{}, b: ocispec.Descriptor{}},
+// 			want: true,
+// 		},
+// 	}
+// 	for _, tt := range tests {
+// 		t.Run(tt.name, func(t *testing.T) {
+// 			if got := oras.Equal(tt.args.a, tt.args.b); got != tt.want {
+// 				t.Errorf("Equal() = %v, want %v", got, tt.want)
+// 			}
+// 		})
+// 	}
+// }

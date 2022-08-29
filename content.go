@@ -17,10 +17,8 @@ package oras
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
@@ -99,23 +97,4 @@ func Resolve(ctx context.Context, target ReadOnlyTarget, ref string, opts Resolv
 	}
 
 	return selectPlatform(ctx, target, desc, opts.TargetPlatform)
-}
-
-var ErrInvalidMediaType error = errors.New("invalid Media Type")
-
-// GenerateDescriptor returns an OCI descriptor, given the content and media type.
-func GenerateDescriptor(content []byte, mediaType string) (ocispec.Descriptor, error) {
-	if mediaType == "" {
-		return ocispec.Descriptor{}, ErrInvalidMediaType
-	}
-	return ocispec.Descriptor{
-		MediaType: mediaType,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}, nil
-}
-
-// Equal tests if two OCI descriptors are identical.
-func Equal(a, b ocispec.Descriptor) bool {
-	return a.Digest == b.Digest && a.Size == b.Size && a.MediaType == b.MediaType
 }
