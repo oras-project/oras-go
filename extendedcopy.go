@@ -56,7 +56,7 @@ type ExtendedCopyGraphOptions struct {
 	Depth int
 	// FindPredecessors finds the predecessors of the current node.
 	// If FindPredecessors is nil, src.Predecessors will be adapted and used.
-	FindPredecessors func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
+	FindPredecessors func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
 // ExtendedCopy copies the directed acyclic graph (DAG) that are reachable from
@@ -64,7 +64,7 @@ type ExtendedCopyGraphOptions struct {
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
 // Returns the descriptor of the tagged node on successful copy.
-func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Target, dstRef string, opts ExtendedCopyOptions) (ocispec.Descriptor, error) {
+func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, dst Target, dstRef string, opts ExtendedCopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
 		return ocispec.Descriptor{}, errors.New("nil source graph target")
 	}
@@ -93,7 +93,7 @@ func ExtendedCopy(ctx context.Context, src GraphTarget, srcRef string, dst Targe
 
 // ExtendedCopyGraph copies the directed acyclic graph (DAG) that are reachable
 // from the given node from the source GraphStorage to the destination Storage.
-func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
+func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
 	roots, err := findRoots(ctx, src, node, opts)
 	if err != nil {
 		return err
@@ -111,7 +111,7 @@ func ExtendedCopyGraph(ctx context.Context, src content.GraphStorage, dst conten
 
 // findRoots finds the root nodes reachable from the given node through a
 // depth-first search.
-func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
+func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
 	visited := make(map[descriptor.Descriptor]bool)
 	roots := make(map[descriptor.Descriptor]ocispec.Descriptor)
 	addRoot := func(key descriptor.Descriptor, val ocispec.Descriptor) {
@@ -122,7 +122,7 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 
 	// if FindPredecessors is not provided, use the default one
 	if opts.FindPredecessors == nil {
-		opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		opts.FindPredecessors = func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 			return src.Predecessors(ctx, desc)
 		}
 	}
@@ -182,7 +182,7 @@ func findRoots(ctx context.Context, storage content.GraphStorage, node ocispec.D
 // FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
 	fp := opts.FindPredecessors
-	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	opts.FindPredecessors = func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		var predecessors []ocispec.Descriptor
 		var err error
 		if fp == nil {
@@ -237,7 +237,7 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 // FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 	fp := opts.FindPredecessors
-	opts.FindPredecessors = func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	opts.FindPredecessors = func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		var predecessors []ocispec.Descriptor
 		var err error
 		if fp == nil {

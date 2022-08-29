@@ -115,7 +115,7 @@ func TestProxy_FetchReference(t *testing.T) {
 
 	// the subsequent fetch should not touch base CAS
 	// nil base will generate panic if the base CAS is touched
-	s.Storage = nil
+	s.ReadOnlyStorage = nil
 
 	exists, err = s.Exists(ctx, desc)
 	if err != nil {

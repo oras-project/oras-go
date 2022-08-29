@@ -40,6 +40,12 @@ type GraphStorage interface {
 	PredecessorFinder
 }
 
+// ReadOnlyGraphStorage represents a read-only GraphStorage.
+type ReadOnlyGraphStorage interface {
+	ReadOnlyStorage
+	PredecessorFinder
+}
+
 // Successors returns the nodes directly pointed by the current node.
 // In other words, returns the "children" of the current descriptor.
 func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {

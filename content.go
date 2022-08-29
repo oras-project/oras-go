@@ -60,7 +60,7 @@ type ResolveOptions struct {
 }
 
 // Resolve resolves a descriptor with provided reference from the target.
-func Resolve(ctx context.Context, target Target, ref string, opts ResolveOptions) (ocispec.Descriptor, error) {
+func Resolve(ctx context.Context, target ReadOnlyTarget, ref string, opts ResolveOptions) (ocispec.Descriptor, error) {
 	if opts.TargetPlatform == nil {
 		return target.Resolve(ctx, ref)
 	}

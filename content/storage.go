@@ -41,8 +41,13 @@ type Pusher interface {
 // accessed via Descriptors.
 // The storage is designed to handle blobs of large sizes.
 type Storage interface {
-	Fetcher
+	ReadOnlyStorage
 	Pusher
+}
+
+// ReadOnlyStorage represents a read-only Storage.
+type ReadOnlyStorage interface {
+	Fetcher
 
 	// Exists returns true if the described content exists.
 	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)

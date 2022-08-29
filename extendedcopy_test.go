@@ -568,7 +568,7 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 	// test extended copy by descs[3] with media type filter
 	dst := memory.New()
 	opts := oras.ExtendedCopyGraphOptions{
-		FindPredecessors: func(ctx context.Context, src content.GraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		FindPredecessors: func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 			predecessors, err := src.Predecessors(ctx, desc)
 			if err != nil {
 				return nil, err
