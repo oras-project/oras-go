@@ -378,6 +378,16 @@ func (c *Client) fetchOAuth2Token(ctx context.Context, realm, service string, sc
 	return "", fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
 }
 
+// StaticCredential specifies static credentials for the given registry.
+func StaticCredential(host string, cred Credential) func(ctx context.Context, target string) (Credential, error) {
+	return func(_ context.Context, target string) (Credential, error) {
+		if target == host {
+			return cred, nil
+		}
+		return EmptyCredential, fmt.Errorf("invalid credential")
+	}
+}
+
 // rewindRequestBody tries to rewind the request body if exists.
 func rewindRequestBody(req *http.Request) error {
 	if req.Body == nil || req.Body == http.NoBody {

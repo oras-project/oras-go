@@ -31,7 +31,7 @@ import (
 // sufficient.
 var maxErrorBytes int64 = 8 * 1024 // 8 KiB
 
-var ErrUnauthorized error = errors.New("status unauthorized 401")
+var ErrUnauthorized error = errors.New("unauthorized")
 
 // requestError contains a single error.
 type requestError struct {
