@@ -16,6 +16,7 @@ limitations under the License.
 package descriptor
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -35,7 +36,7 @@ func TestGenerateDescriptor(t *testing.T) {
 		name    string
 		args    args
 		want    ocispec.Descriptor
-		wantErr bool
+		wantErr error
 	}{
 		{
 			name: "foo descriptor",
@@ -44,7 +45,7 @@ func TestGenerateDescriptor(t *testing.T) {
 				MediaType: "example media type",
 				Digest:    digest.FromBytes(contentFoo),
 				Size:      int64(len(contentFoo))},
-			wantErr: false,
+			wantErr: nil,
 		},
 		{
 			name: "empty content",
@@ -53,19 +54,19 @@ func TestGenerateDescriptor(t *testing.T) {
 				MediaType: "example media type",
 				Digest:    digest.FromBytes([]byte("")),
 				Size:      int64(len([]byte("")))},
-			wantErr: false,
+			wantErr: nil,
 		},
 		{
 			name:    "missing media type",
 			args:    args{contentBar, ""},
 			want:    ocispec.Descriptor{},
-			wantErr: true,
+			wantErr: ErrMissingMediaType,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := GenerateDescriptor(tt.args.content, tt.args.mediaType)
-			if (err != nil) != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("GenerateDescriptor() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
