@@ -24,6 +24,9 @@ import (
 )
 
 func TestGenerateDescriptor(t *testing.T) {
+	contentFoo := []byte("foo")
+	contentBar := []byte("bar")
+
 	type args struct {
 		content   []byte
 		mediaType string
@@ -36,11 +39,11 @@ func TestGenerateDescriptor(t *testing.T) {
 	}{
 		{
 			name: "foo descriptor",
-			args: args{[]byte("foo"), "example media type"},
+			args: args{contentFoo, "example media type"},
 			want: ocispec.Descriptor{
 				MediaType: "example media type",
-				Digest:    digest.FromBytes([]byte("foo")),
-				Size:      int64(len([]byte("foo")))},
+				Digest:    digest.FromBytes(contentFoo),
+				Size:      int64(len(contentFoo))},
 			wantErr: false,
 		},
 		{
@@ -54,7 +57,7 @@ func TestGenerateDescriptor(t *testing.T) {
 		},
 		{
 			name:    "missing media type",
-			args:    args{[]byte("bar"), ""},
+			args:    args{contentBar, ""},
 			want:    ocispec.Descriptor{},
 			wantErr: true,
 		},
@@ -74,6 +77,8 @@ func TestGenerateDescriptor(t *testing.T) {
 }
 
 func TestEqual(t *testing.T) {
+	contentFoo := []byte("foo")
+	contentBar := []byte("bar")
 	type args struct {
 		a ocispec.Descriptor
 		b ocispec.Descriptor
@@ -88,12 +93,12 @@ func TestEqual(t *testing.T) {
 			args: args{
 				ocispec.Descriptor{
 					MediaType: "example media type",
-					Digest:    digest.FromBytes([]byte("foo")),
-					Size:      int64(len([]byte("foo")))},
+					Digest:    digest.FromBytes(contentFoo),
+					Size:      int64(len(contentFoo))},
 				ocispec.Descriptor{
 					MediaType: "example media type",
-					Digest:    digest.FromBytes([]byte("foo")),
-					Size:      int64(len([]byte("foo")))}},
+					Digest:    digest.FromBytes(contentFoo),
+					Size:      int64(len(contentFoo))}},
 			want: true,
 		},
 		{
@@ -101,12 +106,12 @@ func TestEqual(t *testing.T) {
 			args: args{
 				ocispec.Descriptor{
 					MediaType: "example media type",
-					Digest:    digest.FromBytes([]byte("foo")),
-					Size:      int64(len([]byte("foo")))},
+					Digest:    digest.FromBytes(contentFoo),
+					Size:      int64(len(contentFoo))},
 				ocispec.Descriptor{
 					MediaType: "another media type",
-					Digest:    digest.FromBytes([]byte("foo")),
-					Size:      int64(len([]byte("foo")))}},
+					Digest:    digest.FromBytes(contentFoo),
+					Size:      int64(len(contentFoo))}},
 			want: false,
 		},
 		{
@@ -114,12 +119,12 @@ func TestEqual(t *testing.T) {
 			args: args{
 				ocispec.Descriptor{
 					MediaType: "example media type",
-					Digest:    digest.FromBytes([]byte("foo")),
-					Size:      int64(len([]byte("foo")))},
+					Digest:    digest.FromBytes(contentFoo),
+					Size:      int64(len(contentFoo))},
 				ocispec.Descriptor{
 					MediaType: "example media type",
-					Digest:    digest.FromBytes([]byte("bar")),
-					Size:      int64(len([]byte("bar")))}},
+					Digest:    digest.FromBytes(contentBar),
+					Size:      int64(len(contentBar))}},
 			want: false,
 		},
 		{
@@ -131,8 +136,21 @@ func TestEqual(t *testing.T) {
 					Size:      int64(len([]byte("foooo")))},
 				ocispec.Descriptor{
 					MediaType: "example media type",
-					Digest:    digest.FromBytes([]byte("bar")),
-					Size:      int64(len([]byte("bar")))}},
+					Digest:    digest.FromBytes(contentBar),
+					Size:      int64(len(contentBar))}},
+			want: false,
+		},
+		{
+			name: "different size, same media type and digest",
+			args: args{
+				ocispec.Descriptor{
+					MediaType: "example media type",
+					Digest:    digest.FromBytes(contentFoo),
+					Size:      int64(len(contentFoo))},
+				ocispec.Descriptor{
+					MediaType: "example media type",
+					Digest:    digest.FromBytes(contentFoo),
+					Size:      int64(len(contentFoo)) + 1}},
 			want: false,
 		},
 		{
