@@ -285,7 +285,7 @@ func TestProxy_StopCaching(t *testing.T) {
 	}
 }
 
-func TestImmutableProxyCache(t *testing.T) {
+func TestReadOnlyProxyCache(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
 		MediaType: "test",
@@ -301,7 +301,7 @@ func TestImmutableProxyCache(t *testing.T) {
 		t.Fatal("Memory.Push() error =", err)
 	}
 
-	s := NewImmutableProxy(base, NewMemory())
+	s := NewReadOnlyProxy(base, NewMemory())
 	// first fetch
 	exists, err := s.Exists(ctx, desc)
 	if err != nil {
@@ -354,7 +354,7 @@ func TestImmutableProxyCache(t *testing.T) {
 	}
 }
 
-func TestImmutableProxy_PushNotAllowed(t *testing.T) {
+func TestReadOnlyProxy_PushNotAllowed(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
 		MediaType: "test",
@@ -362,7 +362,7 @@ func TestImmutableProxy_PushNotAllowed(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	s := NewImmutableProxy(NewMemory(), nil)
+	s := NewReadOnlyProxy(NewMemory(), nil)
 	ctx := context.Background()
 
 	err := s.Push(ctx, desc, bytes.NewReader(content))
@@ -371,7 +371,7 @@ func TestImmutableProxy_PushNotAllowed(t *testing.T) {
 	}
 }
 
-func TestImmutableProxy_FetchCached_NotCachedContent(t *testing.T) {
+func TestReadOnlyProxy_FetchCached_NotCachedContent(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
 		MediaType: "test",
@@ -386,7 +386,7 @@ func TestImmutableProxy_FetchCached_NotCachedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal("Memory.Push() error =", err)
 	}
-	s := NewImmutableProxy(base, NewMemory())
+	s := NewReadOnlyProxy(base, NewMemory())
 
 	// FetchCached should fetch from the base CAS
 	exists, err := s.Exists(ctx, desc)
@@ -423,7 +423,7 @@ func TestImmutableProxy_FetchCached_NotCachedContent(t *testing.T) {
 	}
 }
 
-func TestImmutableProxy_FetchCached_CachedContent(t *testing.T) {
+func TestReadOnlyProxy_FetchCached_CachedContent(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
 		MediaType: "test",
@@ -438,7 +438,7 @@ func TestImmutableProxy_FetchCached_CachedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal("Memory.Push() error =", err)
 	}
-	s := NewImmutableProxy(base, NewMemory())
+	s := NewReadOnlyProxy(base, NewMemory())
 
 	// first fetch
 	exists, err := s.Exists(ctx, desc)
@@ -492,7 +492,7 @@ func TestImmutableProxy_FetchCached_CachedContent(t *testing.T) {
 	}
 }
 
-func TestImmutableProxy_StopCaching(t *testing.T) {
+func TestReadOnlyProxy_StopCaching(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
 		MediaType: "test",
@@ -507,7 +507,7 @@ func TestImmutableProxy_StopCaching(t *testing.T) {
 	if err != nil {
 		t.Fatal("Memory.Push() error =", err)
 	}
-	s := NewImmutableProxy(base, NewMemory())
+	s := NewReadOnlyProxy(base, NewMemory())
 
 	// FetchCached should fetch from the base CAS
 	exists, err := s.Exists(ctx, desc)

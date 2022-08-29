@@ -45,24 +45,24 @@ func NewProxy(base, cache content.Storage) *Proxy {
 	}
 }
 
-// errPushNotAllowed is returned when push is called on an immutable proxy.
+// errPushNotAllowed is returned when push is called on an read-only proxy.
 var errPushNotAllowed = errors.New("push not allowed")
 
-// immutableProxyStorage represents an immutable storage of a proxy.
-type immutableProxyStorage struct {
-	content.ImmutableStorage
+// readOnlyProxyStorage represents an read-only storage of a proxy.
+type readOnlyProxyStorage struct {
+	content.ReadOnlyStorage
 }
 
 // Push returns errPushNotAllowed when being called.
-func (p *immutableProxyStorage) Push(_ context.Context, _ ocispec.Descriptor, _ io.Reader) error {
+func (p *readOnlyProxyStorage) Push(_ context.Context, _ ocispec.Descriptor, _ io.Reader) error {
 	return errPushNotAllowed
 }
 
-// NewImmutableProxy creates an immutable proxy for the `base`
-// immutable storage, using the `cache` storage as the cache.
-func NewImmutableProxy(base content.ImmutableStorage, cache content.Storage) *Proxy {
+// NewReadOnlyProxy creates an read-only proxy for the `base`
+// read-only storage, using the `cache` storage as the cache.
+func NewReadOnlyProxy(base content.ReadOnlyStorage, cache content.Storage) *Proxy {
 	return &Proxy{
-		Storage: &immutableProxyStorage{base},
+		Storage: &readOnlyProxyStorage{base},
 		Cache:   cache,
 	}
 }

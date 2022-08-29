@@ -40,9 +40,9 @@ type GraphStorage interface {
 	PredecessorFinder
 }
 
-// GraphStorage represents an immutable GraphStorage.
-type ImmutableGraphStorage interface {
-	ImmutableStorage
+// ReadOnlyGraphStorage represents an read-only GraphStorage.
+type ReadOnlyGraphStorage interface {
+	ReadOnlyStorage
 	PredecessorFinder
 }
 

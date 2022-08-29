@@ -37,25 +37,20 @@ type Pusher interface {
 	Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error
 }
 
-// Exister checks if content exists.
-type Exister interface {
-	// Exists returns true if the described content exists.
-	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
-}
-
 // Storage represents a content-addressable storage (CAS) where contents are
 // accessed via Descriptors.
 // The storage is designed to handle blobs of large sizes.
 type Storage interface {
-	Fetcher
+	ReadOnlyStorage
 	Pusher
-	Exister
 }
 
-// ImmutableStorage represents an immutable Storage.
-type ImmutableStorage interface {
+// ReadOnlyStorage represents an read-only Storage.
+type ReadOnlyStorage interface {
 	Fetcher
-	Exister
+
+	// Exists returns true if the described content exists.
+	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
 }
 
 // Deleter removes content.

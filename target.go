@@ -30,14 +30,14 @@ type GraphTarget interface {
 	content.TagResolver
 }
 
-// ImmutableStorage represents an immutable Target.
-type ImmutableTarget interface {
-	content.ImmutableStorage
+// ReadOnlyTarget represents an read-only Target.
+type ReadOnlyTarget interface {
+	content.ReadOnlyStorage
 	content.Resolver
 }
 
-// ImmutableStorage represents an immutable GraphTarget.
-type ImmutableGraphTarget interface {
-	content.ImmutableGraphStorage
+// ReadOnlyGraphTarget represents an read-only GraphTarget.
+type ReadOnlyGraphTarget interface {
+	content.ReadOnlyGraphStorage
 	content.Resolver
 }

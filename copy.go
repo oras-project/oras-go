@@ -59,7 +59,7 @@ type CopyOptions struct {
 
 // getPlatformFromConfig returns a platform object which is made up from the
 // fields in config blob.
-func getPlatformFromConfig(ctx context.Context, src content.ImmutableStorage, desc ocispec.Descriptor, targetConfigMediaType string) (*ocispec.Platform, error) {
+func getPlatformFromConfig(ctx context.Context, src content.ReadOnlyStorage, desc ocispec.Descriptor, targetConfigMediaType string) (*ocispec.Platform, error) {
 	if desc.MediaType != targetConfigMediaType {
 		return nil, fmt.Errorf("mismatch MediaType %s: expect %s", desc.MediaType, targetConfigMediaType)
 	}
@@ -81,7 +81,7 @@ func getPlatformFromConfig(ctx context.Context, src content.ImmutableStorage, de
 // selectPlatform implements platform filter and returns the descriptor of the
 // first matched manifest if the root is a manifest list. If the root is a
 // manifest, then return the root descriptor if platform matches.
-func selectPlatform(ctx context.Context, src content.ImmutableStorage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
+func selectPlatform(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
 	switch root.MediaType {
 	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
 		manifests, err := content.Successors(ctx, src, root)
@@ -168,7 +168,7 @@ type CopyGraphOptions struct {
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
 // Returns the descriptor of the root node on successful copy.
-func Copy(ctx context.Context, src ImmutableTarget, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
+func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
 		return ocispec.Descriptor{}, errors.New("nil source target")
 	}
@@ -180,7 +180,7 @@ func Copy(ctx context.Context, src ImmutableTarget, srcRef string, dst Target, d
 	}
 
 	// use caching proxy on non-leaf nodes
-	proxy := cas.NewImmutableProxy(src, cas.NewMemory())
+	proxy := cas.NewReadOnlyProxy(src, cas.NewMemory())
 	root, err := resolveRoot(ctx, src, srcRef, proxy)
 	if err != nil {
 		return ocispec.Descriptor{}, err
@@ -208,15 +208,15 @@ func Copy(ctx context.Context, src ImmutableTarget, srcRef string, dst Target, d
 
 // CopyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
 // the destination CAS.
-func CopyGraph(ctx context.Context, src content.ImmutableStorage, dst content.Storage, root ocispec.Descriptor, opts CopyGraphOptions) error {
+func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, root ocispec.Descriptor, opts CopyGraphOptions) error {
 	// use caching proxy on non-leaf nodes
-	proxy := cas.NewImmutableProxy(src, cas.NewMemory())
+	proxy := cas.NewReadOnlyProxy(src, cas.NewMemory())
 	return copyGraph(ctx, src, dst, proxy, root, opts)
 }
 
 // copyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
 // the destination CAS with specified caching.
-func copyGraph(ctx context.Context, src content.ImmutableStorage, dst content.Storage, proxy *cas.Proxy, root ocispec.Descriptor, opts CopyGraphOptions) error {
+func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, proxy *cas.Proxy, root ocispec.Descriptor, opts CopyGraphOptions) error {
 	// track content status
 	tracker := status.NewTracker()
 
@@ -301,7 +301,7 @@ func copyGraph(ctx context.Context, src content.ImmutableStorage, dst content.St
 }
 
 // doCopyNode copies a single content from the source CAS to the destination CAS.
-func doCopyNode(ctx context.Context, src content.ImmutableStorage, dst content.Storage, desc ocispec.Descriptor) error {
+func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
 		return err
@@ -316,7 +316,7 @@ func doCopyNode(ctx context.Context, src content.ImmutableStorage, dst content.S
 
 // copyNode copies a single content from the source CAS to the destination CAS,
 // and apply the given options.
-func copyNode(ctx context.Context, src content.ImmutableStorage, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
+func copyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
 	if opts.PreCopy != nil {
 		if err := opts.PreCopy(ctx, desc); err != nil {
 			if err == graph.ErrSkipDesc {
@@ -353,7 +353,7 @@ func copyCachedNodeWithReference(ctx context.Context, src *cas.Proxy, dst regist
 }
 
 // resolveRoot resolves the source reference to the root node.
-func resolveRoot(ctx context.Context, src ImmutableTarget, srcRef string, proxy *cas.Proxy) (ocispec.Descriptor, error) {
+func resolveRoot(ctx context.Context, src ReadOnlyTarget, srcRef string, proxy *cas.Proxy) (ocispec.Descriptor, error) {
 	refFetcher, ok := src.(registry.ReferenceFetcher)
 	if !ok {
 		return src.Resolve(ctx, srcRef)
