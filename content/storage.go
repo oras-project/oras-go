@@ -45,7 +45,7 @@ type Storage interface {
 	Pusher
 }
 
-// ReadOnlyStorage represents an read-only Storage.
+// ReadOnlyStorage represents a read-only Storage.
 type ReadOnlyStorage interface {
 	Fetcher
 

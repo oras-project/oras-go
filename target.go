@@ -30,13 +30,13 @@ type GraphTarget interface {
 	content.TagResolver
 }
 
-// ReadOnlyTarget represents an read-only Target.
+// ReadOnlyTarget represents a read-only Target.
 type ReadOnlyTarget interface {
 	content.ReadOnlyStorage
 	content.Resolver
 }
 
-// ReadOnlyGraphTarget represents an read-only GraphTarget.
+// ReadOnlyGraphTarget represents a read-only GraphTarget.
 type ReadOnlyGraphTarget interface {
 	content.ReadOnlyGraphStorage
 	content.Resolver

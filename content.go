@@ -83,7 +83,7 @@ func Resolve(ctx context.Context, target ReadOnlyTarget, ref string, opts Resolv
 				return ocispec.Descriptor{}, err
 			}
 
-			proxy := cas.NewReadOnlyProxy(target, store)
+			proxy := cas.NewProxy(target, store)
 			proxy.StopCaching = true
 			return selectPlatform(ctx, proxy, desc, opts.TargetPlatform)
 		default:

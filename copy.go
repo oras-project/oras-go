@@ -54,7 +54,7 @@ type CopyOptions struct {
 	// When MapRoot is provided, the descriptor resolved from the source
 	// reference will be passed to MapRoot, and the mapped descriptor will be
 	// used as the root node for copy.
-	MapRoot func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error)
+	MapRoot func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error)
 }
 
 // getPlatformFromConfig returns a platform object which is made up from the
@@ -131,7 +131,7 @@ func selectPlatform(ctx context.Context, src content.ReadOnlyStorage, root ocisp
 // - Otherwise ErrUnsupported will be returned.
 func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
 	mapRoot := opts.MapRoot
-	opts.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (desc ocispec.Descriptor, err error) {
+	opts.MapRoot = func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (desc ocispec.Descriptor, err error) {
 		if mapRoot != nil {
 			if root, err = mapRoot(ctx, src, root); err != nil {
 				return ocispec.Descriptor{}, err
@@ -180,7 +180,7 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	}
 
 	// use caching proxy on non-leaf nodes
-	proxy := cas.NewReadOnlyProxy(src, cas.NewMemory())
+	proxy := cas.NewProxy(src, cas.NewMemory())
 	root, err := resolveRoot(ctx, src, srcRef, proxy)
 	if err != nil {
 		return ocispec.Descriptor{}, err
@@ -210,7 +210,7 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 // the destination CAS.
 func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, root ocispec.Descriptor, opts CopyGraphOptions) error {
 	// use caching proxy on non-leaf nodes
-	proxy := cas.NewReadOnlyProxy(src, cas.NewMemory())
+	proxy := cas.NewProxy(src, cas.NewMemory())
 	return copyGraph(ctx, src, dst, proxy, root, opts)
 }
 

@@ -40,7 +40,7 @@ type GraphStorage interface {
 	PredecessorFinder
 }
 
-// ReadOnlyGraphStorage represents an read-only GraphStorage.
+// ReadOnlyGraphStorage represents a read-only GraphStorage.
 type ReadOnlyGraphStorage interface {
 	ReadOnlyStorage
 	PredecessorFinder
