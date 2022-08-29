@@ -2214,3 +2214,52 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 		t.Errorf("incorrect error: %v, expected %v", err, errutil.ErrUnauthorized)
 	}
 }
+
+func TestClient_StaticCredential_registryMismatch(t *testing.T) {
+	testUsername := "username"
+	testPassword := "password"
+
+	// create a test server
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			t.Fatal("unexpected access")
+		}
+		switch path {
+		case "/basicAuth":
+			wantedAuthHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(testUsername+":"+testPassword))
+			authHeader := r.Header.Get("Authorization")
+			if authHeader != wantedAuthHeader {
+				w.Header().Set("Www-Authenticate", `Basic realm="Test Server"`)
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+		default:
+			w.WriteHeader(http.StatusNotAcceptable)
+		}
+	}))
+	defer ts.Close()
+	host := ts.URL
+	uri, _ := url.Parse(host)
+	hostAddress := uri.Host
+	// basicAuthURL := fmt.Sprintf("%s/basicAuth", host)
+
+	// create a test client with mismached registry
+	clientValid := &Client{
+		Credential: StaticCredential(hostAddress, Credential{
+			Username: testUsername,
+			Password: testPassword,
+		}),
+	}
+	req, err := http.NewRequest(http.MethodGet, host, nil)
+	if err != nil {
+		t.Fatalf("could not create request, err = %v", err)
+	}
+	respValid, err := clientValid.Do(req)
+	if err != nil {
+		t.Fatalf("could not send request, err = %v", err)
+	}
+	if respValid.StatusCode != 200 {
+		t.Errorf("incorrect status code: %d, expected 200", respValid.StatusCode)
+	}
+}
