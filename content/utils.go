@@ -80,14 +80,14 @@ func FetchAll(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) ([]
 
 // FetchAllWithLimit safely fetches the content described by the descriptor.
 // The fetched content is verified against the size and the digest.
-// The size of the fetched content cannot exceed the limit.
+// The size of the fetched content cannot exceed the given size limit.
 func FetchAllWithLimit(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor, limit int64) ([]byte, error) {
 	if limit <= 0 {
 		return FetchAll(ctx, fetcher, desc)
 	}
 
 	if desc.Size > limit {
-		return nil, fmt.Errorf("content size %v exceeds max size limit %v: %w",
+		return nil, fmt.Errorf("content size %v exceeds size limit %v: %w",
 			desc.Size,
 			limit,
 			ErrSizeExceedLimit)

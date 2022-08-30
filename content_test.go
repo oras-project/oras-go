@@ -656,7 +656,7 @@ func TestFetchManifest_Memory_WithOptions(t *testing.T) {
 	}
 
 	// test FetchManifest with size limit: 1
-	_, _, err = oras.FetchManifest(ctx, target, ref, oras.FetchManifestOptions{MaxSizeLimit: 1})
+	_, _, err = oras.FetchManifest(ctx, target, ref, oras.FetchManifestOptions{SizeLimit: 1})
 	if !errors.Is(err, content.ErrSizeExceedLimit) {
 		t.Fatalf("oras.FetchManifest() error = %v, wantErr %v", err, content.ErrSizeExceedLimit)
 	}
@@ -676,7 +676,7 @@ func TestFetchManifest_Memory_WithOptions(t *testing.T) {
 
 	// test FetchManifest with size limit: -1
 	// should be no limit
-	gotDesc, gotBytes, err = oras.FetchManifest(ctx, target, ref, oras.FetchManifestOptions{MaxSizeLimit: -1})
+	gotDesc, gotBytes, err = oras.FetchManifest(ctx, target, ref, oras.FetchManifestOptions{SizeLimit: -1})
 	if err != nil {
 		t.Fatal("oras.FetchManifest() error =", err)
 	}
@@ -1022,14 +1022,14 @@ func TestFetchBlob_Memory_WithOptions(t *testing.T) {
 	}
 
 	// test FetchBlob with size limit: 1
-	_, _, err = oras.FetchBlob(ctx, target, ref, oras.FetchBlobOptions{MaxSizeLimit: 1})
+	_, _, err = oras.FetchBlob(ctx, target, ref, oras.FetchBlobOptions{SizeLimit: 1})
 	if !errors.Is(err, content.ErrSizeExceedLimit) {
 		t.Fatalf("oras.FetchBlob() error = %v, wantErr %v", err, content.ErrSizeExceedLimit)
 	}
 
 	// test FetchBlob with size limit: 0
 	// should be no limit
-	gotDesc, gotBytes, err = oras.FetchBlob(ctx, target, ref, oras.FetchBlobOptions{MaxSizeLimit: 0})
+	gotDesc, gotBytes, err = oras.FetchBlob(ctx, target, ref, oras.FetchBlobOptions{SizeLimit: 0})
 	if err != nil {
 		t.Fatal("oras.FetchBlob() error =", err)
 	}
@@ -1042,7 +1042,7 @@ func TestFetchBlob_Memory_WithOptions(t *testing.T) {
 
 	// test FetchBlob with size limit: -1
 	// should be no limit
-	gotDesc, gotBytes, err = oras.FetchBlob(ctx, target, ref, oras.FetchBlobOptions{MaxSizeLimit: -1})
+	gotDesc, gotBytes, err = oras.FetchBlob(ctx, target, ref, oras.FetchBlobOptions{SizeLimit: -1})
 	if err != nil {
 		t.Fatal("oras.FetchBlob() error =", err)
 	}
