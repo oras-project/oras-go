@@ -52,6 +52,20 @@ var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 // See also ClientID.
 var defaultClientID = "oras-go"
 
+// ErrInvalidCredential will be returned by a client's Credential method
+// when no valid credential is found given the target host.
+var ErrInvalidCredential error = errors.New("invalid credential")
+
+// StaticCredential specifies static credentials for the given host.
+func StaticCredential(host string, cred Credential) func(ctx context.Context, target string) (Credential, error) {
+	return func(_ context.Context, target string) (Credential, error) {
+		if target == host {
+			return cred, nil
+		}
+		return EmptyCredential, fmt.Errorf("no valid credential found for target %s: %w", target, ErrInvalidCredential)
+	}
+}
+
 // Client is an auth-decorated HTTP client.
 // Its zero value is a usable client that uses http.DefaultClient with no cache.
 type Client struct {
@@ -376,18 +390,6 @@ func (c *Client) fetchOAuth2Token(ctx context.Context, realm, service string, sc
 		return result.AccessToken, nil
 	}
 	return "", fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
-}
-
-var ErrInvalidCredential error = errors.New("invalid credential")
-
-// StaticCredential specifies static credentials for the given registry.
-func StaticCredential(host string, cred Credential) func(ctx context.Context, target string) (Credential, error) {
-	return func(_ context.Context, target string) (Credential, error) {
-		if target == host {
-			return cred, nil
-		}
-		return EmptyCredential, fmt.Errorf("no valid credential found for target %s: %w", target, ErrInvalidCredential)
-	}
 }
 
 // rewindRequestBody tries to rewind the request body if exists.
