@@ -130,21 +130,21 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string) (ocispe
 	return desc, rc, nil
 }
 
-// DefaultFetchManifestOptions provides the default FetchManifestOptions.
-var DefaultFetchManifestOptions = FetchManifestOptions{
+// DefaultFetchContentOptions provides the default FetchContentOptions.
+var DefaultFetchContentOptions = FetchContentOptions{
 	SizeLimit: int64(defaultSizeLimit),
 }
 
-// FetchManifestOptions contains parameters for oras.FetchManifest.
-type FetchManifestOptions struct {
+// FetchContentOptions contains parameters for oras.FetchContent.
+type FetchContentOptions struct {
 	// ResolveOptions contains parameters for resolving reference.
 	ResolveOptions
-	// SizeLimit limits the max size of the fetched manifest.
+	// SizeLimit limits the max size of the fetched content.
 	SizeLimit int64
 }
 
-// FetchManifest fetches the manifest identified by the reference.
-func FetchManifest(ctx context.Context, target ReadOnlyTarget, reference string, opts FetchManifestOptions) (ocispec.Descriptor, []byte, error) {
+// FetchContent fetches the content bytes identified by the reference.
+func FetchContent(ctx context.Context, target ReadOnlyTarget, reference string, opts FetchContentOptions) (ocispec.Descriptor, []byte, error) {
 	if opts.TargetPlatform == nil {
 		return fetchContent(ctx, target, reference, opts.SizeLimit)
 	}
@@ -164,26 +164,7 @@ func FetchManifest(ctx context.Context, target ReadOnlyTarget, reference string,
 	return desc, bytes, nil
 }
 
-// FetchBlobOptions contains parameters for oras.FetchBlob.
-type FetchBlobOptions struct {
-	// SizeLimit limits the max size of the fetched blob.
-	SizeLimit int64
-}
-
-// DefaultFetchBlobOptions provides the default FetchBlobOptions.
-var DefaultFetchBlobOptions = FetchBlobOptions{
-	SizeLimit: int64(defaultSizeLimit),
-}
-
-// FetchBlob fetches the blob identified by the reference.
-func FetchBlob(ctx context.Context, target ReadOnlyTarget, reference string, opts FetchBlobOptions) (ocispec.Descriptor, []byte, error) {
-	if repo, ok := target.(registry.Repository); ok {
-		return fetchContent(ctx, repo.Blobs(), reference, opts.SizeLimit)
-	}
-	return fetchContent(ctx, target, reference, opts.SizeLimit)
-}
-
-// fetchContent fetches the content identified by the reference.
+// fetchContent fetches the content bytes identified by the reference.
 func fetchContent(ctx context.Context, resolver ReadOnlyTarget, reference string, limit int64) (ocispec.Descriptor, []byte, error) {
 	var desc ocispec.Descriptor
 	var rc io.ReadCloser

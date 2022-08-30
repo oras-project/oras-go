@@ -483,7 +483,7 @@ func TestFetch_Memory(t *testing.T) {
 		t.Errorf("oras.Fetch() = %v, want %v", got, blob)
 	}
 
-	// test FetchManifest with wrong reference
+	// test FetchContent with wrong reference
 	randomRef := "whatever"
 	_, _, err = oras.Fetch(ctx, target, randomRef)
 	if !errors.Is(err, errdef.ErrNotFound) {
@@ -590,105 +590,7 @@ func TestFetch_Repository(t *testing.T) {
 	}
 }
 
-func TestFetchManifest_Memory_WithOptions(t *testing.T) {
-	target := memory.New()
-
-	// generate test content
-	var blobs [][]byte
-	var descs []ocispec.Descriptor
-	appendBlob := func(mediaType string, blob []byte) {
-		blobs = append(blobs, blob)
-		descs = append(descs, ocispec.Descriptor{
-			MediaType: mediaType,
-			Digest:    digest.FromBytes(blob),
-			Size:      int64(len(blob)),
-		})
-	}
-	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
-		manifest := ocispec.Manifest{
-			Config: config,
-			Layers: layers,
-		}
-		manifestJSON, err := json.Marshal(manifest)
-		if err != nil {
-			t.Fatal(err)
-		}
-		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
-	}
-
-	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
-	generateManifest(descs[0], descs[1:3]...)                  // Blob 3
-
-	ctx := context.Background()
-	for i := range blobs {
-		err := target.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
-		if err != nil {
-			t.Fatalf("failed to push test content to src: %d: %v", i, err)
-		}
-	}
-
-	manifestDesc := descs[3]
-	ref := "foobar"
-	err := target.Tag(ctx, manifestDesc, ref)
-	if err != nil {
-		t.Fatal("fail to tag manifestDesc node", err)
-	}
-
-	// test FetchManifest with default FetchManifest options
-	gotDesc, gotBytes, err := oras.FetchManifest(ctx, target, ref, oras.DefaultFetchManifestOptions)
-	if err != nil {
-		t.Fatal("oras.FetchManifest() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, manifestDesc) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotDesc, manifestDesc)
-	}
-	if !bytes.Equal(gotBytes, blobs[3]) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotBytes, blobs[3])
-	}
-
-	// test FetchManifest with wrong reference
-	randomRef := "whatever"
-	_, _, err = oras.FetchManifest(ctx, target, randomRef, oras.DefaultFetchManifestOptions)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.FetchManifest() error = %v, wantErr %v", err, errdef.ErrNotFound)
-	}
-
-	// test FetchManifest with size limit: 1
-	_, _, err = oras.FetchManifest(ctx, target, ref, oras.FetchManifestOptions{SizeLimit: 1})
-	if !errors.Is(err, content.ErrSizeExceedLimit) {
-		t.Fatalf("oras.FetchManifest() error = %v, wantErr %v", err, content.ErrSizeExceedLimit)
-	}
-
-	// test FetchManifest with size limit: 0
-	// should be no limit
-	gotDesc, gotBytes, err = oras.FetchManifest(ctx, target, ref, oras.FetchManifestOptions{})
-	if err != nil {
-		t.Fatal("oras.FetchManifest() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, manifestDesc) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotDesc, manifestDesc)
-	}
-	if !bytes.Equal(gotBytes, blobs[3]) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotBytes, blobs[3])
-	}
-
-	// test FetchManifest with size limit: -1
-	// should be no limit
-	gotDesc, gotBytes, err = oras.FetchManifest(ctx, target, ref, oras.FetchManifestOptions{SizeLimit: -1})
-	if err != nil {
-		t.Fatal("oras.FetchManifest() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, manifestDesc) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotDesc, manifestDesc)
-	}
-	if !bytes.Equal(gotBytes, blobs[3]) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotBytes, blobs[3])
-	}
-}
-
-func TestFetchManifest_Memory_WithTargetPlatformOptions(t *testing.T) {
+func TestFetchContent_Memory(t *testing.T) {
 	target := memory.New()
 	arc_1 := "test-arc-1"
 	os_1 := "test-os-1"
@@ -750,14 +652,44 @@ func TestFetchManifest_Memory_WithTargetPlatformOptions(t *testing.T) {
 	}
 
 	manifestDesc := descs[3]
-	ref := "foobar"
-	err := target.Tag(ctx, manifestDesc, ref)
+	manifestTag := "foobar"
+	err := target.Tag(ctx, manifestDesc, manifestTag)
+	if err != nil {
+		t.Fatal("fail to tag manifestDesc node", err)
+	}
+	blobRef := "blob"
+	err = target.Tag(ctx, descs[2], blobRef)
 	if err != nil {
 		t.Fatal("fail to tag manifestDesc node", err)
 	}
 
-	// test FetchManifest with TargetPlatform
-	opts := oras.FetchManifestOptions{
+	// test FetchContent with default FetchContent options
+	gotDesc, gotBytes, err := oras.FetchContent(ctx, target, manifestTag, oras.DefaultFetchContentOptions)
+	if err != nil {
+		t.Fatal("oras.FetchContent() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.FetchContent() = %v, want %v", gotDesc, manifestDesc)
+	}
+	if !bytes.Equal(gotBytes, blobs[3]) {
+		t.Errorf("oras.FetchContent() = %v, want %v", gotBytes, blobs[3])
+	}
+
+	// test FetchContent with wrong reference
+	randomRef := "whatever"
+	_, _, err = oras.FetchContent(ctx, target, randomRef, oras.DefaultFetchContentOptions)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	// test FetchContent with SizeLimit = 1
+	_, _, err = oras.FetchContent(ctx, target, manifestTag, oras.FetchContentOptions{SizeLimit: 1})
+	if !errors.Is(err, content.ErrSizeExceedLimit) {
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, content.ErrSizeExceedLimit)
+	}
+
+	// test FetchContent with TargetPlatform
+	opts := oras.FetchContentOptions{
 		ResolveOptions: oras.ResolveOptions{
 			TargetPlatform: &ocispec.Platform{
 				Architecture: arc_1,
@@ -765,20 +697,36 @@ func TestFetchManifest_Memory_WithTargetPlatformOptions(t *testing.T) {
 			},
 		},
 	}
-	gotDesc, gotBytes, err := oras.FetchManifest(ctx, target, ref, opts)
+	gotDesc, gotBytes, err = oras.FetchContent(ctx, target, manifestTag, opts)
 	if err != nil {
-		t.Fatal("oras.FetchManifest() error =", err)
+		t.Fatal("oras.FetchContent() error =", err)
 	}
 	if !reflect.DeepEqual(gotDesc, manifestDesc) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotDesc, manifestDesc)
+		t.Errorf("oras.FetchContent() = %v, want %v", gotDesc, manifestDesc)
 	}
 	if !bytes.Equal(gotBytes, blobs[3]) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotBytes, blobs[3])
+		t.Errorf("oras.FetchContent() = %v, want %v", gotBytes, blobs[3])
 	}
 
-	// test FetchManifest with TargetPlatform but there is no matching node
-	// Should return not found error
-	opts = oras.FetchManifestOptions{
+	// test FetchContent with TargetPlatform and SizeLimit = 1
+	// should return size exceed error
+	opts = oras.FetchContentOptions{
+		ResolveOptions: oras.ResolveOptions{
+			TargetPlatform: &ocispec.Platform{
+				Architecture: arc_1,
+				OS:           os_1,
+			},
+		},
+		SizeLimit: 1,
+	}
+	_, _, err = oras.FetchContent(ctx, target, manifestTag, opts)
+	if !errors.Is(err, content.ErrSizeExceedLimit) {
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, content.ErrSizeExceedLimit)
+	}
+
+	// test FetchContent with TargetPlatform but there is no matching node
+	// should return not found error
+	opts = oras.FetchContentOptions{
 		ResolveOptions: oras.ResolveOptions{
 			TargetPlatform: &ocispec.Platform{
 				Architecture: arc_1,
@@ -787,82 +735,38 @@ func TestFetchManifest_Memory_WithTargetPlatformOptions(t *testing.T) {
 			},
 		},
 	}
-	_, _, err = oras.FetchManifest(ctx, target, ref, opts)
+	_, _, err = oras.FetchContent(ctx, target, manifestTag, opts)
 	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.FetchManifest() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	// test FetchContent on blob with TargetPlatform
+	// should return unsupported error
+	opts = oras.FetchContentOptions{
+		ResolveOptions: oras.ResolveOptions{
+			TargetPlatform: &ocispec.Platform{
+				Architecture: arc_1,
+				OS:           os_1,
+			},
+		},
+	}
+	_, _, err = oras.FetchContent(ctx, target, blobRef, opts)
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, errdef.ErrUnsupported)
 	}
 }
 
-func TestFetchManifest_Repository(t *testing.T) {
-	manifest := []byte(`{"layers":[]}`)
-	manifestDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageIndex,
-		Digest:    digest.FromBytes(manifest),
-		Size:      int64(len(manifest)),
-	}
-	ref := "foobar"
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		switch r.URL.Path {
-		case "/v2/test/manifests/" + manifestDesc.Digest.String(),
-			"/v2/test/manifests/" + ref:
-			if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
-				t.Errorf("manifest not convertable: %s", accept)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			w.Header().Set("Content-Type", manifestDesc.MediaType)
-			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
-			if _, err := w.Write(manifest); err != nil {
-				t.Errorf("failed to write %q: %v", r.URL, err)
-			}
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
-
-	repoName := uri.Host + "/test"
-	repo, err := remote.NewRepository(repoName)
-	if err != nil {
-		t.Fatalf("remote.NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	ctx := context.Background()
-
-	// test FetchManifest with valid tag
-	gotDesc, got, err := oras.FetchManifest(ctx, repo, ref, oras.DefaultFetchManifestOptions)
-	if err != nil {
-		t.Fatalf("oras.FetchManifest() error = %v", err)
-	}
-	if !reflect.DeepEqual(gotDesc, manifestDesc) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotDesc, manifestDesc)
-	}
-	if !bytes.Equal(got, manifest) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", got, manifest)
-	}
-
-	// test FetchManifest with wrong reference
-	randomRef := "whatever"
-	_, _, err = oras.FetchManifest(ctx, repo, randomRef, oras.DefaultFetchManifestOptions)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.FetchManifest() error = %v, wantErr %v", err, errdef.ErrNotFound)
-	}
-}
-
-func TestFetchManifest_Repository_WithTargetPlatformOptions(t *testing.T) {
+func TestFetchContent_Repository(t *testing.T) {
 	arc_1 := "test-arc-1"
 	arc_2 := "test-arc-2"
 	os_1 := "test-os-1"
 	os_2 := "test-os-2"
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
@@ -890,7 +794,6 @@ func TestFetchManifest_Repository_WithTargetPlatformOptions(t *testing.T) {
 			manifestDesc2,
 		},
 	}
-
 	index, err := json.Marshal(indexContent)
 	if err != nil {
 		t.Fatal("failed to marshal index", err)
@@ -925,150 +828,7 @@ func TestFetchManifest_Repository_WithTargetPlatformOptions(t *testing.T) {
 			if _, err := w.Write(manifest); err != nil {
 				t.Errorf("failed to write %q: %v", r.URL, err)
 			}
-		default:
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
-
-	repoName := uri.Host + "/test"
-	repo, err := remote.NewRepository(repoName)
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	ctx := context.Background()
-
-	// test FetchManifest with TargetPlatform
-	opts := oras.FetchManifestOptions{
-		ResolveOptions: oras.ResolveOptions{
-			TargetPlatform: &ocispec.Platform{
-				Architecture: arc_1,
-				OS:           os_1,
-			},
-		},
-	}
-	gotDesc, gotBytes, err := oras.FetchManifest(ctx, repo, ref, opts)
-	if err != nil {
-		t.Fatal("oras.FetchManifest() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, manifestDesc) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotDesc, manifestDesc)
-	}
-	if !bytes.Equal(gotBytes, manifest) {
-		t.Errorf("oras.FetchManifest() = %v, want %v", gotBytes, manifest)
-	}
-
-	// test FetchManifest with TargetPlatform but there is no matching node
-	// Should return not found error
-	opts = oras.FetchManifestOptions{
-		ResolveOptions: oras.ResolveOptions{
-			TargetPlatform: &ocispec.Platform{
-				Architecture: arc_1,
-				OS:           arc_2,
-			},
-		},
-	}
-	_, _, err = oras.FetchManifest(ctx, repo, ref, opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.FetchManifest() error = %v, wantErr %v", err, errdef.ErrNotFound)
-	}
-}
-
-func TestFetchBlob_Memory_WithOptions(t *testing.T) {
-	target := memory.New()
-
-	blob := []byte("hello world")
-	desc := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(blob),
-		Size:      int64(len(blob)),
-	}
-	ref := "foobar"
-	ctx := context.Background()
-
-	err := target.Push(ctx, desc, bytes.NewReader(blob))
-	if err != nil {
-		t.Fatalf("memory.Push() error = %v", err)
-	}
-
-	err = target.Tag(ctx, desc, ref)
-	if err != nil {
-		t.Fatal("fail to tag manifestDesc node", err)
-	}
-
-	// test FetchBlob with tag
-	gotDesc, gotBytes, err := oras.FetchBlob(ctx, target, ref, oras.DefaultFetchBlobOptions)
-	if err != nil {
-		t.Fatal("oras.FetchBlob() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, desc) {
-		t.Errorf("oras.FetchBlob() = %v, want %v", gotDesc, desc)
-	}
-	if !bytes.Equal(gotBytes, blob) {
-		t.Errorf("oras.FetchBlob() = %v, want %v", gotBytes, blob)
-	}
-
-	// test FetchBlob with wrong reference
-	randomRef := "whatever"
-	_, _, err = oras.FetchBlob(ctx, target, randomRef, oras.DefaultFetchBlobOptions)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.FetchBlob() error = %v, wantErr %v", err, errdef.ErrNotFound)
-	}
-
-	// test FetchBlob with size limit: 1
-	_, _, err = oras.FetchBlob(ctx, target, ref, oras.FetchBlobOptions{SizeLimit: 1})
-	if !errors.Is(err, content.ErrSizeExceedLimit) {
-		t.Fatalf("oras.FetchBlob() error = %v, wantErr %v", err, content.ErrSizeExceedLimit)
-	}
-
-	// test FetchBlob with size limit: 0
-	// should be no limit
-	gotDesc, gotBytes, err = oras.FetchBlob(ctx, target, ref, oras.FetchBlobOptions{SizeLimit: 0})
-	if err != nil {
-		t.Fatal("oras.FetchBlob() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, desc) {
-		t.Errorf("oras.FetchBlob() = %v, want %v", gotDesc, desc)
-	}
-	if !bytes.Equal(gotBytes, blob) {
-		t.Errorf("oras.FetchBlob() = %v, want %v", gotBytes, blob)
-	}
-
-	// test FetchBlob with size limit: -1
-	// should be no limit
-	gotDesc, gotBytes, err = oras.FetchBlob(ctx, target, ref, oras.FetchBlobOptions{SizeLimit: -1})
-	if err != nil {
-		t.Fatal("oras.FetchBlob() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, desc) {
-		t.Errorf("oras.FetchBlob() = %v, want %v", gotDesc, desc)
-	}
-	if !bytes.Equal(gotBytes, blob) {
-		t.Errorf("oras.FetchBlob() = %v, want %v", gotBytes, blob)
-	}
-}
-
-func TestFetchBlob_Repository(t *testing.T) {
-	blob := []byte("hello world")
-	blobDesc := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(blob),
-		Size:      int64(len(blob)),
-	}
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		switch r.URL.Path {
-		case "/v2/test/blobs/" + blobDesc.Digest.String():
+		case r.URL.Path == "/v2/test/blobs/"+blobDesc.Digest.String():
 			w.Header().Set("Content-Type", "application/octet-stream")
 			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
 			if _, err := w.Write(blob); err != nil {
@@ -1087,19 +847,111 @@ func TestFetchBlob_Repository(t *testing.T) {
 	repoName := uri.Host + "/test"
 	repo, err := remote.NewRepository(repoName)
 	if err != nil {
-		t.Fatalf("remote.NewRepository() error = %v", err)
+		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
 	ctx := context.Background()
 
-	gotDesc, got, err := oras.FetchBlob(ctx, repo, blobDesc.Digest.String(), oras.DefaultFetchBlobOptions)
+	// test FetchContent with valid manifest tag
+	gotDesc, gotBytes, err := oras.FetchContent(ctx, repo, ref, oras.DefaultFetchContentOptions)
 	if err != nil {
-		t.Fatalf("oras.FetchBlob() error = %v", err)
+		t.Fatalf("oras.FetchContent() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("oras.FetchContent() = %v, want %v", gotDesc, indexDesc)
+	}
+	if !bytes.Equal(gotBytes, index) {
+		t.Errorf("oras.FetchContent() = %v, want %v", gotBytes, index)
+	}
+
+	// test FetchContent with blob digest
+	gotDesc, gotBytes, err = oras.FetchContent(ctx, repo.Blobs(), blobDesc.Digest.String(), oras.DefaultFetchContentOptions)
+	if err != nil {
+		t.Fatalf("oras.FetchContent() error = %v", err)
 	}
 	if gotDesc.Digest != blobDesc.Digest || gotDesc.Size != blobDesc.Size {
-		t.Errorf("oras.FetchBlob() = %v, want %v", gotDesc, blobDesc)
+		t.Errorf("oras.FetchContent() = %v, want %v", gotDesc, blobDesc)
 	}
-	if !bytes.Equal(got, blob) {
-		t.Errorf("oras.FetchBlob() = %v, want %v", got, blob)
+	if !bytes.Equal(gotBytes, blob) {
+		t.Errorf("oras.FetchContent() = %v, want %v", gotBytes, blob)
+	}
+
+	// test FetchContent with SizeLimit = 1
+	_, _, err = oras.FetchContent(ctx, repo, ref, oras.FetchContentOptions{SizeLimit: 1})
+	if !errors.Is(err, content.ErrSizeExceedLimit) {
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, content.ErrSizeExceedLimit)
+	}
+
+	// test FetchContent with wrong reference
+	randomRef := "whatever"
+	_, _, err = oras.FetchContent(ctx, repo, randomRef, oras.DefaultFetchContentOptions)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	// test FetchContent with TargetPlatform
+	opts := oras.FetchContentOptions{
+		ResolveOptions: oras.ResolveOptions{
+			TargetPlatform: &ocispec.Platform{
+				Architecture: arc_1,
+				OS:           os_1,
+			},
+		},
+	}
+	gotDesc, gotBytes, err = oras.FetchContent(ctx, repo, ref, opts)
+	if err != nil {
+		t.Fatal("oras.FetchContent() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.FetchContent() = %v, want %v", gotDesc, manifestDesc)
+	}
+	if !bytes.Equal(gotBytes, manifest) {
+		t.Errorf("oras.FetchContent() = %v, want %v", gotBytes, manifest)
+	}
+
+	// test FetchContent with TargetPlatform and SizeLimit = 1
+	// should return size exceed error
+	opts = oras.FetchContentOptions{
+		ResolveOptions: oras.ResolveOptions{
+			TargetPlatform: &ocispec.Platform{
+				Architecture: arc_1,
+				OS:           os_1,
+			},
+		},
+		SizeLimit: 1,
+	}
+	_, _, err = oras.FetchContent(ctx, repo, ref, opts)
+	if !errors.Is(err, content.ErrSizeExceedLimit) {
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, content.ErrSizeExceedLimit)
+	}
+
+	// test FetchContent with TargetPlatform but there is no matching node
+	// Should return not found error
+	opts = oras.FetchContentOptions{
+		ResolveOptions: oras.ResolveOptions{
+			TargetPlatform: &ocispec.Platform{
+				Architecture: arc_1,
+				OS:           arc_2,
+			},
+		},
+	}
+	_, _, err = oras.FetchContent(ctx, repo, ref, opts)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	// test FetchContent on blob with TargetPlatform
+	// should return unsupported error
+	opts = oras.FetchContentOptions{
+		ResolveOptions: oras.ResolveOptions{
+			TargetPlatform: &ocispec.Platform{
+				Architecture: arc_1,
+				OS:           os_1,
+			},
+		},
+	}
+	_, _, err = oras.FetchContent(ctx, repo.Blobs(), blobDesc.Digest.String(), opts)
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Fatalf("oras.FetchContent() error = %v, wantErr %v", err, errdef.ErrUnsupported)
 	}
 }
