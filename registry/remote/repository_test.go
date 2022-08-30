@@ -43,6 +43,81 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
+type testIOStruct struct {
+	name                    string
+	isTag                   bool
+	clientSuppliedReference string
+	serverCalculatedDigest  digest.Digest // for non-HEAD (body-containing) requests only
+	errExpectedOnHEAD       bool
+	errExpectedOnGET        bool
+}
+
+const theAmazingBanClan = "Ban Gu, Ban Chao, Ban Zhao"
+const theAmazingBanDigest = "b526a4f2be963a2f9b0990c001255669eab8a254ab1a6e3f84f1820212ac7078"
+
+// The following truth table aims to cover the expected GET/HEAD request outcome
+// for all possible permutations of the client/server "containing a digest", for
+// both Manifests and Blobs.  Where the results between the two differ, the index
+// of the first column has an exclamation mark.
+//
+// The client is said to "contain a digest" if the user-supplied reference string
+// is of the form that contains a digest rather than a tag.  The server, on the
+// other hand, is said to "contain a digest" if the server responded with the
+// special header `Docker-Content-Digest`.
+//
+// In this table, anything denoted with an asterisk indicates that the true
+// response should actually be the opposite of what's expected; for example,
+// `*PASS` means we will get a `PASS`, even though the true answer would be its
+// diametric opposite--a `FAIL`. This may seem odd, and deserves an explanation.
+// This function has blind-spots, and while it can expend power to gain sight,
+// i.e., perform the expensive validation, we chose not to.  The reason is two-
+// fold: a) we "know" that even if we say "!PASS", it will eventually fail later
+// when checks are performed, and with that assumption, we have the luxury for
+// the second point, which is b) performance.
+//
+//	 _______________________________________________________________________________________________________________
+//	| ID | CLIENT          | SERVER           | Manifest.GET          | Blob.GET  | Manifest.HEAD       | Blob.HEAD |
+//	|----+-----------------+------------------+-----------------------+-----------+---------------------+-----------+
+//	| 1  | tag             | missing          | CALCULATE,PASS        | n/a       | FAIL                | n/a       |
+//	| 2  | tag             | presentCorrect   | TRUST,PASS            | n/a       | TRUST,PASS          | n/a       |
+//	| 3  | tag             | presentIncorrect | TRUST,*PASS           | n/a       | TRUST,*PASS         | n/a       |
+//	| 4  | correctDigest   | missing          | TRUST,PASS            | PASS      | TRUST,PASS          | PASS      |
+//	| 5  | correctDigest   | presentCorrect   | TRUST,COMPARE,PASS    | PASS      | TRUST,COMPARE,PASS  | PASS      |
+//	| 6  | correctDigest   | presentIncorrect | TRUST,COMPARE,FAIL    | FAIL      | TRUST,COMPARE,FAIL  | FAIL      |
+//	 ---------------------------------------------------------------------------------------------------------------
+func getTestIOStructMapForGetDescriptorClass() map[string]testIOStruct {
+	correctDigest := fmt.Sprintf("sha256:%v", theAmazingBanDigest)
+	incorrectDigest := fmt.Sprintf("sha256:%v", "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+
+	return map[string]testIOStruct{
+		"1. Client:Tag & Server:DigestMissing": {
+			isTag:             true,
+			errExpectedOnHEAD: true,
+		},
+		"2. Client:Tag & Server:DigestValid": {
+			isTag:                  true,
+			serverCalculatedDigest: digest.Digest(correctDigest),
+		},
+		"3. Client:Tag & Server:DigestWrongButSyntacticallyValid": {
+			isTag:                  true,
+			serverCalculatedDigest: digest.Digest(incorrectDigest),
+		},
+		"4. Client:DigestValid & Server:DigestMissing": {
+			clientSuppliedReference: correctDigest,
+		},
+		"5. Client:DigestValid & Server:DigestValid": {
+			clientSuppliedReference: correctDigest,
+			serverCalculatedDigest:  digest.Digest(correctDigest),
+		},
+		"6. Client:DigestValid & Server:DigestWrongButSyntacticallyValid": {
+			clientSuppliedReference: correctDigest,
+			serverCalculatedDigest:  digest.Digest(incorrectDigest),
+			errExpectedOnHEAD:       true,
+			errExpectedOnGET:        true,
+		},
+	}
+}
+
 func TestRepositoryInterface(t *testing.T) {
 	var repo interface{} = &Repository{}
 	if _, ok := repo.(registry.Repository); !ok {
@@ -2430,6 +2505,65 @@ func Test_BlobStore_FetchReference_Seek(t *testing.T) {
 	}
 }
 
+func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
+	reference := registry.Reference{
+		Registry:   "eastern.haan.com",
+		Reference:  "<calculate>",
+		Repository: "from25to220ce",
+	}
+	tests := getTestIOStructMapForGetDescriptorClass()
+	for testName, dcdIOStruct := range tests {
+		if dcdIOStruct.isTag {
+			continue
+		}
+
+		for i, method := range []string{http.MethodGet, http.MethodHead} {
+			reference.Reference = dcdIOStruct.clientSuppliedReference
+
+			resp := http.Response{
+				Header: http.Header{
+					"Content-Type":            []string{"application/vnd.docker.distribution.manifest.v2+json"},
+					dockerContentDigestHeader: []string{dcdIOStruct.serverCalculatedDigest.String()},
+				},
+			}
+			if method == http.MethodGet {
+				resp.Body = io.NopCloser(bytes.NewBufferString(theAmazingBanClan))
+			}
+			resp.Request = &http.Request{
+				Method: method,
+			}
+
+			var err error
+			var d digest.Digest
+			if d, err = reference.Digest(); err != nil {
+				t.Errorf(
+					"[Blob.%v] %v; got digest from a tag reference unexpectedly",
+					method, testName,
+				)
+			}
+
+			errExpected := []bool{dcdIOStruct.errExpectedOnGET, dcdIOStruct.errExpectedOnHEAD}[i]
+			if len(d) == 0 {
+				// To avoid an otherwise impossible scenario in the tested code
+				// path, we set d so that verifyContentDigest does not break.
+				d = dcdIOStruct.serverCalculatedDigest
+			}
+			_, err = generateBlobDescriptor(&resp, d)
+			if !errExpected && err != nil {
+				t.Errorf(
+					"[Blob.%v] %v; expected no error for request, but got err: %v",
+					method, testName, err,
+				)
+			} else if errExpected && err == nil {
+				t.Errorf(
+					"[Blob.%v] %v; expected an error for request, but got none",
+					method, testName,
+				)
+			}
+		}
+	}
+}
+
 func Test_ManifestStore_Fetch(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
@@ -2899,6 +3033,55 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
 		t.Errorf("Manifests.FetchReference() = %v, want %v", got, manifest)
+	}
+}
+
+func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
+	reference := registry.Reference{
+		Registry:   "eastern.haan.com",
+		Reference:  "<calculate>",
+		Repository: "from25to220ce",
+	}
+
+	tests := getTestIOStructMapForGetDescriptorClass()
+	for testName, dcdIOStruct := range tests {
+		repo, err := NewRepository(fmt.Sprintf("%s/%s", reference.Repository, reference.Repository))
+		if err != nil {
+			t.Fatalf("failed to initialize repository")
+		}
+
+		s := manifestStore{repo: repo}
+
+		for i, method := range []string{http.MethodGet, http.MethodHead} {
+			reference.Reference = dcdIOStruct.clientSuppliedReference
+
+			resp := http.Response{
+				Header: http.Header{
+					"Content-Type":            []string{"application/vnd.docker.distribution.manifest.v2+json"},
+					dockerContentDigestHeader: []string{dcdIOStruct.serverCalculatedDigest.String()},
+				},
+			}
+			if method == http.MethodGet {
+				resp.Body = io.NopCloser(bytes.NewBufferString(theAmazingBanClan))
+			}
+			resp.Request = &http.Request{
+				Method: method,
+			}
+
+			errExpected := []bool{dcdIOStruct.errExpectedOnGET, dcdIOStruct.errExpectedOnHEAD}[i]
+			_, err = s.generateDescriptor(&resp, reference, method)
+			if !errExpected && err != nil {
+				t.Errorf(
+					"[Manifest.%v] %v; expected no error for request, but got err: %v",
+					method, testName, err,
+				)
+			} else if errExpected && err == nil {
+				t.Errorf(
+					"[Manifest.%v] %v; expected an error for request, but got none",
+					method, testName,
+				)
+			}
+		}
 	}
 }
 

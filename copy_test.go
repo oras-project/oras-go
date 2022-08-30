@@ -540,7 +540,7 @@ func TestCopy_WithOptions(t *testing.T) {
 	// test copy with media type filter
 	dst := memory.New()
 	opts := oras.DefaultCopyOptions
-	opts.MapRoot = func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+	opts.MapRoot = func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
 		if root.MediaType == ocispec.MediaTypeImageIndex {
 			return root, nil
 		} else {
@@ -580,7 +580,7 @@ func TestCopy_WithOptions(t *testing.T) {
 	preCopyCount := int64(0)
 	postCopyCount := int64(0)
 	opts = oras.CopyOptions{
-		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+		MapRoot: func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
 			manifests, err := content.Successors(ctx, src, root)
 			if err != nil {
 				return ocispec.Descriptor{}, errdef.ErrNotFound
@@ -645,7 +645,7 @@ func TestCopy_WithOptions(t *testing.T) {
 	// test copy with root filter, but no matching node can be found
 	dst = memory.New()
 	opts = oras.CopyOptions{
-		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+		MapRoot: func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
 			if root.MediaType == "test" {
 				return root, nil
 			} else {
@@ -826,7 +826,7 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	// index, but there is no matching node. Should return not found error.
 	dst = memory.New()
 	opts = oras.CopyOptions{
-		MapRoot: func(ctx context.Context, src content.Storage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+		MapRoot: func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
 			if root.MediaType == ocispec.MediaTypeImageIndex {
 				return root, nil
 			} else {

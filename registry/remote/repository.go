@@ -16,6 +16,7 @@ limitations under the License.
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,12 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
+
+// dockerContentDigestHeader - The Docker-Content-Digest header, if present on
+// the response, returns the canonical digest of the uploaded blob.
+// See https://docs.docker.com/registry/spec/api/#digest-header
+// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
+const dockerContentDigestHeader = "Docker-Content-Digest"
 
 // referrersApiRegex checks referrers API version.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md#versioning
@@ -71,10 +78,10 @@ type Repository struct {
 	// instead of HTTPS.
 	PlainHTTP bool
 
-	// ManifestMediaTypes is used in `Accept` header for resolving manifests from
-	// references. It is also used in identifying manifests and blobs from
-	// descriptors.
-	// If an empty list is present, default manifest media types are used.
+	// ManifestMediaTypes is used in `Accept` header for resolving manifests
+	// from references. It is also used in identifying manifests and blobs from
+	// descriptors. If an empty list is present, default manifest media types
+	// are used.
 	ManifestMediaTypes []string
 
 	// TagListPageSize specifies the page size when invoking the tag list API.
@@ -451,7 +458,8 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 	} else {
 		refs = page.Referrers
 	}
-	// Server may not support filtering. We still need to filter on client side for sure.
+	// Server may not support filtering. We still need to filter on client side
+	// for sure.
 	refs = filterReferrers(refs, artifactType)
 	if len(refs) > 0 {
 		if err := fn(refs); err != nil {
@@ -712,7 +720,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return s.generateDescriptor(resp, refDigest)
+		return generateBlobDescriptor(resp, refDigest)
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
@@ -758,13 +766,13 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 
 	switch resp.StatusCode {
 	case http.StatusOK: // server does not support seek as `Range` was ignored.
-		desc, err = s.generateDescriptor(resp, refDigest)
+		desc, err = generateBlobDescriptor(resp, refDigest)
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
 		return desc, resp.Body, nil
 	case http.StatusPartialContent:
-		desc, err = s.generateDescriptor(resp, refDigest)
+		desc, err = generateBlobDescriptor(resp, refDigest)
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
@@ -776,8 +784,8 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 	}
 }
 
-// generateDescriptor returns a descriptor generated from the response.
-func (s *blobStore) generateDescriptor(resp *http.Response, refDigest digest.Digest) (ocispec.Descriptor, error) {
+// generateBlobDescriptor returns a descriptor generated from the response.
+func generateBlobDescriptor(resp *http.Response, refDigest digest.Digest) (ocispec.Descriptor, error) {
 	mediaType, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if mediaType == "" {
 		mediaType = "application/octet-stream"
@@ -895,7 +903,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return s.generateDescriptor(resp, ref)
+		return s.generateDescriptor(resp, ref, req.Method)
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
@@ -931,7 +939,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		desc, err = s.generateDescriptor(resp, ref)
+		desc, err = s.generateDescriptor(resp, ref, req.Method)
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
@@ -944,61 +952,137 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 }
 
 // generateDescriptor returns a descriptor generated from the response.
-func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference) (ocispec.Descriptor, error) {
+// See the truth table at the top of `repository_test.go`
+func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
+	// 1. Validate Content-Type
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Content-Type: %w", resp.Request.Method, resp.Request.URL, err)
+		return ocispec.Descriptor{}, fmt.Errorf(
+			"%s %q: invalid response `Content-Type` header; %w",
+			resp.Request.Method,
+			resp.Request.URL,
+			err,
+		)
 	}
 
-	size := resp.ContentLength
-	if size == -1 {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
+	// 2. Validate Size
+	if resp.ContentLength == -1 {
+		return ocispec.Descriptor{}, fmt.Errorf(
+			"%s %q: unknown response Content-Length",
+			resp.Request.Method,
+			resp.Request.URL,
+		)
 	}
 
-	// validate digest if ref is a digest
-	if refDigest, err := ref.Digest(); err == nil {
-		if err = verifyContentDigest(resp, refDigest); err != nil {
-			return ocispec.Descriptor{}, err
+	// 3. Validate Client Reference
+	var refDigest digest.Digest
+	if d, err := ref.Digest(); err == nil {
+		refDigest = d
+	}
+
+	// 4. Validate Server Digest (if present)
+	var serverHeaderDigest digest.Digest
+	if serverHeaderDigestStr := resp.Header.Get(dockerContentDigestHeader); serverHeaderDigestStr != "" {
+		if serverHeaderDigest, err = digest.Parse(serverHeaderDigestStr); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf(
+				"%s %q: invalid response header value `%s`: `%s`; %w",
+				resp.Request.Method,
+				resp.Request.URL,
+				dockerContentDigestHeader,
+				serverHeaderDigestStr,
+				err,
+			)
 		}
-		return ocispec.Descriptor{
-			MediaType: mediaType,
-			Digest:    refDigest,
-			Size:      size,
-		}, nil
 	}
 
-	digestStr := resp.Header.Get("Docker-Content-Digest")
-	if digestStr == "" {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: empty response Docker-Content-Digest", resp.Request.Method, resp.Request.URL)
+	/* 5. Now, look for specific error conditions; see truth table in method docstring */
+	var contentDigest digest.Digest
+
+	if len(serverHeaderDigest) == 0 {
+		if httpMethod == http.MethodHead {
+			if len(refDigest) == 0 {
+				// HEAD without server `Docker-Content-Digest` header is an
+				// immediate fail
+				return ocispec.Descriptor{}, fmt.Errorf(
+					"HTTP %s request missing required header `%s`",
+					httpMethod, dockerContentDigestHeader,
+				)
+			}
+			// Otherwise, just trust the client-supplied digest
+			contentDigest = refDigest
+		} else {
+			// GET without server `Docker-Content-Digest` header forces the
+			// expensive calculation
+			var calculatedDigest digest.Digest
+			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.MaxMetadataBytes); err != nil {
+				return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
+			}
+			contentDigest = calculatedDigest
+		}
+	} else {
+		contentDigest = serverHeaderDigest
 	}
 
-	contentDigest, err := digest.Parse(digestStr)
-	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
+	if len(refDigest) > 0 && refDigest != contentDigest {
+		return ocispec.Descriptor{}, fmt.Errorf(
+			"%s %q: invalid response; digest mismatch: `%s: %s` vs expected `%s`",
+			resp.Request.Method, resp.Request.URL,
+			dockerContentDigestHeader, contentDigest,
+			refDigest,
+		)
 	}
 
+	// 6. Finally, if we made it this far, then all is good; return.
 	return ocispec.Descriptor{
 		MediaType: mediaType,
 		Digest:    contentDigest,
-		Size:      size,
+		Size:      resp.ContentLength,
 	}, nil
+}
+
+// calculateDigestFromResponse calculates the actual digest of the response body
+// taking care not to destroy it in the process.
+func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (digest.Digest, error) {
+	defer resp.Body.Close()
+
+	body := limitReader(resp.Body, maxMetadataBytes)
+	content, err := io.ReadAll(body)
+	if err != nil {
+		return "", fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(content))
+
+	return digest.FromBytes(content), nil
 }
 
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.
 // OCI distribution-spec states the Docker-Content-Digest header is optional.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
 func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
-	digestStr := resp.Header.Get("Docker-Content-Digest")
-	if digestStr == "" {
+	digestStr := resp.Header.Get(dockerContentDigestHeader)
+
+	if len(digestStr) == 0 {
 		return nil
 	}
+
 	contentDigest, err := digest.Parse(digestStr)
 	if err != nil {
-		return fmt.Errorf("%s %q: invalid response Docker-Content-Digest: %s", resp.Request.Method, resp.Request.URL, digestStr)
+		return fmt.Errorf(
+			"%s %q: invalid response header: `%s: %s`",
+			resp.Request.Method, resp.Request.URL,
+			dockerContentDigestHeader, digestStr,
+		)
 	}
+
 	if contentDigest != expected {
-		return fmt.Errorf("%s: mismatch digest: %s", expected, contentDigest)
+		return fmt.Errorf(
+			"%s %q: invalid response; digest mismatch: `%s: %s` vs expected `%s`",
+			resp.Request.Method, resp.Request.URL,
+			dockerContentDigestHeader, contentDigest,
+			expected,
+		)
 	}
+
 	return nil
 }
 

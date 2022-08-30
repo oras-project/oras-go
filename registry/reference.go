@@ -27,10 +27,10 @@ import (
 
 // regular expressions for components.
 var (
-	// repositoryRegexp is adapted from the distribution implementation.
-	// The repository name set under OCI distribution spec is a subset of the
-	// the docker spec. For maximum compability, the docker spec is verified at
-	// the client side. Further check is left to the server side.
+	// repositoryRegexp is adapted from the distribution implementation. The
+	// repository name set under OCI distribution spec is a subset of the docker
+	// spec. For maximum compatability, the docker spec is verified client-side.
+	// Further checks are left to the server-side.
 	// References:
 	// - https://github.com/distribution/distribution/blob/v2.7.1/reference/regexp.go#L53
 	// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests
@@ -56,33 +56,66 @@ type Reference struct {
 	Reference string
 }
 
-// ParseReference parses a string into a artifact reference.
-// If the reference contains both the tag and the digest, the tag will be
-// dropped.
-// Digest is recognized only if the corresponding algorithm is available.
-func ParseReference(raw string) (Reference, error) {
-	parts := strings.SplitN(raw, "/", 2)
+// ParseReference parses a string (artifact) into an `artifact reference`.
+//
+// Note: An "image" is an "artifact", however, an "artifact" is not necessarily
+// an "image".
+//
+// The parameter `artifact` is an opaque polymorphic string, composed of two
+// other opaque tokens; namely `socketaddr` and `path`: These can in turn take
+// on their own polymorphic forms.  To do this, the Backus–Naur Form (BNF)
+// notation has been adopted, with the exception that *lowercase* labels here
+// imply opaque values (composed of other components), and *uppercase* labels
+// imply resolute/final values (can not be expanded further into subcomponents).
+//
+//	  <artifact> ::= <socketaddr> "/" <path>
+//
+//	<socketaddr> ::= <host> | <host> ":" <PORT>
+//	      <host> ::= <ip> | <FQDN>
+//	        <ip> ::= <IPV4-ADDR> | <IPV6-ADDR>
+//
+//	      <path> ::= <REPOSITORY> | <REPOSITORY> <reference>
+//	 <reference> ::= "@" <digest> | ":" <TAG> "@" <DIGEST> | ":" <TAG>
+//	    <digest> ::= <ALGO> ":" <HASH>
+//
+// That is, of all the possible forms that `path` can take, there are exactly 4
+// that are considered valid.  Expanding the BNF notation for `path`, the 4 are:
+//
+//	<---------------------- path ----------------------> |  - Decode `path`
+//	<=== REPOSITORY ===><---------- reference ---------> |    - Decode `reference`
+//	<=== REPOSITORY ===><=================== digest ===> |      - Valid Form A
+//	<=== REPOSITORY ===><!!! TAG !!!> @ <=== digest ===> |      - Valid Form B
+//	<=== REPOSITORY ===><=== TAG ======================> |      - Valid Form C
+//	<=== REPOSITORY ===================================> |    - Valid Form D
+//
+// Note: In the case of Valid Form B, TAG is dropped without any validation or
+// further consideration.
+func ParseReference(artifact string) (Reference, error) {
+	parts := strings.SplitN(artifact, "/", 2)
 	if len(parts) == 1 {
+		// Invalid Form
 		return Reference{}, fmt.Errorf("%w: missing repository", errdef.ErrInvalidReference)
 	}
 	registry, path := parts[0], parts[1]
+
 	var repository string
 	var reference string
 	if index := strings.Index(path, "@"); index != -1 {
-		// digest found
+		// `digest` found; Valid Form A (if not B)
 		repository = path[:index]
 		reference = path[index+1:]
 
-		// drop tag since the digest is present.
 		if index := strings.Index(repository, ":"); index != -1 {
+			// `tag` found (and now dropped without validation) since `the
+			// `digest` already present; Valid Form B
 			repository = repository[:index]
 		}
 	} else if index := strings.Index(path, ":"); index != -1 {
-		// tag found
+		// `tag` found; Valid Form C
 		repository = path[:index]
 		reference = path[index+1:]
 	} else {
-		// empty reference
+		// empty `reference`; Valid Form D
 		repository = path
 	}
 	res := Reference{

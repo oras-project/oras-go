@@ -29,7 +29,7 @@ import (
 
 // ReferenceStorage represents a CAS that supports registry.ReferenceFetcher.
 type ReferenceStorage interface {
-	content.Storage
+	content.ReadOnlyStorage
 	registry.ReferenceFetcher
 }
 

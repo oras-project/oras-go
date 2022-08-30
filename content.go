@@ -66,7 +66,7 @@ type ResolveOptions struct {
 }
 
 // Resolve resolves a descriptor with provided reference from the target.
-func Resolve(ctx context.Context, target Target, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
+func Resolve(ctx context.Context, target ReadOnlyTarget, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
 	if opts.TargetPlatform == nil {
 		return target.Resolve(ctx, reference)
 	}
@@ -77,7 +77,7 @@ func Resolve(ctx context.Context, target Target, reference string, opts ResolveO
 
 // resolve resolves a descriptor with provided reference from the target, with
 // specified caching.
-func resolve(ctx context.Context, target Target, proxy *cas.Proxy, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
+func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
 	if opts.TargetPlatform == nil {
 		return target.Resolve(ctx, reference)
 	}

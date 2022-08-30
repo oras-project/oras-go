@@ -74,7 +74,7 @@ func isSubset(a, b []string) bool {
 // SelectManifest implements platform filter and returns the descriptor of the
 // first matched manifest if the root is a manifest list. If the root is a
 // manifest, then return the root descriptor if platform matches.
-func SelectManifest(ctx context.Context, src content.Storage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
+func SelectManifest(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
 	switch root.MediaType {
 	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
 		manifests, err := content.Successors(ctx, src, root)
@@ -116,7 +116,7 @@ func SelectManifest(ctx context.Context, src content.Storage, root ocispec.Descr
 
 // getPlatformFromConfig returns a platform object which is made up from the
 // fields in config blob.
-func getPlatformFromConfig(ctx context.Context, src content.Storage, desc ocispec.Descriptor, targetConfigMediaType string) (*ocispec.Platform, error) {
+func getPlatformFromConfig(ctx context.Context, src content.ReadOnlyStorage, desc ocispec.Descriptor, targetConfigMediaType string) (*ocispec.Platform, error) {
 	if desc.MediaType != targetConfigMediaType {
 		return nil, fmt.Errorf("mismatch MediaType %s: expect %s", desc.MediaType, targetConfigMediaType)
 	}
