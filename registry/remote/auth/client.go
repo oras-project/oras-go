@@ -386,7 +386,7 @@ func StaticCredential(host string, cred Credential) func(ctx context.Context, ta
 		if target == host {
 			return cred, nil
 		}
-		return EmptyCredential, ErrInvalidCredential
+		return EmptyCredential, fmt.Errorf("no valid credential found for target %s: %w", target, ErrInvalidCredential)
 	}
 }
 
