@@ -24,8 +24,8 @@ import (
 
 var ErrMissingMediaType error = errors.New("missing media type")
 
-// GenerateDescriptor returns a descriptor, given the content and media type.
-func GenerateDescriptor(content []byte, mediaType string) (ocispec.Descriptor, error) {
+// Generate returns a descriptor, given the content and media type.
+func Generate(content []byte, mediaType string) (ocispec.Descriptor, error) {
 	if mediaType == "" {
 		return ocispec.Descriptor{}, ErrMissingMediaType
 	}

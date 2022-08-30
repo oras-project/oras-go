@@ -65,7 +65,7 @@ func TestGenerateDescriptor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := GenerateDescriptor(tt.args.content, tt.args.mediaType)
+			got, err := Generate(tt.args.content, tt.args.mediaType)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("GenerateDescriptor() error = %v, wantErr %v", err, tt.wantErr)
 				return
