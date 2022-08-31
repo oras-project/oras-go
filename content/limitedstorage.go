@@ -21,6 +21,7 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/errdef"
 )
 
 // LimitedStorage represents a CAS with a push size limit.
@@ -37,7 +38,7 @@ func (ls *LimitedStorage) Push(ctx context.Context, expected ocispec.Descriptor,
 			"content size %v exceeds push size limit %v: %w",
 			expected.Size,
 			ls.PushLimit,
-			ErrSizeExceedLimit)
+			errdef.ErrSizeExceedsLimit)
 	}
 
 	return ls.Storage.Push(ctx, expected, io.LimitReader(content, expected.Size))

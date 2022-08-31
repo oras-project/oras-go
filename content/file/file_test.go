@@ -529,8 +529,8 @@ func TestStore_Push_NoName_ExceedLimit(t *testing.T) {
 
 	// test push
 	err := s.Push(ctx, desc, bytes.NewReader(blob))
-	if !errors.Is(err, content.ErrSizeExceedLimit) {
-		t.Errorf("Store.Push() error = %v, want %v", err, content.ErrSizeExceedLimit)
+	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
+		t.Errorf("Store.Push() error = %v, want %v", err, errdef.ErrSizeExceedsLimit)
 	}
 }
 

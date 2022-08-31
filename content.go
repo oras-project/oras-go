@@ -29,9 +29,6 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
-// defaultSizeLimit defines the default size limit for fetching content.
-const defaultSizeLimit = 1 << 22 // 4 MiB
-
 // Tag tags the descriptor identified by src with dst.
 func Tag(ctx context.Context, target Target, src, dst string) error {
 	if refTagger, ok := target.(registry.ReferenceTagger); ok {
@@ -113,40 +110,31 @@ func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, refer
 	return platform.SelectManifest(ctx, target, desc, opts.TargetPlatform)
 }
 
-// Fetch fetches the content identified by the reference.
-func Fetch(ctx context.Context, target ReadOnlyTarget, reference string) (ocispec.Descriptor, io.ReadCloser, error) {
-	if refFetcher, ok := target.(registry.ReferenceFetcher); ok {
-		return refFetcher.FetchReference(ctx, reference)
-	}
+// DefaultFetchOptions provides the default FetchOptions.
+var DefaultFetchOptions = FetchOptions{}
 
-	desc, err := target.Resolve(ctx, reference)
-	if err != nil {
-		return ocispec.Descriptor{}, nil, err
-	}
-	rc, err := target.Fetch(ctx, desc)
-	if err != nil {
-		return ocispec.Descriptor{}, nil, err
-	}
-	return desc, rc, nil
-}
-
-// DefaultFetchContentOptions provides the default FetchContentOptions.
-var DefaultFetchContentOptions = FetchContentOptions{
-	SizeLimit: int64(defaultSizeLimit),
-}
-
-// FetchContentOptions contains parameters for oras.FetchContent.
-type FetchContentOptions struct {
+// FetchOptions contains parameters for oras.Fetch.
+type FetchOptions struct {
 	// ResolveOptions contains parameters for resolving reference.
 	ResolveOptions
-	// SizeLimit limits the max size of the fetched content.
-	SizeLimit int64
 }
 
-// FetchContent fetches the content bytes identified by the reference.
-func FetchContent(ctx context.Context, target ReadOnlyTarget, reference string, opts FetchContentOptions) (ocispec.Descriptor, []byte, error) {
+// Fetch fetches the content identified by the reference.
+func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts FetchOptions) (ocispec.Descriptor, io.ReadCloser, error) {
 	if opts.TargetPlatform == nil {
-		return fetchContent(ctx, target, reference, opts.SizeLimit)
+		if refFetcher, ok := target.(registry.ReferenceFetcher); ok {
+			return refFetcher.FetchReference(ctx, reference)
+		}
+
+		desc, err := target.Resolve(ctx, reference)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		rc, err := target.Fetch(ctx, desc)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		return desc, rc, nil
 	}
 
 	proxy := cas.NewProxy(target, cas.NewMemory())
@@ -157,52 +145,51 @@ func FetchContent(ctx context.Context, target ReadOnlyTarget, reference string, 
 	// if the content exists in cache, fetch it from cache
 	// otherwise fetch without caching
 	proxy.StopCaching = true
-	bytes, err := content.FetchAllWithLimit(ctx, target, desc, opts.SizeLimit)
+	rc, err := proxy.Fetch(ctx, desc)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	return desc, bytes, nil
+	return desc, rc, nil
 }
 
-// fetchContent fetches the content bytes identified by the reference.
-func fetchContent(ctx context.Context, resolver ReadOnlyTarget, reference string, limit int64) (ocispec.Descriptor, []byte, error) {
-	var desc ocispec.Descriptor
-	var rc io.ReadCloser
-	var err error
+// DefaultFetchBytesOptions provides the default FetchBytesOptions.
+var DefaultFetchBytesOptions = FetchBytesOptions{
+	SizeLimit: int64(1 << 22), // 4 MiB
+}
+
+// FetchBytesOptions contains parameters for oras.FetchBytes.
+type FetchBytesOptions struct {
+	FetchOptions
+	// SizeLimit limits the max size of the fetched content.
+	// If SizeLimit is not specified, or the specified value is less than or
+	// equal to 0, it will be considered as infinity.
+	SizeLimit int64
+}
+
+// FetchBytes fetches the content bytes identified by the reference.
+func FetchBytes(ctx context.Context, target ReadOnlyTarget, reference string, opts FetchBytesOptions) (ocispec.Descriptor, []byte, error) {
+	desc, rc, err := Fetch(ctx, target, reference, opts.FetchOptions)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	defer rc.Close()
+
 	var bytes []byte
-
-	if refFetcher, ok := resolver.(registry.ReferenceFetcher); ok {
-		desc, rc, err = refFetcher.FetchReference(ctx, reference)
-		if err != nil {
-			return ocispec.Descriptor{}, nil, err
+	if opts.SizeLimit > 0 {
+		if desc.Size > opts.SizeLimit {
+			return ocispec.Descriptor{}, nil, fmt.Errorf(
+				"content size %v exceeds max size limit %v: %w",
+				desc.Size,
+				opts.SizeLimit,
+				errdef.ErrSizeExceedsLimit)
 		}
-		defer rc.Close()
-
-		if limit > 0 {
-			if desc.Size > limit {
-				return ocispec.Descriptor{}, nil, fmt.Errorf(
-					"content size %v exceeds max size limit %v: %w",
-					desc.Size,
-					limit,
-					content.ErrSizeExceedLimit)
-			}
-			bytes, err = content.ReadAll(io.LimitReader(rc, limit), desc)
-		} else {
-			bytes, err = content.ReadAll(rc, desc)
-		}
-		if err != nil {
-			return ocispec.Descriptor{}, nil, err
-		}
-		return desc, bytes, nil
+		bytes, err = content.ReadAll(io.LimitReader(rc, opts.SizeLimit), desc)
+	} else {
+		bytes, err = content.ReadAll(rc, desc)
 	}
-
-	desc, err = resolver.Resolve(ctx, reference)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	bytes, err = content.FetchAllWithLimit(ctx, resolver, desc, limit)
-	if err != nil {
-		return ocispec.Descriptor{}, nil, err
-	}
+
 	return desc, bytes, nil
 }

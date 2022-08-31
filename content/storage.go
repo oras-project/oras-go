@@ -60,6 +60,17 @@ type Deleter interface {
 	Delete(ctx context.Context, target ocispec.Descriptor) error
 }
 
+// FetchAll safely fetches the content described by the descriptor.
+// The fetched content is verified against the size and the digest.
+func FetchAll(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) ([]byte, error) {
+	rc, err := fetcher.Fetch(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return ReadAll(rc, desc)
+}
+
 // FetcherFunc is the basic Fetch method defined in Fetcher.
 type FetcherFunc func(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error)
 
