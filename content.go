@@ -107,7 +107,7 @@ func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, refer
 }
 
 // DefaultFetchOptions provides the default FetchOptions.
-var DefaultFetchOptions = FetchOptions{}
+var DefaultFetchOptions FetchOptions
 
 // FetchOptions contains parameters for oras.Fetch.
 type FetchOptions struct {
@@ -150,32 +150,38 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 
 // DefaultFetchBytesOptions provides the default FetchBytesOptions.
 var DefaultFetchBytesOptions = FetchBytesOptions{
-	SizeLimit: int64(1 << 22), // 4 MiB
+	MaxBytes: defaultMaxBytes,
 }
+
+// defaultMaxBytes is the default value of MaxBytes.
+const defaultMaxBytes int64 = 4 * 1024 * 1024 // 4 MiB
 
 // FetchBytesOptions contains parameters for oras.FetchBytes.
 type FetchBytesOptions struct {
 	// FetchOptions contains parameters for fetching content.
 	FetchOptions
-	// SizeLimit limits the max size of the fetched content.
-	// If SizeLimit is not specified, or the specified value is less than or
-	// equal to 0, it will be considered as infinity.
-	SizeLimit int64
+	// MaxBytes limits the maximum size of the fetched content bytes.
+	// If less than or equal to 0, a default (currently 4 MiB) is used.
+	MaxBytes int64
 }
 
 // FetchBytes fetches the content bytes identified by the reference.
 func FetchBytes(ctx context.Context, target ReadOnlyTarget, reference string, opts FetchBytesOptions) (ocispec.Descriptor, []byte, error) {
+	if opts.MaxBytes <= 0 {
+		opts.MaxBytes = defaultMaxBytes
+	}
+
 	desc, rc, err := Fetch(ctx, target, reference, opts.FetchOptions)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 	defer rc.Close()
 
-	if opts.SizeLimit > 0 && desc.Size > opts.SizeLimit {
+	if desc.Size > opts.MaxBytes {
 		return ocispec.Descriptor{}, nil, fmt.Errorf(
-			"content size %v exceeds max size limit %v: %w",
+			"content size %v exceeds MaxBytes %v: %w",
 			desc.Size,
-			opts.SizeLimit,
+			opts.MaxBytes,
 			errdef.ErrSizeExceedsLimit)
 	}
 	bytes, err := content.ReadAll(rc, desc)

@@ -77,7 +77,7 @@ func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
 // CopyGraphOptions contains parameters for oras.CopyGraph.
 type CopyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent copy tasks.
-	// If Concurrency is not specified, or the specified value is less
+	// If Concurrency is not specified, or the specified value is less than
 	// or equal to 0, the concurrency limit will be considered as infinity.
 	Concurrency int64
 	// PreCopy handles the current descriptor before copying it.

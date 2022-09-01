@@ -966,8 +966,8 @@ func TestFetchBytes_Memory(t *testing.T) {
 		t.Fatalf("oras.FetchBytes() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 
-	// test FetchBytes with SizeLimit = 1
-	_, _, err = oras.FetchBytes(ctx, target, manifestTag, oras.FetchBytesOptions{SizeLimit: 1})
+	// test FetchBytes with MaxBytes = 1
+	_, _, err = oras.FetchBytes(ctx, target, manifestTag, oras.FetchBytesOptions{MaxBytes: 1})
 	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
 		t.Fatalf("oras.FetchBytes() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
 	}
@@ -994,7 +994,7 @@ func TestFetchBytes_Memory(t *testing.T) {
 		t.Errorf("oras.FetchBytes() = %v, want %v", gotBytes, blobs[3])
 	}
 
-	// test FetchBytes with TargetPlatform and SizeLimit = 1
+	// test FetchBytes with TargetPlatform and MaxBytes = 1
 	// should return size exceed error
 	opts = oras.FetchBytesOptions{
 		FetchOptions: oras.FetchOptions{
@@ -1005,7 +1005,7 @@ func TestFetchBytes_Memory(t *testing.T) {
 				},
 			},
 		},
-		SizeLimit: 1,
+		MaxBytes: 1,
 	}
 	_, _, err = oras.FetchBytes(ctx, target, manifestTag, opts)
 	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
@@ -1192,8 +1192,8 @@ func TestFetchBytes_Repository(t *testing.T) {
 		t.Errorf("oras.FetchBytes() = %v, want %v", gotBytes, blob)
 	}
 
-	// test FetchBytes with SizeLimit = 1
-	_, _, err = oras.FetchBytes(ctx, repo, ref, oras.FetchBytesOptions{SizeLimit: 1})
+	// test FetchBytes with MaxBytes = 1
+	_, _, err = oras.FetchBytes(ctx, repo, ref, oras.FetchBytesOptions{MaxBytes: 1})
 	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
 		t.Fatalf("oras.FetchBytes() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
 	}
@@ -1227,7 +1227,7 @@ func TestFetchBytes_Repository(t *testing.T) {
 		t.Errorf("oras.FetchBytes() = %v, want %v", gotBytes, manifest)
 	}
 
-	// test FetchBytes with TargetPlatform and SizeLimit = 1
+	// test FetchBytes with TargetPlatform and MaxBytes = 1
 	// should return size exceed error
 	opts = oras.FetchBytesOptions{
 		FetchOptions: oras.FetchOptions{
@@ -1238,7 +1238,7 @@ func TestFetchBytes_Repository(t *testing.T) {
 				},
 			},
 		},
-		SizeLimit: 1,
+		MaxBytes: 1,
 	}
 	_, _, err = oras.FetchBytes(ctx, repo, ref, opts)
 	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {

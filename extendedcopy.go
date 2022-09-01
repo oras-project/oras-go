@@ -51,8 +51,8 @@ type ExtendedCopyGraphOptions struct {
 	CopyGraphOptions
 	// Depth limits the maximum depth of the directed acyclic graph (DAG) that
 	// will be extended-copied.
-	// If Depth is no specified, or the specified value is less or equal than 0,
-	// the depth limit will be considered as infinity.
+	// If Depth is no specified, or the specified value is less than or
+	// equal to 0, the depth limit will be considered as infinity.
 	Depth int
 	// FindPredecessors finds the predecessors of the current node.
 	// If FindPredecessors is nil, src.Predecessors will be adapted and used.

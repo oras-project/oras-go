@@ -98,7 +98,7 @@ type Repository struct {
 	// MaxMetadataBytes specifies a limit on how many response bytes are allowed
 	// in the server's response to the metadata APIs, such as catalog list, tag
 	// list, and referrers list.
-	// If zero, a default (currently 4MiB) is used.
+	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 }
 
