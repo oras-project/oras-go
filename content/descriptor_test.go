@@ -56,7 +56,7 @@ func TestGenerateDescriptor(t *testing.T) {
 			name: "missing media type",
 			args: args{contentBar, ""},
 			want: ocispec.Descriptor{
-				MediaType: defaultMediaType,
+				MediaType: MediaTypeOctetStream,
 				Digest:    digest.FromBytes(contentBar),
 				Size:      int64(len(contentBar))},
 		},

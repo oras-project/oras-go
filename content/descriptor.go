@@ -20,12 +20,15 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-var defaultMediaType string = "application/octet-stream"
+// MediaTypeOctetStream is the default mediaType used when no
+// media type is specified.
+const MediaTypeOctetStream string = "application/octet-stream"
 
 // NewDescriptorFromBytes returns a descriptor, given the content and media type.
+// If no media type is specified, MediaTypeOctetStream will be used.
 func NewDescriptorFromBytes(content []byte, mediaType string) ocispec.Descriptor {
 	if mediaType == "" {
-		mediaType = defaultMediaType
+		mediaType = MediaTypeOctetStream
 	}
 	return ocispec.Descriptor{
 		MediaType: mediaType,
