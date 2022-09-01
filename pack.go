@@ -33,7 +33,7 @@ import (
 
 // MediaTypeUnknownConfig is the default mediaType used when no
 // config media type is specified.
-const MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
+const MediaTypeUnknownConfig = "application/vnd.unknown.config.v1"
 
 var (
 	// ErrMissingArtifactType is returned by PackArtifact() when no artifact
