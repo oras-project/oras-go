@@ -13,30 +13,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package descriptor
+package content
 
 import (
-	"errors"
-
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-var ErrMissingMediaType error = errors.New("missing media type")
+var defaultMediaType string = "application/octet-stream"
 
-// Generate returns a descriptor, given the content and media type.
-func Generate(content []byte, mediaType string) (ocispec.Descriptor, error) {
+// NewDescriptorFromBytes returns a descriptor, given the content and media type.
+func NewDescriptorFromBytes(content []byte, mediaType string) ocispec.Descriptor {
 	if mediaType == "" {
-		return ocispec.Descriptor{}, ErrMissingMediaType
+		mediaType = defaultMediaType
 	}
 	return ocispec.Descriptor{
 		MediaType: mediaType,
 		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)),
-	}, nil
+	}
 }
 
 // Equal returns true if two descriptors point to the same content.
 func Equal(a, b ocispec.Descriptor) bool {
-	return a.Digest == b.Digest && a.Size == b.Size && a.MediaType == b.MediaType
+	return a.Size == b.Size && a.Digest == b.Digest && a.MediaType == b.MediaType
 }

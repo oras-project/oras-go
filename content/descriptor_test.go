@@ -13,10 +13,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package descriptor
+package content
 
 import (
-	"errors"
 	"reflect"
 	"testing"
 
@@ -33,10 +32,9 @@ func TestGenerateDescriptor(t *testing.T) {
 		mediaType string
 	}
 	tests := []struct {
-		name    string
-		args    args
-		want    ocispec.Descriptor
-		wantErr error
+		name string
+		args args
+		want ocispec.Descriptor
 	}{
 		{
 			name: "foo descriptor",
@@ -45,7 +43,6 @@ func TestGenerateDescriptor(t *testing.T) {
 				MediaType: "example media type",
 				Digest:    digest.FromBytes(contentFoo),
 				Size:      int64(len(contentFoo))},
-			wantErr: nil,
 		},
 		{
 			name: "empty content",
@@ -54,22 +51,19 @@ func TestGenerateDescriptor(t *testing.T) {
 				MediaType: "example media type",
 				Digest:    digest.FromBytes([]byte("")),
 				Size:      int64(len([]byte("")))},
-			wantErr: nil,
 		},
 		{
-			name:    "missing media type",
-			args:    args{contentBar, ""},
-			want:    ocispec.Descriptor{},
-			wantErr: ErrMissingMediaType,
+			name: "missing media type",
+			args: args{contentBar, ""},
+			want: ocispec.Descriptor{
+				MediaType: defaultMediaType,
+				Digest:    digest.FromBytes(contentBar),
+				Size:      int64(len(contentBar))},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Generate(tt.args.content, tt.args.mediaType)
-			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("GenerateDescriptor() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
+			got := NewDescriptorFromBytes(tt.args.content, tt.args.mediaType)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GenerateDescriptor() = %v, want %v", got, tt.want)
 			}
