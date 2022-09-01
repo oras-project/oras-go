@@ -58,9 +58,9 @@ func parseLink(resp *http.Response) (string, error) {
 }
 
 // limitReader returns a Reader that reads from r but stops with EOF after n
-// bytes. If n is zero, defaultMaxMetadataBytes is used.
+// bytes. If n is less than or equal to zero, defaultMaxMetadataBytes is used.
 func limitReader(r io.Reader, n int64) io.Reader {
-	if n == 0 {
+	if n <= 0 {
 		n = defaultMaxMetadataBytes
 	}
 	return io.LimitReader(r, n)

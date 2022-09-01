@@ -18,11 +18,14 @@ package oras
 import (
 	"context"
 	"fmt"
+	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -60,14 +63,19 @@ type ResolveOptions struct {
 }
 
 // Resolve resolves a descriptor with provided reference from the target.
-func Resolve(ctx context.Context, target ReadOnlyTarget, ref string, opts ResolveOptions) (ocispec.Descriptor, error) {
+func Resolve(ctx context.Context, target ReadOnlyTarget, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
 	if opts.TargetPlatform == nil {
-		return target.Resolve(ctx, ref)
+		return target.Resolve(ctx, reference)
 	}
+	return resolve(ctx, target, nil, reference, opts)
+}
 
+// resolve resolves a descriptor with provided reference from the target, with
+// specified caching.
+func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
 	if refFetcher, ok := target.(registry.ReferenceFetcher); ok {
 		// optimize performance for ReferenceFetcher targets
-		desc, rc, err := refFetcher.FetchReference(ctx, ref)
+		desc, rc, err := refFetcher.FetchReference(ctx, reference)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -76,25 +84,110 @@ func Resolve(ctx context.Context, target ReadOnlyTarget, ref string, opts Resolv
 		switch desc.MediaType {
 		case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
 			docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
-			// create a proxy to cache the fetched descriptor
-			store := cas.NewMemory()
-			err = store.Push(ctx, desc, rc)
-			if err != nil {
+			// cache the fetched content
+			if proxy == nil {
+				proxy = cas.NewProxy(target, cas.NewMemory())
+			}
+			if err := proxy.Cache.Push(ctx, desc, rc); err != nil {
 				return ocispec.Descriptor{}, err
 			}
-
-			proxy := cas.NewProxy(target, store)
+			// stop caching as SelectManifest may fetch a config blob
 			proxy.StopCaching = true
-			return selectPlatform(ctx, proxy, desc, opts.TargetPlatform)
+			return platform.SelectManifest(ctx, proxy, desc, opts.TargetPlatform)
 		default:
 			return ocispec.Descriptor{}, fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrUnsupported)
 		}
 	}
 
-	desc, err := target.Resolve(ctx, ref)
+	desc, err := target.Resolve(ctx, reference)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
+	return platform.SelectManifest(ctx, target, desc, opts.TargetPlatform)
+}
 
-	return selectPlatform(ctx, target, desc, opts.TargetPlatform)
+// DefaultFetchOptions provides the default FetchOptions.
+var DefaultFetchOptions FetchOptions
+
+// FetchOptions contains parameters for oras.Fetch.
+type FetchOptions struct {
+	// ResolveOptions contains parameters for resolving reference.
+	ResolveOptions
+}
+
+// Fetch fetches the content identified by the reference.
+func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts FetchOptions) (ocispec.Descriptor, io.ReadCloser, error) {
+	if opts.TargetPlatform == nil {
+		if refFetcher, ok := target.(registry.ReferenceFetcher); ok {
+			return refFetcher.FetchReference(ctx, reference)
+		}
+
+		desc, err := target.Resolve(ctx, reference)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		rc, err := target.Fetch(ctx, desc)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		return desc, rc, nil
+	}
+
+	proxy := cas.NewProxy(target, cas.NewMemory())
+	desc, err := resolve(ctx, target, proxy, reference, opts.ResolveOptions)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	// if the content exists in cache, fetch it from cache
+	// otherwise fetch without caching
+	proxy.StopCaching = true
+	rc, err := proxy.Fetch(ctx, desc)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	return desc, rc, nil
+}
+
+// DefaultFetchBytesOptions provides the default FetchBytesOptions.
+var DefaultFetchBytesOptions = FetchBytesOptions{
+	MaxBytes: defaultMaxBytes,
+}
+
+// defaultMaxBytes is the default value of MaxBytes.
+const defaultMaxBytes int64 = 4 * 1024 * 1024 // 4 MiB
+
+// FetchBytesOptions contains parameters for oras.FetchBytes.
+type FetchBytesOptions struct {
+	// FetchOptions contains parameters for fetching content.
+	FetchOptions
+	// MaxBytes limits the maximum size of the fetched content bytes.
+	// If less than or equal to 0, a default (currently 4 MiB) is used.
+	MaxBytes int64
+}
+
+// FetchBytes fetches the content bytes identified by the reference.
+func FetchBytes(ctx context.Context, target ReadOnlyTarget, reference string, opts FetchBytesOptions) (ocispec.Descriptor, []byte, error) {
+	if opts.MaxBytes <= 0 {
+		opts.MaxBytes = defaultMaxBytes
+	}
+
+	desc, rc, err := Fetch(ctx, target, reference, opts.FetchOptions)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	defer rc.Close()
+
+	if desc.Size > opts.MaxBytes {
+		return ocispec.Descriptor{}, nil, fmt.Errorf(
+			"content size %v exceeds MaxBytes %v: %w",
+			desc.Size,
+			opts.MaxBytes,
+			errdef.ErrSizeExceedsLimit)
+	}
+	bytes, err := content.ReadAll(rc, desc)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+
+	return desc, bytes, nil
 }

@@ -17,7 +17,6 @@ package oras
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -27,7 +26,6 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/internal/registryutil"
@@ -56,70 +54,6 @@ type CopyOptions struct {
 	MapRoot func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error)
 }
 
-// getPlatformFromConfig returns a platform object which is made up from the
-// fields in config blob.
-func getPlatformFromConfig(ctx context.Context, src content.ReadOnlyStorage, desc ocispec.Descriptor, targetConfigMediaType string) (*ocispec.Platform, error) {
-	if desc.MediaType != targetConfigMediaType {
-		return nil, fmt.Errorf("mismatch MediaType %s: expect %s", desc.MediaType, targetConfigMediaType)
-	}
-
-	rc, err := src.Fetch(ctx, desc)
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-
-	var platform ocispec.Platform
-	if err = json.NewDecoder(rc).Decode(&platform); err != nil && err != io.EOF {
-		return nil, err
-	}
-
-	return &platform, nil
-}
-
-// selectPlatform implements platform filter and returns the descriptor of the
-// first matched manifest if the root is a manifest list. If the root is a
-// manifest, then return the root descriptor if platform matches.
-func selectPlatform(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
-	switch root.MediaType {
-	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
-		manifests, err := content.Successors(ctx, src, root)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-
-		// platform filter
-		for _, m := range manifests {
-			if platform.Match(m.Platform, p) {
-				return m, nil
-			}
-		}
-		return ocispec.Descriptor{}, errdef.ErrNotFound
-	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
-		descs, err := content.Successors(ctx, src, root)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-
-		configMediaType := docker.MediaTypeConfig
-		if root.MediaType == ocispec.MediaTypeImageManifest {
-			configMediaType = ocispec.MediaTypeImageConfig
-		}
-
-		cfgPlatform, err := getPlatformFromConfig(ctx, src, descs[0], configMediaType)
-		if err != nil {
-			return ocispec.Descriptor{}, err
-		}
-
-		if platform.Match(cfgPlatform, p) {
-			return root, nil
-		}
-		return ocispec.Descriptor{}, errdef.ErrNotFound
-	default:
-		return ocispec.Descriptor{}, fmt.Errorf("%s: %s: %w", root.Digest, root.MediaType, errdef.ErrUnsupported)
-	}
-}
-
 // WithTargetPlatform configures opts.MapRoot to select the manifest whose
 // platform matches the given platform. When MapRoot is provided, the platform
 // selection will be applied on the mapped root node.
@@ -136,14 +70,14 @@ func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
 				return ocispec.Descriptor{}, err
 			}
 		}
-		return selectPlatform(ctx, src, root, p)
+		return platform.SelectManifest(ctx, src, root, p)
 	}
 }
 
 // CopyGraphOptions contains parameters for oras.CopyGraph.
 type CopyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent copy tasks.
-	// If Concurrency is not specified, or the specified value is less
+	// If Concurrency is not specified, or the specified value is less than
 	// or equal to 0, the concurrency limit will be considered as infinity.
 	Concurrency int64
 	// PreCopy handles the current descriptor before copying it.
