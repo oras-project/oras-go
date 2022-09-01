@@ -67,18 +67,12 @@ func Resolve(ctx context.Context, target ReadOnlyTarget, reference string, opts 
 	if opts.TargetPlatform == nil {
 		return target.Resolve(ctx, reference)
 	}
-
-	proxy := cas.NewProxy(target, cas.NewMemory())
-	return resolve(ctx, target, proxy, reference, opts)
+	return resolve(ctx, target, nil, reference, opts)
 }
 
 // resolve resolves a descriptor with provided reference from the target, with
 // specified caching.
 func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
-	if opts.TargetPlatform == nil {
-		return target.Resolve(ctx, reference)
-	}
-
 	if refFetcher, ok := target.(registry.ReferenceFetcher); ok {
 		// optimize performance for ReferenceFetcher targets
 		desc, rc, err := refFetcher.FetchReference(ctx, reference)
@@ -91,8 +85,10 @@ func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, refer
 		case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
 			docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
 			// cache the fetched content
-			err = proxy.Cache.Push(ctx, desc, rc)
-			if err != nil {
+			if proxy == nil {
+				proxy = cas.NewProxy(target, cas.NewMemory())
+			}
+			if err := proxy.Cache.Push(ctx, desc, rc); err != nil {
 				return ocispec.Descriptor{}, err
 			}
 			// stop caching as SelectManifest may fetch a config blob
@@ -159,6 +155,7 @@ var DefaultFetchBytesOptions = FetchBytesOptions{
 
 // FetchBytesOptions contains parameters for oras.FetchBytes.
 type FetchBytesOptions struct {
+	// FetchOptions contains parameters for fetching content.
 	FetchOptions
 	// SizeLimit limits the max size of the fetched content.
 	// If SizeLimit is not specified, or the specified value is less than or
@@ -174,19 +171,14 @@ func FetchBytes(ctx context.Context, target ReadOnlyTarget, reference string, op
 	}
 	defer rc.Close()
 
-	var bytes []byte
-	if opts.SizeLimit > 0 {
-		if desc.Size > opts.SizeLimit {
-			return ocispec.Descriptor{}, nil, fmt.Errorf(
-				"content size %v exceeds max size limit %v: %w",
-				desc.Size,
-				opts.SizeLimit,
-				errdef.ErrSizeExceedsLimit)
-		}
-		bytes, err = content.ReadAll(io.LimitReader(rc, opts.SizeLimit), desc)
-	} else {
-		bytes, err = content.ReadAll(rc, desc)
+	if opts.SizeLimit > 0 && desc.Size > opts.SizeLimit {
+		return ocispec.Descriptor{}, nil, fmt.Errorf(
+			"content size %v exceeds max size limit %v: %w",
+			desc.Size,
+			opts.SizeLimit,
+			errdef.ErrSizeExceedsLimit)
 	}
+	bytes, err := content.ReadAll(rc, desc)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
