@@ -56,14 +56,14 @@ func TestGenerateDescriptor(t *testing.T) {
 			name: "missing media type",
 			args: args{contentBar, ""},
 			want: ocispec.Descriptor{
-				MediaType: MediaTypeOctetStream,
+				MediaType: defaultMediaType,
 				Digest:    digest.FromBytes(contentBar),
 				Size:      int64(len(contentBar))},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewDescriptorFromBytes(tt.args.content, tt.args.mediaType)
+			got := NewDescriptorFromBytes(tt.args.mediaType, tt.args.content)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GenerateDescriptor() = %v, want %v", got, tt.want)
 			}
