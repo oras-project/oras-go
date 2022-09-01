@@ -2231,7 +2231,7 @@ func TestClient_StaticCredential_registryMismatch(t *testing.T) {
 	if cred != EmptyCredential {
 		t.Errorf("Credential() = %v, want = %v", cred, EmptyCredential)
 	}
-	if !errors.Is(err, ErrInvalidCredential) {
-		t.Errorf("Credential() error = %v, wantErr %v", err, ErrInvalidCredential)
+	if err != nil {
+		t.Errorf("got error = %v, expected error = %v", err, nil)
 	}
 }

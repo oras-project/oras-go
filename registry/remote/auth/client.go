@@ -52,17 +52,13 @@ var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 // See also ClientID.
 var defaultClientID = "oras-go"
 
-// ErrInvalidCredential will be returned by a client's Credential method
-// when no valid credential is found given the target host.
-var ErrInvalidCredential error = errors.New("invalid credential")
-
 // StaticCredential specifies static credentials for the given host.
-func StaticCredential(host string, cred Credential) func(ctx context.Context, target string) (Credential, error) {
+func StaticCredential(registry string, cred Credential) func(context.Context, string) (Credential, error) {
 	return func(_ context.Context, target string) (Credential, error) {
-		if target == host {
+		if target == registry {
 			return cred, nil
 		}
-		return EmptyCredential, fmt.Errorf("no valid credential found for target %s: %w", target, ErrInvalidCredential)
+		return EmptyCredential, nil
 	}
 }
 

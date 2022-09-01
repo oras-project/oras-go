@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"unicode"
 )
@@ -71,6 +72,17 @@ func (errs requestErrors) Error() string {
 	return strings.Join(errmsgs, "; ")
 }
 
+type UnexpectedStatusCodeError struct {
+	Method     string
+	URL        *url.URL
+	StatusCode int
+	Message    string
+}
+
+func (err *UnexpectedStatusCodeError) Error() string {
+	return fmt.Sprintf("%s %q: unexpected status code %d: %s", err.Method, err.URL, err.StatusCode, err.Message)
+}
+
 // ParseErrorResponse parses the error returned by the remote registry.
 func ParseErrorResponse(resp *http.Response) error {
 	var errmsg string
@@ -85,7 +97,12 @@ func ParseErrorResponse(resp *http.Response) error {
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("%s %q: unexpected status code %d: %s, error = %w", resp.Request.Method, resp.Request.URL, resp.StatusCode, errmsg, ErrUnauthorized)
+		return &UnexpectedStatusCodeError{
+			Method:     resp.Request.Method,
+			URL:        resp.Request.URL,
+			StatusCode: resp.StatusCode,
+			Message:    errmsg,
+		}
 	}
 	return fmt.Errorf("%s %q: unexpected status code %d: %s", resp.Request.Method, resp.Request.URL, resp.StatusCode, errmsg)
 }
