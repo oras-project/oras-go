@@ -52,6 +52,16 @@ var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 // See also ClientID.
 var defaultClientID = "oras-go"
 
+// StaticCredential specifies static credentials for the given host.
+func StaticCredential(registry string, cred Credential) func(context.Context, string) (Credential, error) {
+	return func(_ context.Context, target string) (Credential, error) {
+		if target == registry {
+			return cred, nil
+		}
+		return EmptyCredential, nil
+	}
+}
+
 // Client is an auth-decorated HTTP client.
 // Its zero value is a usable client that uses http.DefaultClient with no cache.
 type Client struct {
