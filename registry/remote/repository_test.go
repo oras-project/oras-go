@@ -611,13 +611,7 @@ func TestRepository_Tag(t *testing.T) {
 	}
 }
 
-func TestRepository_PushTag(t *testing.T) {
-	blob := []byte("hello world")
-	blobDesc := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(blob),
-		Size:      int64(len(blob)),
-	}
+func TestRepository_PushReference(t *testing.T) {
 	index := []byte(`{"manifests":[]}`)
 	indexDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageIndex,
@@ -658,16 +652,6 @@ func TestRepository_PushTag(t *testing.T) {
 	}
 	repo.PlainHTTP = true
 	ctx := context.Background()
-
-	err = repo.PushReference(ctx, blobDesc, bytes.NewReader(blob), ref)
-	if err == nil {
-		t.Fatalf("Repository.PushReference() error = %v, wantErr %v", err, true)
-	}
-	if gotIndex != nil {
-		t.Errorf("Repository.PushReference() = %v, want %v", gotIndex, nil)
-	}
-
-	gotIndex = nil
 	err = repo.PushReference(ctx, indexDesc, bytes.NewReader(index), ref)
 	if err != nil {
 		t.Fatalf("Repository.PushReference() error = %v", err)
