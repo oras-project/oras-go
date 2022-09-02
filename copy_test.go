@@ -841,8 +841,9 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	opts.WithTargetPlatform(&targetPlatform)
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected := fmt.Sprintf("%s: %v: no matching manifest was found in the manifest list", root.Digest, errdef.ErrNotFound)
+	if err.Error() != expected {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
 
 	// test copy with platform filter for the manifest
@@ -901,8 +902,9 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	opts.WithTargetPlatform(&targetPlatform)
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected = fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
+	if err.Error() != expected {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
 
 	// test copy with platform filter, but the node's media type is not
@@ -965,7 +967,7 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	}
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	expected := fmt.Sprintf("mismatch MediaType %s: expect %s", docker.MediaTypeConfig, ocispec.MediaTypeImageConfig)
+	expected = fmt.Sprintf("mismatch MediaType %s: expect %s", docker.MediaTypeConfig, ocispec.MediaTypeImageConfig)
 	if err.Error() != expected {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
@@ -1003,8 +1005,9 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	}
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected = fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
+	if err.Error() != expected {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
 
 	// generate test content with empty config blob
@@ -1040,8 +1043,9 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	}
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected = fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
+	if err.Error() != expected {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
 }
 

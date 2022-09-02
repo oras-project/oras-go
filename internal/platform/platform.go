@@ -88,7 +88,7 @@ func SelectManifest(ctx context.Context, src content.ReadOnlyStorage, root ocisp
 				return m, nil
 			}
 		}
-		return ocispec.Descriptor{}, errdef.ErrNotFound
+		return ocispec.Descriptor{}, fmt.Errorf("%s: %w: no matching manifest was found in the manifest list", root.Digest, errdef.ErrNotFound)
 	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
 		descs, err := content.Successors(ctx, src, root)
 		if err != nil {
@@ -108,7 +108,7 @@ func SelectManifest(ctx context.Context, src content.ReadOnlyStorage, root ocisp
 		if Match(cfgPlatform, p) {
 			return root, nil
 		}
-		return ocispec.Descriptor{}, errdef.ErrNotFound
+		return ocispec.Descriptor{}, fmt.Errorf("%s: %w: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
 	default:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %s: %w", root.Digest, root.MediaType, errdef.ErrUnsupported)
 	}
