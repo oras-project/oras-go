@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -342,8 +343,9 @@ func TestResolve_Memory_WithTargetPlatformOptions(t *testing.T) {
 		},
 	}
 	_, err = oras.Resolve(ctx, target, ref, resolveOptions)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected := fmt.Sprintf("%s: platform in manifest does not match target platform", manifestDesc.Digest)
+	if err.Error() != expected {
+		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, expected)
 	}
 }
 
@@ -434,8 +436,9 @@ func TestResolve_Repository_WithTargetPlatformOptions(t *testing.T) {
 		},
 	}
 	_, err = oras.Resolve(ctx, repo, src, resolveOptions)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected := fmt.Sprintf("%s: no matching manifest was found in the manifest list", indexDesc.Digest)
+	if err.Error() != expected {
+		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, expected)
 	}
 }
 
@@ -599,8 +602,9 @@ func TestFetch_Memory(t *testing.T) {
 		},
 	}
 	_, _, err = oras.Fetch(ctx, target, manifestTag, opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.Fetch() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected := fmt.Sprintf("%s: platform in manifest does not match target platform", manifestDesc.Digest)
+	if err.Error() != expected {
+		t.Fatalf("oras.Fetch() error = %v, wantErr %v", err, expected)
 	}
 
 	// test FetchBytes on blob with TargetPlatform
@@ -842,8 +846,9 @@ func TestFetch_Repository(t *testing.T) {
 		},
 	}
 	_, _, err = oras.Fetch(ctx, repo, ref, opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.Fetch() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected := fmt.Sprintf("%s: no matching manifest was found in the manifest list", indexDesc.Digest)
+	if err.Error() != expected {
+		t.Fatalf("oras.Fetch() error = %v, wantErr %v", err, expected)
 	}
 
 	// test FetchBytes on blob with TargetPlatform
@@ -1026,8 +1031,9 @@ func TestFetchBytes_Memory(t *testing.T) {
 		},
 	}
 	_, _, err = oras.FetchBytes(ctx, target, manifestTag, opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.FetchBytes() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected := fmt.Sprintf("%s: platform in manifest does not match target platform", manifestDesc.Digest)
+	if err.Error() != expected {
+		t.Fatalf("oras.FetchBytes() error = %v, wantErr %v", err, expected)
 	}
 
 	// test FetchBytes on blob with TargetPlatform
@@ -1258,8 +1264,9 @@ func TestFetchBytes_Repository(t *testing.T) {
 		},
 	}
 	_, _, err = oras.FetchBytes(ctx, repo, ref, opts)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("oras.FetchBytes() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	expected := fmt.Sprintf("%s: no matching manifest was found in the manifest list", indexDesc.Digest)
+	if err.Error() != expected {
+		t.Fatalf("oras.FetchBytes() error = %v, wantErr %v", err, expected)
 	}
 
 	// test FetchBytes on blob with TargetPlatform
