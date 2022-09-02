@@ -33,8 +33,6 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
-var ErrMissingMediaType = errors.New("missing media type")
-
 // Tag tags the descriptor identified by src with dst.
 func Tag(ctx context.Context, target Target, src, dst string) error {
 	if refTagger, ok := target.(registry.ReferenceTagger); ok {
@@ -228,13 +226,10 @@ func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes
 		for _, reference := range references {
 			limiter.Acquire(ctx, 1)
 			eg.Go(func(ref string) func() error {
-				defer limiter.Release(1)
 				return func() error {
+					defer limiter.Release(1)
 					r := bytes.NewReader(contentBytes)
-					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil {
-						return err
-					}
-					return nil
+					return refPusher.PushReference(egCtx, desc, r, ref)
 				}
 			}(reference))
 		}
@@ -247,12 +242,9 @@ func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes
 		for _, reference := range references {
 			limiter.Acquire(ctx, 1)
 			eg.Go(func(ref string) func() error {
-				defer limiter.Release(1)
 				return func() error {
-					if err := target.Tag(egCtx, desc, ref); err != nil {
-						return err
-					}
-					return nil
+					defer limiter.Release(1)
+					return target.Tag(egCtx, desc, ref)
 				}
 			}(reference))
 		}
