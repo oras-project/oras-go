@@ -220,9 +220,16 @@ type TagBytesOptions struct {
 }
 
 // TagBytes describes the contentBytes using the given mediaType, pushes it,
+// and tag it with the given reference.
+// If mediaType is not specified, "application/octet-stream" is used.
+func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, reference string) (ocispec.Descriptor, error) {
+	return TagBytesN(ctx, target, mediaType, contentBytes, []string{reference}, DefaultTagBytesOptions)
+}
+
+// TagBytesN describes the contentBytes using the given mediaType, pushes it,
 // and tag it with the given references.
 // If mediaType is not specified, "application/octet-stream" is used.
-func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, references []string, opts TagBytesOptions) (ocispec.Descriptor, error) {
+func TagBytesN(ctx context.Context, target Target, mediaType string, contentBytes []byte, references []string, opts TagBytesOptions) (ocispec.Descriptor, error) {
 	if len(references) == 0 {
 		return PushBytes(ctx, target, mediaType, contentBytes)
 	}
