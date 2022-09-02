@@ -196,6 +196,8 @@ func FetchBytes(ctx context.Context, target ReadOnlyTarget, reference string, op
 	return desc, bytes, nil
 }
 
+// PushBytes describes the contentBytes using the given mediaType and pushes it.
+// If mediaType is not specified, "application/octet-stream" will be used.
 func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, contentBytes []byte) (ocispec.Descriptor, error) {
 	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
 	r := bytes.NewReader(contentBytes)
@@ -206,6 +208,9 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 	return desc, nil
 }
 
+// TagBytes describes the contentBytes using the given mediaType, pushes it,
+// and tag it with the given references.
+// If mediaType is not specified, "application/octet-stream" will be used.
 func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, references ...string) (ocispec.Descriptor, error) {
 	if len(references) == 0 {
 		return PushBytes(ctx, target, mediaType, contentBytes)
@@ -216,15 +221,16 @@ func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes
 	var r io.Reader
 	if refPusher, ok := target.(registry.ReferencePusher); ok {
 		for _, ref := range references {
-			r := bytes.NewReader(contentBytes)
+			r = bytes.NewReader(contentBytes)
 			if err := refPusher.PushReference(ctx, desc, r, ref); err != nil {
 				return ocispec.Descriptor{}, err
 			}
 		}
+		return desc, nil
 	}
 
 	r = bytes.NewReader(contentBytes)
-	if err := target.Push(ctx, desc, r); err != nil {
+	if err := target.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return ocispec.Descriptor{}, err
 	}
 	for _, ref := range references {
