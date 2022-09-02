@@ -1335,6 +1335,12 @@ func TestPushBytes_Memory(t *testing.T) {
 		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
 	}
 
+	// test PushBytes with existing content
+	_, err = oras.PushBytes(ctx, s, mediaType, content)
+	if !errors.Is(err, errdef.ErrAlreadyExists) {
+		t.Errorf("oras.PushBytes() error = %v, wantErr %v", err, errdef.ErrAlreadyExists)
+	}
+
 	// test PushBytes with empty media type
 	gotDesc, err = oras.PushBytes(ctx, s, "", content)
 	if err != nil {
@@ -1507,7 +1513,7 @@ func TestTagBytes_Memory(t *testing.T) {
 
 	ctx := context.Background()
 	// test TagBytes with no reference
-	gotDesc, err := oras.TagBytes(ctx, s, mediaType, content)
+	gotDesc, err := oras.TagBytes(ctx, s, mediaType, content, nil, oras.DefaultTagBytesOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1532,7 +1538,7 @@ func TestTagBytes_Memory(t *testing.T) {
 
 	// test TagBytes with multiple references
 	refs := []string{"foo", "bar", "baz"}
-	gotDesc, err = oras.TagBytes(ctx, s, mediaType, content, refs...)
+	gotDesc, err = oras.TagBytes(ctx, s, mediaType, content, refs, oras.DefaultTagBytesOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1565,7 +1571,7 @@ func TestTagBytes_Memory(t *testing.T) {
 	}
 
 	// test TagBytes with empty media type and multiple references
-	gotDesc, err = oras.TagBytes(ctx, s, "", content, refs...)
+	gotDesc, err = oras.TagBytes(ctx, s, "", content, refs, oras.DefaultTagBytesOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1598,7 +1604,7 @@ func TestTagBytes_Memory(t *testing.T) {
 	}
 
 	// test TagBytes with empty content and multiple references
-	gotDesc, err = oras.TagBytes(ctx, s, mediaType, nil, refs...)
+	gotDesc, err = oras.TagBytes(ctx, s, mediaType, nil, refs, oras.DefaultTagBytesOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1642,6 +1648,7 @@ func TestTagBytes_Repository(t *testing.T) {
 	var gotIndex []byte
 	refFoo := "foo"
 	refBar := "bar"
+	refs := []string{refFoo, refBar}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPut &&
@@ -1691,7 +1698,7 @@ func TestTagBytes_Repository(t *testing.T) {
 	ctx := context.Background()
 
 	// test TagBytes with no reference
-	gotDesc, err := oras.TagBytes(ctx, repo, indexMediaType, index)
+	gotDesc, err := oras.TagBytes(ctx, repo, indexMediaType, index, nil, oras.DefaultTagBytesOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1704,14 +1711,13 @@ func TestTagBytes_Repository(t *testing.T) {
 
 	// test TagBytes with multiple references
 	gotIndex = nil
-	gotDesc, err = oras.TagBytes(ctx, repo, indexMediaType, index, refFoo, refBar)
+	gotDesc, err = oras.TagBytes(ctx, repo, indexMediaType, index, refs, oras.DefaultTagBytesOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
 	if !reflect.DeepEqual(gotDesc, indexDesc) {
 		t.Fatalf("oras.TagBytes() = %v, want %v", gotDesc, indexDesc)
 	}
-	refs := []string{refFoo, refBar}
 	for _, ref := range refs {
 		gotDesc, err := repo.Resolve(ctx, ref)
 		if err != nil {

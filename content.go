@@ -153,9 +153,7 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 }
 
 // DefaultFetchBytesOptions provides the default FetchBytesOptions.
-var DefaultFetchBytesOptions = FetchBytesOptions{
-	MaxBytes: defaultMaxBytes,
-}
+var DefaultFetchBytesOptions FetchBytesOptions
 
 // defaultMaxBytes is the default value of MaxBytes.
 const defaultMaxBytes int64 = 4 * 1024 * 1024 // 4 MiB
@@ -197,7 +195,7 @@ func FetchBytes(ctx context.Context, target ReadOnlyTarget, reference string, op
 }
 
 // PushBytes describes the contentBytes using the given mediaType and pushes it.
-// If mediaType is not specified, "application/octet-stream" will be used.
+// If mediaType is not specified, "application/octet-stream" is used.
 func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, contentBytes []byte) (ocispec.Descriptor, error) {
 	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
 	r := bytes.NewReader(contentBytes)
@@ -209,16 +207,29 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 }
 
 // defaultTagConcurrency is the default concurrency of tagging.
-const defaultTagConcurrency = 5 // This value is consistent with dockerd.
+const defaultTagConcurrency = 5 // This value is consistent with dockerd
+
+// DefaultTagBytesOptions provides the default TagBytesOptions.
+var DefaultTagBytesOptions TagBytesOptions
+
+// TagBytesOptions contains parameters for oras.TagBytes.
+type TagBytesOptions struct {
+	// Concurrency limits the maximum number of concurrent tag tasks.
+	// If less than or equal to 0, a default (currently 5) is used.
+	Concurrency int64
+}
 
 // TagBytes describes the contentBytes using the given mediaType, pushes it,
 // and tag it with the given references.
-// If mediaType is not specified, "application/octet-stream" will be used.
-func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, references ...string) (ocispec.Descriptor, error) {
+// If mediaType is not specified, "application/octet-stream" is used.
+func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, references []string, opts TagBytesOptions) (ocispec.Descriptor, error) {
 	if len(references) == 0 {
 		return PushBytes(ctx, target, mediaType, contentBytes)
 	}
 
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultTagConcurrency
+	}
 	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
 	limiter := semaphore.NewWeighted(defaultTagConcurrency)
 	eg, egCtx := errgroup.WithContext(ctx)
@@ -229,7 +240,10 @@ func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes
 				return func() error {
 					defer limiter.Release(1)
 					r := bytes.NewReader(contentBytes)
-					return refPusher.PushReference(egCtx, desc, r, ref)
+					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+						return err
+					}
+					return nil
 				}
 			}(reference))
 		}
