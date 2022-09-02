@@ -211,7 +211,7 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 }
 
 // defaultTagConcurrency is the default concurrency of tagging.
-const defaultTagConcurrency = 5
+const defaultTagConcurrency = 5 // This value is consistent with dockerd.
 
 // TagBytes describes the contentBytes using the given mediaType, pushes it,
 // and tag it with the given references.
@@ -221,7 +221,6 @@ func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes
 		return PushBytes(ctx, target, mediaType, contentBytes)
 	}
 
-	var r io.Reader
 	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
 	limiter := semaphore.NewWeighted(defaultTagConcurrency)
 	eg, egCtx := errgroup.WithContext(ctx)
@@ -231,7 +230,7 @@ func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes
 			eg.Go(func(ref string) func() error {
 				defer limiter.Release(1)
 				return func() error {
-					r = bytes.NewReader(contentBytes)
+					r := bytes.NewReader(contentBytes)
 					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil {
 						return err
 					}
@@ -240,7 +239,7 @@ func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes
 			}(reference))
 		}
 	} else {
-		r = bytes.NewReader(contentBytes)
+		r := bytes.NewReader(contentBytes)
 		if err := target.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 			return ocispec.Descriptor{}, err
 		}
