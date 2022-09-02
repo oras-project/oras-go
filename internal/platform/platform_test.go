@@ -244,7 +244,7 @@ func TestSelectManifest(t *testing.T) {
 		Variant:      variant_2,
 	}
 	_, err = SelectManifest(ctx, storage, root, &targetPlatform)
-	expected := fmt.Sprintf("%s: platform in manifest does not match target platform", root.Digest)
+	expected := fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
 	if err.Error() != expected {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, expected)
 	}
@@ -320,7 +320,7 @@ func TestSelectManifest(t *testing.T) {
 		OS:           os_1,
 	}
 	_, err = SelectManifest(ctx, storage, root, &targetPlatform)
-	expected = fmt.Sprintf("%s: platform in manifest does not match target platform", root.Digest)
+	expected = fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
 	if err.Error() != expected {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, expected)
 	}
@@ -349,7 +349,7 @@ func TestSelectManifest(t *testing.T) {
 		OS:           os_1,
 	}
 	_, err = SelectManifest(ctx, storage, root, &targetPlatform)
-	expected = fmt.Sprintf("%s: platform in manifest does not match target platform", root.Digest)
+	expected = fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
 	if err.Error() != expected {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, expected)
 	}

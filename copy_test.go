@@ -841,7 +841,7 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	opts.WithTargetPlatform(&targetPlatform)
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	expected := fmt.Sprintf("%s: no matching manifest was found in the manifest list", root.Digest)
+	expected := fmt.Sprintf("%s: %v: no matching manifest was found in the manifest list", root.Digest, errdef.ErrNotFound)
 	if err.Error() != expected {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
@@ -902,7 +902,7 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	opts.WithTargetPlatform(&targetPlatform)
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	expected = fmt.Sprintf("%s: platform in manifest does not match target platform", root.Digest)
+	expected = fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
 	if err.Error() != expected {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
@@ -1005,7 +1005,7 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	}
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	expected = fmt.Sprintf("%s: platform in manifest does not match target platform", root.Digest)
+	expected = fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
 	if err.Error() != expected {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
@@ -1043,7 +1043,7 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	}
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	expected = fmt.Sprintf("%s: platform in manifest does not match target platform", root.Digest)
+	expected = fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
 	if err.Error() != expected {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
