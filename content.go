@@ -23,6 +23,8 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
@@ -208,6 +210,9 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 	return desc, nil
 }
 
+// defaultTagConcurrency is the default concurrency of tagging.
+const defaultTagConcurrency = 5
+
 // TagBytes describes the contentBytes using the given mediaType, pushes it,
 // and tag it with the given references.
 // If mediaType is not specified, "application/octet-stream" will be used.
@@ -216,27 +221,46 @@ func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes
 		return PushBytes(ctx, target, mediaType, contentBytes)
 	}
 
-	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
-	// TODO: go routines
 	var r io.Reader
+	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
+	limiter := semaphore.NewWeighted(defaultTagConcurrency)
+	eg, egCtx := errgroup.WithContext(ctx)
 	if refPusher, ok := target.(registry.ReferencePusher); ok {
-		for _, ref := range references {
-			r = bytes.NewReader(contentBytes)
-			if err := refPusher.PushReference(ctx, desc, r, ref); err != nil {
-				return ocispec.Descriptor{}, err
-			}
+		for _, reference := range references {
+			limiter.Acquire(ctx, 1)
+			eg.Go(func(ref string) func() error {
+				defer limiter.Release(1)
+				return func() error {
+					r = bytes.NewReader(contentBytes)
+					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil {
+						return err
+					}
+					return nil
+				}
+			}(reference))
 		}
-		return desc, nil
-	}
-
-	r = bytes.NewReader(contentBytes)
-	if err := target.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-		return ocispec.Descriptor{}, err
-	}
-	for _, ref := range references {
-		if err := target.Tag(ctx, desc, ref); err != nil {
+	} else {
+		r = bytes.NewReader(contentBytes)
+		if err := target.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 			return ocispec.Descriptor{}, err
 		}
+
+		for _, reference := range references {
+			limiter.Acquire(ctx, 1)
+			eg.Go(func(ref string) func() error {
+				defer limiter.Release(1)
+				return func() error {
+					if err := target.Tag(egCtx, desc, ref); err != nil {
+						return err
+					}
+					return nil
+				}
+			}(reference))
+		}
+	}
+
+	if err := eg.Wait(); err != nil {
+		return ocispec.Descriptor{}, err
 	}
 	return desc, nil
 }
