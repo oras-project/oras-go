@@ -80,6 +80,10 @@ type CopyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent copy tasks.
 	// If less than or equal to 0, a default (currently 3) is used.
 	Concurrency int64
+	// MaxMetadataBytes limits the maximum size of the metadata that can be
+	// loaded into memory.
+	// If less than or equal to 0, a default (currently 4 MiB) is used.
+	MaxMetadataBytes int64
 	// PreCopy handles the current descriptor before copying it.
 	PreCopy func(ctx context.Context, desc ocispec.Descriptor) error
 	// PostCopy handles the current descriptor after copying it.
