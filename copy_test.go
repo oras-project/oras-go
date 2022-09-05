@@ -659,6 +659,17 @@ func TestCopy_WithOptions(t *testing.T) {
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
+
+	// test copy with MaxMetadataBytes = 1
+	dst = memory.New()
+	opts = oras.CopyOptions{
+		CopyGraphOptions: oras.CopyGraphOptions{
+			MaxMetadataBytes: 1,
+		},
+	}
+	if _, err := oras.Copy(ctx, src, ref, dst, "", opts); !errors.Is(err, errdef.ErrSizeExceedsLimit) {
+		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
+	}
 }
 
 func TestCopy_WithTargetPlatformOptions(t *testing.T) {
@@ -1363,5 +1374,15 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 	}
 	if got, want := skippedCount, int64(1); got != want {
 		t.Errorf("count(OnCopySkipped()) = %v, want %v", got, want)
+	}
+
+	// test CopyGraph with MaxMetadataBytes = 1
+	root = descs[6]
+	dst = cas.NewMemory()
+	opts = oras.CopyGraphOptions{
+		MaxMetadataBytes: 1,
+	}
+	if err := oras.CopyGraph(ctx, src, dst, root, opts); !errors.Is(err, errdef.ErrSizeExceedsLimit) {
+		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
 	}
 }

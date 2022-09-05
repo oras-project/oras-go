@@ -75,13 +75,17 @@ func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
 	}
 }
 
+// defaultCopyMaxMetadataBytes is the default value of
+// CopyGraphOptions.MaxMetadataBytes.
+const defaultCopyMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+
 // CopyGraphOptions contains parameters for oras.CopyGraph.
 type CopyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent copy tasks.
 	// If less than or equal to 0, a default (currently 3) is used.
 	Concurrency int64
 	// MaxMetadataBytes limits the maximum size of the metadata that can be
-	// loaded into memory.
+	// cached in the memory.
 	// If less than or equal to 0, a default (currently 4 MiB) is used.
 	MaxMetadataBytes int64
 	// PreCopy handles the current descriptor before copying it.
@@ -117,7 +121,10 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	}
 
 	// use caching proxy on non-leaf nodes
-	proxy := cas.NewProxy(src, cas.NewMemory())
+	if opts.MaxMetadataBytes <= 0 {
+		opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
+	}
+	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
 	root, err := resolveRoot(ctx, src, srcRef, proxy)
 	if err != nil {
 		return ocispec.Descriptor{}, err
@@ -147,7 +154,10 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 // the destination CAS.
 func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, root ocispec.Descriptor, opts CopyGraphOptions) error {
 	// use caching proxy on non-leaf nodes
-	proxy := cas.NewProxy(src, cas.NewMemory())
+	if opts.MaxMetadataBytes <= 0 {
+		opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
+	}
+	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
 	return copyGraph(ctx, src, dst, proxy, root, opts)
 }
 
