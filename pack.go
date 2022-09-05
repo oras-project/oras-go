@@ -79,8 +79,9 @@ func Pack(ctx context.Context, pusher content.Pusher, layers []ocispec.Descripto
 	if opts.ConfigDescriptor != nil {
 		configDesc = *opts.ConfigDescriptor
 	} else {
-		// Use an empty object here, because some registries (e.g. GAR)
-		// may not accept empty config blob.
+		// Use an empty JSON object here, because some registries may not accept
+		// empty config blob.
+		// As of September 2022, GAR is known to return 400 on blob upload.
 		// See https://github.com/oras-project/oras-go/issues/294 for details.
 		configBytes := []byte("{}")
 		configDesc = ocispec.Descriptor{
