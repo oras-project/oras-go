@@ -282,9 +282,15 @@ func TestResolve_Memory(t *testing.T) {
 	}
 
 	// test Resolve with MaxMetadataBytes = 1
-	_, err = oras.Resolve(ctx, target, ref, oras.ResolveOptions{MaxMetadataBytes: 1})
-	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
-		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
+	resolveOptions = oras.ResolveOptions{
+		MaxMetadataBytes: 1,
+	}
+	gotDesc, err = oras.Resolve(ctx, target, ref, resolveOptions)
+	if err != nil {
+		t.Fatal("oras.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
 	}
 
 	// test Resolve with TargetPlatform
@@ -310,9 +316,12 @@ func TestResolve_Memory(t *testing.T) {
 		},
 		MaxMetadataBytes: 1,
 	}
-	_, err = oras.Resolve(ctx, target, ref, resolveOptions)
-	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
-		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
+	gotDesc, err = oras.Resolve(ctx, target, ref, resolveOptions)
+	if err != nil {
+		t.Fatal("oras.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
 	}
 
 	// test Resolve with TargetPlatform but there is no matching node
@@ -407,6 +416,19 @@ func TestResolve_Repository(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotDesc, manifestDesc) {
 		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test Resolve with TargetPlatform and MaxMetadataBytes = 1
+	resolveOptions = oras.ResolveOptions{
+		TargetPlatform: &ocispec.Platform{
+			Architecture: arc_1,
+			OS:           os_1,
+		},
+		MaxMetadataBytes: 1,
+	}
+	_, err = oras.Resolve(ctx, repo, src, resolveOptions)
+	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
+		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
 	}
 
 	// test Resolve with TargetPlatform but there is no matching node

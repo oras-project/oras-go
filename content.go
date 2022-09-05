@@ -57,11 +57,12 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 
 // DefaultResolveOptions provides the default ResolveOptions.
 var DefaultResolveOptions = ResolveOptions{
-	MaxMetadataBytes: defaultMaxMetadataBytes,
+	MaxMetadataBytes: defaultResolveMaxMetadataBytes,
 }
 
-// defaultMaxMetadataBytes is the default value of MaxMetadataBytes.
-const defaultMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+// defaultResolveMaxMetadataBytes is the default value of
+// ResolveOptions.MaxMetadataBytes.
+const defaultResolveMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
 
 // ResolveOptions contains parameters for oras.Resolve.
 type ResolveOptions struct {
@@ -70,8 +71,8 @@ type ResolveOptions struct {
 	// matches the target platform if the node is a manifest list.
 	TargetPlatform *ocispec.Platform
 
-	// MaxMetadataBytes limits the maximum size of metadata that can be loaded
-	// into memory.
+	// MaxMetadataBytes limits the maximum size of metadata that can be cached
+	// in the memory.
 	// If less than or equal to 0, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 }
@@ -88,7 +89,7 @@ func Resolve(ctx context.Context, target ReadOnlyTarget, reference string, opts 
 // specified caching.
 func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
 	if opts.MaxMetadataBytes <= 0 {
-		opts.MaxMetadataBytes = defaultMaxMetadataBytes
+		opts.MaxMetadataBytes = defaultResolveMaxMetadataBytes
 	}
 
 	if refFetcher, ok := target.(registry.ReferenceFetcher); ok {
@@ -111,9 +112,9 @@ func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, refer
 					errdef.ErrSizeExceedsLimit)
 			}
 			if proxy == nil {
-				proxy = cas.NewProxy(target, cas.NewMemory())
+				proxy = cas.NewProxyWithLimit(target, cas.NewMemory(), opts.MaxMetadataBytes)
 			}
-			if err := proxy.Cache.Push(ctx, desc, io.LimitReader(rc, opts.MaxMetadataBytes)); err != nil {
+			if err := proxy.Cache.Push(ctx, desc, rc); err != nil {
 				return ocispec.Descriptor{}, err
 			}
 			// stop caching as SelectManifest may fetch a config blob
@@ -158,7 +159,10 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 		return desc, rc, nil
 	}
 
-	proxy := cas.NewProxy(target, cas.NewMemory())
+	if opts.MaxMetadataBytes <= 0 {
+		opts.MaxMetadataBytes = defaultResolveMaxMetadataBytes
+	}
+	proxy := cas.NewProxyWithLimit(target, cas.NewMemory(), opts.MaxMetadataBytes)
 	desc, err := resolve(ctx, target, proxy, reference, opts.ResolveOptions)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -176,7 +180,7 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 // DefaultFetchBytesOptions provides the default FetchBytesOptions.
 var DefaultFetchBytesOptions FetchBytesOptions
 
-// defaultMaxBytes is the default value of MaxBytes.
+// defaultMaxBytes is the default value of FetchBytesOptions.MaxBytes.
 const defaultMaxBytes int64 = 4 * 1024 * 1024 // 4 MiB
 
 // FetchBytesOptions contains parameters for oras.FetchBytes.
@@ -227,7 +231,7 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 	return desc, nil
 }
 
-// defaultTagConcurrency is the default concurrency of tagging.
+// defaultTagConcurrency is the default value of TagBytesOptions.Concurrency.
 const defaultTagConcurrency = 5 // This value is consistent with dockerd
 
 // DefaultTagBytesOptions provides the default TagBytesOptions.
@@ -255,10 +259,10 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 		return PushBytes(ctx, target, mediaType, contentBytes)
 	}
 
+	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultTagConcurrency
 	}
-	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
 	limiter := semaphore.NewWeighted(opts.Concurrency)
 	eg, egCtx := errgroup.WithContext(ctx)
 	if refPusher, ok := target.(registry.ReferencePusher); ok {
