@@ -79,6 +79,9 @@ func Pack(ctx context.Context, pusher content.Pusher, layers []ocispec.Descripto
 	if opts.ConfigDescriptor != nil {
 		configDesc = *opts.ConfigDescriptor
 	} else {
+		// Use an empty object here, because some registries (e.g. GAR)
+		// may not accept empty config blob.
+		// See https://github.com/oras-project/oras-go/issues/294 for details.
 		configBytes := []byte("{}")
 		configDesc = ocispec.Descriptor{
 			MediaType:   opts.ConfigMediaType,
