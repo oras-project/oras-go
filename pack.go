@@ -81,7 +81,7 @@ func Pack(ctx context.Context, pusher content.Pusher, layers []ocispec.Descripto
 	} else {
 		// Use an empty JSON object here, because some registries may not accept
 		// empty config blob.
-		// As of September 2022, GAR is known to return 400 on blob upload.
+		// As of September 2022, GAR is known to return 400 on empty blob upload.
 		// See https://github.com/oras-project/oras-go/issues/294 for details.
 		configBytes := []byte("{}")
 		configDesc = ocispec.Descriptor{
