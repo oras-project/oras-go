@@ -79,15 +79,20 @@ func Pack(ctx context.Context, pusher content.Pusher, layers []ocispec.Descripto
 	if opts.ConfigDescriptor != nil {
 		configDesc = *opts.ConfigDescriptor
 	} else {
+		// Use an empty JSON object here, because some registries may not accept
+		// empty config blob.
+		// As of September 2022, GAR is known to return 400 on empty blob upload.
+		// See https://github.com/oras-project/oras-go/issues/294 for details.
+		configBytes := []byte("{}")
 		configDesc = ocispec.Descriptor{
 			MediaType:   opts.ConfigMediaType,
-			Digest:      digest.FromBytes(nil),
-			Size:        0,
+			Digest:      digest.FromBytes(configBytes),
+			Size:        int64(len(configBytes)),
 			Annotations: opts.ConfigAnnotations,
 		}
 
 		// push config
-		if err := pusher.Push(ctx, configDesc, bytes.NewReader(nil)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+		if err := pusher.Push(ctx, configDesc, bytes.NewReader(configBytes)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
 		}
 	}

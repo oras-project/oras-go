@@ -62,6 +62,7 @@ func Test_Pack_Default(t *testing.T) {
 		t.Fatal("Oras.Pack() error =", err)
 	}
 
+	expectedConfigBytes := []byte("{}")
 	expectedManifest := ocispec.Manifest{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
@@ -69,8 +70,8 @@ func Test_Pack_Default(t *testing.T) {
 		MediaType: ocispec.MediaTypeImageManifest,
 		Config: ocispec.Descriptor{
 			MediaType: MediaTypeUnknownConfig,
-			Digest:    "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-			Size:      0,
+			Digest:    digest.FromBytes(expectedConfigBytes),
+			Size:      int64(len(expectedConfigBytes)),
 		},
 		Layers: layers,
 	}
@@ -181,6 +182,7 @@ func Test_Pack_NoLayer(t *testing.T) {
 		t.Fatal("Oras.Pack() error =", err)
 	}
 
+	expectedConfigBytes := []byte("{}")
 	expectedManifest := ocispec.Manifest{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
@@ -188,8 +190,8 @@ func Test_Pack_NoLayer(t *testing.T) {
 		MediaType: ocispec.MediaTypeImageManifest,
 		Config: ocispec.Descriptor{
 			MediaType: MediaTypeUnknownConfig,
-			Digest:    "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-			Size:      0,
+			Digest:    digest.FromBytes(expectedConfigBytes),
+			Size:      int64(len(expectedConfigBytes)),
 		},
 		Layers: []ocispec.Descriptor{},
 	}
