@@ -44,6 +44,16 @@ func NewProxy(base content.ReadOnlyStorage, cache content.Storage) *Proxy {
 	}
 }
 
+// NewProxyWithLimit creates a proxy for the `base` storage, using the `cache`
+// storage with a push size limit as the cache.
+func NewProxyWithLimit(base content.ReadOnlyStorage, cache content.Storage, pushLimit int64) *Proxy {
+	limitedCache := content.LimitStorage(cache, pushLimit)
+	return &Proxy{
+		ReadOnlyStorage: base,
+		Cache:           limitedCache,
+	}
+}
+
 // Fetch fetches the content identified by the descriptor.
 func (p *Proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
 	if p.StopCaching {
@@ -66,6 +76,9 @@ func (p *Proxy) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 	go func() {
 		defer wg.Done()
 		pushErr = p.Cache.Push(ctx, target, pr)
+		if pushErr != nil {
+			pr.CloseWithError(pushErr)
+		}
 	}()
 	closer := ioutil.CloserFunc(func() error {
 		rcErr := rc.Close()

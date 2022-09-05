@@ -58,12 +58,21 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 // DefaultResolveOptions provides the default ResolveOptions.
 var DefaultResolveOptions ResolveOptions
 
+// defaultResolveMaxMetadataBytes is the default value of
+// ResolveOptions.MaxMetadataBytes.
+const defaultResolveMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+
 // ResolveOptions contains parameters for oras.Resolve.
 type ResolveOptions struct {
 	// TargetPlatform ensures the resolved content matches the target platform
 	// if the node is a manifest, or selects the first resolved content that
 	// matches the target platform if the node is a manifest list.
 	TargetPlatform *ocispec.Platform
+
+	// MaxMetadataBytes limits the maximum size of metadata that can be cached
+	// in the memory.
+	// If less than or equal to 0, a default (currently 4 MiB) is used.
+	MaxMetadataBytes int64
 }
 
 // Resolve resolves a descriptor with provided reference from the target.
@@ -77,6 +86,10 @@ func Resolve(ctx context.Context, target ReadOnlyTarget, reference string, opts 
 // resolve resolves a descriptor with provided reference from the target, with
 // specified caching.
 func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, reference string, opts ResolveOptions) (ocispec.Descriptor, error) {
+	if opts.MaxMetadataBytes <= 0 {
+		opts.MaxMetadataBytes = defaultResolveMaxMetadataBytes
+	}
+
 	if refFetcher, ok := target.(registry.ReferenceFetcher); ok {
 		// optimize performance for ReferenceFetcher targets
 		desc, rc, err := refFetcher.FetchReference(ctx, reference)
@@ -89,8 +102,15 @@ func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, refer
 		case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
 			docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
 			// cache the fetched content
+			if desc.Size > opts.MaxMetadataBytes {
+				return ocispec.Descriptor{}, fmt.Errorf(
+					"content size %v exceeds MaxMetadataBytes %v: %w",
+					desc.Size,
+					opts.MaxMetadataBytes,
+					errdef.ErrSizeExceedsLimit)
+			}
 			if proxy == nil {
-				proxy = cas.NewProxy(target, cas.NewMemory())
+				proxy = cas.NewProxyWithLimit(target, cas.NewMemory(), opts.MaxMetadataBytes)
 			}
 			if err := proxy.Cache.Push(ctx, desc, rc); err != nil {
 				return ocispec.Descriptor{}, err
@@ -137,7 +157,10 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 		return desc, rc, nil
 	}
 
-	proxy := cas.NewProxy(target, cas.NewMemory())
+	if opts.MaxMetadataBytes <= 0 {
+		opts.MaxMetadataBytes = defaultResolveMaxMetadataBytes
+	}
+	proxy := cas.NewProxyWithLimit(target, cas.NewMemory(), opts.MaxMetadataBytes)
 	desc, err := resolve(ctx, target, proxy, reference, opts.ResolveOptions)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -155,7 +178,7 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 // DefaultFetchBytesOptions provides the default FetchBytesOptions.
 var DefaultFetchBytesOptions FetchBytesOptions
 
-// defaultMaxBytes is the default value of MaxBytes.
+// defaultMaxBytes is the default value of FetchBytesOptions.MaxBytes.
 const defaultMaxBytes int64 = 4 * 1024 * 1024 // 4 MiB
 
 // FetchBytesOptions contains parameters for oras.FetchBytes.
@@ -206,39 +229,32 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 	return desc, nil
 }
 
-// defaultTagConcurrency is the default concurrency of tagging.
+// defaultTagConcurrency is the default value of TagBytesNOptions.Concurrency.
 const defaultTagConcurrency = 5 // This value is consistent with dockerd
 
-// DefaultTagBytesOptions provides the default TagBytesOptions.
-var DefaultTagBytesOptions TagBytesOptions
+// DefaultTagBytesNOptions provides the default TagBytesNOptions.
+var DefaultTagBytesNOptions TagBytesNOptions
 
-// TagBytesOptions contains parameters for oras.TagBytes.
-type TagBytesOptions struct {
+// TagBytesNOptions contains parameters for oras.TagBytesN.
+type TagBytesNOptions struct {
 	// Concurrency limits the maximum number of concurrent tag tasks.
 	// If less than or equal to 0, a default (currently 5) is used.
 	Concurrency int64
 }
 
-// TagBytes describes the contentBytes using the given mediaType, pushes it,
-// and tag it with the given reference.
-// If mediaType is not specified, "application/octet-stream" is used.
-func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, reference string) (ocispec.Descriptor, error) {
-	return TagBytesN(ctx, target, mediaType, contentBytes, []string{reference}, DefaultTagBytesOptions)
-}
-
 // TagBytesN describes the contentBytes using the given mediaType, pushes it,
 // and tag it with the given references.
 // If mediaType is not specified, "application/octet-stream" is used.
-func TagBytesN(ctx context.Context, target Target, mediaType string, contentBytes []byte, references []string, opts TagBytesOptions) (ocispec.Descriptor, error) {
+func TagBytesN(ctx context.Context, target Target, mediaType string, contentBytes []byte, references []string, opts TagBytesNOptions) (ocispec.Descriptor, error) {
 	if len(references) == 0 {
 		return PushBytes(ctx, target, mediaType, contentBytes)
 	}
 
+	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultTagConcurrency
 	}
-	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
-	limiter := semaphore.NewWeighted(defaultTagConcurrency)
+	limiter := semaphore.NewWeighted(opts.Concurrency)
 	eg, egCtx := errgroup.WithContext(ctx)
 	if refPusher, ok := target.(registry.ReferencePusher); ok {
 		for _, reference := range references {
@@ -275,4 +291,11 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 		return ocispec.Descriptor{}, err
 	}
 	return desc, nil
+}
+
+// TagBytes describes the contentBytes using the given mediaType, pushes it,
+// and tag it with the given reference.
+// If mediaType is not specified, "application/octet-stream" is used.
+func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, reference string) (ocispec.Descriptor, error) {
+	return TagBytesN(ctx, target, mediaType, contentBytes, []string{reference}, DefaultTagBytesNOptions)
 }
