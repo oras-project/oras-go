@@ -1515,7 +1515,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 
 	ctx := context.Background()
 	// test TagBytes with no reference
-	gotDesc, err := oras.TagBytesN(ctx, s, mediaType, content, nil, oras.DefaultTagBytesOptions)
+	gotDesc, err := oras.TagBytesN(ctx, s, mediaType, content, nil, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1540,7 +1540,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 
 	// test TagBytes with multiple references
 	refs := []string{"foo", "bar", "baz"}
-	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, content, refs, oras.DefaultTagBytesOptions)
+	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, content, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1573,7 +1573,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 	}
 
 	// test TagBytes with empty media type and multiple references
-	gotDesc, err = oras.TagBytesN(ctx, s, "", content, refs, oras.DefaultTagBytesOptions)
+	gotDesc, err = oras.TagBytesN(ctx, s, "", content, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1606,7 +1606,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 	}
 
 	// test TagBytes with empty content and multiple references
-	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, nil, refs, oras.DefaultTagBytesOptions)
+	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, nil, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1700,7 +1700,7 @@ func TestTagBytesN_Repository(t *testing.T) {
 	ctx := context.Background()
 
 	// test TagBytes with no reference
-	gotDesc, err := oras.TagBytesN(ctx, repo, indexMediaType, index, nil, oras.DefaultTagBytesOptions)
+	gotDesc, err := oras.TagBytesN(ctx, repo, indexMediaType, index, nil, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1713,7 +1713,7 @@ func TestTagBytesN_Repository(t *testing.T) {
 
 	// test TagBytes with multiple references
 	gotIndex = nil
-	gotDesc, err = oras.TagBytesN(ctx, repo, indexMediaType, index, refs, oras.DefaultTagBytesOptions)
+	gotDesc, err = oras.TagBytesN(ctx, repo, indexMediaType, index, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}

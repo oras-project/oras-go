@@ -56,9 +56,7 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 }
 
 // DefaultResolveOptions provides the default ResolveOptions.
-var DefaultResolveOptions = ResolveOptions{
-	MaxMetadataBytes: defaultResolveMaxMetadataBytes,
-}
+var DefaultResolveOptions ResolveOptions
 
 // defaultResolveMaxMetadataBytes is the default value of
 // ResolveOptions.MaxMetadataBytes.
@@ -73,7 +71,7 @@ type ResolveOptions struct {
 
 	// MaxMetadataBytes limits the maximum size of metadata that can be cached
 	// in the memory.
-	// If less than or equal to 0, a default (currently 4MiB) is used.
+	// If less than or equal to 0, a default (currently 4 MiB) is used.
 	MaxMetadataBytes int64
 }
 
@@ -231,30 +229,23 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 	return desc, nil
 }
 
-// defaultTagConcurrency is the default value of TagBytesOptions.Concurrency.
+// defaultTagConcurrency is the default value of TagBytesNOptions.Concurrency.
 const defaultTagConcurrency = 5 // This value is consistent with dockerd
 
-// DefaultTagBytesOptions provides the default TagBytesOptions.
-var DefaultTagBytesOptions TagBytesOptions
+// DefaultTagBytesNOptions provides the default TagBytesNOptions.
+var DefaultTagBytesNOptions TagBytesNOptions
 
-// TagBytesOptions contains parameters for oras.TagBytes.
-type TagBytesOptions struct {
+// TagBytesNOptions contains parameters for oras.TagBytesN.
+type TagBytesNOptions struct {
 	// Concurrency limits the maximum number of concurrent tag tasks.
 	// If less than or equal to 0, a default (currently 5) is used.
 	Concurrency int64
 }
 
-// TagBytes describes the contentBytes using the given mediaType, pushes it,
-// and tag it with the given reference.
-// If mediaType is not specified, "application/octet-stream" is used.
-func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, reference string) (ocispec.Descriptor, error) {
-	return TagBytesN(ctx, target, mediaType, contentBytes, []string{reference}, DefaultTagBytesOptions)
-}
-
 // TagBytesN describes the contentBytes using the given mediaType, pushes it,
 // and tag it with the given references.
 // If mediaType is not specified, "application/octet-stream" is used.
-func TagBytesN(ctx context.Context, target Target, mediaType string, contentBytes []byte, references []string, opts TagBytesOptions) (ocispec.Descriptor, error) {
+func TagBytesN(ctx context.Context, target Target, mediaType string, contentBytes []byte, references []string, opts TagBytesNOptions) (ocispec.Descriptor, error) {
 	if len(references) == 0 {
 		return PushBytes(ctx, target, mediaType, contentBytes)
 	}
@@ -300,4 +291,11 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 		return ocispec.Descriptor{}, err
 	}
 	return desc, nil
+}
+
+// TagBytes describes the contentBytes using the given mediaType, pushes it,
+// and tag it with the given reference.
+// If mediaType is not specified, "application/octet-stream" is used.
+func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, reference string) (ocispec.Descriptor, error) {
+	return TagBytesN(ctx, target, mediaType, contentBytes, []string{reference}, DefaultTagBytesNOptions)
 }
