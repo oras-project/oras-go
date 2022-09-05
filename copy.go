@@ -33,15 +33,16 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
+// defaultConcurrency is the default value of CopyGraphOptions.Concurrency.
+const defaultConcurrency = 3 // This value is consistent with dockerd and containerd.
+
 var (
 	// DefaultCopyOptions provides the default CopyOptions.
 	DefaultCopyOptions = CopyOptions{
 		CopyGraphOptions: DefaultCopyGraphOptions,
 	}
 	// DefaultCopyGraphOptions provides the default CopyGraphOptions.
-	DefaultCopyGraphOptions = CopyGraphOptions{
-		Concurrency: 3, // This value is consistent with dockerd and containerd.
-	}
+	DefaultCopyGraphOptions CopyGraphOptions
 )
 
 // CopyOptions contains parameters for oras.Copy.
@@ -77,8 +78,7 @@ func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
 // CopyGraphOptions contains parameters for oras.CopyGraph.
 type CopyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent copy tasks.
-	// If Concurrency is not specified, or the specified value is less than
-	// or equal to 0, the concurrency limit will be considered as infinity.
+	// If less than or equal to 0, a default (currently 3) is used.
 	Concurrency int64
 	// PreCopy handles the current descriptor before copying it.
 	PreCopy func(ctx context.Context, desc ocispec.Descriptor) error
@@ -225,12 +225,11 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		return nil, copyNode(ctx, proxy.Cache, dst, desc, opts)
 	})
 
-	var limiter *semaphore.Weighted
-	if opts.Concurrency > 0 {
-		limiter = semaphore.NewWeighted(opts.Concurrency)
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultConcurrency
 	}
 	// traverse the graph
-	return graph.Dispatch(ctx, preHandler, postHandler, limiter, root)
+	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(opts.Concurrency), root)
 }
 
 // doCopyNode copies a single content from the source CAS to the destination CAS.
