@@ -33,6 +33,9 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
+// defaultTagConcurrency is the default value of TagBytesNOptions.Concurrency.
+const defaultTagConcurrency = 5 // This value is consistent with dockerd
+
 // Tag tags the descriptor identified by src with dst.
 func Tag(ctx context.Context, target Target, src, dst string) error {
 	if refTagger, ok := target.(registry.ReferenceTagger); ok {
@@ -53,6 +56,96 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 		return err
 	}
 	return target.Tag(ctx, desc, dst)
+}
+
+// defaultTagNMaxMetadataBytes is the default value of
+// TagNOptions.MaxMetadataBytes.
+const defaultTagNMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+
+// DefaultTagNOptions provides the default TagNOptions.
+var DefaultTagNOptions TagNOptions
+
+// TagNOptions contains parameters for oras.TagN.
+type TagNOptions struct {
+	// Concurrency limits the maximum number of concurrent tag tasks.
+	// If less than or equal to 0, a default (currently 5) is used.
+	Concurrency int64
+
+	// MaxMetadataBytes limits the maximum size of metadata that can be cached
+	// in the memory.
+	// If less than or equal to 0, a default (currently 4 MiB) is used.
+	MaxMetadataBytes int64
+
+	// TODO: post tag?
+}
+
+func TagN(ctx context.Context, target Target, src string, dstReferences []string, opts TagNOptions) error {
+	if len(dstReferences) == 0 {
+		return fmt.Errorf("empty dstReferences: %w", errdef.ErrInvalidReference)
+	}
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultTagConcurrency
+	}
+	if opts.MaxMetadataBytes <= 0 {
+		opts.MaxMetadataBytes = defaultTagNMaxMetadataBytes
+	}
+
+	var desc ocispec.Descriptor
+	var contentBytes []byte
+	var err error
+	refFetcher, okFetch := target.(registry.ReferenceFetcher)
+	refPusher, okPush := target.(registry.ReferencePusher)
+	isRemoteTarget := okFetch && okPush
+	if isRemoteTarget {
+		err = func() error {
+			// TODO: auth scope hint
+			var rc io.ReadCloser
+			desc, rc, err = refFetcher.FetchReference(ctx, src)
+			if err != nil {
+				return err
+			}
+			defer rc.Close()
+
+			if desc.Size > opts.MaxMetadataBytes {
+				return fmt.Errorf(
+					"content size %v exceeds MaxMetadataBytes %v: %w",
+					desc.Size,
+					opts.MaxMetadataBytes,
+					errdef.ErrSizeExceedsLimit)
+			}
+			contentBytes, err = content.ReadAll(rc, desc)
+			return err
+		}()
+	} else {
+		desc, err = target.Resolve(ctx, src)
+	}
+	if err != nil {
+		return err
+	}
+
+	limiter := semaphore.NewWeighted(opts.Concurrency)
+	eg, egCtx := errgroup.WithContext(ctx)
+	for _, dstRef := range dstReferences {
+		limiter.Acquire(ctx, 1)
+		eg.Go(func(ref string) func() error {
+			return func() error {
+				defer limiter.Release(1)
+				if isRemoteTarget {
+					r := bytes.NewReader(contentBytes)
+					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+						return fmt.Errorf("failed to tag %s to %s: %w", src, ref, err)
+					}
+				} else {
+					if err := target.Tag(ctx, desc, ref); err != nil {
+						return fmt.Errorf("failed to tag %s to %s: %w", src, ref, err)
+					}
+				}
+				return nil
+			}
+		}(dstRef))
+	}
+
+	return eg.Wait()
 }
 
 // DefaultResolveOptions provides the default ResolveOptions.
@@ -229,9 +322,6 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 	return desc, nil
 }
 
-// defaultTagConcurrency is the default value of TagBytesNOptions.Concurrency.
-const defaultTagConcurrency = 5 // This value is consistent with dockerd
-
 // DefaultTagBytesNOptions provides the default TagBytesNOptions.
 var DefaultTagBytesNOptions TagBytesNOptions
 
@@ -264,7 +354,7 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 					defer limiter.Release(1)
 					r := bytes.NewReader(contentBytes)
 					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-						return err
+						return fmt.Errorf("failed to tag %s: %w", ref, err)
 					}
 					return nil
 				}
@@ -273,7 +363,7 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 	} else {
 		r := bytes.NewReader(contentBytes)
 		if err := target.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-			return ocispec.Descriptor{}, err
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push content: %w", err)
 		}
 
 		for _, reference := range references {
@@ -281,7 +371,10 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 			eg.Go(func(ref string) func() error {
 				return func() error {
 					defer limiter.Release(1)
-					return target.Tag(egCtx, desc, ref)
+					if err := target.Tag(egCtx, desc, ref); err != nil {
+						return fmt.Errorf("failed to tag %s: %w", ref, err)
+					}
+					return nil
 				}
 			}(reference))
 		}
