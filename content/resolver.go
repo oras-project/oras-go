@@ -39,8 +39,3 @@ type TagResolver interface {
 	Tagger
 	Resolver
 }
-
-// type TagPusher interface {
-// 	Tagger
-// 	Pusher
-// }

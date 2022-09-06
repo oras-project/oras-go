@@ -74,6 +74,8 @@ type BlobStore interface {
 	ReferenceFetcher
 }
 
+// ManifestStore is a CAS with the ability to stat and delete its content.
+// Besides, ManifestStore provides reference tagging.
 type ManifestStore interface {
 	BlobStore
 	content.Tagger

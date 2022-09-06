@@ -171,12 +171,28 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 
 // Tag tags a manifest descriptor with a reference string.
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	return r.Manifests().Tag(ctx, desc, reference)
+	ref, err := r.parseReference(reference)
+	if err != nil {
+		return err
+	}
+
+	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
+	rc, err := r.Manifests().Fetch(ctx, desc)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	return r.push(ctx, desc, rc, ref.Reference)
 }
 
 // PushReference pushes the manifest with a reference tag.
 func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	return r.Manifests().PushReference(ctx, expected, content, reference)
+	ref, err := r.parseReference(reference)
+	if err != nil {
+		return err
+	}
+	return r.push(ctx, expected, content, ref.Reference)
 }
 
 // push pushes the manifest content, matching the expected descriptor.
@@ -241,7 +257,7 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 	return r.Manifests().FetchReference(ctx, reference)
 }
 
-// TagReference re-tags the manifest identified by src to dst.
+// TagReference retags the manifest identified by src to dst.
 func (r *Repository) TagReference(ctx context.Context, src, dst string) error {
 	srcRef, err := r.parseReference(src)
 	if err != nil {
@@ -937,28 +953,12 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 // Tag tags a manifest descriptor with a reference string.
 func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	ref, err := s.repo.parseReference(reference)
-	if err != nil {
-		return err
-	}
-
-	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
-	rc, err := s.Fetch(ctx, desc)
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-
-	return s.repo.push(ctx, desc, rc, ref.Reference)
+	return s.repo.Tag(ctx, desc, reference)
 }
 
 // PushReference pushes the manifest with a reference tag.
 func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	ref, err := s.repo.parseReference(reference)
-	if err != nil {
-		return err
-	}
-	return s.repo.push(ctx, expected, content, ref.Reference)
+	return s.repo.PushReference(ctx, expected, content, reference)
 }
 
 // generateDescriptor returns a descriptor generated from the response.
