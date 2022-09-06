@@ -241,7 +241,7 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 	return r.Manifests().FetchReference(ctx, reference)
 }
 
-// TagReference retags the manifest identified by src to dst.
+// TagReference re-tags the manifest identified by src to dst.
 func (r *Repository) TagReference(ctx context.Context, src, dst string) error {
 	srcRef, err := r.parseReference(src)
 	if err != nil {

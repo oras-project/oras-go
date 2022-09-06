@@ -3020,6 +3020,143 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	}
 }
 
+func Test_ManifestStore_Tag(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	var gotIndex []byte
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+blobDesc.Digest.String():
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			if _, err := w.Write(index); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		case r.Method == http.MethodPut &&
+			r.URL.Path == "/v2/test/manifests/"+ref || r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
+			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	store := repo.Manifests()
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	err = store.Tag(ctx, blobDesc, ref)
+	if err == nil {
+		t.Errorf("Repository.Tag() error = %v, wantErr %v", err, true)
+	}
+
+	err = store.Tag(ctx, indexDesc, ref)
+	if err != nil {
+		t.Fatalf("Repository.Tag() error = %v", err)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("Repository.Tag() = %v, want %v", gotIndex, index)
+	}
+
+	gotIndex = nil
+	err = store.Tag(ctx, indexDesc, indexDesc.Digest.String())
+	if err != nil {
+		t.Fatalf("Repository.Tag() error = %v", err)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("Repository.Tag() = %v, want %v", gotIndex, index)
+	}
+}
+
+func Test_ManifestStore_PushReference(t *testing.T) {
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	var gotIndex []byte
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+ref:
+			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	store := repo.Manifests()
+	repo.PlainHTTP = true
+	ctx := context.Background()
+	err = store.PushReference(ctx, indexDesc, bytes.NewReader(index), ref)
+	if err != nil {
+		t.Fatalf("Repository.PushReference() error = %v", err)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("Repository.PushReference() = %v, want %v", gotIndex, index)
+	}
+}
+
 func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
 	reference := registry.Reference{
 		Registry:   "eastern.haan.com",
