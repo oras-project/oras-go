@@ -159,7 +159,7 @@ func (r *Repository) Blobs() registry.BlobStore {
 }
 
 // Manifests provides access to the manifest CAS only.
-func (r *Repository) Manifests() registry.BlobStore {
+func (r *Repository) Manifests() registry.ManifestStore {
 	return &manifestStore{repo: r}
 }
 
@@ -949,6 +949,16 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	default:
 		return ocispec.Descriptor{}, nil, errutil.ParseErrorResponse(resp)
 	}
+}
+
+// Tag tags a manifest descriptor with a reference string.
+func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
+	return s.repo.Tag(ctx, desc, reference)
+}
+
+// PushReference pushes the manifest with a reference tag.
+func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
+	return s.repo.PushReference(ctx, expected, content, reference)
 }
 
 // generateDescriptor returns a descriptor generated from the response.
