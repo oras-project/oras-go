@@ -29,18 +29,149 @@ import (
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/internal/interfaces"
 	"oras.land/oras-go/v2/internal/platform"
+	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
-// Tag tags the descriptor identified by src with dst.
-func Tag(ctx context.Context, target Target, src, dst string) error {
-	if refTagger, ok := target.(registry.ReferenceTagger); ok {
-		return refTagger.TagReference(ctx, src, dst)
+const (
+	// defaultTagConcurrency is the default concurrency of tagging.
+	defaultTagConcurrency int64 = 5 // This value is consistent with dockerd
+
+	// defaultTagNMaxMetadataBytes is the default value of
+	// TagNOptions.MaxMetadataBytes.
+	defaultTagNMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+
+	// defaultResolveMaxMetadataBytes is the default value of
+	// ResolveOptions.MaxMetadataBytes.
+	defaultResolveMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+
+	// defaultMaxBytes is the default value of FetchBytesOptions.MaxBytes.
+	defaultMaxBytes int64 = 4 * 1024 * 1024 // 4 MiB
+)
+
+// DefaultTagNOptions provides the default TagNOptions.
+var DefaultTagNOptions TagNOptions
+
+// TagNOptions contains parameters for oras.TagN.
+type TagNOptions struct {
+	// Concurrency limits the maximum number of concurrent tag tasks.
+	// If less than or equal to 0, a default (currently 5) is used.
+	Concurrency int64
+
+	// MaxMetadataBytes limits the maximum size of metadata that can be cached
+	// in the memory.
+	// If less than or equal to 0, a default (currently 4 MiB) is used.
+	MaxMetadataBytes int64
+}
+
+// TagN tags the descriptor identified by srcReference with dstReferences.
+func TagN(ctx context.Context, target Target, srcReference string, dstReferences []string, opts TagNOptions) error {
+	switch len(dstReferences) {
+	case 0:
+		return fmt.Errorf("dstReferences cannot be empty: %w", errdef.ErrMissingReference)
+	case 1:
+		return Tag(ctx, target, srcReference, dstReferences[0])
 	}
+
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultTagConcurrency
+	}
+	if opts.MaxMetadataBytes <= 0 {
+		opts.MaxMetadataBytes = defaultTagNMaxMetadataBytes
+	}
+
 	refFetcher, okFetch := target.(registry.ReferenceFetcher)
 	refPusher, okPush := target.(registry.ReferencePusher)
 	if okFetch && okPush {
+		if repo, ok := target.(interfaces.ReferenceParser); ok {
+			// add scope hints to minimize the number of auth requests
+			ref, err := repo.ParseReference(srcReference)
+			if err != nil {
+				return err
+			}
+			ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
+		}
+
+		desc, contentBytes, err := func() (ocispec.Descriptor, []byte, error) {
+			desc, rc, err := refFetcher.FetchReference(ctx, srcReference)
+			if err != nil {
+				return ocispec.Descriptor{}, nil, err
+			}
+			defer rc.Close()
+
+			if desc.Size > opts.MaxMetadataBytes {
+				return ocispec.Descriptor{}, nil, fmt.Errorf(
+					"content size %v exceeds MaxMetadataBytes %v: %w",
+					desc.Size,
+					opts.MaxMetadataBytes,
+					errdef.ErrSizeExceedsLimit)
+			}
+			contentBytes, err := content.ReadAll(rc, desc)
+			if err != nil {
+				return ocispec.Descriptor{}, nil, err
+			}
+			return desc, contentBytes, nil
+		}()
+		if err != nil {
+			return err
+		}
+
+		limiter := semaphore.NewWeighted(opts.Concurrency)
+		eg, egCtx := errgroup.WithContext(ctx)
+		for _, dstRef := range dstReferences {
+			limiter.Acquire(ctx, 1)
+			eg.Go(func(dst string) func() error {
+				return func() error {
+					defer limiter.Release(1)
+					r := bytes.NewReader(contentBytes)
+					if err := refPusher.PushReference(egCtx, desc, r, dst); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+						return fmt.Errorf("failed to tag %s as %s: %w", srcReference, dst, err)
+					}
+					return nil
+				}
+			}(dstRef))
+		}
+		return eg.Wait()
+	}
+
+	desc, err := target.Resolve(ctx, srcReference)
+	if err != nil {
+		return err
+	}
+	limiter := semaphore.NewWeighted(opts.Concurrency)
+	eg, egCtx := errgroup.WithContext(ctx)
+	for _, dstRef := range dstReferences {
+		limiter.Acquire(ctx, 1)
+		eg.Go(func(dst string) func() error {
+			return func() error {
+				defer limiter.Release(1)
+				if err := target.Tag(egCtx, desc, dst); err != nil {
+					return fmt.Errorf("failed to tag %s as %s: %w", srcReference, dst, err)
+				}
+				return nil
+			}
+		}(dstRef))
+	}
+
+	return eg.Wait()
+}
+
+// Tag tags the descriptor identified by src with dst.
+func Tag(ctx context.Context, target Target, src, dst string) error {
+	refFetcher, okFetch := target.(registry.ReferenceFetcher)
+	refPusher, okPush := target.(registry.ReferencePusher)
+	if okFetch && okPush {
+		if repo, ok := target.(interfaces.ReferenceParser); ok {
+			// add scope hints to minimize the number of auth requests
+			ref, err := repo.ParseReference(src)
+			if err != nil {
+				return err
+			}
+			ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
+		}
 		desc, rc, err := refFetcher.FetchReference(ctx, src)
 		if err != nil {
 			return err
@@ -48,6 +179,7 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 		defer rc.Close()
 		return refPusher.PushReference(ctx, desc, rc, dst)
 	}
+
 	desc, err := target.Resolve(ctx, src)
 	if err != nil {
 		return err
@@ -57,10 +189,6 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 
 // DefaultResolveOptions provides the default ResolveOptions.
 var DefaultResolveOptions ResolveOptions
-
-// defaultResolveMaxMetadataBytes is the default value of
-// ResolveOptions.MaxMetadataBytes.
-const defaultResolveMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
 
 // ResolveOptions contains parameters for oras.Resolve.
 type ResolveOptions struct {
@@ -178,9 +306,6 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 // DefaultFetchBytesOptions provides the default FetchBytesOptions.
 var DefaultFetchBytesOptions FetchBytesOptions
 
-// defaultMaxBytes is the default value of FetchBytesOptions.MaxBytes.
-const defaultMaxBytes int64 = 4 * 1024 * 1024 // 4 MiB
-
 // FetchBytesOptions contains parameters for oras.FetchBytes.
 type FetchBytesOptions struct {
 	// FetchOptions contains parameters for fetching content.
@@ -229,9 +354,6 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 	return desc, nil
 }
 
-// defaultTagConcurrency is the default value of TagBytesNOptions.Concurrency.
-const defaultTagConcurrency = 5 // This value is consistent with dockerd
-
 // DefaultTagBytesNOptions provides the default TagBytesNOptions.
 var DefaultTagBytesNOptions TagBytesNOptions
 
@@ -264,7 +386,7 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 					defer limiter.Release(1)
 					r := bytes.NewReader(contentBytes)
 					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-						return err
+						return fmt.Errorf("failed to tag %s: %w", ref, err)
 					}
 					return nil
 				}
@@ -273,7 +395,7 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 	} else {
 		r := bytes.NewReader(contentBytes)
 		if err := target.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-			return ocispec.Descriptor{}, err
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push content: %w", err)
 		}
 
 		for _, reference := range references {
@@ -281,7 +403,10 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 			eg.Go(func(ref string) func() error {
 				return func() error {
 					defer limiter.Release(1)
-					return target.Tag(egCtx, desc, ref)
+					if err := target.Tag(egCtx, desc, ref); err != nil {
+						return fmt.Errorf("failed to tag %s: %w", ref, err)
+					}
+					return nil
 				}
 			}(reference))
 		}
