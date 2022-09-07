@@ -948,6 +948,11 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	return verifyContentDigest(resp, expected.Digest)
 }
 
+// ParseReference parses a reference to a fully qualified reference.
+func (s *manifestStore) ParseReference(reference string) (registry.Reference, error) {
+	return s.repo.ParseReference(reference)
+}
+
 // generateDescriptor returns a descriptor generated from the response.
 // See the truth table at the top of `repository_test.go`
 func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
