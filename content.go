@@ -85,7 +85,7 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 			// add scope hints to minimize the number of auth requests
 			ref, err := repo.ParseReference(srcReference)
 			if err != nil {
-				return nil
+				return err
 			}
 			scope := auth.ScopeRepository(ref.Repository, auth.ActionPull, auth.ActionPush)
 			ctx = auth.AppendScopes(ctx, scope)
