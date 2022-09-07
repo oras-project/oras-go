@@ -244,6 +244,42 @@ func TestTagN_Memory(t *testing.T) {
 		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrMissingReference)
 	}
 
+	// test TagN with single dstReferences
+	dstRef := "single"
+	err = oras.TagN(ctx, target, srcRef, []string{dstRef}, oras.DefaultTagNOptions)
+	if err != nil {
+		t.Fatalf("failed to retag using oras.Tag with err: %v", err)
+	}
+
+	// verify tag
+	gotDesc, err := target.Resolve(ctx, dstRef)
+	if err != nil {
+		t.Fatal("target.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("target.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test TagN with single dstReferences and MaxMetadataBytes = 1
+	// should not return error
+	dstRef = "single2"
+	opts := oras.TagNOptions{
+		MaxMetadataBytes: 1,
+	}
+	err = oras.TagN(ctx, target, srcRef, []string{dstRef}, opts)
+	if err != nil {
+		t.Fatalf("failed to retag using oras.Tag with err: %v", err)
+	}
+
+	// verify tag
+	gotDesc, err = target.Resolve(ctx, dstRef)
+	if err != nil {
+		t.Fatal("target.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("target.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
 	// test TagN with multiple references
 	dstRefs := []string{"foo", "bar", "baz"}
 	err = oras.TagN(ctx, target, srcRef, dstRefs, oras.DefaultTagNOptions)
@@ -265,7 +301,7 @@ func TestTagN_Memory(t *testing.T) {
 	// test TagN with multiple references and MaxMetadataBytes = 1
 	// should not return error
 	dstRefs = []string{"tag1", "tag2", "tag3"}
-	opts := oras.TagNOptions{
+	opts = oras.TagNOptions{
 		MaxMetadataBytes: 1,
 	}
 	err = oras.TagN(ctx, target, srcRef, dstRefs, opts)
@@ -295,6 +331,8 @@ func TestTagN_Repository(t *testing.T) {
 	srcRef := "foobar"
 	refFoo := "foo"
 	refBar := "bar"
+	refTag1 := "tag1"
+	refTag2 := "tag2"
 	dstRefs := []string{refFoo, refBar}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -312,7 +350,9 @@ func TestTagN_Repository(t *testing.T) {
 			}
 		case r.Method == http.MethodHead &&
 			(r.URL.Path == "/v2/test/manifests/"+refFoo ||
-				r.URL.Path == "/v2/test/manifests/"+refBar):
+				r.URL.Path == "/v2/test/manifests/"+refBar ||
+				r.URL.Path == "/v2/test/manifests/"+refTag1 ||
+				r.URL.Path == "/v2/test/manifests/"+refTag2):
 			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
 				t.Errorf("manifest not convertable: %s", accept)
 				w.WriteHeader(http.StatusBadRequest)
@@ -322,7 +362,10 @@ func TestTagN_Repository(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(int(indexDesc.Size)))
 		case r.Method == http.MethodPut &&
-			(r.URL.Path == "/v2/test/manifests/"+refFoo || r.URL.Path == "/v2/test/manifests/"+refBar):
+			(r.URL.Path == "/v2/test/manifests/"+refFoo ||
+				r.URL.Path == "/v2/test/manifests/"+refBar ||
+				r.URL.Path == "/v2/test/manifests/"+refTag1 ||
+				r.URL.Path == "/v2/test/manifests/"+refTag2):
 			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
 				w.WriteHeader(http.StatusBadRequest)
 				break
@@ -358,6 +401,40 @@ func TestTagN_Repository(t *testing.T) {
 		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrMissingReference)
 	}
 
+	// test TagN with single dstReferences
+	err = oras.TagN(ctx, repo, srcRef, []string{refTag1}, oras.DefaultTagNOptions)
+	if err != nil {
+		t.Fatalf("failed to retag using oras.Tag with err: %v", err)
+	}
+
+	// verify tag
+	gotDesc, err := repo.Resolve(ctx, refTag1)
+	if err != nil {
+		t.Fatal("target.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("target.Resolve() = %v, want %v", gotDesc, indexDesc)
+	}
+
+	// test TagN with single dstReferences and MaxMetadataBytes = 1
+	// should not return error
+	opts := oras.TagNOptions{
+		MaxMetadataBytes: 1,
+	}
+	err = oras.TagN(ctx, repo, srcRef, []string{refTag2}, opts)
+	if err != nil {
+		t.Fatalf("failed to retag using oras.Tag with err: %v", err)
+	}
+
+	// verify tag
+	gotDesc, err = repo.Resolve(ctx, refTag2)
+	if err != nil {
+		t.Fatal("target.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("target.Resolve() = %v, want %v", gotDesc, indexDesc)
+	}
+
 	// test TagN with multiple references
 	err = oras.TagN(ctx, repo, srcRef, dstRefs, oras.DefaultTagNOptions)
 	if err != nil {
@@ -377,8 +454,8 @@ func TestTagN_Repository(t *testing.T) {
 
 	// test TagN with multiple references and MaxMetadataBytes = 1
 	// should return ErrSizeExceedsLimit
-	dstRefs = []string{"tag1", "tag2", "tag3"}
-	opts := oras.TagNOptions{
+	dstRefs = []string{refTag1, refTag2}
+	opts = oras.TagNOptions{
 		MaxMetadataBytes: 1,
 	}
 	err = oras.TagN(ctx, repo, srcRef, dstRefs, opts)

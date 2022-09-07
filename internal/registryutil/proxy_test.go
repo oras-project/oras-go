@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package registryutil
+package registryutil_test
 
 import (
 	"bytes"
@@ -30,6 +30,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/internal/cas"
+	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -83,7 +84,7 @@ func TestProxy_FetchReference(t *testing.T) {
 	}
 	repo.PlainHTTP = true
 
-	s := NewProxy(repo, cas.NewMemory())
+	s := registryutil.NewProxy(repo, cas.NewMemory())
 	ctx := context.Background()
 
 	// first FetchReference

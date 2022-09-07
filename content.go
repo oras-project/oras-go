@@ -31,6 +31,7 @@ import (
 	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/interfaces"
 	"oras.land/oras-go/v2/internal/platform"
+	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
@@ -71,6 +72,10 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 	if len(dstReferences) == 0 {
 		return fmt.Errorf("dstReferences cannot be empty: %w", errdef.ErrMissingReference)
 	}
+	if len(dstReferences) == 1 {
+		return Tag(ctx, target, srcReference, dstReferences[0])
+	}
+
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultTagConcurrency
 	}
@@ -87,8 +92,7 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 			if err != nil {
 				return err
 			}
-			scope := auth.ScopeRepository(ref.Repository, auth.ActionPull, auth.ActionPush)
-			ctx = auth.AppendScopes(ctx, scope)
+			ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
 		}
 
 		var desc ocispec.Descriptor
@@ -157,7 +161,30 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 
 // Tag tags the descriptor identified by src with dst.
 func Tag(ctx context.Context, target Target, src, dst string) error {
-	return TagN(ctx, target, src, []string{dst}, DefaultTagNOptions)
+	refFetcher, okFetch := target.(registry.ReferenceFetcher)
+	refPusher, okPush := target.(registry.ReferencePusher)
+	if okFetch && okPush {
+		if repo, ok := target.(interfaces.ReferenceParser); ok {
+			// add scope hints to minimize the number of auth requests
+			ref, err := repo.ParseReference(src)
+			if err != nil {
+				return err
+			}
+			ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
+		}
+		desc, rc, err := refFetcher.FetchReference(ctx, src)
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		return refPusher.PushReference(ctx, desc, rc, dst)
+	}
+
+	desc, err := target.Resolve(ctx, src)
+	if err != nil {
+		return err
+	}
+	return target.Tag(ctx, desc, dst)
 }
 
 // DefaultResolveOptions provides the default ResolveOptions.
