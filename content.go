@@ -89,14 +89,13 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 		opts.MaxMetadataBytes = defaultTagNMaxMetadataBytes
 	}
 
-	var desc ocispec.Descriptor
-	var contentBytes []byte
-	var err error
 	refFetcher, okFetch := target.(registry.ReferenceFetcher)
 	refPusher, okPush := target.(registry.ReferencePusher)
-	isRemoteTarget := okFetch && okPush
-	if isRemoteTarget {
-		err = func() error {
+	if okFetch && okPush {
+		var desc ocispec.Descriptor
+		var contentBytes []byte
+		var err error
+		if err = func() error {
 			var rc io.ReadCloser
 			desc, rc, err = refFetcher.FetchReference(ctx, srcReference)
 			if err != nil {
@@ -113,30 +112,41 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 			}
 			contentBytes, err = content.ReadAll(rc, desc)
 			return err
-		}()
-	} else {
-		desc, err = target.Resolve(ctx, srcReference)
+		}(); err != nil {
+			return err
+		}
+
+		limiter := semaphore.NewWeighted(opts.Concurrency)
+		eg, egCtx := errgroup.WithContext(ctx)
+		for _, dstRef := range dstReferences {
+			limiter.Acquire(ctx, 1)
+			eg.Go(func(dst string) func() error {
+				return func() error {
+					defer limiter.Release(1)
+					r := bytes.NewReader(contentBytes)
+					if err := refPusher.PushReference(egCtx, desc, r, dst); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+						return fmt.Errorf("failed to tag %s as %s: %w", srcReference, dst, err)
+					}
+					return nil
+				}
+			}(dstRef))
+		}
+		return eg.Wait()
 	}
+
+	desc, err := target.Resolve(ctx, srcReference)
 	if err != nil {
 		return err
 	}
-
 	limiter := semaphore.NewWeighted(opts.Concurrency)
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, dstRef := range dstReferences {
 		limiter.Acquire(ctx, 1)
-		eg.Go(func(ref string) func() error {
+		eg.Go(func(dst string) func() error {
 			return func() error {
 				defer limiter.Release(1)
-				if isRemoteTarget {
-					r := bytes.NewReader(contentBytes)
-					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-						return fmt.Errorf("failed to tag %s to %s: %w", srcReference, ref, err)
-					}
-				} else {
-					if err := target.Tag(ctx, desc, ref); err != nil {
-						return fmt.Errorf("failed to tag %s to %s: %w", srcReference, ref, err)
-					}
+				if err := target.Tag(egCtx, desc, dst); err != nil {
+					return fmt.Errorf("failed to tag %s as %s: %w", srcReference, dst, err)
 				}
 				return nil
 			}
