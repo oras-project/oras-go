@@ -209,12 +209,13 @@ func (r *Repository) ParseReference(reference string) (registry.Reference, error
 		if err = ref.ValidateReference(); err != nil {
 			return registry.Reference{}, err
 		}
-		return ref, nil
+	} else if ref.Registry != r.Reference.Registry || ref.Repository != r.Reference.Repository {
+		return registry.Reference{}, fmt.Errorf("%w %q: expect %q", errdef.ErrInvalidReference, ref, r.Reference)
 	}
-	if ref.Registry == r.Reference.Registry && ref.Repository == r.Reference.Repository {
-		return ref, nil
+	if ref.Reference == "" {
+		return registry.Reference{}, fmt.Errorf("%w %q: empty reference", errdef.ErrInvalidReference, ref)
 	}
-	return registry.Reference{}, fmt.Errorf("%w %q: expect %q", errdef.ErrInvalidReference, ref, r.Reference)
+	return ref, nil
 }
 
 // Tags lists the tags available in the repository.

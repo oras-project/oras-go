@@ -69,10 +69,10 @@ type TagNOptions struct {
 
 // TagN tags the descriptor identified by srcReference with dstReferences.
 func TagN(ctx context.Context, target Target, srcReference string, dstReferences []string, opts TagNOptions) error {
-	if len(dstReferences) == 0 {
+	switch len(dstReferences) {
+	case 0:
 		return fmt.Errorf("dstReferences cannot be empty: %w", errdef.ErrMissingReference)
-	}
-	if len(dstReferences) == 1 {
+	case 1:
 		return Tag(ctx, target, srcReference, dstReferences[0])
 	}
 
@@ -95,27 +95,27 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 			ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
 		}
 
-		var desc ocispec.Descriptor
-		var contentBytes []byte
-		var err error
-		if err = func() error {
-			var rc io.ReadCloser
-			desc, rc, err = refFetcher.FetchReference(ctx, srcReference)
+		desc, contentBytes, err := func() (ocispec.Descriptor, []byte, error) {
+			desc, rc, err := refFetcher.FetchReference(ctx, srcReference)
 			if err != nil {
-				return err
+				return ocispec.Descriptor{}, nil, err
 			}
 			defer rc.Close()
 
 			if desc.Size > opts.MaxMetadataBytes {
-				return fmt.Errorf(
+				return ocispec.Descriptor{}, nil, fmt.Errorf(
 					"content size %v exceeds MaxMetadataBytes %v: %w",
 					desc.Size,
 					opts.MaxMetadataBytes,
 					errdef.ErrSizeExceedsLimit)
 			}
-			contentBytes, err = content.ReadAll(rc, desc)
-			return err
-		}(); err != nil {
+			contentBytes, err := content.ReadAll(rc, desc)
+			if err != nil {
+				return ocispec.Descriptor{}, nil, err
+			}
+			return desc, contentBytes, nil
+		}()
+		if err != nil {
 			return err
 		}
 

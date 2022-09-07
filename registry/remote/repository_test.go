@@ -3450,3 +3450,200 @@ func TestRepository_Tags_WithLastParam(t *testing.T) {
 		t.Errorf("Repository.Tags() error = %v", err)
 	}
 }
+
+func TestRepository_ParseReference(t *testing.T) {
+	type args struct {
+		reference string
+	}
+	tests := []struct {
+		name    string
+		repoRef registry.Reference
+		args    args
+		want    registry.Reference
+		wantErr error
+	}{
+		{
+			name: "parse tag",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "foobar",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "foobar",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse digest",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse tag@digest",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse FQDN tag",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world:foobar",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "foobar",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse FQDN digest",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse FQDN tag@digest",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "empty reference",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "missing repository",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "myregistry.example.com:hello-world",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "missing reference",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "missing reference after @",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world@",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "registry mismatch",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "myregistry.example.com/hello-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "repository mismatch",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/goodbye-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &Repository{
+				Reference: tt.repoRef,
+			}
+			got, err := r.ParseReference(tt.args.reference)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Repository.ParseReference() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Repository.ParseReference() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
