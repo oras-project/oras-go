@@ -29,23 +29,20 @@ import (
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/internal/interfaces"
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/registry"
-	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
-// defaultTagConcurrency is the default value of TagBytesNOptions.Concurrency.
-const defaultTagConcurrency = 5 // This value is consistent with dockerd
+const (
+	// defaultTagConcurrency is the default concurrency of tagging.
+	defaultTagConcurrency = 5 // This value is consistent with dockerd
 
-// Tag tags the descriptor identified by src with dst.
-func Tag(ctx context.Context, target Target, src, dst string) error {
-	return TagN(ctx, target, src, []string{dst}, DefaultTagNOptions)
-}
-
-// defaultTagNMaxMetadataBytes is the default value of
-// TagNOptions.MaxMetadataBytes.
-const defaultTagNMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+	// defaultTagNMaxMetadataBytes is the default value of
+	// TagNOptions.MaxMetadataBytes.
+	defaultTagNMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+)
 
 // DefaultTagNOptions provides the default TagNOptions.
 var DefaultTagNOptions TagNOptions
@@ -62,7 +59,7 @@ type TagNOptions struct {
 	MaxMetadataBytes int64
 }
 
-// TagN tags the descriptor identified by src with dstReferences.
+// TagN tags the descriptor identified by srcReference with dstReferences.
 func TagN(ctx context.Context, target Target, srcReference string, dstReferences []string, opts TagNOptions) error {
 	if len(dstReferences) == 0 {
 		return fmt.Errorf("dstReferences cannot be empty: %w", errdef.ErrMissingReference)
@@ -77,12 +74,13 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 	refFetcher, okFetch := target.(registry.ReferenceFetcher)
 	refPusher, okPush := target.(registry.ReferencePusher)
 	if okFetch && okPush {
-		if repo, ok := target.(*remote.Repository); ok {
-			repoRef, err := repo.ParseReference(srcReference)
+		if repo, ok := target.(interfaces.ReferenceResolver); ok {
+			// add scope hints to minimize the number of auth requests
+			ref, err := repo.ResolveReference(srcReference)
 			if err != nil {
 				return nil
 			}
-			scope := auth.ScopeRepository(repoRef.Repository, auth.ActionPull, auth.ActionPush)
+			scope := auth.ScopeRepository(ref.Repository, auth.ActionPull, auth.ActionPush)
 			ctx = auth.AppendScopes(ctx, scope)
 		}
 
@@ -148,6 +146,11 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 	}
 
 	return eg.Wait()
+}
+
+// Tag tags the descriptor identified by src with dst.
+func Tag(ctx context.Context, target Target, src, dst string) error {
+	return TagN(ctx, target, src, []string{dst}, DefaultTagNOptions)
 }
 
 // DefaultResolveOptions provides the default ResolveOptions.

@@ -171,84 +171,12 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 
 // Tag tags a manifest descriptor with a reference string.
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	ref, err := r.ParseReference(reference)
-	if err != nil {
-		return err
-	}
-
-	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
-	rc, err := r.Manifests().Fetch(ctx, desc)
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-
-	return r.push(ctx, desc, rc, ref.Reference)
+	return r.Manifests().Tag(ctx, desc, reference)
 }
 
 // PushReference pushes the manifest with a reference tag.
 func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	ref, err := r.ParseReference(reference)
-	if err != nil {
-		return err
-	}
-	return r.push(ctx, expected, content, ref.Reference)
-}
-
-// push pushes the manifest content, matching the expected descriptor.
-func (r *Repository) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	ref := r.Reference
-	ref.Reference = reference
-	// pushing usually requires both pull and push actions.
-	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
-	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
-	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
-	// unwrap the content for optimizations of built-in types.
-	body := ioutil.UnwrapNopCloser(content)
-	if _, ok := body.(io.ReadCloser); ok {
-		// undo unwrap if the nopCloser is intended.
-		body = content
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, body)
-	if err != nil {
-		return err
-	}
-	if req.GetBody != nil && req.ContentLength != expected.Size {
-		// short circuit a size mismatch for built-in types.
-		return fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, expected.Size)
-	}
-	req.ContentLength = expected.Size
-	req.Header.Set("Content-Type", expected.MediaType)
-
-	// if the underlying client is an auth client, the content might be read
-	// more than once for obtaining the auth challenge and the actual request.
-	// To prevent double reading, the manifest is read and stored in the memory,
-	// and serve from the memory.
-	client := r.client()
-	if _, ok := client.(*auth.Client); ok && req.GetBody == nil {
-		store := cas.NewMemory()
-		err := store.Push(ctx, expected, content)
-		if err != nil {
-			return err
-		}
-		req.GetBody = func() (io.ReadCloser, error) {
-			return store.Fetch(ctx, expected)
-		}
-		req.Body, err = req.GetBody()
-		if err != nil {
-			return err
-		}
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		return errutil.ParseErrorResponse(resp)
-	}
-	return verifyContentDigest(resp, expected.Digest)
+	return r.Manifests().PushReference(ctx, expected, content, reference)
 }
 
 // FetchReference fetches the manifest identified by the reference.
@@ -257,29 +185,10 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 	return r.Manifests().FetchReference(ctx, reference)
 }
 
-// TagReference retags the manifest identified by src to dst.
-func (r *Repository) TagReference(ctx context.Context, src, dst string) error {
-	srcRef, err := r.ParseReference(src)
-	if err != nil {
-		return err
-	}
-	dstRef, err := r.ParseReference(dst)
-	if err != nil {
-		return err
-	}
-	ctx = withScopeHint(ctx, srcRef, auth.ActionPull, auth.ActionPush)
-	manifestDesc, rc, err := r.FetchReference(ctx, src)
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-	return r.push(ctx, manifestDesc, rc, dstRef.Reference)
-}
-
-// ParseReference validates the reference.
+// ResolveReference validates the reference and return a fully qualified
+// reference on success.
 // Both simplified or fully qualified references are accepted as input.
-// A fully qualified reference is returned on success.
-func (r *Repository) ParseReference(reference string) (registry.Reference, error) {
+func (r *Repository) ResolveReference(reference string) (registry.Reference, error) {
 	ref, err := registry.ParseReference(reference)
 	if err != nil {
 		// reference is not a FQDN
@@ -697,7 +606,7 @@ func (s *blobStore) Delete(ctx context.Context, target ocispec.Descriptor) error
 
 // Resolve resolves a reference to a descriptor.
 func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
-	ref, err := s.repo.ParseReference(reference)
+	ref, err := s.repo.ResolveReference(reference)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -731,7 +640,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 // FetchReference fetches the blob identified by the reference.
 // The reference must be a digest.
 func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc ocispec.Descriptor, rc io.ReadCloser, err error) {
-	ref, err := s.repo.ParseReference(reference)
+	ref, err := s.repo.ResolveReference(reference)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -860,7 +769,7 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 
 // Push pushes the content, matching the expected descriptor.
 func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	return s.repo.push(ctx, expected, content, expected.Digest.String())
+	return s.push(ctx, expected, content, expected.Digest.String())
 }
 
 // Exists returns true if the described content exists.
@@ -883,7 +792,7 @@ func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) e
 // Resolve resolves a reference to a descriptor.
 // See also `ManifestMediaTypes`.
 func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
-	ref, err := s.repo.ParseReference(reference)
+	ref, err := s.repo.ResolveReference(reference)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -914,7 +823,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 // FetchReference fetches the manifest identified by the reference.
 // The reference can be a tag or digest.
 func (s *manifestStore) FetchReference(ctx context.Context, reference string) (desc ocispec.Descriptor, rc io.ReadCloser, err error) {
-	ref, err := s.repo.ParseReference(reference)
+	ref, err := s.repo.ResolveReference(reference)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -953,12 +862,84 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 // Tag tags a manifest descriptor with a reference string.
 func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	return s.repo.Tag(ctx, desc, reference)
+	ref, err := s.repo.ResolveReference(reference)
+	if err != nil {
+		return err
+	}
+
+	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	return s.push(ctx, desc, rc, ref.Reference)
 }
 
 // PushReference pushes the manifest with a reference tag.
 func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	return s.repo.PushReference(ctx, expected, content, reference)
+	ref, err := s.repo.ResolveReference(reference)
+	if err != nil {
+		return err
+	}
+	return s.push(ctx, expected, content, ref.Reference)
+}
+
+// push pushes the manifest content, matching the expected descriptor.
+func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
+	ref := s.repo.Reference
+	ref.Reference = reference
+	// pushing usually requires both pull and push actions.
+	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
+	ctx = withScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
+	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
+	// unwrap the content for optimizations of built-in types.
+	body := ioutil.UnwrapNopCloser(content)
+	if _, ok := body.(io.ReadCloser); ok {
+		// undo unwrap if the nopCloser is intended.
+		body = content
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, body)
+	if err != nil {
+		return err
+	}
+	if req.GetBody != nil && req.ContentLength != expected.Size {
+		// short circuit a size mismatch for built-in types.
+		return fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, expected.Size)
+	}
+	req.ContentLength = expected.Size
+	req.Header.Set("Content-Type", expected.MediaType)
+
+	// if the underlying client is an auth client, the content might be read
+	// more than once for obtaining the auth challenge and the actual request.
+	// To prevent double reading, the manifest is read and stored in the memory,
+	// and serve from the memory.
+	client := s.repo.client()
+	if _, ok := client.(*auth.Client); ok && req.GetBody == nil {
+		store := cas.NewMemory()
+		err := store.Push(ctx, expected, content)
+		if err != nil {
+			return err
+		}
+		req.GetBody = func() (io.ReadCloser, error) {
+			return store.Fetch(ctx, expected)
+		}
+		req.Body, err = req.GetBody()
+		if err != nil {
+			return err
+		}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return errutil.ParseErrorResponse(resp)
+	}
+	return verifyContentDigest(resp, expected.Digest)
 }
 
 // generateDescriptor returns a descriptor generated from the response.

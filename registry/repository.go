@@ -94,12 +94,6 @@ type ReferenceFetcher interface {
 	FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
 }
 
-// ReferenceTagger provides reference tagging.
-type ReferenceTagger interface {
-	// TagReference tags the descriptor identified by src with dst.
-	TagReference(ctx context.Context, src, dst string) error
-}
-
 // ReferrerFinder provides the Referrers API.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 type ReferrerFinder interface {
