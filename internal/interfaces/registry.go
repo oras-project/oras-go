@@ -17,8 +17,8 @@ package interfaces
 
 import "oras.land/oras-go/v2/registry"
 
-// ReferenceResolver provides reference resolution.
-type ReferenceResolver interface {
-	// ResolveReference resolves a reference to a fully qualified reference.
-	ResolveReference(reference string) (registry.Reference, error)
+// ReferenceParser provides reference parsing.
+type ReferenceParser interface {
+	// ParseReference parses a reference to a fully qualified reference.
+	ParseReference(reference string) (registry.Reference, error)
 }

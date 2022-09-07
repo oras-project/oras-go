@@ -185,10 +185,14 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 	return r.Manifests().FetchReference(ctx, reference)
 }
 
-// ResolveReference validates the reference and return a fully qualified
-// reference on success.
-// Both simplified or fully qualified references are accepted as input.
-func (r *Repository) ResolveReference(reference string) (registry.Reference, error) {
+// ParseReference resolves a tag or a digest reference to a fully qualified
+// reference from a base reference r.Reference.
+// Tag, digest, or fully qualified references are accepted as input.
+// If reference is a fully qualified reference, then ParseReference parses it
+// and returns the parsed reference. If the parsed reference does not share
+// the same base reference with the Repository r, ParseReference returns a
+// wrapped error ErrInvalidReference.
+func (r *Repository) ParseReference(reference string) (registry.Reference, error) {
 	ref, err := registry.ParseReference(reference)
 	if err != nil {
 		// reference is not a FQDN
@@ -606,7 +610,7 @@ func (s *blobStore) Delete(ctx context.Context, target ocispec.Descriptor) error
 
 // Resolve resolves a reference to a descriptor.
 func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
-	ref, err := s.repo.ResolveReference(reference)
+	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -640,7 +644,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 // FetchReference fetches the blob identified by the reference.
 // The reference must be a digest.
 func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc ocispec.Descriptor, rc io.ReadCloser, err error) {
-	ref, err := s.repo.ResolveReference(reference)
+	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -792,7 +796,7 @@ func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) e
 // Resolve resolves a reference to a descriptor.
 // See also `ManifestMediaTypes`.
 func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
-	ref, err := s.repo.ResolveReference(reference)
+	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -823,7 +827,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 // FetchReference fetches the manifest identified by the reference.
 // The reference can be a tag or digest.
 func (s *manifestStore) FetchReference(ctx context.Context, reference string) (desc ocispec.Descriptor, rc io.ReadCloser, err error) {
-	ref, err := s.repo.ResolveReference(reference)
+	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -862,7 +866,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 // Tag tags a manifest descriptor with a reference string.
 func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	ref, err := s.repo.ResolveReference(reference)
+	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return err
 	}
@@ -879,7 +883,7 @@ func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, refere
 
 // PushReference pushes the manifest with a reference tag.
 func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	ref, err := s.repo.ResolveReference(reference)
+	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return err
 	}

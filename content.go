@@ -74,9 +74,9 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 	refFetcher, okFetch := target.(registry.ReferenceFetcher)
 	refPusher, okPush := target.(registry.ReferencePusher)
 	if okFetch && okPush {
-		if repo, ok := target.(interfaces.ReferenceResolver); ok {
+		if repo, ok := target.(interfaces.ReferenceParser); ok {
 			// add scope hints to minimize the number of auth requests
-			ref, err := repo.ResolveReference(srcReference)
+			ref, err := repo.ParseReference(srcReference)
 			if err != nil {
 				return nil
 			}
