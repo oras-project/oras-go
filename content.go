@@ -37,11 +37,18 @@ import (
 
 const (
 	// defaultTagConcurrency is the default concurrency of tagging.
-	defaultTagConcurrency = 5 // This value is consistent with dockerd
+	defaultTagConcurrency int64 = 5 // This value is consistent with dockerd
 
 	// defaultTagNMaxMetadataBytes is the default value of
 	// TagNOptions.MaxMetadataBytes.
 	defaultTagNMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+
+	// defaultResolveMaxMetadataBytes is the default value of
+	// ResolveOptions.MaxMetadataBytes.
+	defaultResolveMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+
+	// defaultMaxBytes is the default value of FetchBytesOptions.MaxBytes.
+	defaultMaxBytes int64 = 4 * 1024 * 1024 // 4 MiB
 )
 
 // DefaultTagNOptions provides the default TagNOptions.
@@ -155,10 +162,6 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 
 // DefaultResolveOptions provides the default ResolveOptions.
 var DefaultResolveOptions ResolveOptions
-
-// defaultResolveMaxMetadataBytes is the default value of
-// ResolveOptions.MaxMetadataBytes.
-const defaultResolveMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
 
 // ResolveOptions contains parameters for oras.Resolve.
 type ResolveOptions struct {
@@ -275,9 +278,6 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 
 // DefaultFetchBytesOptions provides the default FetchBytesOptions.
 var DefaultFetchBytesOptions FetchBytesOptions
-
-// defaultMaxBytes is the default value of FetchBytesOptions.MaxBytes.
-const defaultMaxBytes int64 = 4 * 1024 * 1024 // 4 MiB
 
 // FetchBytesOptions contains parameters for oras.FetchBytes.
 type FetchBytesOptions struct {
