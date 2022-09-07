@@ -36,7 +36,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
-	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/registry"
@@ -123,8 +123,8 @@ func TestRepositoryInterface(t *testing.T) {
 	if _, ok := repo.(registry.Repository); !ok {
 		t.Error("&Repository{} does not conform registry.Repository")
 	}
-	if _, ok := repo.(oras.GraphTarget); !ok {
-		t.Error("&Repository{} does not conform oras.GraphTarget")
+	if _, ok := repo.(content.GraphStorage); !ok {
+		t.Error("&Repository{} does not conform content.GraphStorage")
 	}
 }
 

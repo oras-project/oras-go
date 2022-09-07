@@ -31,6 +31,8 @@ import (
 	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
 // defaultTagConcurrency is the default value of TagBytesNOptions.Concurrency.
@@ -38,24 +40,7 @@ const defaultTagConcurrency = 5 // This value is consistent with dockerd
 
 // Tag tags the descriptor identified by src with dst.
 func Tag(ctx context.Context, target Target, src, dst string) error {
-	if refTagger, ok := target.(registry.ReferenceTagger); ok {
-		return refTagger.TagReference(ctx, src, dst)
-	}
-	refFetcher, okFetch := target.(registry.ReferenceFetcher)
-	refPusher, okPush := target.(registry.ReferencePusher)
-	if okFetch && okPush {
-		desc, rc, err := refFetcher.FetchReference(ctx, src)
-		if err != nil {
-			return err
-		}
-		defer rc.Close()
-		return refPusher.PushReference(ctx, desc, rc, dst)
-	}
-	desc, err := target.Resolve(ctx, src)
-	if err != nil {
-		return err
-	}
-	return target.Tag(ctx, desc, dst)
+	return TagN(ctx, target, src, []string{dst}, DefaultTagNOptions)
 }
 
 // defaultTagNMaxMetadataBytes is the default value of
@@ -92,6 +77,15 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 	refFetcher, okFetch := target.(registry.ReferenceFetcher)
 	refPusher, okPush := target.(registry.ReferencePusher)
 	if okFetch && okPush {
+		if repo, ok := target.(*remote.Repository); ok {
+			repoRef, err := repo.ParseReference(srcReference)
+			if err != nil {
+				return nil
+			}
+			scope := auth.ScopeRepository(repoRef.Repository, auth.ActionPull, auth.ActionPush)
+			ctx = auth.AppendScopes(ctx, scope)
+		}
+
 		var desc ocispec.Descriptor
 		var contentBytes []byte
 		var err error
