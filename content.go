@@ -75,13 +75,12 @@ type TagNOptions struct {
 	// in the memory.
 	// If less than or equal to 0, a default (currently 4 MiB) is used.
 	MaxMetadataBytes int64
-
-	// TODO: post tag?
 }
 
-func TagN(ctx context.Context, target Target, src string, dstReferences []string, opts TagNOptions) error {
+// TagN tags the descriptor identified by src with dstReferences.
+func TagN(ctx context.Context, target Target, srcReference string, dstReferences []string, opts TagNOptions) error {
 	if len(dstReferences) == 0 {
-		return fmt.Errorf("empty dstReferences: %w", errdef.ErrInvalidReference)
+		return fmt.Errorf("dstReferences cannot be empty: %w", errdef.ErrMissingReference)
 	}
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultTagConcurrency
@@ -98,9 +97,8 @@ func TagN(ctx context.Context, target Target, src string, dstReferences []string
 	isRemoteTarget := okFetch && okPush
 	if isRemoteTarget {
 		err = func() error {
-			// TODO: auth scope hint
 			var rc io.ReadCloser
-			desc, rc, err = refFetcher.FetchReference(ctx, src)
+			desc, rc, err = refFetcher.FetchReference(ctx, srcReference)
 			if err != nil {
 				return err
 			}
@@ -117,7 +115,7 @@ func TagN(ctx context.Context, target Target, src string, dstReferences []string
 			return err
 		}()
 	} else {
-		desc, err = target.Resolve(ctx, src)
+		desc, err = target.Resolve(ctx, srcReference)
 	}
 	if err != nil {
 		return err
@@ -133,11 +131,11 @@ func TagN(ctx context.Context, target Target, src string, dstReferences []string
 				if isRemoteTarget {
 					r := bytes.NewReader(contentBytes)
 					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-						return fmt.Errorf("failed to tag %s to %s: %w", src, ref, err)
+						return fmt.Errorf("failed to tag %s to %s: %w", srcReference, ref, err)
 					}
 				} else {
 					if err := target.Tag(ctx, desc, ref); err != nil {
-						return fmt.Errorf("failed to tag %s to %s: %w", src, ref, err)
+						return fmt.Errorf("failed to tag %s to %s: %w", srcReference, ref, err)
 					}
 				}
 				return nil

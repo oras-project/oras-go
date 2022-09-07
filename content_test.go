@@ -240,8 +240,8 @@ func TestTagN_Memory(t *testing.T) {
 
 	// test TagN with empty dstReferences
 	err = oras.TagN(ctx, target, srcRef, nil, oras.DefaultTagNOptions)
-	if !errors.Is(err, errdef.ErrInvalidReference) {
-		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrInvalidReference)
+	if !errors.Is(err, errdef.ErrMissingReference) {
+		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrMissingReference)
 	}
 
 	// test TagN with multiple references
@@ -354,8 +354,8 @@ func TestTagN_Repository(t *testing.T) {
 
 	// test TagN with empty dstReferences
 	err = oras.TagN(ctx, repo, srcRef, nil, oras.DefaultTagNOptions)
-	if !errors.Is(err, errdef.ErrInvalidReference) {
-		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrInvalidReference)
+	if !errors.Is(err, errdef.ErrMissingReference) {
+		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrMissingReference)
 	}
 
 	// test TagN with multiple references
