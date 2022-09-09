@@ -36,9 +36,9 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/interfaces"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
@@ -115,16 +115,6 @@ func getTestIOStructMapForGetDescriptorClass() map[string]testIOStruct {
 			errExpectedOnHEAD:       true,
 			errExpectedOnGET:        true,
 		},
-	}
-}
-
-func TestRepositoryInterface(t *testing.T) {
-	var repo interface{} = &Repository{}
-	if _, ok := repo.(registry.Repository); !ok {
-		t.Error("&Repository{} does not conform registry.Repository")
-	}
-	if _, ok := repo.(content.GraphStorage); !ok {
-		t.Error("&Repository{} does not conform content.GraphStorage")
 	}
 }
 
@@ -1690,6 +1680,13 @@ func TestRepository_DiscoverExtensions(t *testing.T) {
 	}
 }
 
+func TestBlobStoreInterface(t *testing.T) {
+	var bs interface{} = &blobStore{}
+	if _, ok := bs.(registry.BlobStore); !ok {
+		t.Error("&blobStore{} does not conform registry.BlobStore")
+	}
+}
+
 func Test_BlobStore_Fetch(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
@@ -2452,6 +2449,16 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 				)
 			}
 		}
+	}
+}
+
+func TestManifestStoreInterface(t *testing.T) {
+	var ms interface{} = &manifestStore{}
+	if _, ok := ms.(registry.ManifestStore); !ok {
+		t.Error("&manifestStore{} does not conform registry.ManifestStore")
+	}
+	if _, ok := ms.(interfaces.ReferenceParser); !ok {
+		t.Error("&manifestStore{} does not conform interfaces.ReferenceParser")
 	}
 }
 
