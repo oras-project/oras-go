@@ -1680,13 +1680,6 @@ func TestRepository_DiscoverExtensions(t *testing.T) {
 	}
 }
 
-func TestBlobStoreInterface(t *testing.T) {
-	var bs interface{} = &blobStore{}
-	if _, ok := bs.(registry.BlobStore); !ok {
-		t.Error("&blobStore{} does not conform registry.BlobStore")
-	}
-}
-
 func Test_BlobStore_Fetch(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
@@ -2454,9 +2447,6 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 
 func TestManifestStoreInterface(t *testing.T) {
 	var ms interface{} = &manifestStore{}
-	if _, ok := ms.(registry.ManifestStore); !ok {
-		t.Error("&manifestStore{} does not conform registry.ManifestStore")
-	}
 	if _, ok := ms.(interfaces.ReferenceParser); !ok {
 		t.Error("&manifestStore{} does not conform interfaces.ReferenceParser")
 	}
