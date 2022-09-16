@@ -54,7 +54,18 @@ type Reference struct {
 	// Reference is the reference of the object in the repository.
 	// A reference can be a tag or a digest.
 	Reference string
+
+	referenceType ReferenceType
 }
+
+type ReferenceType int
+
+const (
+	Undefined ReferenceType = iota
+	None
+	Tag
+	Digest
+)
 
 // ParseReference parses a string (artifact) into an `artifact reference`.
 //
@@ -71,7 +82,7 @@ type Reference struct {
 //	  <artifact> ::= <socketaddr> "/" <path>
 //
 //	<socketaddr> ::= <host> | <host> ":" <PORT>
-//	      <host> ::= <ip> | <FQDN>
+//	      <host> ::= <ip> | <HOSTNAME> | <FQDN>
 //	        <ip> ::= <IPV4-ADDR> | <IPV6-ADDR>
 //
 //	      <path> ::= <REPOSITORY> | <REPOSITORY> <reference>
@@ -81,16 +92,19 @@ type Reference struct {
 // That is, of all the possible forms that `path` can take, there are exactly 4
 // that are considered valid.  Expanding the BNF notation for `path`, the 4 are:
 //
-//	<---------------------- path ----------------------> |  - Decode `path`
-//	<=== REPOSITORY ===><---------- reference ---------> |    - Decode `reference`
-//	<=== REPOSITORY ===><=================== digest ===> |      - Valid Form A
-//	<=== REPOSITORY ===><!!! TAG !!!> @ <=== digest ===> |      - Valid Form B
-//	<=== REPOSITORY ===><=== TAG ======================> |      - Valid Form C
-//	<=== REPOSITORY ===================================> |    - Valid Form D
+//	<--- path --------------------------------------------> |  - Decode `path`
+//	<=== REPOSITORY ===><--- reference -------------------> |    - Decode `reference`
+//	<=== REPOSITORY ===><---------------------- digest ---> |      - Valid Form A
+//	<=== REPOSITORY ===> : <!!! TAG !!!> @ <--- digest ---> |      - Valid Form B
+//	<=== REPOSITORY ===> : <=== TAG ======================> |      - Valid Form C
+//	<=== REPOSITORY ======================================> |    - Valid Form D
 //
+
 // Note: In the case of Valid Form B, TAG is dropped without any validation or
 // further consideration.
 func ParseReference(artifact string) (Reference, error) {
+	var refType ReferenceType
+
 	parts := strings.SplitN(artifact, "/", 2)
 	if len(parts) == 1 {
 		// Invalid Form
@@ -102,6 +116,7 @@ func ParseReference(artifact string) (Reference, error) {
 	var reference string
 	if index := strings.Index(path, "@"); index != -1 {
 		// `digest` found; Valid Form A (if not B)
+		refType = Digest
 		repository = path[:index]
 		reference = path[index+1:]
 
@@ -112,20 +127,25 @@ func ParseReference(artifact string) (Reference, error) {
 		}
 	} else if index := strings.Index(path, ":"); index != -1 {
 		// `tag` found; Valid Form C
+		refType = Tag
 		repository = path[:index]
 		reference = path[index+1:]
 	} else {
+		refType = None
 		// empty `reference`; Valid Form D
 		repository = path
 	}
+
 	res := Reference{
-		Registry:   registry,
-		Repository: repository,
-		Reference:  reference,
+		Registry:      registry,
+		Repository:    repository,
+		Reference:     reference,
+		referenceType: refType,
 	}
 	if err := res.Validate(); err != nil {
 		return Reference{}, err
 	}
+
 	return res, nil
 }
 
@@ -161,16 +181,27 @@ func (r Reference) ValidateRepository() error {
 
 // ValidateReference validates the reference.
 func (r Reference) ValidateReference() error {
-	if r.Reference == "" {
-		return nil
+	switch r.referenceType {
+	case None:
+		if r.Reference == "" {
+			return nil
+		}
+	case Digest:
+		_, err := r.Digest()
+		return err
+	case Tag:
+		if !tagRegexp.MatchString(r.Reference) {
+			return fmt.Errorf("%w: invalid tag", errdef.ErrInvalidReference)
+		}
+	default:
+		return fmt.Errorf("reference with undefined reference type not allowed")
 	}
-	if _, err := r.Digest(); err == nil {
-		return nil
-	}
-	if !tagRegexp.MatchString(r.Reference) {
-		return fmt.Errorf("%w: invalid tag", errdef.ErrInvalidReference)
-	}
-	return nil
+
+	return fmt.Errorf(
+		"invalid reference; reference type of `%v` does not accept token `%v`",
+		r.referenceType,
+		r.Reference,
+	)
 }
 
 // Host returns the host name of the registry.
