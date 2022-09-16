@@ -36,9 +36,9 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
-	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/interfaces"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
@@ -115,16 +115,6 @@ func getTestIOStructMapForGetDescriptorClass() map[string]testIOStruct {
 			errExpectedOnHEAD:       true,
 			errExpectedOnGET:        true,
 		},
-	}
-}
-
-func TestRepositoryInterface(t *testing.T) {
-	var repo interface{} = &Repository{}
-	if _, ok := repo.(registry.Repository); !ok {
-		t.Error("&Repository{} does not conform registry.Repository")
-	}
-	if _, ok := repo.(oras.GraphTarget); !ok {
-		t.Error("&Repository{} does not conform oras.GraphTarget")
 	}
 }
 
@@ -797,99 +787,6 @@ func TestRepository_FetchReference(t *testing.T) {
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, index) {
 		t.Errorf("Repository.FetchReference() = %v, want %v", got, index)
-	}
-}
-
-func TestRepository_TagReference(t *testing.T) {
-	index := []byte(`{"manifests":[]}`)
-	indexDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageIndex,
-		Digest:    digest.FromBytes(index),
-		Size:      int64(len(index)),
-	}
-	src := "foobar"
-	dst := "myTag"
-	var gotIndex []byte
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && (r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String() || r.URL.Path == "/v2/test/manifests/"+src):
-			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
-				t.Errorf("manifest not convertable: %s", accept)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			w.Header().Set("Content-Type", indexDesc.MediaType)
-			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
-			if _, err := w.Write(index); err != nil {
-				t.Errorf("failed to write %q: %v", r.URL, err)
-			}
-		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+dst:
-			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
-				w.WriteHeader(http.StatusBadRequest)
-				break
-			}
-			buf := bytes.NewBuffer(nil)
-			if _, err := buf.ReadFrom(r.Body); err != nil {
-				t.Errorf("fail to read: %v", err)
-			}
-			gotIndex = buf.Bytes()
-			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
-			w.WriteHeader(http.StatusCreated)
-		default:
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
-
-	repoName := uri.Host + "/test"
-	repo, err := NewRepository(repoName)
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	ctx := context.Background()
-
-	// test with manifest tag
-	err = repo.TagReference(ctx, src, dst)
-	if err != nil {
-		t.Fatalf("Repository.TagReference() error = %v", err)
-	}
-	if !bytes.Equal(gotIndex, index) {
-		t.Errorf("Repository.TagReference() = %v, want %v", gotIndex, index)
-	}
-
-	// test with manifest digest
-	err = repo.TagReference(ctx, indexDesc.Digest.String(), dst)
-	if err != nil {
-		t.Fatalf("Repository.TagReference() error = %v", err)
-	}
-	if !bytes.Equal(gotIndex, index) {
-		t.Errorf("Repository.TagReference() = %v, want %v", gotIndex, index)
-	}
-
-	// test with manifest tag@digest
-	tagDigestRef := src + "@" + indexDesc.Digest.String()
-	err = repo.TagReference(ctx, tagDigestRef, dst)
-	if err != nil {
-		t.Fatalf("Repository.TagReference() error = %v", err)
-	}
-	if !bytes.Equal(gotIndex, index) {
-		t.Errorf("Repository.TagReference() = %v, want %v", gotIndex, index)
-	}
-
-	// test with manifest FQDN
-	fqdnRef := repoName + ":" + tagDigestRef
-	err = repo.TagReference(ctx, fqdnRef, dst)
-	if err != nil {
-		t.Fatalf("Repository.TagReference() error = %v", err)
-	}
-	if !bytes.Equal(gotIndex, index) {
-		t.Errorf("Repository.TagReference() = %v, want %v", gotIndex, index)
 	}
 }
 
@@ -2548,6 +2445,13 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 	}
 }
 
+func TestManifestStoreInterface(t *testing.T) {
+	var ms interface{} = &manifestStore{}
+	if _, ok := ms.(interfaces.ReferenceParser); !ok {
+		t.Error("&manifestStore{} does not conform interfaces.ReferenceParser")
+	}
+}
+
 func Test_ManifestStore_Fetch(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
@@ -3020,6 +2924,143 @@ func Test_ManifestStore_FetchReference(t *testing.T) {
 	}
 }
 
+func Test_ManifestStore_Tag(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	var gotIndex []byte
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+blobDesc.Digest.String():
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			if _, err := w.Write(index); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		case r.Method == http.MethodPut &&
+			r.URL.Path == "/v2/test/manifests/"+ref || r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
+			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	store := repo.Manifests()
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	err = store.Tag(ctx, blobDesc, ref)
+	if err == nil {
+		t.Errorf("Repository.Tag() error = %v, wantErr %v", err, true)
+	}
+
+	err = store.Tag(ctx, indexDesc, ref)
+	if err != nil {
+		t.Fatalf("Repository.Tag() error = %v", err)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("Repository.Tag() = %v, want %v", gotIndex, index)
+	}
+
+	gotIndex = nil
+	err = store.Tag(ctx, indexDesc, indexDesc.Digest.String())
+	if err != nil {
+		t.Fatalf("Repository.Tag() error = %v", err)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("Repository.Tag() = %v, want %v", gotIndex, index)
+	}
+}
+
+func Test_ManifestStore_PushReference(t *testing.T) {
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	var gotIndex []byte
+	ref := "foobar"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+ref:
+			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	store := repo.Manifests()
+	repo.PlainHTTP = true
+	ctx := context.Background()
+	err = store.PushReference(ctx, indexDesc, bytes.NewReader(index), ref)
+	if err != nil {
+		t.Fatalf("Repository.PushReference() error = %v", err)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("Repository.PushReference() = %v, want %v", gotIndex, index)
+	}
+}
+
 func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
 	reference := registry.Reference{
 		Registry:   "eastern.haan.com",
@@ -3404,5 +3445,202 @@ func TestRepository_Tags_WithLastParam(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Tags() error = %v", err)
+	}
+}
+
+func TestRepository_ParseReference(t *testing.T) {
+	type args struct {
+		reference string
+	}
+	tests := []struct {
+		name    string
+		repoRef registry.Reference
+		args    args
+		want    registry.Reference
+		wantErr error
+	}{
+		{
+			name: "parse tag",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "foobar",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "foobar",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse digest",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse tag@digest",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse FQDN tag",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world:foobar",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "foobar",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse FQDN digest",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "parse FQDN tag@digest",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "empty reference",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "missing repository",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "myregistry.example.com:hello-world",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "missing reference",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "missing reference after @",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world@",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "registry mismatch",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "myregistry.example.com/hello-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "repository mismatch",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/goodbye-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &Repository{
+				Reference: tt.repoRef,
+			}
+			got, err := r.ParseReference(tt.args.reference)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Repository.ParseReference() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Repository.ParseReference() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

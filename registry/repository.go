@@ -32,11 +32,13 @@ import (
 // Since a repository is an union of the blob and the manifest CASs, all
 // operations defined in the `BlobStore` are executed depending on the media
 // type of the given descriptor accordingly.
-// Furthurmore, this interface also provides the ability to enforce the
+// Furthermore, this interface also provides the ability to enforce the
 // separation of the blob and the manifests CASs.
 type Repository interface {
-	BlobStore
+	content.Storage
+	content.Deleter
 	content.TagResolver
+	ReferenceFetcher
 	ReferencePusher
 
 	// Blobs provides access to the blob CAS only, which contains config blobs,
@@ -44,7 +46,7 @@ type Repository interface {
 	Blobs() BlobStore
 
 	// Manifests provides access to the manifest CAS only.
-	Manifests() BlobStore
+	Manifests() ManifestStore
 
 	// Tags lists the tags available in the repository.
 	// Since the returned tag list may be paginated by the underlying
@@ -72,6 +74,14 @@ type BlobStore interface {
 	ReferenceFetcher
 }
 
+// ManifestStore is a CAS with the ability to stat and delete its content.
+// Besides, ManifestStore provides reference tagging.
+type ManifestStore interface {
+	BlobStore
+	content.Tagger
+	ReferencePusher
+}
+
 // ReferencePusher provides advanced push with the tag service.
 type ReferencePusher interface {
 	// PushReference pushes the manifest with a reference tag.
@@ -82,12 +92,6 @@ type ReferencePusher interface {
 type ReferenceFetcher interface {
 	// FetchReference fetches the content identified by the reference.
 	FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
-}
-
-// ReferenceTagger provides reference tagging.
-type ReferenceTagger interface {
-	// TagReference tags the descriptor identified by src with dst.
-	TagReference(ctx context.Context, src, dst string) error
 }
 
 // ReferrerFinder provides the Referrers API.

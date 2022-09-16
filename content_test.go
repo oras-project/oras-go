@@ -193,9 +193,8 @@ func TestTag_Repository(t *testing.T) {
 	}
 }
 
-func TestResolve_WithOptions(t *testing.T) {
+func TestTagN_Memory(t *testing.T) {
 	target := memory.New()
-
 	// generate test content
 	var blobs [][]byte
 	var descs []ocispec.Descriptor
@@ -233,25 +232,239 @@ func TestResolve_WithOptions(t *testing.T) {
 	}
 
 	manifestDesc := descs[3]
-	ref := "foobar"
-	err := target.Tag(ctx, manifestDesc, ref)
+	srcRef := "foobar"
+	err := target.Tag(ctx, manifestDesc, srcRef)
 	if err != nil {
-		t.Fatal("fail to tag manifestDesc node", err)
+		t.Fatalf("oras.Tag(%s) error = %v", srcRef, err)
 	}
 
-	// test Resolve with default resolve options
-	resolveOptions := oras.DefaultResolveOptions
-	gotDesc, err := oras.Resolve(ctx, target, ref, resolveOptions)
+	// test TagN with empty dstReferences
+	err = oras.TagN(ctx, target, srcRef, nil, oras.DefaultTagNOptions)
+	if !errors.Is(err, errdef.ErrMissingReference) {
+		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrMissingReference)
+	}
 
+	// test TagN with single dstReferences
+	dstRef := "single"
+	err = oras.TagN(ctx, target, srcRef, []string{dstRef}, oras.DefaultTagNOptions)
 	if err != nil {
-		t.Fatal("oras.Resolve() error =", err)
+		t.Fatalf("failed to retag using oras.Tag with err: %v", err)
+	}
+
+	// verify tag
+	gotDesc, err := target.Resolve(ctx, dstRef)
+	if err != nil {
+		t.Fatal("target.Resolve() error =", err)
 	}
 	if !reflect.DeepEqual(gotDesc, manifestDesc) {
-		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+		t.Errorf("target.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test TagN with single dstReferences and MaxMetadataBytes = 1
+	// should not return error
+	dstRef = "single2"
+	opts := oras.TagNOptions{
+		MaxMetadataBytes: 1,
+	}
+	err = oras.TagN(ctx, target, srcRef, []string{dstRef}, opts)
+	if err != nil {
+		t.Fatalf("failed to retag using oras.Tag with err: %v", err)
+	}
+
+	// verify tag
+	gotDesc, err = target.Resolve(ctx, dstRef)
+	if err != nil {
+		t.Fatal("target.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("target.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test TagN with multiple references
+	dstRefs := []string{"foo", "bar", "baz"}
+	err = oras.TagN(ctx, target, srcRef, dstRefs, oras.DefaultTagNOptions)
+	if err != nil {
+		t.Fatal("oras.TagN() error =", err)
+	}
+
+	// verify multiple references
+	for _, ref := range dstRefs {
+		gotDesc, err := target.Resolve(ctx, ref)
+		if err != nil {
+			t.Fatal("target.Resolve() error =", err)
+		}
+		if !reflect.DeepEqual(gotDesc, manifestDesc) {
+			t.Errorf("target.Resolve() = %v, want %v", gotDesc, manifestDesc)
+		}
+	}
+
+	// test TagN with multiple references and MaxMetadataBytes = 1
+	// should not return error
+	dstRefs = []string{"tag1", "tag2", "tag3"}
+	opts = oras.TagNOptions{
+		MaxMetadataBytes: 1,
+	}
+	err = oras.TagN(ctx, target, srcRef, dstRefs, opts)
+	if err != nil {
+		t.Fatal("oras.TagN() error =", err)
+	}
+
+	// verify multiple references
+	for _, ref := range dstRefs {
+		gotDesc, err := target.Resolve(ctx, ref)
+		if err != nil {
+			t.Fatal("target.Resolve() error =", err)
+		}
+		if !reflect.DeepEqual(gotDesc, manifestDesc) {
+			t.Errorf("target.Resolve() = %v, want %v", gotDesc, manifestDesc)
+		}
 	}
 }
 
-func TestResolve_Memory_WithTargetPlatformOptions(t *testing.T) {
+func TestTagN_Repository(t *testing.T) {
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	srcRef := "foobar"
+	refFoo := "foo"
+	refBar := "bar"
+	refTag1 := "tag1"
+	refTag2 := "tag2"
+	dstRefs := []string{refFoo, refBar}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && (r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String() ||
+			r.URL.Path == "/v2/test/manifests/"+srcRef):
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			if _, err := w.Write(index); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		case r.Method == http.MethodHead &&
+			(r.URL.Path == "/v2/test/manifests/"+refFoo ||
+				r.URL.Path == "/v2/test/manifests/"+refBar ||
+				r.URL.Path == "/v2/test/manifests/"+refTag1 ||
+				r.URL.Path == "/v2/test/manifests/"+refTag2):
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(int(indexDesc.Size)))
+		case r.Method == http.MethodPut &&
+			(r.URL.Path == "/v2/test/manifests/"+refFoo ||
+				r.URL.Path == "/v2/test/manifests/"+refBar ||
+				r.URL.Path == "/v2/test/manifests/"+refTag1 ||
+				r.URL.Path == "/v2/test/manifests/"+refTag2):
+			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repoName := uri.Host + "/test"
+	repo, err := remote.NewRepository(repoName)
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	// test TagN with empty dstReferences
+	err = oras.TagN(ctx, repo, srcRef, nil, oras.DefaultTagNOptions)
+	if !errors.Is(err, errdef.ErrMissingReference) {
+		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrMissingReference)
+	}
+
+	// test TagN with single dstReferences
+	err = oras.TagN(ctx, repo, srcRef, []string{refTag1}, oras.DefaultTagNOptions)
+	if err != nil {
+		t.Fatalf("failed to retag using oras.Tag with err: %v", err)
+	}
+
+	// verify tag
+	gotDesc, err := repo.Resolve(ctx, refTag1)
+	if err != nil {
+		t.Fatal("target.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("target.Resolve() = %v, want %v", gotDesc, indexDesc)
+	}
+
+	// test TagN with single dstReferences and MaxMetadataBytes = 1
+	// should not return error
+	opts := oras.TagNOptions{
+		MaxMetadataBytes: 1,
+	}
+	err = oras.TagN(ctx, repo, srcRef, []string{refTag2}, opts)
+	if err != nil {
+		t.Fatalf("failed to retag using oras.Tag with err: %v", err)
+	}
+
+	// verify tag
+	gotDesc, err = repo.Resolve(ctx, refTag2)
+	if err != nil {
+		t.Fatal("target.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("target.Resolve() = %v, want %v", gotDesc, indexDesc)
+	}
+
+	// test TagN with multiple references
+	err = oras.TagN(ctx, repo, srcRef, dstRefs, oras.DefaultTagNOptions)
+	if err != nil {
+		t.Fatal("oras.TagN() error =", err)
+	}
+
+	// verify multiple references
+	for _, ref := range dstRefs {
+		gotDesc, err := repo.Resolve(ctx, ref)
+		if err != nil {
+			t.Fatal("target.Resolve() error =", err)
+		}
+		if !reflect.DeepEqual(gotDesc, indexDesc) {
+			t.Errorf("target.Resolve() = %v, want %v", gotDesc, indexDesc)
+		}
+	}
+
+	// test TagN with multiple references and MaxMetadataBytes = 1
+	// should return ErrSizeExceedsLimit
+	dstRefs = []string{refTag1, refTag2}
+	opts = oras.TagNOptions{
+		MaxMetadataBytes: 1,
+	}
+	err = oras.TagN(ctx, repo, srcRef, dstRefs, opts)
+	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
+		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
+	}
+}
+
+func TestResolve_Memory(t *testing.T) {
 	target := memory.New()
 	arc_1 := "test-arc-1"
 	os_1 := "test-os-1"
@@ -319,15 +532,62 @@ func TestResolve_Memory_WithTargetPlatformOptions(t *testing.T) {
 		t.Fatal("fail to tag manifestDesc node", err)
 	}
 
+	// test Resolve with default resolve options
+	resolveOptions := oras.DefaultResolveOptions
+	gotDesc, err := oras.Resolve(ctx, target, ref, resolveOptions)
+
+	if err != nil {
+		t.Fatal("oras.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test Resolve with empty resolve options
+	gotDesc, err = oras.Resolve(ctx, target, ref, oras.ResolveOptions{})
+	if err != nil {
+		t.Fatal("oras.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test Resolve with MaxMetadataBytes = 1
+	resolveOptions = oras.ResolveOptions{
+		MaxMetadataBytes: 1,
+	}
+	gotDesc, err = oras.Resolve(ctx, target, ref, resolveOptions)
+	if err != nil {
+		t.Fatal("oras.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
 	// test Resolve with TargetPlatform
-	resolveOptions := oras.ResolveOptions{
+	resolveOptions = oras.ResolveOptions{
 		TargetPlatform: &ocispec.Platform{
 			Architecture: arc_1,
 			OS:           os_1,
 		},
 	}
-	gotDesc, err := oras.Resolve(ctx, target, ref, resolveOptions)
+	gotDesc, err = oras.Resolve(ctx, target, ref, resolveOptions)
+	if err != nil {
+		t.Fatal("oras.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
 
+	// test Resolve with TargetPlatform and MaxMetadataBytes = 1
+	resolveOptions = oras.ResolveOptions{
+		TargetPlatform: &ocispec.Platform{
+			Architecture: arc_1,
+			OS:           os_1,
+		},
+		MaxMetadataBytes: 1,
+	}
+	gotDesc, err = oras.Resolve(ctx, target, ref, resolveOptions)
 	if err != nil {
 		t.Fatal("oras.Resolve() error =", err)
 	}
@@ -351,7 +611,7 @@ func TestResolve_Memory_WithTargetPlatformOptions(t *testing.T) {
 	}
 }
 
-func TestResolve_Repository_WithTargetPlatformOptions(t *testing.T) {
+func TestResolve_Repository(t *testing.T) {
 	arc_1 := "test-arc-1"
 	arc_2 := "test-arc-2"
 	os_1 := "test-os-1"
@@ -427,6 +687,19 @@ func TestResolve_Repository_WithTargetPlatformOptions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotDesc, manifestDesc) {
 		t.Errorf("oras.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test Resolve with TargetPlatform and MaxMetadataBytes = 1
+	resolveOptions = oras.ResolveOptions{
+		TargetPlatform: &ocispec.Platform{
+			Architecture: arc_1,
+			OS:           os_1,
+		},
+		MaxMetadataBytes: 1,
+	}
+	_, err = oras.Resolve(ctx, repo, src, resolveOptions)
+	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
+		t.Fatalf("oras.Resolve() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
 	}
 
 	// test Resolve with TargetPlatform but there is no matching node
@@ -1490,7 +1763,7 @@ func TestPushBytes_Repository(t *testing.T) {
 	}
 }
 
-func TestTagBytes_Memory(t *testing.T) {
+func TestTagBytesN_Memory(t *testing.T) {
 	s := memory.New()
 
 	content := []byte("hello world")
@@ -1513,7 +1786,7 @@ func TestTagBytes_Memory(t *testing.T) {
 
 	ctx := context.Background()
 	// test TagBytes with no reference
-	gotDesc, err := oras.TagBytesN(ctx, s, mediaType, content, nil, oras.DefaultTagBytesOptions)
+	gotDesc, err := oras.TagBytesN(ctx, s, mediaType, content, nil, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1538,7 +1811,7 @@ func TestTagBytes_Memory(t *testing.T) {
 
 	// test TagBytes with multiple references
 	refs := []string{"foo", "bar", "baz"}
-	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, content, refs, oras.DefaultTagBytesOptions)
+	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, content, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1571,7 +1844,7 @@ func TestTagBytes_Memory(t *testing.T) {
 	}
 
 	// test TagBytes with empty media type and multiple references
-	gotDesc, err = oras.TagBytesN(ctx, s, "", content, refs, oras.DefaultTagBytesOptions)
+	gotDesc, err = oras.TagBytesN(ctx, s, "", content, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1604,7 +1877,7 @@ func TestTagBytes_Memory(t *testing.T) {
 	}
 
 	// test TagBytes with empty content and multiple references
-	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, nil, refs, oras.DefaultTagBytesOptions)
+	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, nil, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1637,7 +1910,7 @@ func TestTagBytes_Memory(t *testing.T) {
 	}
 }
 
-func TestTagBytes_Repository(t *testing.T) {
+func TestTagBytesN_Repository(t *testing.T) {
 	index := []byte(`{"manifests":[]}`)
 	indexMediaType := ocispec.MediaTypeImageIndex
 	indexDesc := ocispec.Descriptor{
@@ -1698,7 +1971,7 @@ func TestTagBytes_Repository(t *testing.T) {
 	ctx := context.Background()
 
 	// test TagBytes with no reference
-	gotDesc, err := oras.TagBytesN(ctx, repo, indexMediaType, index, nil, oras.DefaultTagBytesOptions)
+	gotDesc, err := oras.TagBytesN(ctx, repo, indexMediaType, index, nil, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
@@ -1711,7 +1984,7 @@ func TestTagBytes_Repository(t *testing.T) {
 
 	// test TagBytes with multiple references
 	gotIndex = nil
-	gotDesc, err = oras.TagBytesN(ctx, repo, indexMediaType, index, refs, oras.DefaultTagBytesOptions)
+	gotDesc, err = oras.TagBytesN(ctx, repo, indexMediaType, index, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
 	}
