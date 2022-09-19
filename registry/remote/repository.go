@@ -456,6 +456,8 @@ func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isMa
 		return verifyContentDigest(resp, target.Digest)
 	case http.StatusNotFound:
 		return fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
+	case http.StatusMethodNotAllowed:
+		return fmt.Errorf("%s: %w", target.Digest, errdef.ErrUnsupported)
 	default:
 		return errutil.ParseErrorResponse(resp)
 	}
