@@ -48,7 +48,8 @@ type VerifyReader struct {
 	err      error
 }
 
-// Read reads byte content into the VerifyReader.
+// Read reads up to len(p) bytes into p. It returns the number of bytes
+// read (0 <= n <= len(p)) and any error encountered.
 func (vr *VerifyReader) Read(p []byte) (n int, err error) {
 	if vr.err != nil {
 		return 0, vr.err

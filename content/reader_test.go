@@ -26,7 +26,83 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func TestReadAllCorrectDescriptor(t *testing.T) {
+func TestVerifyReader_Read(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content))}
+
+	// matched content and descriptor
+	r := bytes.NewReader(content)
+	vr := NewVerifyReader(r, desc)
+	buf := make([]byte, 5)
+	n, err := vr.Read(buf)
+
+	if !bytes.Equal(buf, []byte("examp")) {
+		t.Fatalf("incorrect read content: %s", buf)
+	}
+	if n != 5 {
+		t.Fatalf("incorrect number of bytes read: %d", n)
+	}
+	if err != nil {
+		t.Fatal("Read() error = ", err)
+	}
+
+	// mismatched content and descriptor
+	r = bytes.NewReader([]byte("foo"))
+	vr = NewVerifyReader(r, desc)
+	buf = make([]byte, 5)
+	n, err = vr.Read(buf)
+	if n != 3 {
+		t.Fatalf("incorrect number of bytes read: %d", n)
+	}
+	if err != nil {
+		t.Fatal("Read() error = ", err)
+	}
+}
+
+func TestVerifyReader_Verify(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content))}
+
+	// matched content and descriptor
+	r := bytes.NewReader(content)
+	vr := NewVerifyReader(r, desc)
+	buf := make([]byte, len(content))
+	if _, err := vr.Read(buf); err != nil {
+		t.Fatal("Read() error = ", err)
+	}
+	if err := vr.Verify(); err != nil {
+		t.Fatal("Verify() error = ", err)
+	}
+
+	// mismatched content and descriptor, read size larger than descriptor size
+	content = []byte("foo")
+	r = bytes.NewReader(content)
+	desc = ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)) - 1}
+	vr = NewVerifyReader(r, desc)
+	buf = make([]byte, 5)
+	if _, err := vr.Read(buf); err != nil {
+		t.Fatal("Read() error = ", err)
+	}
+	if err := vr.Verify(); !errors.Is(err, ErrTrailingData) {
+		t.Fatalf("Verify() error = %v, want %v", err, ErrTrailingData)
+	}
+
+	// call vr.Verify again, the result should be the same
+	if err := vr.Verify(); !errors.Is(err, ErrTrailingData) {
+		t.Fatalf("2nd Verify() error = %v, want %v", err, ErrTrailingData)
+	}
+}
+
+func TestReadAll_CorrectDescriptor(t *testing.T) {
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
@@ -42,7 +118,7 @@ func TestReadAllCorrectDescriptor(t *testing.T) {
 	}
 }
 
-func TestReadAllReadSizeSmallerThanDescriptorSize(t *testing.T) {
+func TestReadAll_ReadSizeSmallerThanDescriptorSize(t *testing.T) {
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
@@ -55,7 +131,7 @@ func TestReadAllReadSizeSmallerThanDescriptorSize(t *testing.T) {
 	}
 }
 
-func TestReadAllReadSizeLargerThanDescriptorSize(t *testing.T) {
+func TestReadAll_ReadSizeLargerThanDescriptorSize(t *testing.T) {
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
@@ -68,7 +144,7 @@ func TestReadAllReadSizeLargerThanDescriptorSize(t *testing.T) {
 	}
 }
 
-func TestReadAllInvalidDigest(t *testing.T) {
+func TestReadAll_InvalidDigest(t *testing.T) {
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
@@ -81,7 +157,7 @@ func TestReadAllInvalidDigest(t *testing.T) {
 	}
 }
 
-func TestReadAllEmptyContent(t *testing.T) {
+func TestReadAll_EmptyContent(t *testing.T) {
 	content := []byte("")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
@@ -98,7 +174,7 @@ func TestReadAllEmptyContent(t *testing.T) {
 	}
 }
 
-func TestReadAllInvalidDescriptorSize(t *testing.T) {
+func TestReadAll_InvalidDescriptorSize(t *testing.T) {
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
