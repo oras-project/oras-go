@@ -22,7 +22,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/internal/ioutil"
 )
 
 var (
@@ -78,7 +77,7 @@ func (vr *VerifyReader) Verify() error {
 		return vr.err
 	}
 
-	if err := ioutil.EnsureEOF(vr.base.R); err != nil {
+	if err := EnsureEOF(vr.base.R); err != nil {
 		vr.err = ErrTrailingData
 		return vr.err
 	}
@@ -122,4 +121,16 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 		return nil, err
 	}
 	return buf, nil
+}
+
+// EnsureEOF ensures the read operation ends with an EOF and no
+// trailing data is present.
+func EnsureEOF(r io.Reader) error {
+	var peek [1]byte
+	_, err := io.ReadFull(r, peek[:])
+	if err != io.EOF {
+		return errors.New("trailing data")
+	}
+
+	return nil
 }
