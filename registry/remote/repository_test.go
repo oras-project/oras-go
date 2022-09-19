@@ -44,7 +44,6 @@ import (
 )
 
 type testIOStruct struct {
-	name                    string
 	isTag                   bool
 	clientSuppliedReference string
 	serverCalculatedDigest  digest.Digest // for non-HEAD (body-containing) requests only
@@ -374,6 +373,20 @@ func TestRepository_Delete(t *testing.T) {
 		Size:      int64(len(index)),
 	}
 	indexDeleted := false
+
+	blobDeleteDisabled := []byte("hello world delete disabled")
+	blobDeleteDisabledDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blobDeleteDisabled),
+		Size:      int64(len(blobDeleteDisabled)),
+	}
+	indexDeleteDisabled := []byte(`{"schemaVersion": 2, "manifests":[]}`)
+	indexDeleteDisabledDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(indexDeleteDisabled),
+		Size:      int64(len(indexDeleteDisabled)),
+	}
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -389,6 +402,12 @@ func TestRepository_Delete(t *testing.T) {
 			indexDeleted = true
 			// no "Docker-Content-Digest" header for manifest deletion
 			w.WriteHeader(http.StatusAccepted)
+		case "/v2/test/blobs/" + blobDeleteDisabledDesc.Digest.String():
+			w.Header().Set("Docker-Content-Digest", blobDeleteDisabledDesc.Digest.String())
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		case "/v2/test/manifests/" + indexDeleteDisabledDesc.Digest.String():
+			// no "Docker-Content-Digest" header for manifest deletion
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -421,6 +440,16 @@ func TestRepository_Delete(t *testing.T) {
 	}
 	if !indexDeleted {
 		t.Errorf("Repository.Delete() = %v, want %v", indexDeleted, true)
+	}
+
+	// test if delete operation is unsupported
+	err = repo.Delete(ctx, blobDeleteDisabledDesc)
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("Blobs.Delete() error = %v, wantErr %v", err, errdef.ErrUnsupported)
+	}
+	err = repo.Delete(ctx, indexDeleteDisabledDesc)
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("Blobs.Delete() error = %v, wantErr %v", err, errdef.ErrUnsupported)
 	}
 }
 
@@ -1098,8 +1127,7 @@ func TestRepository_Referrers_Incompatible(t *testing.T) {
 		Digest:    digest.FromBytes(manifest),
 		Size:      int64(len(manifest)),
 	}
-	var ts *httptest.Server
-	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := "/v2/test/_oras/artifacts/referrers"
 		if r.Method != http.MethodGet || r.URL.Path != path {
 			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
@@ -2045,6 +2073,14 @@ func Test_BlobStore_Delete(t *testing.T) {
 		Size:      int64(len(blob)),
 	}
 	blobDeleted := false
+
+	blobDeleteDisabled := []byte("hello world delete disabled")
+	blobDeleteDisabledDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blobDeleteDisabled),
+		Size:      int64(len(blobDeleteDisabled)),
+	}
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -2056,6 +2092,9 @@ func Test_BlobStore_Delete(t *testing.T) {
 			blobDeleted = true
 			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
 			w.WriteHeader(http.StatusAccepted)
+		case "/v2/test/blobs/" + blobDeleteDisabledDesc.Digest.String():
+			w.Header().Set("Docker-Content-Digest", blobDeleteDisabledDesc.Digest.String())
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -2080,6 +2119,12 @@ func Test_BlobStore_Delete(t *testing.T) {
 	}
 	if !blobDeleted {
 		t.Errorf("Blobs.Delete() = %v, want %v", blobDeleted, true)
+	}
+
+	// test if delete operation is unsupported
+	err = store.Delete(ctx, blobDeleteDisabledDesc)
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("Blobs.Delete() error = %v, wantErr %v", err, errdef.ErrUnsupported)
 	}
 
 	content := []byte("foobar")
@@ -2645,6 +2690,14 @@ func Test_ManifestStore_Delete(t *testing.T) {
 		Size:      int64(len(manifest)),
 	}
 	manifestDeleted := false
+
+	manifestDeleteDisabled := []byte(`{"schemaVersion": 2, "layers":[]}`)
+	manifestDeleteDisabledDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestDeleteDisabled),
+		Size:      int64(len(manifestDeleteDisabled)),
+	}
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -2656,6 +2709,9 @@ func Test_ManifestStore_Delete(t *testing.T) {
 			manifestDeleted = true
 			// no "Docker-Content-Digest" header for manifest deletion
 			w.WriteHeader(http.StatusAccepted)
+		case "/v2/test/manifests/" + manifestDeleteDisabledDesc.Digest.String():
+			// no "Docker-Content-Digest" header for manifest deletion
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -2680,6 +2736,12 @@ func Test_ManifestStore_Delete(t *testing.T) {
 	}
 	if !manifestDeleted {
 		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
+	}
+
+	// test if delete operation is unsupported
+	err = store.Delete(ctx, manifestDeleteDisabledDesc)
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("Manifests.Delete() error = %v, wantErr %v", err, errdef.ErrUnsupported)
 	}
 
 	content := []byte(`{"manifests":[]}`)
