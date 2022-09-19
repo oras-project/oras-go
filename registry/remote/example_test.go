@@ -441,7 +441,7 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 		panic(err)
 	}
 	// find its referrers by calling Referrers
-	if err := repo.Referrers(ctx, descriptor, "", func(referrers []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, descriptor, "", func(referrers []ocispec.Descriptor) error {
 		// for each page of the results, do the following:
 		for _, referrer := range referrers {
 			// for each item in this page, pull the manifest and verify its content

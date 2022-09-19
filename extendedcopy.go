@@ -282,11 +282,11 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 // findReferrersAndFilter filters the predecessors with Referrers.
 func findReferrersAndFilter(rf registry.ReferrerFinder, ctx context.Context, desc ocispec.Descriptor, regex *regexp.Regexp) ([]ocispec.Descriptor, error) {
 	var predecessors []ocispec.Descriptor
-	if err := rf.Referrers(ctx, desc, "", func(referrers []artifactspec.Descriptor) error {
+	if err := rf.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
 		// for each page of the results, do the following:
 		for _, referrer := range referrers {
 			if regex.MatchString(referrer.ArtifactType) {
-				predecessors = append(predecessors, descriptor.ArtifactToOCI(referrer))
+				predecessors = append(predecessors, referrer)
 			}
 		}
 		return nil
