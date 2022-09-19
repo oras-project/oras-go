@@ -968,7 +968,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeByReferrersWithMultipleRegex(t *tes
 	// generate test content
 	var blobs [][]byte
 	var descs []ocispec.Descriptor
-	var referrerSet []artifactspec.Descriptor
+	var referrerSet []ocispec.Descriptor
 	appendBlob := func(mediaType string, blob []byte) {
 		blobs = append(blobs, blob)
 		descs = append(descs, ocispec.Descriptor{
@@ -989,7 +989,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeByReferrersWithMultipleRegex(t *tes
 		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
 	}
 	pushReferrers := func(desc ocispec.Descriptor, artifactType string) {
-		referrerSet = append(referrerSet, artifactspec.Descriptor{
+		referrerSet = append(referrerSet, ocispec.Descriptor{
 			MediaType:    desc.MediaType,
 			ArtifactType: artifactType,
 			Digest:       desc.Digest,
@@ -1046,12 +1046,12 @@ func TestExtendedCopyGraph_FilterArtifactTypeByReferrersWithMultipleRegex(t *tes
 			w.Write(blobs[5])
 		case strings.Contains(p, "referrers"):
 			q := r.URL.Query()
-			var referrers []artifactspec.Descriptor
+			var referrers []ocispec.Descriptor
 			if q.Get("digest") == descs[0].Digest.String() {
 				referrers = referrerSet
 			}
 			result := struct {
-				Referrers []artifactspec.Descriptor `json:"referrers"`
+				Referrers []ocispec.Descriptor `json:"referrers"`
 			}{
 				Referrers: referrers,
 			}
