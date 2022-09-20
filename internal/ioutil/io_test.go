@@ -17,6 +17,7 @@ package ioutil
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"reflect"
@@ -93,17 +94,23 @@ func TestCopyBuffer(t *testing.T) {
 			wantErr: content.ErrMismatchedDigest,
 		},
 		{
-			name:    "wrong size",
+			name:    "wrong size, descriptor size is smaller",
 			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("fo"))},
 			wantDst: "foo",
 			wantErr: content.ErrTrailingData,
+		},
+		{
+			name:    "wrong size, descriptor size is larger",
+			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("fooo"))},
+			wantDst: "foo",
+			wantErr: io.ErrUnexpectedEOF,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dst := &bytes.Buffer{}
 			err := CopyBuffer(dst, tt.args.src, tt.args.buf, tt.args.desc)
-			if err != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("CopyBuffer() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}

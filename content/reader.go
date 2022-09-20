@@ -38,6 +38,12 @@ var (
 	ErrTrailingData = errors.New("trailing data")
 )
 
+var (
+	// errEarlyVerify is returned by VerifyReader.Verify() when
+	// Verify() is called before completing reading the entire content blob.
+	errEarlyVerify = errors.New("early verify")
+)
+
 // VerifyReader reads the content described by its descriptor and verifies
 // against its size and digest.
 type VerifyReader struct {
@@ -71,7 +77,7 @@ func (vr *VerifyReader) Verify() error {
 	}
 	if vr.err == nil {
 		if vr.base.N > 0 {
-			return errors.New("early verify")
+			return errEarlyVerify
 		}
 	} else if vr.err != io.EOF {
 		return vr.err
@@ -91,7 +97,7 @@ func (vr *VerifyReader) Verify() error {
 	return nil
 }
 
-// NewVerifyReader returns a pointer to a new VerifyReader.
+// NewVerifyReader wraps r for reading content with verification against desc.
 func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
 	verifier := desc.Digest.Verifier()
 	lr := &io.LimitedReader{

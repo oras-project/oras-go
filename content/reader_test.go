@@ -57,6 +57,9 @@ func TestVerifyReader_Read(t *testing.T) {
 	if n != len(content) {
 		t.Fatalf("incorrect number of bytes read: %d", n)
 	}
+	if !bytes.Equal(buf, content) {
+		t.Fatalf("incorrect read content: %s", buf)
+	}
 
 	// mismatched content and descriptor with sufficient buffer
 	r = bytes.NewReader([]byte("bar"))
@@ -84,6 +87,9 @@ func TestVerifyReader_Verify(t *testing.T) {
 	if err := vr.Verify(); err != nil {
 		t.Fatal("Verify() error = ", err)
 	}
+	if !bytes.Equal(buf, content) {
+		t.Fatalf("incorrect read content: %s", buf)
+	}
 
 	// mismatched content and descriptor, read size larger than descriptor size
 	content = []byte("foo")
@@ -100,31 +106,29 @@ func TestVerifyReader_Verify(t *testing.T) {
 	if err := vr.Verify(); !errors.Is(err, ErrTrailingData) {
 		t.Fatalf("Verify() error = %v, want %v", err, ErrTrailingData)
 	}
-
 	// call vr.Verify again, the result should be the same
 	if err := vr.Verify(); !errors.Is(err, ErrTrailingData) {
 		t.Fatalf("2nd Verify() error = %v, want %v", err, ErrTrailingData)
 	}
 
-	// // mismatched content and descriptor, read size smaller than descriptor size
-	// content = []byte("foo")
-	// r = bytes.NewReader(content)
-	// desc = ocispec.Descriptor{
-	// 	MediaType: ocispec.MediaTypeImageLayer,
-	// 	Digest:    digest.FromBytes(content),
-	// 	Size:      int64(len(content)) + 1}
-	// vr = NewVerifyReader(r, desc)
-	// buf = make([]byte, len(content))
-	// if _, err := vr.Read(buf); err != nil {
-	// 	t.Fatal("Read() error = ", err)
-	// }
-	// if err := vr.Verify(); !errors.Is(err, ErrTrailingData) {
-	// 	t.Fatalf("Verify() error = %v, want %v", err, ErrTrailingData)
-	// }
-
+	// mismatched content and descriptor, read size smaller than descriptor size
+	content = []byte("foo")
+	r = bytes.NewReader(content)
+	desc = ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)) + 1}
+	vr = NewVerifyReader(r, desc)
+	buf = make([]byte, len(content))
+	if _, err := vr.Read(buf); err != nil {
+		t.Fatal("Read() error = ", err)
+	}
+	if err := vr.Verify(); !errors.Is(err, errEarlyVerify) {
+		t.Fatalf("Verify() error = %v, want %v", err, errEarlyVerify)
+	}
 	// call vr.Verify again, the result should be the same
-	if err := vr.Verify(); !errors.Is(err, ErrTrailingData) {
-		t.Fatalf("2nd Verify() error = %v, want %v", err, ErrTrailingData)
+	if err := vr.Verify(); !errors.Is(err, errEarlyVerify) {
+		t.Fatalf("Verify() error = %v, want %v", err, errEarlyVerify)
 	}
 
 	// mismatched content and descriptor, wrong digest
@@ -139,7 +143,6 @@ func TestVerifyReader_Verify(t *testing.T) {
 	if err := vr.Verify(); !errors.Is(err, ErrMismatchedDigest) {
 		t.Fatalf("Verify() error = %v, want %v", err, ErrMismatchedDigest)
 	}
-
 	// call vr.Verify again, the result should be the same
 	if err := vr.Verify(); !errors.Is(err, ErrMismatchedDigest) {
 		t.Fatalf("2nd Verify() error = %v, want %v", err, ErrMismatchedDigest)
