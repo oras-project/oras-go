@@ -106,6 +106,27 @@ func TestVerifyReader_Verify(t *testing.T) {
 		t.Fatalf("2nd Verify() error = %v, want %v", err, ErrTrailingData)
 	}
 
+	// // mismatched content and descriptor, read size smaller than descriptor size
+	// content = []byte("foo")
+	// r = bytes.NewReader(content)
+	// desc = ocispec.Descriptor{
+	// 	MediaType: ocispec.MediaTypeImageLayer,
+	// 	Digest:    digest.FromBytes(content),
+	// 	Size:      int64(len(content)) + 1}
+	// vr = NewVerifyReader(r, desc)
+	// buf = make([]byte, len(content))
+	// if _, err := vr.Read(buf); err != nil {
+	// 	t.Fatal("Read() error = ", err)
+	// }
+	// if err := vr.Verify(); !errors.Is(err, ErrTrailingData) {
+	// 	t.Fatalf("Verify() error = %v, want %v", err, ErrTrailingData)
+	// }
+
+	// call vr.Verify again, the result should be the same
+	if err := vr.Verify(); !errors.Is(err, ErrTrailingData) {
+		t.Fatalf("2nd Verify() error = %v, want %v", err, ErrTrailingData)
+	}
+
 	// mismatched content and descriptor, wrong digest
 	content = []byte("bar")
 	r = bytes.NewReader(content)

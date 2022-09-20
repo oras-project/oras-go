@@ -56,6 +56,7 @@ func TestUnwrapNopCloser(t *testing.T) {
 }
 
 func TestCopyBuffer(t *testing.T) {
+	blob := []byte("foo")
 	type args struct {
 		src  io.Reader
 		buf  []byte
@@ -69,31 +70,31 @@ func TestCopyBuffer(t *testing.T) {
 	}{
 		{
 			name:    "exact buffer size, no errors",
-			args:    args{bytes.NewReader([]byte("foo")), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("foo"))},
+			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", blob)},
 			wantDst: "foo",
 			wantErr: nil,
 		},
 		{
 			name:    "small buffer size, no errors",
-			args:    args{bytes.NewReader([]byte("foo")), make([]byte, 1), content.NewDescriptorFromBytes("test", []byte("foo"))},
+			args:    args{bytes.NewReader(blob), make([]byte, 1), content.NewDescriptorFromBytes("test", blob)},
 			wantDst: "foo",
 			wantErr: nil,
 		},
 		{
 			name:    "big buffer size, no errors",
-			args:    args{bytes.NewReader([]byte("foo")), make([]byte, 5), content.NewDescriptorFromBytes("test", []byte("foo"))},
+			args:    args{bytes.NewReader(blob), make([]byte, 5), content.NewDescriptorFromBytes("test", blob)},
 			wantDst: "foo",
 			wantErr: nil,
 		},
 		{
 			name:    "wrong digest",
-			args:    args{bytes.NewReader([]byte("foo")), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("bar"))},
+			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("bar"))},
 			wantDst: "foo",
 			wantErr: content.ErrMismatchedDigest,
 		},
 		{
 			name:    "wrong size",
-			args:    args{bytes.NewReader([]byte("foo")), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("fo"))},
+			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("fo"))},
 			wantDst: "foo",
 			wantErr: content.ErrTrailingData,
 		},
