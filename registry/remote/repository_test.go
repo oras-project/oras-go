@@ -3590,18 +3590,6 @@ func TestRepository_ParseReference(t *testing.T) {
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
-			name: "missing reference after @",
-			repoRef: registry.Reference{
-				Registry:   "registry.example.com",
-				Repository: "hello-world",
-			},
-			args: args{
-				reference: "registry.example.com/hello-world@",
-			},
-			want:    registry.Reference{},
-			wantErr: errdef.ErrInvalidReference,
-		},
-		{
 			name: "registry mismatch",
 			repoRef: registry.Reference{
 				Registry:   "registry.example.com",
@@ -3621,6 +3609,68 @@ func TestRepository_ParseReference(t *testing.T) {
 			},
 			args: args{
 				reference: "registry.example.com/goodbye-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "digest posing as a tag",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com:5000/hello-world:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "missing reference after the at sign",
+			repoRef: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "registry.example.com/hello-world@",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name: "missing reference after the colon",
+			repoRef: registry.Reference{
+				Registry: "localhost",
+			},
+			args: args{
+				reference: "localhost:5000/hello:",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name:    "zero-size tag, zero-size digest",
+			repoRef: registry.Reference{},
+			args: args{
+				reference: "localhost:5000/hello:@",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name:    "zero-size tag with valid digest",
+			repoRef: registry.Reference{},
+			args: args{
+				reference: "localhost:5000/hello:@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			},
+			want:    registry.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name:    "valid tag with zero-size digest",
+			repoRef: registry.Reference{},
+			args: args{
+				reference: "localhost:5000/hello:foobar@",
 			},
 			want:    registry.Reference{},
 			wantErr: errdef.ErrInvalidReference,

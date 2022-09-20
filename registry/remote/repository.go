@@ -194,25 +194,35 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 func (r *Repository) ParseReference(reference string) (registry.Reference, error) {
 	ref, err := registry.ParseReference(reference)
 	if err != nil {
-		// reference is not a FQDN
-		if index := strings.IndexByte(reference, '@'); index != -1 {
-			// drop tag since the digest is present
-			reference = reference[index+1:]
-		}
 		ref = registry.Reference{
 			Registry:   r.Reference.Registry,
 			Repository: r.Reference.Repository,
 			Reference:  reference,
 		}
-		if err = ref.ValidateReference(); err != nil {
+
+		// reference is not a FQDN
+		if index := strings.IndexByte(reference, '@'); index != -1 {
+			// `@` implies *digest*, so drop the *tag* (irrespective of what it is).
+			ref.Reference = reference[index+1:]
+			err = ref.ValidateReferenceAsDigest()
+		} else {
+			err = ref.ValidateReference()
+		}
+
+		if err != nil {
 			return registry.Reference{}, err
 		}
 	} else if ref.Registry != r.Reference.Registry || ref.Repository != r.Reference.Repository {
-		return registry.Reference{}, fmt.Errorf("%w %q: expect %q", errdef.ErrInvalidReference, ref, r.Reference)
+		return registry.Reference{}, fmt.Errorf(
+			"%w: mismatch between received %q and expected %q",
+			errdef.ErrInvalidReference, ref, r.Reference,
+		)
 	}
-	if ref.Reference == "" {
-		return registry.Reference{}, fmt.Errorf("%w %q: empty reference", errdef.ErrInvalidReference, ref)
+
+	if len(ref.Reference) == 0 {
+		return registry.Reference{}, errdef.ErrInvalidReference
 	}
+
 	return ref, nil
 }
 
@@ -985,7 +995,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 	if serverHeaderDigestStr := resp.Header.Get(dockerContentDigestHeader); serverHeaderDigestStr != "" {
 		if serverHeaderDigest, err = digest.Parse(serverHeaderDigestStr); err != nil {
 			return ocispec.Descriptor{}, fmt.Errorf(
-				"%s %q: invalid response header value `%s`: `%s`; %w",
+				"%s %q: invalid response header value: `%s: %s`; %w",
 				resp.Request.Method,
 				resp.Request.URL,
 				dockerContentDigestHeader,
@@ -1004,7 +1014,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 				// HEAD without server `Docker-Content-Digest` header is an
 				// immediate fail
 				return ocispec.Descriptor{}, fmt.Errorf(
-					"HTTP %s request missing required header `%s`",
+					"HTTP %s request missing required header %q",
 					httpMethod, dockerContentDigestHeader,
 				)
 			}
@@ -1025,7 +1035,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 
 	if len(refDigest) > 0 && refDigest != contentDigest {
 		return ocispec.Descriptor{}, fmt.Errorf(
-			"%s %q: invalid response; digest mismatch: `%s: %s` vs expected `%s`",
+			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
 			resp.Request.Method, resp.Request.URL,
 			dockerContentDigestHeader, contentDigest,
 			refDigest,
@@ -1076,7 +1086,7 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 
 	if contentDigest != expected {
 		return fmt.Errorf(
-			"%s %q: invalid response; digest mismatch: `%s: %s` vs expected `%s`",
+			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
 			resp.Request.Method, resp.Request.URL,
 			dockerContentDigestHeader, contentDigest,
 			expected,
