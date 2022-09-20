@@ -60,7 +60,7 @@ var (
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
 		Subject:      &exampleManifestDescriptor})
-	exampleSignatureManifestDescriptor = artifactspec.Descriptor{
+	exampleSignatureManifestDescriptor = ocispec.Descriptor{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
 		Digest:       digest.FromBytes(exampleSignatureManifest),
@@ -69,12 +69,12 @@ var (
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/SBoM",
 		Subject:      &exampleManifestDescriptor})
-	exampleSBoMManifestDescriptor = artifactspec.Descriptor{
+	exampleSBoMManifestDescriptor = ocispec.Descriptor{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/SBoM",
 		Digest:       digest.FromBytes(exampleSBoMManifest),
 		Size:         int64(len(exampleSBoMManifest))}
-	exampleReferrerDescriptors = [][]artifactspec.Descriptor{
+	exampleReferrerDescriptors = [][]ocispec.Descriptor{
 		{exampleSBoMManifestDescriptor},      // page 0
 		{exampleSignatureManifestDescriptor}, // page 1
 	}
@@ -88,7 +88,7 @@ var (
 		ArtifactType: "example/manifest",
 		Blobs:        []artifactspec.Descriptor{blobDescriptor},
 		Subject:      &exampleManifestDescriptor})
-	exampleManifestWithBlobsDescriptor = artifactspec.Descriptor{
+	exampleManifestWithBlobsDescriptor = ocispec.Descriptor{
 		MediaType:    artifactspec.MediaTypeArtifactManifest,
 		ArtifactType: "example/manifest",
 		Digest:       digest.FromBytes(exampleManifestWithBlobs),
@@ -157,7 +157,7 @@ func TestMain(m *testing.M) {
 			w.Write([]byte(blobContent))
 		case p == fmt.Sprintf("/v2/%s/_oras/artifacts/referrers", exampleRepositoryName):
 			q := r.URL.Query()
-			var referrers []artifactspec.Descriptor
+			var referrers []ocispec.Descriptor
 			switch q.Get("test") {
 			case "page1":
 				referrers = exampleReferrerDescriptors[1]
@@ -168,7 +168,7 @@ func TestMain(m *testing.M) {
 				w.Header().Set("Link", fmt.Sprintf(`<%s?n=1&test=page1>; rel="next"`, p))
 			}
 			result := struct {
-				Referrers []artifactspec.Descriptor `json:"referrers"`
+				Referrers []ocispec.Descriptor `json:"referrers"`
 			}{
 				Referrers: referrers,
 			}
@@ -441,7 +441,7 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 		panic(err)
 	}
 	// find its referrers by calling Referrers
-	if err := repo.Referrers(ctx, descriptor, "", func(referrers []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, descriptor, "", func(referrers []ocispec.Descriptor) error {
 		// for each page of the results, do the following:
 		for _, referrer := range referrers {
 			// for each item in this page, pull the manifest and verify its content

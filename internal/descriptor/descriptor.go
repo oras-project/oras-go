@@ -47,15 +47,6 @@ func FromOCI(desc ocispec.Descriptor) Descriptor {
 	}
 }
 
-// FromArtifact shrinks the artifact descriptor to the minimum.
-func FromArtifact(desc artifactspec.Descriptor) Descriptor {
-	return Descriptor{
-		MediaType: desc.MediaType,
-		Digest:    desc.Digest,
-		Size:      desc.Size,
-	}
-}
-
 // ArtifactToOCI converts artifact descriptor to OCI descriptor.
 func ArtifactToOCI(desc artifactspec.Descriptor) ocispec.Descriptor {
 	return ocispec.Descriptor{

@@ -37,7 +37,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/interfaces"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -867,7 +866,7 @@ func TestRepository_Predecessors(t *testing.T) {
 		Digest:    digest.FromBytes(manifest),
 		Size:      int64(len(manifest)),
 	}
-	referrerSet := [][]artifactspec.Descriptor{
+	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
 				MediaType:    artifactspec.MediaTypeArtifactManifest,
@@ -921,7 +920,7 @@ func TestRepository_Predecessors(t *testing.T) {
 			return
 		}
 		w.Header().Set("ORAS-Api-Version", "oras/1.0")
-		var referrers []artifactspec.Descriptor
+		var referrers []ocispec.Descriptor
 		switch q.Get("test") {
 		case "foo":
 			referrers = referrerSet[1]
@@ -938,7 +937,7 @@ func TestRepository_Predecessors(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			Referrers []artifactspec.Descriptor `json:"referrers"`
+			Referrers []ocispec.Descriptor `json:"referrers"`
 		}{
 			Referrers: referrers,
 		}
@@ -967,7 +966,7 @@ func TestRepository_Predecessors(t *testing.T) {
 	var want []ocispec.Descriptor
 	for _, referrers := range referrerSet {
 		for _, referrer := range referrers {
-			want = append(want, descriptor.ArtifactToOCI(referrer))
+			want = append(want, referrer)
 		}
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -982,7 +981,7 @@ func TestRepository_Referrers(t *testing.T) {
 		Digest:    digest.FromBytes(manifest),
 		Size:      int64(len(manifest)),
 	}
-	referrerSet := [][]artifactspec.Descriptor{
+	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
 				MediaType:    artifactspec.MediaTypeArtifactManifest,
@@ -1036,7 +1035,7 @@ func TestRepository_Referrers(t *testing.T) {
 			return
 		}
 		w.Header().Set("ORAS-Api-Version", "oras/1.0")
-		var referrers []artifactspec.Descriptor
+		var referrers []ocispec.Descriptor
 		switch q.Get("test") {
 		case "foo":
 			referrers = referrerSet[1]
@@ -1053,7 +1052,7 @@ func TestRepository_Referrers(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			Referrers []artifactspec.Descriptor `json:"referrers"`
+			Referrers []ocispec.Descriptor `json:"referrers"`
 		}{
 			Referrers: referrers,
 		}
@@ -1076,7 +1075,7 @@ func TestRepository_Referrers(t *testing.T) {
 
 	ctx := context.Background()
 	index := 0
-	if err := repo.Referrers(ctx, manifestDesc, "", func(got []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		if index >= len(referrerSet) {
 			t.Fatalf("out of index bound: %d", index)
 		}
@@ -1121,7 +1120,7 @@ func TestRepository_Referrers_Incompatible(t *testing.T) {
 	repo.PlainHTTP = true
 
 	ctx := context.Background()
-	if err := repo.Referrers(ctx, manifestDesc, "", func(got []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err == nil {
 		t.Error("Repository.Referrers() incompatible version not rejected")
@@ -1192,7 +1191,7 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 		Digest:    digest.FromBytes(manifest),
 		Size:      int64(len(manifest)),
 	}
-	referrerSet := [][]artifactspec.Descriptor{
+	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
 				MediaType:    artifactspec.MediaTypeArtifactManifest,
@@ -1244,7 +1243,7 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		var referrers []artifactspec.Descriptor
+		var referrers []ocispec.Descriptor
 		switch q.Get("test") {
 		case "foo":
 			referrers = referrerSet[1]
@@ -1256,7 +1255,7 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			References []artifactspec.Descriptor `json:"references"`
+			References []ocispec.Descriptor `json:"references"`
 		}{
 			References: referrers,
 		}
@@ -1279,7 +1278,7 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 
 	ctx := context.Background()
 	index := 0
-	if err := repo.Referrers(ctx, manifestDesc, "", func(got []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		if index >= len(referrerSet) {
 			t.Fatalf("out of index bound: %d", index)
 		}
@@ -1301,7 +1300,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 		Digest:    digest.FromBytes(manifest),
 		Size:      int64(len(manifest)),
 	}
-	referrerSet := [][]artifactspec.Descriptor{
+	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
 				MediaType:    artifactspec.MediaTypeArtifactManifest,
@@ -1355,7 +1354,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 			return
 		}
 		w.Header().Set("ORAS-Api-Version", "oras/1.0")
-		var referrers []artifactspec.Descriptor
+		var referrers []ocispec.Descriptor
 		switch q.Get("test") {
 		case "foo":
 			referrers = referrerSet[1]
@@ -1372,7 +1371,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			Referrers []artifactspec.Descriptor `json:"referrers"`
+			Referrers []ocispec.Descriptor `json:"referrers"`
 		}{
 			Referrers: referrers,
 		}
@@ -1395,7 +1394,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 
 	ctx := context.Background()
 	index := 0
-	if err := repo.Referrers(ctx, manifestDesc, "application/vnd.test", func(got []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, manifestDesc, "application/vnd.test", func(got []ocispec.Descriptor) error {
 		if index >= len(referrerSet) {
 			t.Fatalf("out of index bound: %d", index)
 		}
@@ -1420,7 +1419,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 		Digest:    digest.FromBytes(manifest),
 		Size:      int64(len(manifest)),
 	}
-	referrerSet := [][]artifactspec.Descriptor{
+	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
 				MediaType:    artifactspec.MediaTypeArtifactManifest,
@@ -1458,7 +1457,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 			},
 		},
 	}
-	filteredReferrerSet := [][]artifactspec.Descriptor{
+	filteredReferrerSet := [][]ocispec.Descriptor{
 		{
 			{
 				MediaType:    artifactspec.MediaTypeArtifactManifest,
@@ -1492,7 +1491,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 			return
 		}
 		w.Header().Set("ORAS-Api-Version", "oras/1.0")
-		var referrers []artifactspec.Descriptor
+		var referrers []ocispec.Descriptor
 		switch q.Get("test") {
 		case "foo":
 			referrers = referrerSet[1]
@@ -1509,7 +1508,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
 		result := struct {
-			Referrers []artifactspec.Descriptor `json:"referrers"`
+			Referrers []ocispec.Descriptor `json:"referrers"`
 		}{
 			Referrers: referrers,
 		}
@@ -1532,7 +1531,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 
 	ctx := context.Background()
 	index := 0
-	if err := repo.Referrers(ctx, manifestDesc, "application/vnd.test", func(got []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, manifestDesc, "application/vnd.test", func(got []ocispec.Descriptor) error {
 		if index >= len(filteredReferrerSet) {
 			t.Fatalf("out of index bound: %d", index)
 		}
@@ -1551,7 +1550,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 }
 
 func Test_filterReferrers(t *testing.T) {
-	refs := []artifactspec.Descriptor{
+	refs := []ocispec.Descriptor{
 		{
 			MediaType:    artifactspec.MediaTypeArtifactManifest,
 			Size:         1,
@@ -1584,7 +1583,7 @@ func Test_filterReferrers(t *testing.T) {
 		},
 	}
 	got := filterReferrers(refs, "application/vnd.test")
-	want := []artifactspec.Descriptor{
+	want := []ocispec.Descriptor{
 		{
 			MediaType:    artifactspec.MediaTypeArtifactManifest,
 			Size:         1,
@@ -1604,7 +1603,7 @@ func Test_filterReferrers(t *testing.T) {
 }
 
 func Test_filterReferrers_allMatch(t *testing.T) {
-	refs := []artifactspec.Descriptor{
+	refs := []ocispec.Descriptor{
 		{
 			MediaType:    artifactspec.MediaTypeArtifactManifest,
 			Size:         1,
