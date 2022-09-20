@@ -64,6 +64,9 @@ type CopyOptions struct {
 // matching manifest if exists, otherwise ErrNotFound will be returned.
 // - Otherwise ErrUnsupported will be returned.
 func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
+	if p == nil {
+		return
+	}
 	mapRoot := opts.MapRoot
 	opts.MapRoot = func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (desc ocispec.Descriptor, err error) {
 		if mapRoot != nil {
