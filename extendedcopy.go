@@ -22,7 +22,6 @@ import (
 	"regexp"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
@@ -182,11 +181,33 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 // For performance consideration, when using both FilterArtifactType and
 // FilterAnnotation, it's recommended to call FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
+	filter := func(filtered []ocispec.Descriptor, predecessors []ocispec.Descriptor) []ocispec.Descriptor {
+		for _, p := range predecessors {
+			if value, ok := p.Annotations[key]; ok && (regex == nil || regex.MatchString(value)) {
+				filtered = append(filtered, p)
+			}
+		}
+		return filtered
+	}
+
 	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		var predecessors []ocispec.Descriptor
 		var err error
+
+		referrerFinder, supportReferrers := src.(registry.ReferrerFinder)
 		if fp == nil {
+			if supportReferrers {
+				// if src is a ReferrerFinder, use Referrers() for possible memory saving
+				if err := referrerFinder.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
+					// for each page of the results, filter the referrers
+					predecessors = filter(predecessors, referrers)
+					return nil
+				}); err != nil {
+					return nil, err
+				}
+				return predecessors, nil
+			}
 			predecessors, err = src.Predecessors(ctx, desc)
 		} else {
 			predecessors, err = fp(ctx, src, desc)
@@ -194,40 +215,30 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 		if err != nil {
 			return nil, err
 		}
-		var filtered []ocispec.Descriptor
-		for _, p := range predecessors {
-			if p.Annotations == nil {
-				switch p.MediaType {
-				case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest,
-					docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
-					artifactspec.MediaTypeArtifactManifest:
-					if err = func() error {
-						rc, err := src.Fetch(ctx, p)
+
+		if !supportReferrers {
+			// For src that does not support Referrers, Predecessors is used.
+			// However, the descriptors returned by Predecessors may not include
+			// annotations of the corresponding manifests.
+			for i, p := range predecessors {
+				if p.Annotations == nil {
+					// if the annotations are not present in the descriptors,
+					// fetch it from the manifest content.
+					switch p.MediaType {
+					case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest,
+						docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex,
+						ocispec.MediaTypeArtifactManifest:
+						annotations, err := fetchAnnotations(ctx, src, p)
 						if err != nil {
-							return err
+							return nil, err
 						}
-						defer rc.Close()
-						var manifest struct {
-							Annotations map[string]string `json:"annotations"`
-						}
-						if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
-							return err
-						}
-						if manifest.Annotations == nil {
-							p.Annotations = map[string]string{}
-						} else {
-							p.Annotations = manifest.Annotations
-						}
-						return nil
-					}(); err != nil {
-						return nil, err
+						predecessors[i].Annotations = annotations
 					}
 				}
 			}
-			if value, ok := p.Annotations[key]; ok && (regex == nil || regex.MatchString(value)) {
-				filtered = append(filtered, p)
-			}
 		}
+		var filtered []ocispec.Descriptor
+		filtered = filter(filtered, predecessors)
 		return filtered, nil
 	}
 }
@@ -241,15 +252,33 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 	if regex == nil {
 		return
 	}
+	filter := func(filtered []ocispec.Descriptor, predecessors []ocispec.Descriptor) []ocispec.Descriptor {
+		for _, p := range predecessors {
+			if regex.MatchString(p.ArtifactType) {
+				filtered = append(filtered, p)
+			}
+		}
+		return filtered
+	}
+
 	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		var predecessors []ocispec.Descriptor
 		var err error
+		referrerFinder, supportReferrers := src.(registry.ReferrerFinder)
 		if fp == nil {
-			// if src is a ReferrerFinder, use Referrers() to filter the predecessors.
-			if rf, ok := src.(registry.ReferrerFinder); ok {
-				return findReferrersAndFilter(rf, ctx, desc, regex)
+			if supportReferrers {
+				// if src is a ReferrerFinder, use Referrers() for possible memory saving
+				if err := referrerFinder.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
+					// for each page of the results, filter the referrers
+					predecessors = filter(predecessors, referrers)
+					return nil
+				}); err != nil {
+					return nil, err
+				}
+				return predecessors, nil
 			}
+
 			predecessors, err = src.Predecessors(ctx, desc)
 		} else {
 			predecessors, err = fp(ctx, src, desc)
@@ -257,46 +286,56 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 		if err != nil {
 			return nil, err
 		}
-		var filtered []ocispec.Descriptor
-		// for each predecessor, decode the manifest and check its artifact type.
-		for _, p := range predecessors {
-			if p.MediaType == artifactspec.MediaTypeArtifactManifest {
-				if err = func() error {
-					rc, err := src.Fetch(ctx, p)
+
+		if !supportReferrers {
+			// For src that does not support Referrers, Predecessors is used.
+			// However, the descriptors returned by Predecessors may not include
+			// the artifact type of the corresponding manifests.
+			for i, p := range predecessors {
+				if p.MediaType == ocispec.MediaTypeArtifactManifest && p.ArtifactType == "" {
+					// if the artifact type is not present in the descriptors,
+					// fetch it from the manifest content.
+					artifactType, err := fetchArtifactType(ctx, src, p)
 					if err != nil {
-						return err
+						return nil, err
 					}
-					defer rc.Close()
-					var manifest artifactspec.Manifest
-					if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
-						return err
-					}
-					if regex.MatchString(manifest.ArtifactType) {
-						filtered = append(filtered, p)
-					}
-					return nil
-				}(); err != nil {
-					return nil, err
+					predecessors[i].ArtifactType = artifactType
 				}
 			}
 		}
+
+		var filtered []ocispec.Descriptor
+		filtered = filter(filtered, predecessors)
 		return filtered, nil
 	}
 }
 
-// findReferrersAndFilter filters the predecessors with Referrers.
-func findReferrersAndFilter(rf registry.ReferrerFinder, ctx context.Context, desc ocispec.Descriptor, regex *regexp.Regexp) ([]ocispec.Descriptor, error) {
-	var predecessors []ocispec.Descriptor
-	if err := rf.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
-		// for each page of the results, do the following:
-		for _, referrer := range referrers {
-			if regex.MatchString(referrer.ArtifactType) {
-				predecessors = append(predecessors, referrer)
-			}
-		}
-		return nil
-	}); err != nil {
+// fetchAnnotations fetches the annotations of the manifest described by desc.
+func fetchAnnotations(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) (map[string]string, error) {
+	rc, err := src.Fetch(ctx, desc)
+	if err != nil {
 		return nil, err
 	}
-	return predecessors, nil
+	defer rc.Close()
+	var manifest struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		return nil, err
+	}
+	return manifest.Annotations, nil
+}
+
+// fetchArtifactType fetches the artifact type of the manifest described by desc.
+func fetchArtifactType(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) (string, error) {
+	rc, err := src.Fetch(ctx, desc)
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+	var manifest ocispec.Artifact
+	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		return "", err
+	}
+	return manifest.ArtifactType, nil
 }
