@@ -41,10 +41,7 @@ func CopyBuffer(dst io.Writer, src io.Reader, buf []byte, desc ocispec.Descripto
 	if _, err := io.CopyBuffer(dst, vr, buf); err != nil {
 		return fmt.Errorf("copy failed: %w", err)
 	}
-	if err := vr.Verify(); err != nil {
-		return err
-	}
-	return nil
+	return vr.Verify()
 }
 
 // nopCloserType is the type of `io.NopCloser()`.
