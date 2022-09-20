@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 )
@@ -27,10 +26,7 @@ import (
 // ExampleVerifyReader gives an example of creating and using VerifyReader.
 func ExampleVerifyReader() {
 	blob := []byte("hello world")
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(blob),
-		Size:      int64(len(blob))}
+	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, blob)
 	r := bytes.NewReader(blob)
 	vr := content.NewVerifyReader(r, desc)
 	buf := make([]byte, len(blob))
@@ -42,6 +38,8 @@ func ExampleVerifyReader() {
 		panic(err)
 	}
 
+	// please note: users should not trust the the read content until
+	// Verify() returns nil.
 	fmt.Println(string(buf))
 
 	// Output:

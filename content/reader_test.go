@@ -34,7 +34,6 @@ func TestVerifyReader_Read(t *testing.T) {
 	vr := NewVerifyReader(r, desc)
 	buf := make([]byte, 5)
 	n, err := vr.Read(buf)
-
 	if err != nil {
 		t.Fatal("Read() error = ", err)
 	}
