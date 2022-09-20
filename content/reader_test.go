@@ -39,14 +39,14 @@ func TestVerifyReader_Read(t *testing.T) {
 	buf := make([]byte, 5)
 	n, err := vr.Read(buf)
 
+	if err != nil {
+		t.Fatal("Read() error = ", err)
+	}
 	if !bytes.Equal(buf, []byte("examp")) {
 		t.Fatalf("incorrect read content: %s", buf)
 	}
 	if n != 5 {
 		t.Fatalf("incorrect number of bytes read: %d", n)
-	}
-	if err != nil {
-		t.Fatal("Read() error = ", err)
 	}
 
 	// mismatched content and descriptor
@@ -54,11 +54,11 @@ func TestVerifyReader_Read(t *testing.T) {
 	vr = NewVerifyReader(r, desc)
 	buf = make([]byte, 5)
 	n, err = vr.Read(buf)
-	if n != 3 {
-		t.Fatalf("incorrect number of bytes read: %d", n)
-	}
 	if err != nil {
 		t.Fatal("Read() error = ", err)
+	}
+	if n != 3 {
+		t.Fatalf("incorrect number of bytes read: %d", n)
 	}
 }
 

@@ -77,8 +77,8 @@ func (vr *VerifyReader) Verify() error {
 		return vr.err
 	}
 
-	if err := EnsureEOF(vr.base.R); err != nil {
-		vr.err = ErrTrailingData
+	if err := ensureEOF(vr.base.R); err != nil {
+		vr.err = err
 		return vr.err
 	}
 	if !vr.verifier.Verified() {
@@ -123,14 +123,13 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	return buf, nil
 }
 
-// EnsureEOF ensures the read operation ends with an EOF and no
+// ensureEOF ensures the read operation ends with an EOF and no
 // trailing data is present.
-func EnsureEOF(r io.Reader) error {
+func ensureEOF(r io.Reader) error {
 	var peek [1]byte
 	_, err := io.ReadFull(r, peek[:])
 	if err != io.EOF {
-		return errors.New("trailing data")
+		return ErrTrailingData
 	}
-
 	return nil
 }
