@@ -29,10 +29,7 @@ import (
 func TestVerifyReader_Read(t *testing.T) {
 	// matched content and descriptor with small buffer
 	content := []byte("example content")
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content))}
+	desc := NewDescriptorFromBytes("test", content)
 	r := bytes.NewReader(content)
 	vr := NewVerifyReader(r, desc)
 	buf := make([]byte, 5)
@@ -50,10 +47,7 @@ func TestVerifyReader_Read(t *testing.T) {
 
 	// matched content and descriptor with sufficient buffer
 	content = []byte("foo foo")
-	desc = ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content))}
+	desc = NewDescriptorFromBytes("test", content)
 	r = bytes.NewReader(content)
 	vr = NewVerifyReader(r, desc)
 	buf = make([]byte, len(content))
@@ -81,10 +75,7 @@ func TestVerifyReader_Read(t *testing.T) {
 func TestVerifyReader_Verify(t *testing.T) {
 	// matched content and descriptor
 	content := []byte("example content")
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content))}
+	desc := NewDescriptorFromBytes("test", content)
 	r := bytes.NewReader(content)
 	vr := NewVerifyReader(r, desc)
 	buf := make([]byte, len(content))
@@ -119,10 +110,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 	// mismatched content and descriptor, wrong digest
 	content = []byte("bar")
 	r = bytes.NewReader(content)
-	desc = ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes([]byte("foo")),
-		Size:      int64(len(content))}
+	desc = NewDescriptorFromBytes("test", []byte("foo"))
 	vr = NewVerifyReader(r, desc)
 	buf = make([]byte, len(content))
 	if _, err := vr.Read(buf); err != nil {
@@ -140,10 +128,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 
 func TestReadAll_CorrectDescriptor(t *testing.T) {
 	content := []byte("example content")
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content))}
+	desc := NewDescriptorFromBytes("test", content)
 	r := bytes.NewReader([]byte(content))
 	got, err := ReadAll(r, desc)
 	if err != nil {
@@ -182,10 +167,7 @@ func TestReadAll_ReadSizeLargerThanDescriptorSize(t *testing.T) {
 
 func TestReadAll_InvalidDigest(t *testing.T) {
 	content := []byte("example content")
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes([]byte("wrong content")),
-		Size:      int64(len(content))}
+	desc := NewDescriptorFromBytes("test", []byte("another content"))
 	r := bytes.NewReader([]byte(content))
 	_, err := ReadAll(r, desc)
 	if err == nil || !errors.Is(err, ErrMismatchedDigest) {
@@ -195,11 +177,7 @@ func TestReadAll_InvalidDigest(t *testing.T) {
 
 func TestReadAll_EmptyContent(t *testing.T) {
 	content := []byte("")
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}
+	desc := NewDescriptorFromBytes("test", content)
 	r := bytes.NewReader([]byte(content))
 	got, err := ReadAll(r, desc)
 	if err != nil {
