@@ -131,19 +131,17 @@ func TestMain(m *testing.M) {
 			if m == "GET" {
 				w.Write(exampleManifest)
 			}
-		case strings.Contains(p, "/artifacts/referrers"):
-			w.Header().Set("ORAS-Api-Version", "oras/1.0")
-			q := r.URL.Query()
+		case strings.Contains(p, "/v2/source/referrers/"):
 			var referrers []ocispec.Descriptor
-			if q.Get("digest") == exampleManifestDescriptor.Digest.String() {
+			if p == "/v2/source/referrers/"+exampleManifestDescriptor.Digest.String() {
 				referrers = []ocispec.Descriptor{exampleSignatureManifestDescriptor}
-			} else if q.Get("digest") == exampleSignatureManifestDescriptor.Digest.String() {
-				referrers = []ocispec.Descriptor{}
 			}
-			result := struct {
-				Referrers []ocispec.Descriptor `json:"referrers"`
-			}{
-				Referrers: referrers,
+			result := ocispec.Index{
+				Versioned: specs.Versioned{
+					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+				},
+				MediaType: ocispec.MediaTypeImageIndex,
+				Manifests: referrers,
 			}
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				panic(err)

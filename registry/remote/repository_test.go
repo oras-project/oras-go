@@ -32,8 +32,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opencontainers/distribution-spec/specs-go/v1/extensions"
 	"github.com/opencontainers/go-digest"
+	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/interfaces"
@@ -905,7 +905,7 @@ func TestRepository_Predecessors(t *testing.T) {
 	}
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := "/v2/test/_oras/artifacts/referrers"
+		path := "/v2/test/referrers/" + manifestDesc.Digest.String()
 		if r.Method != http.MethodGet || r.URL.Path != path {
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -918,7 +918,6 @@ func TestRepository_Predecessors(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []ocispec.Descriptor
 		switch q.Get("test") {
 		case "foo":
@@ -927,18 +926,15 @@ func TestRepository_Predecessors(t *testing.T) {
 		case "bar":
 			referrers = referrerSet[2]
 		default:
-			if q.Get("digest") != manifestDesc.Digest.String() {
-				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
 			referrers = referrerSet[0]
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
-		result := struct {
-			Referrers []ocispec.Descriptor `json:"referrers"`
-		}{
-			Referrers: referrers,
+		result := ocispec.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+			},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: referrers,
 		}
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
@@ -964,9 +960,7 @@ func TestRepository_Predecessors(t *testing.T) {
 	}
 	var want []ocispec.Descriptor
 	for _, referrers := range referrerSet {
-		for _, referrer := range referrers {
-			want = append(want, referrer)
-		}
+		want = append(want, referrers...)
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Repository.Predecessors() = %v, want %v", got, want)
@@ -1020,7 +1014,7 @@ func TestRepository_Referrers(t *testing.T) {
 	}
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := "/v2/test/_oras/artifacts/referrers"
+		path := "/v2/test/referrers/" + manifestDesc.Digest.String()
 		if r.Method != http.MethodGet || r.URL.Path != path {
 			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -1033,7 +1027,6 @@ func TestRepository_Referrers(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []ocispec.Descriptor
 		switch q.Get("test") {
 		case "foo":
@@ -1042,18 +1035,15 @@ func TestRepository_Referrers(t *testing.T) {
 		case "bar":
 			referrers = referrerSet[2]
 		default:
-			if q.Get("digest") != manifestDesc.Digest.String() {
-				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
 			referrers = referrerSet[0]
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
-		result := struct {
-			Referrers []ocispec.Descriptor `json:"referrers"`
-		}{
-			Referrers: referrers,
+		result := ocispec.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+			},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: referrers,
 		}
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
@@ -1089,174 +1079,60 @@ func TestRepository_Referrers(t *testing.T) {
 	}
 }
 
-func TestRepository_Referrers_Incompatible(t *testing.T) {
+func TestRepository_Referrers_FallbackTagSchema(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
 		Digest:    digest.FromBytes(manifest),
 		Size:      int64(len(manifest)),
 	}
-	var ts *httptest.Server
-	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := "/v2/test/_oras/artifacts/referrers"
-		if r.Method != http.MethodGet || r.URL.Path != path {
-			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Header().Set("ORAS-Api-Version", "oras/2.0")
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
 
-	repo, err := NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-
-	ctx := context.Background()
-	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
-		return nil
-	}); err == nil {
-		t.Error("Repository.Referrers() incompatible version not rejected")
-	}
-}
-
-func Test_verifyOrasApiVersion(t *testing.T) {
-	params := []struct {
-		name       string
-		version    string
-		compatible bool
-	}{
+	referrers := []ocispec.Descriptor{
 		{
-			name:       "exact",
-			version:    "oras/1.0",
-			compatible: true,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
+			Size:         1,
+			Digest:       digest.FromString("1"),
+			ArtifactType: "application/vnd.test",
 		},
 		{
-			name:       "major same, minor different",
-			version:    "oras/1.11",
-			compatible: true,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
+			Size:         2,
+			Digest:       digest.FromString("2"),
+			ArtifactType: "application/vnd.test",
 		},
 		{
-			name:       "major different",
-			version:    "oras/2.0",
-			compatible: false,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
+			Size:         3,
+			Digest:       digest.FromString("3"),
+			ArtifactType: "application/vnd.test",
 		},
 		{
-			name:       "invalid prefix",
-			version:    "*oras/1.0",
-			compatible: false,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
+			Size:         4,
+			Digest:       digest.FromString("4"),
+			ArtifactType: "application/vnd.test",
 		},
 		{
-			name:       "invalid minor version",
-			version:    "oras/1.01",
-			compatible: false,
-		},
-		{
-			name:       "not dot",
-			version:    "oras/1#0",
-			compatible: false,
-		},
-		{
-			name:       "no version",
-			version:    "",
-			compatible: false,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
+			Size:         5,
+			Digest:       digest.FromString("5"),
+			ArtifactType: "application/vnd.test",
 		},
 	}
-
-	for _, tt := range params {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := &http.Response{Header: http.Header{}}
-			if tt.version != "" {
-				resp.Header.Set("ORAS-Api-Version", tt.version)
-			}
-			err := verifyOrasApiVersion(resp)
-			if (err == nil) != tt.compatible {
-				t.Errorf("verifyOrasApiVersion() compatible = %v, want = %v", err == nil, tt.compatible)
-			}
-		})
-	}
-}
-
-func TestRepository_Referrers_Fallback(t *testing.T) {
-	manifest := []byte(`{"layers":[]}`)
-	manifestDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(manifest),
-		Size:      int64(len(manifest)),
-	}
-	referrerSet := [][]ocispec.Descriptor{
-		{
-			{
-				MediaType:    ocispec.MediaTypeArtifactManifest,
-				Size:         1,
-				Digest:       digest.FromString("1"),
-				ArtifactType: "application/vnd.test",
-			},
-			{
-				MediaType:    ocispec.MediaTypeArtifactManifest,
-				Size:         2,
-				Digest:       digest.FromString("2"),
-				ArtifactType: "application/vnd.test",
-			},
-		},
-		{
-			{
-				MediaType:    ocispec.MediaTypeArtifactManifest,
-				Size:         3,
-				Digest:       digest.FromString("3"),
-				ArtifactType: "application/vnd.test",
-			},
-			{
-				MediaType:    ocispec.MediaTypeArtifactManifest,
-				Size:         4,
-				Digest:       digest.FromString("4"),
-				ArtifactType: "application/vnd.test",
-			},
-		},
-		{
-			{
-				MediaType:    ocispec.MediaTypeArtifactManifest,
-				Size:         5,
-				Digest:       digest.FromString("5"),
-				ArtifactType: "application/vnd.test",
-			},
-		},
-	}
-	var ts *httptest.Server
-	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := "/oras/artifacts/v1/test/manifests/" + manifestDesc.Digest.String() + "/referrers"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		refTag := strings.Replace(manifestDesc.Digest.String(), ":", "-", 1)
+		path := "/v2/test/manifests/" + refTag
 		if r.Method != http.MethodGet || r.URL.Path != path {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		q := r.URL.Query()
-		n, err := strconv.Atoi(q.Get("n"))
-		if err != nil || n != 2 {
-			t.Errorf("bad page size: %s", q.Get("n"))
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		var referrers []ocispec.Descriptor
-		switch q.Get("test") {
-		case "foo":
-			referrers = referrerSet[1]
-			w.Header().Set("Link", fmt.Sprintf(`<%s%s?n=2&test=bar>; rel="next"`, ts.URL, path))
-		case "bar":
-			referrers = referrerSet[2]
-		default:
-			referrers = referrerSet[0]
-			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
-		}
-		result := struct {
-			References []ocispec.Descriptor `json:"references"`
-		}{
-			References: referrers,
+
+		result := ocispec.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+			},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: referrers,
 		}
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
@@ -1276,13 +1152,7 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 	repo.ReferrerListPageSize = 2
 
 	ctx := context.Background()
-	index := 0
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
-		if index >= len(referrerSet) {
-			t.Fatalf("out of index bound: %d", index)
-		}
-		referrers := referrerSet[index]
-		index++
 		if !reflect.DeepEqual(got, referrers) {
 			t.Errorf("Repository.Referrers() = %v, want %v", got, referrers)
 		}
@@ -1339,8 +1209,14 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 	}
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := "/v2/test/_oras/artifacts/referrers"
-		if r.Method != http.MethodGet || r.URL.Path != path {
+		path := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		queryParams, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			t.Fatal("failed to parse url query")
+		}
+		if r.Method != http.MethodGet ||
+			r.URL.Path != path ||
+			reflect.DeepEqual(queryParams["artifactType"], []string{"application%2Fvnd.test"}) {
 			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -1352,7 +1228,6 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []ocispec.Descriptor
 		switch q.Get("test") {
 		case "foo":
@@ -1361,18 +1236,18 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 		case "bar":
 			referrers = referrerSet[2]
 		default:
-			if q.Get("digest") != manifestDesc.Digest.String() {
-				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
 			referrers = referrerSet[0]
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
-		result := struct {
-			Referrers []ocispec.Descriptor `json:"referrers"`
-		}{
-			Referrers: referrers,
+		result := ocispec.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+			},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: referrers,
+			Annotations: map[string]string{
+				ocispec.AnnotationReferrersFiltersApplied: "artifactType",
+			},
 		}
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
@@ -1476,8 +1351,14 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 	}
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := "/v2/test/_oras/artifacts/referrers"
-		if r.Method != http.MethodGet || r.URL.Path != path {
+		path := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		queryParams, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			t.Fatal("failed to parse url query")
+		}
+		if r.Method != http.MethodGet ||
+			r.URL.Path != path ||
+			reflect.DeepEqual(queryParams["artifactType"], []string{"application%2Fvnd.test"}) {
 			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -1489,7 +1370,6 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		var referrers []ocispec.Descriptor
 		switch q.Get("test") {
 		case "foo":
@@ -1498,18 +1378,15 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 		case "bar":
 			referrers = referrerSet[2]
 		default:
-			if q.Get("digest") != manifestDesc.Digest.String() {
-				t.Errorf("digest not provided or mismatch: %s %q", r.Method, r.URL)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
 			referrers = referrerSet[0]
 			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
 		}
-		result := struct {
-			Referrers []ocispec.Descriptor `json:"referrers"`
-		}{
-			Referrers: referrers,
+		result := ocispec.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+			},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: referrers,
 		}
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
@@ -1625,56 +1502,6 @@ func Test_filterReferrers_allMatch(t *testing.T) {
 	got := filterReferrers(refs, "application/vnd.test")
 	if !reflect.DeepEqual(got, refs) {
 		t.Errorf("filterReferrers() = %v, want %v", got, refs)
-	}
-}
-
-func TestRepository_DiscoverExtensions(t *testing.T) {
-	extList := extensions.ExtensionList{
-		Extensions: []extensions.Extension{
-			{
-				Name:        "foo.bar",
-				URL:         "https://example.com",
-				Description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-				Endpoints:   []string{"_foo/bar", "_foo/baz"},
-			},
-			{
-				Name:        "cncf.oras.referrers",
-				URL:         "https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md",
-				Description: "ORAS referrers listing API",
-				Endpoints:   []string{"_oras/artifacts/referrers"},
-			},
-		},
-	}
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := "/v2/test/_oci/ext/discover"
-		if r.Method != http.MethodGet || r.URL.Path != path {
-			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(extList); err != nil {
-			t.Errorf("failed to write response: %v", err)
-		}
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
-	repo, err := NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	ctx := context.Background()
-
-	got, err := repo.DiscoverExtensions(ctx)
-	if err != nil {
-		t.Errorf("Repository.DiscoverExtentions() error = %v", err)
-	}
-	if !reflect.DeepEqual(got, extList.Extensions) {
-		t.Errorf("Repository.DiscoverExtentions(): got %v, want %v", got, extList)
 	}
 }
 
@@ -3688,6 +3515,65 @@ func TestRepository_ParseReference(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Repository.ParseReference() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_isReferrersFilterApplied(t *testing.T) {
+	tests := []struct {
+		name       string
+		annotation string
+		filter     string
+		want       bool
+	}{
+		{
+			name:       "single filter applied, specified filter matches",
+			annotation: "artifactType",
+			filter:     "artifactType",
+			want:       true,
+		},
+		{
+			name:       "single filter applied, specified filter does not match",
+			annotation: "foo",
+			filter:     "artifactType",
+			want:       false,
+		},
+		{
+			name:       "multiple filters applied, specified filter matches",
+			annotation: "foo,artifactType",
+			filter:     "artifactType",
+			want:       true,
+		},
+		{
+			name:       "multiple filters applied, specified filter does not match",
+			annotation: "foo,bar",
+			filter:     "artifactType",
+			want:       false,
+		},
+		{
+			name:       "single filter applied, specified filter empty",
+			annotation: "foo",
+			filter:     "",
+			want:       false,
+		},
+		{
+			name:       "no filter applied",
+			annotation: "",
+			filter:     "artifactType",
+			want:       false,
+		},
+		{
+			name:       "no filter applied, specified filter empty",
+			annotation: "",
+			filter:     "",
+			want:       false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isReferrersFilterApplied(tt.annotation, tt.filter); got != tt.want {
+				t.Errorf("isReferrersFilterApplied() = %v, want %v", got, tt.want)
 			}
 		})
 	}
