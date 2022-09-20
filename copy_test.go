@@ -1058,6 +1058,14 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	if err.Error() != expected {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
+
+	// test copy with no platform filter
+	// opts.MapRoot should be nil
+	opts = oras.CopyOptions{}
+	opts.WithTargetPlatform(nil)
+	if opts.MapRoot != nil {
+		t.Fatal("opts.MapRoot not equal to nil when platform is not provided")
+	}
 }
 
 func TestCopy_RestoreDuplicates(t *testing.T) {
