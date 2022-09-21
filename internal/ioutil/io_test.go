@@ -16,10 +16,15 @@ limitations under the License.
 package ioutil
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"os"
 	"reflect"
 	"testing"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 )
 
 func TestUnwrapNopCloser(t *testing.T) {
@@ -46,6 +51,72 @@ func TestUnwrapNopCloser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := UnwrapNopCloser(tt.rc); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("UnwrapNopCloser() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCopyBuffer(t *testing.T) {
+	blob := []byte("foo")
+	type args struct {
+		src  io.Reader
+		buf  []byte
+		desc ocispec.Descriptor
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantDst string
+		wantErr error
+	}{
+		{
+			name:    "exact buffer size, no errors",
+			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", blob)},
+			wantDst: "foo",
+			wantErr: nil,
+		},
+		{
+			name:    "small buffer size, no errors",
+			args:    args{bytes.NewReader(blob), make([]byte, 1), content.NewDescriptorFromBytes("test", blob)},
+			wantDst: "foo",
+			wantErr: nil,
+		},
+		{
+			name:    "big buffer size, no errors",
+			args:    args{bytes.NewReader(blob), make([]byte, 5), content.NewDescriptorFromBytes("test", blob)},
+			wantDst: "foo",
+			wantErr: nil,
+		},
+		{
+			name:    "wrong digest",
+			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("bar"))},
+			wantDst: "foo",
+			wantErr: content.ErrMismatchedDigest,
+		},
+		{
+			name:    "wrong size, descriptor size is smaller",
+			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("fo"))},
+			wantDst: "foo",
+			wantErr: content.ErrTrailingData,
+		},
+		{
+			name:    "wrong size, descriptor size is larger",
+			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("fooo"))},
+			wantDst: "foo",
+			wantErr: io.ErrUnexpectedEOF,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := &bytes.Buffer{}
+			err := CopyBuffer(dst, tt.args.src, tt.args.buf, tt.args.desc)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("CopyBuffer() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			gotDst := dst.String()
+			if err == nil && gotDst != tt.wantDst {
+				t.Errorf("CopyBuffer() = %v, want %v", gotDst, tt.wantDst)
 			}
 		})
 	}
