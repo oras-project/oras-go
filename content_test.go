@@ -1785,7 +1785,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	// test TagBytes with no reference
+	// test TagBytesN with no reference
 	gotDesc, err := oras.TagBytesN(ctx, s, mediaType, content, nil, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
@@ -1809,7 +1809,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
 	}
 
-	// test TagBytes with multiple references
+	// test TagBytesN with multiple references
 	refs := []string{"foo", "bar", "baz"}
 	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, content, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
@@ -1843,7 +1843,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
 	}
 
-	// test TagBytes with empty media type and multiple references
+	// test TagBytesN with empty media type and multiple references
 	gotDesc, err = oras.TagBytesN(ctx, s, "", content, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
@@ -1876,7 +1876,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
 	}
 
-	// test TagBytes with empty content and multiple references
+	// test TagBytesN with empty content and multiple references
 	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, nil, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
@@ -1918,7 +1918,6 @@ func TestTagBytesN_Repository(t *testing.T) {
 		Digest:    digest.FromBytes(index),
 		Size:      int64(len(index)),
 	}
-	var gotIndex []byte
 	refFoo := "foo"
 	refBar := "bar"
 	refs := []string{refFoo, refBar}
@@ -1936,11 +1935,10 @@ func TestTagBytesN_Repository(t *testing.T) {
 			if _, err := buf.ReadFrom(r.Body); err != nil {
 				t.Errorf("fail to read: %v", err)
 			}
-			gotIndex = buf.Bytes()
 			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 			return
-		case r.Method == http.MethodHead &&
+		case (r.Method == http.MethodHead || r.Method == http.MethodGet) &&
 			(r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String() ||
 				r.URL.Path == "/v2/test/manifests/"+refFoo ||
 				r.URL.Path == "/v2/test/manifests/"+refBar):
@@ -1952,6 +1950,11 @@ func TestTagBytesN_Repository(t *testing.T) {
 			w.Header().Set("Content-Type", indexDesc.MediaType)
 			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(int(indexDesc.Size)))
+			if r.Method == http.MethodGet {
+				if _, err := w.Write(index); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			}
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusForbidden)
@@ -1970,7 +1973,7 @@ func TestTagBytesN_Repository(t *testing.T) {
 	repo.PlainHTTP = true
 	ctx := context.Background()
 
-	// test TagBytes with no reference
+	// test TagBytesN with no reference
 	gotDesc, err := oras.TagBytesN(ctx, repo, indexMediaType, index, nil, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
@@ -1978,12 +1981,23 @@ func TestTagBytesN_Repository(t *testing.T) {
 	if !reflect.DeepEqual(gotDesc, indexDesc) {
 		t.Errorf("oras.TagBytes() = %v, want %v", gotDesc, indexDesc)
 	}
-	if !bytes.Equal(gotIndex, index) {
-		t.Errorf("oras.TagBytes() = %v, want %v", gotIndex, index)
+	rc, err := repo.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Repository.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Repository.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Repository.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, index) {
+		t.Errorf("Repository.Fetch() = %v, want %v", got, index)
 	}
 
-	// test TagBytes with multiple references
-	gotIndex = nil
+	// test TagBytesN with multiple references
 	gotDesc, err = oras.TagBytesN(ctx, repo, indexMediaType, index, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
@@ -2000,8 +2014,20 @@ func TestTagBytesN_Repository(t *testing.T) {
 			t.Fatalf("oras.TagBytes() = %v, want %v", gotDesc, indexDesc)
 		}
 	}
-	if !bytes.Equal(gotIndex, index) {
-		t.Errorf("oras.TagBytes() = %v, want %v", gotIndex, index)
+	rc, err = repo.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Repository.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Repository.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Repository.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, index) {
+		t.Errorf("Repository.Fetch() = %v, want %v", got, index)
 	}
 }
 
