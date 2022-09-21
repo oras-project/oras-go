@@ -1938,7 +1938,7 @@ func TestTagBytesN_Repository(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 			return
-		case r.Method == http.MethodHead &&
+		case (r.Method == http.MethodHead || r.Method == http.MethodGet) &&
 			(r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String() ||
 				r.URL.Path == "/v2/test/manifests/"+refFoo ||
 				r.URL.Path == "/v2/test/manifests/"+refBar):
@@ -1950,6 +1950,11 @@ func TestTagBytesN_Repository(t *testing.T) {
 			w.Header().Set("Content-Type", indexDesc.MediaType)
 			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(int(indexDesc.Size)))
+			if r.Method == http.MethodGet {
+				if _, err := w.Write(index); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			}
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusForbidden)
@@ -1976,6 +1981,21 @@ func TestTagBytesN_Repository(t *testing.T) {
 	if !reflect.DeepEqual(gotDesc, indexDesc) {
 		t.Errorf("oras.TagBytes() = %v, want %v", gotDesc, indexDesc)
 	}
+	rc, err := repo.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Repository.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Repository.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Repository.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, index) {
+		t.Errorf("Repository.Fetch() = %v, want %v", got, index)
+	}
 
 	// test TagBytesN with multiple references
 	gotDesc, err = oras.TagBytesN(ctx, repo, indexMediaType, index, refs, oras.DefaultTagBytesNOptions)
@@ -1993,6 +2013,21 @@ func TestTagBytesN_Repository(t *testing.T) {
 		if !reflect.DeepEqual(gotDesc, indexDesc) {
 			t.Fatalf("oras.TagBytes() = %v, want %v", gotDesc, indexDesc)
 		}
+	}
+	rc, err = repo.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Repository.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Repository.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Repository.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, index) {
+		t.Errorf("Repository.Fetch() = %v, want %v", got, index)
 	}
 }
 
