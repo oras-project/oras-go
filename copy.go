@@ -58,6 +58,7 @@ type CopyOptions struct {
 // WithTargetPlatform configures opts.MapRoot to select the manifest whose
 // platform matches the given platform. When MapRoot is provided, the platform
 // selection will be applied on the mapped root node.
+// - If the given platform is nil, no operations will be done.
 // - If the root node is a manifest, it will remain the same if platform
 // matches, otherwise ErrNotFound will be returned.
 // - If the root node is a manifest list, it will be mapped to the first
