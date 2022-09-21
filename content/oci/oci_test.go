@@ -33,14 +33,12 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/descriptor"
 )
 
 // storageTracker tracks storage API counts.
@@ -671,17 +669,14 @@ func TestStore_Predecessors(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest artifactspec.Manifest
-		artifactSubject := descriptor.OCIToArtifact(subject)
-		manifest.Subject = &artifactSubject
-		for _, blob := range blobs {
-			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
-		}
+		var manifest ocispec.Artifact
+		manifest.Subject = &subject
+		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
@@ -786,17 +781,14 @@ func TestStore_ExistingStore(t *testing.T) {
 	}
 
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest artifactspec.Manifest
-		artifactSubject := descriptor.OCIToArtifact(subject)
-		manifest.Subject = &artifactSubject
-		for _, blob := range blobs {
-			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
-		}
+		var manifest ocispec.Artifact
+		manifest.Subject = &subject
+		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0

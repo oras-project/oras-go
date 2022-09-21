@@ -35,7 +35,6 @@ import (
 	"github.com/opencontainers/distribution-spec/specs-go/v1/extensions"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/interfaces"
 	"oras.land/oras-go/v2/registry"
@@ -869,13 +868,13 @@ func TestRepository_Predecessors(t *testing.T) {
 	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         1,
 				Digest:       digest.FromString("1"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         2,
 				Digest:       digest.FromString("2"),
 				ArtifactType: "application/vnd.test",
@@ -883,13 +882,13 @@ func TestRepository_Predecessors(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         3,
 				Digest:       digest.FromString("3"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         4,
 				Digest:       digest.FromString("4"),
 				ArtifactType: "application/vnd.test",
@@ -897,7 +896,7 @@ func TestRepository_Predecessors(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         5,
 				Digest:       digest.FromString("5"),
 				ArtifactType: "application/vnd.test",
@@ -984,13 +983,13 @@ func TestRepository_Referrers(t *testing.T) {
 	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         1,
 				Digest:       digest.FromString("1"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         2,
 				Digest:       digest.FromString("2"),
 				ArtifactType: "application/vnd.test",
@@ -998,13 +997,13 @@ func TestRepository_Referrers(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         3,
 				Digest:       digest.FromString("3"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         4,
 				Digest:       digest.FromString("4"),
 				ArtifactType: "application/vnd.test",
@@ -1012,7 +1011,7 @@ func TestRepository_Referrers(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         5,
 				Digest:       digest.FromString("5"),
 				ArtifactType: "application/vnd.test",
@@ -1194,13 +1193,13 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         1,
 				Digest:       digest.FromString("1"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         2,
 				Digest:       digest.FromString("2"),
 				ArtifactType: "application/vnd.test",
@@ -1208,13 +1207,13 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         3,
 				Digest:       digest.FromString("3"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         4,
 				Digest:       digest.FromString("4"),
 				ArtifactType: "application/vnd.test",
@@ -1222,7 +1221,7 @@ func TestRepository_Referrers_Fallback(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         5,
 				Digest:       digest.FromString("5"),
 				ArtifactType: "application/vnd.test",
@@ -1303,13 +1302,13 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         1,
 				Digest:       digest.FromString("1"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         2,
 				Digest:       digest.FromString("2"),
 				ArtifactType: "application/vnd.test",
@@ -1317,13 +1316,13 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         3,
 				Digest:       digest.FromString("3"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         4,
 				Digest:       digest.FromString("4"),
 				ArtifactType: "application/vnd.test",
@@ -1331,7 +1330,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         5,
 				Digest:       digest.FromString("5"),
 				ArtifactType: "application/vnd.test",
@@ -1422,13 +1421,13 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 	referrerSet := [][]ocispec.Descriptor{
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         1,
 				Digest:       digest.FromString("1"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         2,
 				Digest:       digest.FromString("2"),
 				ArtifactType: "application/vnd.foo",
@@ -1436,13 +1435,13 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         3,
 				Digest:       digest.FromString("3"),
 				ArtifactType: "application/vnd.test",
 			},
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         4,
 				Digest:       digest.FromString("4"),
 				ArtifactType: "application/vnd.bar",
@@ -1450,7 +1449,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         5,
 				Digest:       digest.FromString("5"),
 				ArtifactType: "application/vnd.baz",
@@ -1460,7 +1459,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 	filteredReferrerSet := [][]ocispec.Descriptor{
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         1,
 				Digest:       digest.FromString("1"),
 				ArtifactType: "application/vnd.test",
@@ -1468,7 +1467,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 		},
 		{
 			{
-				MediaType:    artifactspec.MediaTypeArtifactManifest,
+				MediaType:    ocispec.MediaTypeArtifactManifest,
 				Size:         3,
 				Digest:       digest.FromString("3"),
 				ArtifactType: "application/vnd.test",
@@ -1552,31 +1551,31 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 func Test_filterReferrers(t *testing.T) {
 	refs := []ocispec.Descriptor{
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         1,
 			Digest:       digest.FromString("1"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         2,
 			Digest:       digest.FromString("2"),
 			ArtifactType: "application/vnd.foo",
 		},
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         3,
 			Digest:       digest.FromString("3"),
 			ArtifactType: "application/vnd.bar",
 		},
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         4,
 			Digest:       digest.FromString("4"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         5,
 			Digest:       digest.FromString("5"),
 			ArtifactType: "application/vnd.baz",
@@ -1585,13 +1584,13 @@ func Test_filterReferrers(t *testing.T) {
 	got := filterReferrers(refs, "application/vnd.test")
 	want := []ocispec.Descriptor{
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         1,
 			Digest:       digest.FromString("1"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         4,
 			Digest:       digest.FromString("4"),
 			ArtifactType: "application/vnd.test",
@@ -1605,19 +1604,19 @@ func Test_filterReferrers(t *testing.T) {
 func Test_filterReferrers_allMatch(t *testing.T) {
 	refs := []ocispec.Descriptor{
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         1,
 			Digest:       digest.FromString("1"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         4,
 			Digest:       digest.FromString("2"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    artifactspec.MediaTypeArtifactManifest,
+			MediaType:    ocispec.MediaTypeArtifactManifest,
 			Size:         5,
 			Digest:       digest.FromString("3"),
 			ArtifactType: "application/vnd.test",

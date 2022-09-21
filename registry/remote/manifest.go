@@ -29,7 +29,8 @@ var defaultManifestMediaTypes = []string{
 	docker.MediaTypeManifestList,
 	ocispec.MediaTypeImageManifest,
 	ocispec.MediaTypeImageIndex,
-	artifactspec.MediaTypeArtifactManifest,
+	artifactspec.MediaTypeArtifactManifest, // TODO: deprecate
+	ocispec.MediaTypeArtifactManifest,
 }
 
 // defaultManifestAcceptHeader is the default set in the `Accept` header for
