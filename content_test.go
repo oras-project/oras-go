@@ -1785,7 +1785,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	// test TagBytes with no reference
+	// test TagBytesN with no reference
 	gotDesc, err := oras.TagBytesN(ctx, s, mediaType, content, nil, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
@@ -1809,7 +1809,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
 	}
 
-	// test TagBytes with multiple references
+	// test TagBytesN with multiple references
 	refs := []string{"foo", "bar", "baz"}
 	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, content, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
@@ -1843,7 +1843,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
 	}
 
-	// test TagBytes with empty media type and multiple references
+	// test TagBytesN with empty media type and multiple references
 	gotDesc, err = oras.TagBytesN(ctx, s, "", content, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
@@ -1876,7 +1876,7 @@ func TestTagBytesN_Memory(t *testing.T) {
 		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
 	}
 
-	// test TagBytes with empty content and multiple references
+	// test TagBytesN with empty content and multiple references
 	gotDesc, err = oras.TagBytesN(ctx, s, mediaType, nil, refs, oras.DefaultTagBytesNOptions)
 	if err != nil {
 		t.Fatal("oras.TagBytes() error =", err)
@@ -1935,7 +1935,6 @@ func TestTagBytesN_Repository(t *testing.T) {
 			if _, err := buf.ReadFrom(r.Body); err != nil {
 				t.Errorf("fail to read: %v", err)
 			}
-
 			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 			return
