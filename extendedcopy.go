@@ -176,14 +176,9 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 	return roots, nil
 }
 
-// FilterAnnotation will configure opts.FindPredecessors to filter the predecessors
-// whose annotation matches a given regex pattern. For each predecessor,
-// - If key is available in the predecessor's annotation and regex is not nil,
-// return the predecessor if the annotation value matches the regex.
-// - If key is available in the predecessor's annotation and regex is nil,
-// return the predecessor.
-// - If key is unavailable in the predecessor's annotation, the predecessor
-// will not be returned.
+// FilterAnnotation will configure opts.FindPredecessors to filter the
+// predecessors whose annotation matches a given regex pattern. A predecessor is
+// kept if the key is in its annotation and matches the regex if present.
 // For performance consideration, when using both FilterArtifactType and
 // FilterAnnotation, it's recommended to call FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
