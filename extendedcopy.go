@@ -176,10 +176,11 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 	return roots, nil
 }
 
-// FilterAnnotation will configure opts.FindPredecessors to filter the predecessors
-// whose annotation matches a given regex pattern. For performance consideration,
-// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
-// FilterArtifactType first.
+// FilterAnnotation will configure opts.FindPredecessors to filter the
+// predecessors whose annotation matches a given regex pattern. A predecessor is
+// kept if the key is in its annotation and matches the regex if present.
+// For performance consideration, when using both FilterArtifactType and
+// FilterAnnotation, it's recommended to call FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
 	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
@@ -223,7 +224,7 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 					}
 				}
 			}
-			if regex.MatchString(p.Annotations[key]) {
+			if value, ok := p.Annotations[key]; ok && (regex == nil || regex.MatchString(value)) {
 				filtered = append(filtered, p)
 			}
 		}
@@ -232,10 +233,14 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 }
 
 // FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
-// whose artifact type matches a given regex pattern. For performance consideration,
-// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
+// whose artifact type matches a given regex pattern. When the regex pattern is nil,
+// no artifact type filter will be applied. For performance consideration, when using both
+// FilterArtifactType and FilterAnnotation, it's recommended to call
 // FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
+	if regex == nil {
+		return
+	}
 	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 		var predecessors []ocispec.Descriptor

@@ -1058,6 +1058,33 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	if err.Error() != expected {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
+
+	// test copy with no platform filter and nil opts.MapRoot
+	// opts.MapRoot should be nil
+	opts = oras.CopyOptions{}
+	opts.WithTargetPlatform(nil)
+	if opts.MapRoot != nil {
+		t.Fatal("opts.MapRoot not equal to nil when platform is not provided")
+	}
+
+	// test copy with no platform filter and custom opts.MapRoot
+	// should return ErrNotFound
+	opts = oras.CopyOptions{
+		MapRoot: func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+			if root.MediaType == "test" {
+				return root, nil
+			} else {
+				return ocispec.Descriptor{}, errdef.ErrNotFound
+			}
+		},
+		CopyGraphOptions: oras.DefaultCopyGraphOptions,
+	}
+	opts.WithTargetPlatform(nil)
+
+	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
 }
 
 func TestCopy_RestoreDuplicates(t *testing.T) {
