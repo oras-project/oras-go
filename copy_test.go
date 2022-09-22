@@ -978,7 +978,7 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 	}
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
-	expected = fmt.Sprintf("fail to recognize media type %s: expect %s", docker.MediaTypeConfig, ocispec.MediaTypeImageConfig)
+	expected = fmt.Sprintf("fail to recognize platform from unknown config %s: expect %s", docker.MediaTypeConfig, ocispec.MediaTypeImageConfig)
 	if err.Error() != expected {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, expected)
 	}
