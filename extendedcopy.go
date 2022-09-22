@@ -223,10 +223,8 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 					}
 				}
 			}
-			if _, ok := p.Annotations[key]; ok {
-				if regex == nil || regex.MatchString(p.Annotations[key]) {
-					filtered = append(filtered, p)
-				}
+			if value, ok := p.Annotations[key]; ok && (regex == nil || regex.MatchString(value)) {
+				filtered = append(filtered, p)
 			}
 		}
 		return filtered, nil
@@ -234,8 +232,9 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 }
 
 // FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
-// whose artifact type matches a given regex pattern. For performance consideration,
-// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
+// whose artifact type matches a given regex pattern. When the regex pattern is nil,
+// no operations will be done. For performance consideration, when using both
+// FilterArtifactType and FilterAnnotation, it's recommended to call
 // FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 	if regex == nil {
