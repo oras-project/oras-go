@@ -860,7 +860,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 		}
 		return desc, resp.Body, nil
 	case http.StatusNotFound:
-		return ocispec.Descriptor{}, nil, fmt.Errorf("%s: %w", ref.Reference, errdef.ErrNotFound)
+		return ocispec.Descriptor{}, nil, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
 		return ocispec.Descriptor{}, nil, errutil.ParseErrorResponse(resp)
 	}
