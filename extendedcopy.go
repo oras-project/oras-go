@@ -177,9 +177,15 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 }
 
 // FilterAnnotation will configure opts.FindPredecessors to filter the predecessors
-// whose annotation matches a given regex pattern. For performance consideration,
-// when using both FilterArtifactType and FilterAnnotation, it's recommended to call
-// FilterArtifactType first.
+// whose annotation matches a given regex pattern.
+// - If the key is available in current predecessor's annotation and regex exists,
+// return the predecessor if it's annotation matches the regex.
+// - If the key is available in current predecessor's annotation and regex does not
+// exist, return current predecessor.
+// - If the key is unavailable in current predecessor's annotation, current predecessor
+// will not be returned.
+// For performance consideration, when using both FilterArtifactType and
+// FilterAnnotation, it's recommended to call FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
 	fp := opts.FindPredecessors
 	opts.FindPredecessors = func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
@@ -233,7 +239,7 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 
 // FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
 // whose artifact type matches a given regex pattern. When the regex pattern is nil,
-// no operations will be done. For performance consideration, when using both
+// no artifact type filter will be applied. For performance consideration, when using both
 // FilterArtifactType and FilterAnnotation, it's recommended to call
 // FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {

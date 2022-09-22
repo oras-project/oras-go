@@ -1079,6 +1079,7 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 		},
 		CopyGraphOptions: oras.DefaultCopyGraphOptions,
 	}
+	opts.WithTargetPlatform(nil)
 
 	_, err = oras.Copy(ctx, src, ref, dst, "", opts)
 	if !errors.Is(err, errdef.ErrNotFound) {
