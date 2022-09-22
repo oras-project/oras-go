@@ -177,12 +177,12 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 }
 
 // FilterAnnotation will configure opts.FindPredecessors to filter the predecessors
-// whose annotation matches a given regex pattern.
-// - If the key is available in current predecessor's annotation and regex exists,
-// return the predecessor if it's annotation matches the regex.
-// - If the key is available in current predecessor's annotation and regex does not
-// exist, return current predecessor.
-// - If the key is unavailable in current predecessor's annotation, current predecessor
+// whose annotation matches a given regex pattern. For each predecessor,
+// - If key is available in the predecessor's annotation and regex is not nil,
+// return the predecessor if the annotation value matches the regex.
+// - If key is available in the predecessor's annotation and regex is nil,
+// return the predecessor.
+// - If key is unavailable in the predecessor's annotation, the predecessor
 // will not be returned.
 // For performance consideration, when using both FilterArtifactType and
 // FilterAnnotation, it's recommended to call FilterArtifactType first.
