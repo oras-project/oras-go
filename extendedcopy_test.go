@@ -773,6 +773,39 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex(t *testing.T) {
 	copiedIndice := []int{0, 2}
 	uncopiedIndice := []int{1, 3, 4, 5, 6}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
+
+	// test extended copy by descs[0] with three annotation filters, nil included
+	dst = memory.New()
+	opts = oras.ExtendedCopyGraphOptions{}
+	exp1 = "black."
+	exp2 = ".pink|red"
+	regex1 = regexp.MustCompile(exp1)
+	regex2 = regexp.MustCompile(exp2)
+	opts.FilterAnnotation("bar", regex1)
+	opts.FilterAnnotation("bar", nil)
+	opts.FilterAnnotation("bar", regex2)
+	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+	}
+	copiedIndice = []int{0, 2}
+	uncopiedIndice = []int{1, 3, 4, 5, 6}
+	verifyCopy(dst, copiedIndice, uncopiedIndice)
+
+	// test extended copy by descs[0] with two annotation filters, the second filter has an unavailable key
+	dst = memory.New()
+	opts = oras.ExtendedCopyGraphOptions{}
+	exp1 = "black."
+	exp2 = ".pink|red"
+	regex1 = regexp.MustCompile(exp1)
+	regex2 = regexp.MustCompile(exp2)
+	opts.FilterAnnotation("bar", regex1)
+	opts.FilterAnnotation("test", regex2)
+	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+	}
+	copiedIndice = []int{0}
+	uncopiedIndice = []int{1, 2, 3, 4, 5, 6}
+	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
 func TestExtendedCopyGraph_FilterAnnotationWithRegexNoAnnotationInDescriptor(t *testing.T) {
@@ -996,6 +1029,24 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex(t *testing.T) {
 	}
 	copiedIndice := []int{0, 3, 4}
 	uncopiedIndice := []int{1, 2, 5}
+	verifyCopy(dst, copiedIndice, uncopiedIndice)
+
+	// test extended copy by descs[0], include the predecessors whose artifact
+	// type matches exp1 and exp2 and nil
+	exp1 = ".foo|bar."
+	exp2 = "bad."
+	dst = memory.New()
+	opts = oras.ExtendedCopyGraphOptions{}
+	regex1 = regexp.MustCompile(exp1)
+	regex2 = regexp.MustCompile(exp2)
+	opts.FilterArtifactType(regex1)
+	opts.FilterArtifactType(regex2)
+	opts.FilterArtifactType(nil)
+	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
+		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+	}
+	copiedIndice = []int{0, 3, 4}
+	uncopiedIndice = []int{1, 2, 5}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
