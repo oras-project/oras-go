@@ -74,7 +74,7 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 			return nil, err
 		}
 		return index.Manifests, nil
-	case artifactspec.MediaTypeArtifactManifest:
+	case artifactspec.MediaTypeArtifactManifest: // TODO: deprecate
 		content, err := FetchAll(ctx, fetcher, node)
 		if err != nil {
 			return nil, err
@@ -92,6 +92,21 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 			nodes = append(nodes, descriptor.ArtifactToOCI(blob))
 		}
 		return nodes, nil
+	case ocispec.MediaTypeArtifactManifest:
+		content, err := FetchAll(ctx, fetcher, node)
+		if err != nil {
+			return nil, err
+		}
+
+		var manifest ocispec.Artifact
+		if err := json.Unmarshal(content, &manifest); err != nil {
+			return nil, err
+		}
+		var nodes []ocispec.Descriptor
+		if manifest.Subject != nil {
+			nodes = append(nodes, *manifest.Subject)
+		}
+		return append(nodes, manifest.Blobs...), nil
 	}
 	return nil, nil
 }

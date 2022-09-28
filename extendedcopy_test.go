@@ -68,17 +68,14 @@ func TestExtendedCopy_FullCopy(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest artifactspec.Manifest
-		artifactSubject := descriptor.OCIToArtifact(subject)
-		manifest.Subject = &artifactSubject
-		for _, blob := range blobs {
-			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
-		}
+		var manifest ocispec.Artifact
+		manifest.Subject = &subject
+		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
@@ -169,17 +166,14 @@ func TestExtendedCopyGraph_FullCopy(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest artifactspec.Manifest
-		artifactSubject := descriptor.OCIToArtifact(subject)
-		manifest.Subject = &artifactSubject
-		for _, blob := range blobs {
-			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
-		}
+		var manifest ocispec.Artifact
+		manifest.Subject = &subject
+		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config_1")) // Blob 0
@@ -377,17 +371,14 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest artifactspec.Manifest
-		artifactSubject := descriptor.OCIToArtifact(subject)
-		manifest.Subject = &artifactSubject
-		for _, blob := range blobs {
-			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
-		}
+		var manifest ocispec.Artifact
+		manifest.Subject = &subject
+		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config_1")) // Blob 0
@@ -512,17 +503,14 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest artifactspec.Manifest
-		artifactSubject := descriptor.OCIToArtifact(subject)
-		manifest.Subject = &artifactSubject
-		for _, blob := range blobs {
-			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
-		}
+		var manifest ocispec.Artifact
+		manifest.Subject = &subject
+		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config_1")) // Blob 0
@@ -577,7 +565,7 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 			for _, p := range predecessors {
 				// filter media type
 				switch p.MediaType {
-				case artifactspec.MediaTypeArtifactManifest:
+				case ocispec.MediaTypeArtifactManifest:
 					filtered = append(filtered, p)
 				}
 			}
@@ -1054,7 +1042,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeByReferrersWithMultipleRegex(t *tes
 	// generate test content
 	var blobs [][]byte
 	var descs []ocispec.Descriptor
-	var referrerSet []artifactspec.Descriptor
+	var referrerSet []ocispec.Descriptor
 	appendBlob := func(mediaType string, blob []byte) {
 		blobs = append(blobs, blob)
 		descs = append(descs, ocispec.Descriptor{
@@ -1075,7 +1063,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeByReferrersWithMultipleRegex(t *tes
 		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
 	}
 	pushReferrers := func(desc ocispec.Descriptor, artifactType string) {
-		referrerSet = append(referrerSet, artifactspec.Descriptor{
+		referrerSet = append(referrerSet, ocispec.Descriptor{
 			MediaType:    desc.MediaType,
 			ArtifactType: artifactType,
 			Digest:       desc.Digest,
@@ -1132,12 +1120,12 @@ func TestExtendedCopyGraph_FilterArtifactTypeByReferrersWithMultipleRegex(t *tes
 			w.Write(blobs[5])
 		case strings.Contains(p, "referrers"):
 			q := r.URL.Query()
-			var referrers []artifactspec.Descriptor
+			var referrers []ocispec.Descriptor
 			if q.Get("digest") == descs[0].Digest.String() {
 				referrers = referrerSet
 			}
 			result := struct {
-				Referrers []artifactspec.Descriptor `json:"referrers"`
+				Referrers []ocispec.Descriptor `json:"referrers"`
 			}{
 				Referrers: referrers,
 			}

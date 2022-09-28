@@ -31,10 +31,8 @@ import (
 	"github.com/opencontainers/distribution-spec/specs-go/v1/extensions"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/internal/ioutil"
 	"oras.land/oras-go/v2/internal/registryutil"
@@ -287,9 +285,9 @@ func (r *Repository) tags(ctx context.Context, last string, fn func(tags []strin
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	var res []ocispec.Descriptor
-	if err := r.Referrers(ctx, desc, "", func(referrers []artifactspec.Descriptor) error {
+	if err := r.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
 		for _, referrer := range referrers {
-			res = append(res, descriptor.ArtifactToOCI(referrer))
+			res = append(res, referrer)
 		}
 		return nil
 	}); err != nil {
@@ -303,7 +301,7 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 // the referrers result. If artifactType is not empty, only referrers of the
 // same artifact type are fed to fn.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
-func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []artifactspec.Descriptor) error) error {
+func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
 	ref := r.Reference
 	ref.Reference = desc.Digest.String()
 	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
@@ -330,7 +328,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 
 // referrers returns a single page of the manifest descriptors directly
 // referencing the given manifest descriptor with the next link.
-func (r *Repository) referrers(ctx context.Context, artifactType string, fn func(referrers []artifactspec.Descriptor) error, url string, legacyAPI bool) (string, error) {
+func (r *Repository) referrers(ctx context.Context, artifactType string, fn func(referrers []ocispec.Descriptor) error, url string, legacyAPI bool) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -360,14 +358,14 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 	}
 
 	var page struct {
-		References []artifactspec.Descriptor `json:"references"`
-		Referrers  []artifactspec.Descriptor `json:"referrers"`
+		References []ocispec.Descriptor `json:"references"`
+		Referrers  []ocispec.Descriptor `json:"referrers"`
 	}
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
 		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
-	var refs []artifactspec.Descriptor
+	var refs []ocispec.Descriptor
 	if legacyAPI {
 		refs = page.References
 	} else {
@@ -387,7 +385,7 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 
 // filterReferrers filters a slice of referrers by artifactType in place.
 // The returned slice contains matching referrers.
-func filterReferrers(refs []artifactspec.Descriptor, artifactType string) []artifactspec.Descriptor {
+func filterReferrers(refs []ocispec.Descriptor, artifactType string) []ocispec.Descriptor {
 	if artifactType == "" {
 		return refs
 	}

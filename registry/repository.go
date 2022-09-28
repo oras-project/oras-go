@@ -20,7 +20,6 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 )
 
@@ -97,7 +96,7 @@ type ReferenceFetcher interface {
 // ReferrerFinder provides the Referrers API.
 // Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
 type ReferrerFinder interface {
-	Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []artifactspec.Descriptor) error) error
+	Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error
 }
 
 // Tags lists the tags available in the repository.

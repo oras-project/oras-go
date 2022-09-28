@@ -31,7 +31,6 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	. "oras.land/oras-go/v2/registry/internal/doc"
@@ -45,51 +44,51 @@ const (
 	exampleLayer            = "Example layer content"
 	exampleUploadUUid       = "0bc84d80-837c-41d9-824e-1907463c53b3"
 	ManifestDigest          = "sha256:0b696106ecd0654e031f19e0a8cbd1aee4ad457d7c9cea881f07b12a930cd307"
-	ReferenceManifestDigest = "sha256:b2122d3fd728173dd6b68a0b73caa129302b78c78273ba43ead541a88169c855"
+	ReferenceManifestDigest = "sha256:6983f495f7ee70d43e571657ae8b39ca3d3ca1b0e77270fd4fbddfb19832a1cf"
 	_                       = ExampleUnplayable
 )
 
 var (
 	exampleLayerDigest        = digest.FromBytes([]byte(exampleLayer)).String()
 	exampleManifestDigest     = digest.FromBytes([]byte(exampleManifest)).String()
-	exampleManifestDescriptor = artifactspec.Descriptor{
+	exampleManifestDescriptor = ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
 		Digest:    digest.Digest(exampleManifestDigest),
 		Size:      int64(len(exampleManifest))}
-	exampleSignatureManifest, _ = json.Marshal(artifactspec.Manifest{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
+	exampleSignatureManifest, _ = json.Marshal(ocispec.Artifact{
+		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
 		Subject:      &exampleManifestDescriptor})
-	exampleSignatureManifestDescriptor = artifactspec.Descriptor{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
+	exampleSignatureManifestDescriptor = ocispec.Descriptor{
+		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
 		Digest:       digest.FromBytes(exampleSignatureManifest),
 		Size:         int64(len(exampleSignatureManifest))}
-	exampleSBoMManifest, _ = json.Marshal(artifactspec.Manifest{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
+	exampleSBoMManifest, _ = json.Marshal(ocispec.Artifact{
+		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: "example/SBoM",
 		Subject:      &exampleManifestDescriptor})
-	exampleSBoMManifestDescriptor = artifactspec.Descriptor{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
+	exampleSBoMManifestDescriptor = ocispec.Descriptor{
+		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: "example/SBoM",
 		Digest:       digest.FromBytes(exampleSBoMManifest),
 		Size:         int64(len(exampleSBoMManifest))}
-	exampleReferrerDescriptors = [][]artifactspec.Descriptor{
+	exampleReferrerDescriptors = [][]ocispec.Descriptor{
 		{exampleSBoMManifestDescriptor},      // page 0
 		{exampleSignatureManifestDescriptor}, // page 1
 	}
 	blobContent    = "example blob content"
-	blobDescriptor = artifactspec.Descriptor{
+	blobDescriptor = ocispec.Descriptor{
 		MediaType: "application/tar",
 		Digest:    digest.FromBytes([]byte(blobContent)),
 		Size:      int64(len(blobContent))}
-	exampleManifestWithBlobs, _ = json.Marshal(artifactspec.Manifest{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
+	exampleManifestWithBlobs, _ = json.Marshal(ocispec.Artifact{
+		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: "example/manifest",
-		Blobs:        []artifactspec.Descriptor{blobDescriptor},
+		Blobs:        []ocispec.Descriptor{blobDescriptor},
 		Subject:      &exampleManifestDescriptor})
-	exampleManifestWithBlobsDescriptor = artifactspec.Descriptor{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
+	exampleManifestWithBlobsDescriptor = ocispec.Descriptor{
+		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: "example/manifest",
 		Digest:       digest.FromBytes(exampleManifestWithBlobs),
 		Size:         int64(len(exampleManifestWithBlobs))}
@@ -133,31 +132,31 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSignatureManifestDescriptor.Digest) && m == "GET":
 			w.Header().Set("ORAS-Api-Version", "oras/1.0")
-			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
 			w.Write(exampleSignatureManifest)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSBoMManifestDescriptor.Digest) && m == "GET":
 			w.Header().Set("ORAS-Api-Version", "oras/1.0")
-			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleSBoMManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSBoMManifest)))
 			w.Write(exampleSBoMManifest)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestWithBlobsDescriptor.Digest) && m == "GET":
 			w.Header().Set("ORAS-Api-Version", "oras/1.0")
-			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleManifestWithBlobsDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifestWithBlobs)))
 			w.Write(exampleManifestWithBlobs)
 		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, blobDescriptor.Digest) && m == "GET":
 			w.Header().Set("ORAS-Api-Version", "oras/1.0")
-			w.Header().Set("Content-Type", artifactspec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(blobDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobContent)))
 			w.Write([]byte(blobContent))
 		case p == fmt.Sprintf("/v2/%s/_oras/artifacts/referrers", exampleRepositoryName):
 			q := r.URL.Query()
-			var referrers []artifactspec.Descriptor
+			var referrers []ocispec.Descriptor
 			switch q.Get("test") {
 			case "page1":
 				referrers = exampleReferrerDescriptors[1]
@@ -168,7 +167,7 @@ func TestMain(m *testing.M) {
 				w.Header().Set("Link", fmt.Sprintf(`<%s?n=1&test=page1>; rel="next"`, p))
 			}
 			result := struct {
-				Referrers []artifactspec.Descriptor `json:"referrers"`
+				Referrers []ocispec.Descriptor `json:"referrers"`
 			}{
 				Referrers: referrers,
 			}
@@ -250,14 +249,10 @@ func ExampleRepository_Push() {
 	ctx := context.Background()
 
 	// 1. assemble a descriptor
-	content := []byte("Example layer content")
-	descriptor := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer, // Set media type
-		Digest:    digest.FromBytes(content),   // Calculate digest
-		Size:      int64(len(content)),         // Include content size
-	}
+	layer := []byte("Example layer content")
+	descriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layer)
 	// 2. push the descriptor and blob content
-	err = repo.Push(ctx, descriptor, bytes.NewReader(content))
+	err = repo.Push(ctx, descriptor, bytes.NewReader(layer))
 	if err != nil {
 		panic(err)
 	}
@@ -279,36 +274,29 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	manifest := ocispec.Manifest{
 		MediaType: ocispec.MediaTypeImageManifest,
 	}
-	manifestContent, _ := json.Marshal(manifest)
-	manifestDescriptor := artifactspec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(manifestContent),
-		Size:      int64(len(manifestContent)),
+	manifestContent, err := json.Marshal(manifest)
+	if err != nil {
+		panic(err)
 	}
+	manifestDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestContent)
 
 	// 2. push the manifest descriptor and content
-	err = repo.Push(ctx, ocispec.Descriptor{
-		MediaType: manifestDescriptor.MediaType,
-		Digest:    manifestDescriptor.Digest,
-		Size:      manifestDescriptor.Size,
-	}, bytes.NewReader(manifestContent))
+	err = repo.Push(ctx, manifestDescriptor, bytes.NewReader(manifestContent))
 	if err != nil {
 		panic(err)
 	}
 
 	// 3. assemble the reference artifact manifest
-	referenceManifest := artifactspec.Manifest{
-		MediaType:    artifactspec.MediaTypeArtifactManifest,
+	referenceManifest := ocispec.Artifact{
+		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: "sbom/example",
 		Subject:      &manifestDescriptor,
 	}
-	referenceManifestContent, _ := json.Marshal(referenceManifest)
-	referenceManifestDescriptor := ocispec.Descriptor{
-		MediaType: artifactspec.MediaTypeArtifactManifest,
-		Digest:    digest.FromBytes(referenceManifestContent),
-		Size:      int64(len(referenceManifestContent)),
+	referenceManifestContent, err := json.Marshal(referenceManifest)
+	if err != nil {
+		panic(err)
 	}
-
+	referenceManifestDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, referenceManifestContent)
 	// 4. push the reference manifest descriptor and content
 	err = repo.Push(ctx, referenceManifestDescriptor, bytes.NewReader(referenceManifestContent))
 	if err != nil {
@@ -441,22 +429,16 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 		panic(err)
 	}
 	// find its referrers by calling Referrers
-	if err := repo.Referrers(ctx, descriptor, "", func(referrers []artifactspec.Descriptor) error {
+	if err := repo.Referrers(ctx, descriptor, "", func(referrers []ocispec.Descriptor) error {
 		// for each page of the results, do the following:
 		for _, referrer := range referrers {
 			// for each item in this page, pull the manifest and verify its content
-			rc, err := repo.Fetch(ctx, ocispec.Descriptor{
-				MediaType: referrer.MediaType,
-				Digest:    referrer.Digest,
-				Size:      referrer.Size})
+			rc, err := repo.Fetch(ctx, referrer)
 			if err != nil {
 				panic(err)
 			}
 			defer rc.Close() // don't forget to close
-			pulledBlob, err := content.ReadAll(rc, ocispec.Descriptor{
-				MediaType: referrer.MediaType,
-				Digest:    referrer.Digest,
-				Size:      referrer.Size})
+			pulledBlob, err := content.ReadAll(rc, referrer)
 			if err != nil {
 				panic(err)
 			}
@@ -467,8 +449,8 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 		panic(err)
 	}
 	// Output:
-	// {"mediaType":"application/vnd.cncf.oras.artifact.manifest.v1+json","artifactType":"example/SBoM","blobs":null,"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
-	// {"mediaType":"application/vnd.cncf.oras.artifact.manifest.v1+json","artifactType":"example/signature","blobs":null,"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
+	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/SBoM","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
+	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/signature","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
 }
 
 // ExampleRepository_fetchArtifactBlobs gives an example of pulling the blobs
@@ -481,7 +463,7 @@ func ExampleRepository_fetchArtifactBlobs() {
 	ctx := context.Background()
 
 	// 1. Fetch the artifact manifest by digest.
-	exampleDigest := "sha256:73bccdadf23b5df306bf77b23e1b00944c7bbce44cf63439afe15507a73413b5"
+	exampleDigest := "sha256:1907bb31b7add4d47d74d2c5c1c10d67b757a996f8e8186e562113bc9879b1a3"
 	descriptor, rc, err := repo.FetchReference(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
@@ -495,16 +477,12 @@ func ExampleRepository_fetchArtifactBlobs() {
 	fmt.Println(string(pulledContent))
 
 	// 2. Parse the pulled manifest and fetch its blobs.
-	var pulledManifest artifactspec.Manifest
+	var pulledManifest ocispec.Artifact
 	if err := json.Unmarshal(pulledContent, &pulledManifest); err != nil {
 		panic(err)
 	}
 	for _, blob := range pulledManifest.Blobs {
-		content, err := content.FetchAll(ctx, repo, ocispec.Descriptor{
-			MediaType: blob.MediaType,
-			Digest:    blob.Digest,
-			Size:      blob.Size,
-		})
+		content, err := content.FetchAll(ctx, repo, blob)
 		if err != nil {
 			panic(err)
 		}
@@ -512,7 +490,7 @@ func ExampleRepository_fetchArtifactBlobs() {
 	}
 
 	// Output:
-	// {"mediaType":"application/vnd.cncf.oras.artifact.manifest.v1+json","artifactType":"example/manifest","blobs":[{"mediaType":"application/tar","digest":"sha256:8d6497c94694a292c04f85cd055d8b5c03eda835dd311e20dfbbf029ff9748cc","size":20}],"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
+	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/manifest","blobs":[{"mediaType":"application/tar","digest":"sha256:8d6497c94694a292c04f85cd055d8b5c03eda835dd311e20dfbbf029ff9748cc","size":20}],"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
 	// example blob content
 }
 
@@ -767,13 +745,6 @@ func Example_pushAndTag() {
 	//   |                                                   |
 	//   +--------+ localhost:5000/example/registry +--------+
 
-	generateDescriptor := func(mediaType string, blob []byte) (desc ocispec.Descriptor) {
-		return ocispec.Descriptor{
-			MediaType: mediaType,
-			Digest:    digest.FromBytes(blob), // Calculate digest
-			Size:      int64(len(blob)),       // Include blob size
-		}
-	}
 	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) ([]byte, error) {
 		content := ocispec.Manifest{
 			Config:    config,
@@ -782,17 +753,16 @@ func Example_pushAndTag() {
 		}
 		return json.Marshal(content)
 	}
-
 	// 1. assemble descriptors and manifest
 	layerBlob := []byte("Hello layer")
-	layerDesc := generateDescriptor(ocispec.MediaTypeImageLayer, layerBlob)
+	layerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layerBlob)
 	configBlob := []byte("Hello config")
-	configDesc := generateDescriptor(ocispec.MediaTypeImageConfig, configBlob)
+	configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configBlob)
 	manifestBlob, err := generateManifest(configDesc, layerDesc)
 	if err != nil {
 		panic(err)
 	}
-	manifestDesc := generateDescriptor(ocispec.MediaTypeImageManifest, manifestBlob)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestBlob)
 
 	// 2. push and tag
 	err = repo.Push(ctx, layerDesc, bytes.NewReader(layerBlob))
