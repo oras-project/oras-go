@@ -243,6 +243,27 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 	}
 }
 
+// fetchAnnotations fetches the annotations of the manifest described by desc.
+func fetchAnnotations(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) (map[string]string, error) {
+	rc, err := src.Fetch(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+
+	var manifest struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		return nil, err
+	}
+	if manifest.Annotations == nil {
+		// to differentiate with nil
+		return make(map[string]string), nil
+	}
+	return manifest.Annotations, nil
+}
+
 // FilterArtifactType will configure opts.FindPredecessors to filter the predecessors
 // whose artifact type matches a given regex pattern. When the regex pattern is nil,
 // no artifact type filter will be applied. For performance consideration, when using both
@@ -309,27 +330,6 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 		}
 		return filtered, nil
 	}
-}
-
-// fetchAnnotations fetches the annotations of the manifest described by desc.
-func fetchAnnotations(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) (map[string]string, error) {
-	rc, err := src.Fetch(ctx, desc)
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-
-	var manifest struct {
-		Annotations map[string]string `json:"annotations"`
-	}
-	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
-		return nil, err
-	}
-	if manifest.Annotations == nil {
-		// to differentiate with nil
-		return make(map[string]string), nil
-	}
-	return manifest.Annotations, nil
 }
 
 // fetchArtifactType fetches the artifact type of the manifest described by desc.

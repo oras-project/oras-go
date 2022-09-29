@@ -62,10 +62,10 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 			return nil, err
 		}
 		var nodes []ocispec.Descriptor
-		nodes = append(nodes, manifest.Config)
 		if manifest.Subject != nil {
 			nodes = append(nodes, *manifest.Subject)
 		}
+		nodes = append(nodes, manifest.Config)
 		return append(nodes, manifest.Layers...), nil
 	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
 		content, err := FetchAll(ctx, fetcher, node)

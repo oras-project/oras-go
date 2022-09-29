@@ -30,12 +30,14 @@ import (
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -1460,16 +1462,34 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex(t *t
 		}
 		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))       // descs[0]
-	generateArtifactManifest(descs[0], "good-bar-yellow", "1st") // descs[1]
-	generateArtifactManifest(descs[0], "bad-woo-red", "1st")     // descs[2]
-	generateArtifactManifest(descs[0], "bad-bar-blue", "2nd")    // descs[3]
-	generateArtifactManifest(descs[0], "bad-bar-red", "3rd")     // descs[4]
-	generateArtifactManifest(descs[0], "good-woo-pink", "2nd")   // descs[5]
-	generateArtifactManifest(descs[0], "good-foo-blue", "3rd")   // descs[6]
-	generateArtifactManifest(descs[0], "bad-bar-orange", "4th")  // descs[7]
-	generateArtifactManifest(descs[0], "bad-woo-white", "4th")   // descs[8]
-	generateArtifactManifest(descs[0], "good-woo-orange", "na")  // descs[9]
+	generateImageManifest := func(subject, config ocispec.Descriptor, mediaType string, value string) {
+		manifest := ocispec.Manifest{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+			},
+			MediaType:   mediaType,
+			Config:      config,
+			Subject:     &subject,
+			Annotations: map[string]string{"rank": value},
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                           // descs[0]
+	generateArtifactManifest(descs[0], "good-bar-yellow", "1st")                     // descs[1]
+	generateArtifactManifest(descs[0], "bad-woo-red", "1st")                         // descs[2]
+	generateArtifactManifest(descs[0], "bad-bar-blue", "2nd")                        // descs[3]
+	generateArtifactManifest(descs[0], "bad-bar-red", "3rd")                         // descs[4]
+	appendBlob("good-woo-pink", []byte("bar"))                                       // descs[5]
+	generateImageManifest(descs[0], descs[5], ocispec.MediaTypeImageManifest, "3rd") // descs[6]
+	appendBlob("bad-bar-pink", []byte("baz"))                                        // descs[7]
+	generateImageManifest(descs[0], descs[7], ocispec.MediaTypeImageManifest, "4th") // descs[8]
+	appendBlob("bad-bar-orange", []byte("config!"))                                  // descs[9]
+	generateImageManifest(descs[0], descs[9], docker.MediaTypeManifest, "4th")       // descs[10]
 
 	ctx := context.Background()
 	verifyCopy := func(dst content.Fetcher, copiedIndice []int, uncopiedIndice []int) {
@@ -1517,8 +1537,8 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex(t *t
 	if err := oras.ExtendedCopyGraph(ctx, src, dst, descs[0], opts); err != nil {
 		t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
 	}
-	copiedIndice := []int{0, 3, 7}
-	uncopiedIndice := []int{1, 2, 4, 5, 6, 8, 9}
+	copiedIndice := []int{0, 3, 7, 8, 9, 10}
+	uncopiedIndice := []int{1, 2, 4, 5, 6}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
