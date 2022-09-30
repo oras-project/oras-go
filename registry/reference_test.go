@@ -22,6 +22,9 @@ import (
 	"testing"
 )
 
+const ValidDigest = "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+const InvalidDigest = "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde"
+
 // For a definition of what a "valid form [ABCD]" means, see reference.go.
 func TestParseReferenceGoodies(t *testing.T) {
 	tests := []struct {
@@ -31,18 +34,26 @@ func TestParseReferenceGoodies(t *testing.T) {
 	}{
 		{
 			name:  "digest reference (valid form A)",
-			image: "hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			image: fmt.Sprintf("hello-world@%s", ValidDigest),
 			wantTemplate: Reference{
 				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+				Reference:  ValidDigest,
 			},
 		},
 		{
 			name:  "tag with digest (valid form B)",
-			image: "hello-world:v2@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			image: fmt.Sprintf("hello-world:v2@%s", ValidDigest),
 			wantTemplate: Reference{
 				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+				Reference:  ValidDigest,
+			},
+		},
+		{
+			name:  "empty tag with digest (valid form B)",
+			image: fmt.Sprintf("hello-world:@%s", ValidDigest),
+			wantTemplate: Reference{
+				Repository: "hello-world",
+				Reference:  ValidDigest,
 			},
 		},
 		{
@@ -109,6 +120,22 @@ func TestParseReferenceUglies(t *testing.T) {
 		{
 			name: "invalid port",
 			raw:  "localhost:v1/hello-world",
+		},
+		{
+			name: "invalid digest",
+			raw:  fmt.Sprintf("registry.example.com/foobar@%s", InvalidDigest),
+		},
+		{
+			name: "invalid digest prefix: colon instead of the at sign",
+			raw:  fmt.Sprintf("registry.example.com/hello-world:foobar:%s", ValidDigest),
+		},
+		{
+			name: "invalid digest prefix: double at sign",
+			raw:  fmt.Sprintf("registry.example.com/hello-world@@%s", ValidDigest),
+		},
+		{
+			name: "invalid digest prefix: space",
+			raw:  fmt.Sprintf("registry.example.com/hello-world @%s", ValidDigest),
 		},
 	}
 

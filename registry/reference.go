@@ -81,12 +81,12 @@ type Reference struct {
 // That is, of all the possible forms that `path` can take, there are exactly 4
 // that are considered valid.  Expanding the BNF notation for `path`, the 4 are:
 //
-//	<---------------------- path ----------------------> |  - Decode `path`
-//	<=== REPOSITORY ===><---------- reference ---------> |    - Decode `reference`
-//	<=== REPOSITORY ===><=================== digest ===> |      - Valid Form A
-//	<=== REPOSITORY ===><!!! TAG !!!> @ <=== digest ===> |      - Valid Form B
-//	<=== REPOSITORY ===><=== TAG ======================> |      - Valid Form C
-//	<=== REPOSITORY ===================================> |    - Valid Form D
+//	<--- path --------------------------------------------> |  - Decode `path`
+//	<=== REPOSITORY ===> <--- reference ------------------> |    - Decode `reference`
+//	<=== REPOSITORY ===> @ <=================== digest ===> |      - Valid Form A
+//	<=== REPOSITORY ===> : <!!! TAG !!!> @ <=== digest ===> |      - Valid Form B (tag is dropped)
+//	<=== REPOSITORY ===> : <=== TAG ======================> |      - Valid Form C
+//	<=== REPOSITORY ======================================> |    - Valid Form D
 //
 // Note: In the case of Valid Form B, TAG is dropped without any validation or
 // further consideration.
@@ -98,54 +98,75 @@ func ParseReference(artifact string) (Reference, error) {
 	}
 	registry, path := parts[0], parts[1]
 
+	var isTag bool
 	var repository string
 	var reference string
 	if index := strings.Index(path, "@"); index != -1 {
 		// `digest` found; Valid Form A (if not B)
+		isTag = false
 		repository = path[:index]
 		reference = path[index+1:]
 
-		if index := strings.Index(repository, ":"); index != -1 {
+		if index = strings.Index(repository, ":"); index != -1 {
 			// `tag` found (and now dropped without validation) since `the
 			// `digest` already present; Valid Form B
 			repository = repository[:index]
 		}
-	} else if index := strings.Index(path, ":"); index != -1 {
+	} else if index = strings.Index(path, ":"); index != -1 {
 		// `tag` found; Valid Form C
+		isTag = true
 		repository = path[:index]
 		reference = path[index+1:]
 	} else {
 		// empty `reference`; Valid Form D
 		repository = path
 	}
-	res := Reference{
+	ref := Reference{
 		Registry:   registry,
 		Repository: repository,
 		Reference:  reference,
 	}
-	if err := res.Validate(); err != nil {
+
+	if err := ref.ValidateRegistry(); err != nil {
 		return Reference{}, err
 	}
-	return res, nil
+
+	if err := ref.ValidateRepository(); err != nil {
+		return Reference{}, err
+	}
+
+	if len(ref.Reference) == 0 {
+		return ref, nil
+	}
+
+	validator := ref.ValidateReferenceAsDigest
+	if isTag {
+		validator = ref.ValidateReferenceAsTag
+	}
+	if err := validator(); err != nil {
+		return Reference{}, err
+	}
+
+	return ref, nil
 }
 
-// Validate validates the entire reference.
+// Validate the entire reference object; the registry, the repository, and the
+// reference.
 func (r Reference) Validate() error {
-	err := r.ValidateRegistry()
-	if err != nil {
+	if err := r.ValidateRegistry(); err != nil {
 		return err
 	}
-	err = r.ValidateRepository()
-	if err != nil {
+
+	if err := r.ValidateRepository(); err != nil {
 		return err
 	}
+
 	return r.ValidateReference()
 }
 
 // ValidateRegistry validates the registry.
 func (r Reference) ValidateRegistry() error {
-	uri, err := url.ParseRequestURI("dummy://" + r.Registry)
-	if err != nil || uri.Host != r.Registry {
+	if uri, err := url.ParseRequestURI("dummy://" + r.Registry); err != nil || uri.Host != r.Registry {
 		return fmt.Errorf("%w: invalid registry", errdef.ErrInvalidReference)
 	}
 	return nil
@@ -159,18 +180,34 @@ func (r Reference) ValidateRepository() error {
 	return nil
 }
 
-// ValidateReference validates the reference.
-func (r Reference) ValidateReference() error {
-	if r.Reference == "" {
-		return nil
-	}
-	if _, err := r.Digest(); err == nil {
-		return nil
-	}
+// ValidateReferenceAsTag validates the reference as a tag.
+func (r Reference) ValidateReferenceAsTag() error {
 	if !tagRegexp.MatchString(r.Reference) {
 		return fmt.Errorf("%w: invalid tag", errdef.ErrInvalidReference)
 	}
 	return nil
+}
+
+// ValidateReferenceAsDigest validates the reference as a digest.
+func (r Reference) ValidateReferenceAsDigest() error {
+	if _, err := r.Digest(); err != nil {
+		return fmt.Errorf("%w: invalid digest; %v", errdef.ErrInvalidReference, err)
+	}
+	return nil
+}
+
+// ValidateReference where the reference is first tried as an ampty string, then
+// as a digest, and if that fails, as a tag.
+func (r Reference) ValidateReference() error {
+	if len(r.Reference) == 0 {
+		return nil
+	}
+
+	if index := strings.IndexByte(r.Reference, ':'); index != -1 {
+		return r.ValidateReferenceAsDigest()
+	}
+
+	return r.ValidateReferenceAsTag()
 }
 
 // Host returns the host name of the registry.
