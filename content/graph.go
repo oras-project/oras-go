@@ -50,13 +50,22 @@ type ReadOnlyGraphStorage interface {
 // In other words, returns the "children" of the current descriptor.
 func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	switch node.MediaType {
-	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
+	case docker.MediaTypeManifest:
 		content, err := FetchAll(ctx, fetcher, node)
 		if err != nil {
 			return nil, err
 		}
-
-		// docker manifest and oci manifest are equivalent for successors.
+		// OCI manifest schema can be used to marshal docker manifest
+		var manifest ocispec.Manifest
+		if err := json.Unmarshal(content, &manifest); err != nil {
+			return nil, err
+		}
+		return append([]ocispec.Descriptor{manifest.Config}, manifest.Layers...), nil
+	case ocispec.MediaTypeImageManifest:
+		content, err := FetchAll(ctx, fetcher, node)
+		if err != nil {
+			return nil, err
+		}
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(content, &manifest); err != nil {
 			return nil, err
