@@ -92,16 +92,18 @@ func buildRepositoryBlobUploadURL(plainHTTP bool, ref registry.Reference) string
 // Format: <scheme>://<registry>/v2/<repository>/referrers/<digest>?artifactType=<artifactType>
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers
 func buildReferrersURL(plainHTTP bool, ref registry.Reference, artifactType string) string {
-	v := url.Values{}
+	var query string
 	if artifactType != "" {
+		v := url.Values{}
 		v.Set("artifactType", artifactType)
+		query = "?" + v.Encode()
 	}
 
 	return fmt.Sprintf(
-		"%s/referrers/%s?%s",
+		"%s/referrers/%s%s",
 		buildRepositoryBaseURL(plainHTTP, ref),
 		ref.Reference,
-		v.Encode(),
+		query,
 	)
 }
 
