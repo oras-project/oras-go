@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -93,6 +94,11 @@ type Repository struct {
 	// list, and referrers list.
 	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
+
+	// referrersUnsupported indicates if Referrers API is unsupported for the
+	// repository.
+	//  0: false (supported), 1: true (unsupported).
+	referrersUnsupported int32
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -106,6 +112,18 @@ func NewRepository(reference string) (*Repository, error) {
 	return &Repository{
 		Reference: ref,
 	}, nil
+}
+
+// setReferrersUnsupported sets referrersUnsupported to indicate that
+// Referrers API is unsupported for the repository.
+func (r *Repository) setReferrersUnsupported() {
+	atomic.StoreInt32(&r.referrersUnsupported, 1)
+}
+
+// isReferrersUnsupported returns true if Referrers API is unsupported for the
+// repository, otherwise returns false.
+func (r *Repository) isReferrersUnsupported() bool {
+	return atomic.LoadInt32(&r.referrersUnsupported) == 1
 }
 
 // client returns an HTTP client used to access the remote repository.
@@ -310,8 +328,14 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 
 	var err error
 	var tagSchemaUsed bool
-	url, err = r.referrers(ctx, artifactType, fn, url, tagSchemaUsed)
-	if errors.Is(err, errdef.ErrNotFound) {
+	if !r.isReferrersUnsupported() {
+		url, err = r.referrers(ctx, artifactType, fn, url, tagSchemaUsed)
+		if errors.Is(err, errdef.ErrNotFound) {
+			// to save future requests to Referrers API
+			r.setReferrersUnsupported()
+		}
+	}
+	if r.isReferrersUnsupported() {
 		// Referrers API is unavailable, fallback to the referrers tag schema
 		// reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
 		url, err = buildReferrersTagSchemaURL(r.PlainHTTP, ref)

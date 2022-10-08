@@ -1079,7 +1079,7 @@ func TestRepository_Referrers(t *testing.T) {
 	}
 }
 
-func TestRepository_Referrers_FallbackTagSchema(t *testing.T) {
+func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
@@ -1151,6 +1151,9 @@ func TestRepository_Referrers_FallbackTagSchema(t *testing.T) {
 	repo.PlainHTTP = true
 	repo.ReferrerListPageSize = 2
 
+	if unsupported := repo.isReferrersUnsupported(); unsupported {
+		t.Errorf("Repository.isReferrersUnsupported() = %v, want %v", unsupported, false)
+	}
 	ctx := context.Background()
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		if !reflect.DeepEqual(got, referrers) {
@@ -1159,6 +1162,9 @@ func TestRepository_Referrers_FallbackTagSchema(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+	if unsupported := repo.isReferrersUnsupported(); !unsupported {
+		t.Errorf("Repository.isReferrersUnsupported() = %v, want %v", unsupported, true)
 	}
 }
 
