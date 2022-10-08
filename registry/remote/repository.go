@@ -339,6 +339,7 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 	}
 	if !tagSchemaUsed && r.ReferrerListPageSize > 0 {
 		// Referrers tag schema does not support paging
+		// reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
 		q := req.URL.Query()
 		q.Set("n", strconv.Itoa(r.ReferrerListPageSize))
 		req.URL.RawQuery = q.Encode()
@@ -387,6 +388,9 @@ func isReferrersFilterApplied(annotation string, filter string) bool {
 		return true
 	}
 	filters := strings.Split(annotation, ",")
+	if len(filters) < 2 {
+		return false
+	}
 	for _, f := range filters {
 		if f == filter {
 			return true
