@@ -348,6 +348,11 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 	for err == nil {
 		url, err = r.referrers(ctx, artifactType, fn, url, tagSchemaUsed)
 	}
+	if err == errdef.ErrNotFound && tagSchemaUsed {
+		// If the tag schema API does not return a valid image index,
+		// consider that there are no referrers to the manifest.
+		return nil
+	}
 	if err != errNoLink {
 		return err
 	}
