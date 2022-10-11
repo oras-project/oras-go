@@ -1151,8 +1151,8 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	repo.PlainHTTP = true
 	repo.ReferrerListPageSize = 2
 
-	if unsupported := repo.isReferrersUnsupported(); unsupported {
-		t.Errorf("Repository.isReferrersUnsupported() = %v, want %v", unsupported, false)
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
 	ctx := context.Background()
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
@@ -1163,9 +1163,11 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-	if unsupported := repo.isReferrersUnsupported(); !unsupported {
-		t.Errorf("Repository.isReferrersUnsupported() = %v, want %v", unsupported, true)
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
+
+	// TODO: test for supported
 }
 
 func TestRepository_Referrers_ServerFiltering(t *testing.T) {

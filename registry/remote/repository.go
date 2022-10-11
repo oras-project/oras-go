@@ -46,6 +46,20 @@ import (
 // See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
 const dockerContentDigestHeader = "Docker-Content-Digest"
 
+// referrersState represents the state of Referrers API.
+type referrersState = int32
+
+const (
+	// referrersStateUnknown represents an unknown state of Referrers API.
+	referrersStateUnknown referrersState = 0
+	// referrersStateSupported represents that the repository is known to
+	// support Referrers API
+	referrersStateSupported referrersState = 1
+	// referrersStateUnsupported represents that the repository is known to
+	// not support Referrers API
+	referrersStateUnsupported referrersState = 2
+)
+
 // Client is an interface for a HTTP client.
 type Client interface {
 	// Do sends an HTTP request and returns an HTTP response.
@@ -95,10 +109,9 @@ type Repository struct {
 	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 
-	// referrersUnsupported indicates if Referrers API is unsupported for the
-	// repository.
-	//  0: false (supported), 1: true (unsupported).
-	referrersUnsupported int32
+	// referrersState represents that if the repository supports Referrers API.
+	// default: referrersStateUnknown
+	referrersState referrersState
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -114,16 +127,19 @@ func NewRepository(reference string) (*Repository, error) {
 	}, nil
 }
 
-// setReferrersUnsupported sets referrersUnsupported to indicate that
-// Referrers API is unsupported for the repository.
-func (r *Repository) setReferrersUnsupported() {
-	atomic.StoreInt32(&r.referrersUnsupported, 1)
+// SetReferrersCapability sets the capability of Referrers API for the
+// repository. true: capable; false: not capable.
+func (r *Repository) SetReferrersCapability(capable bool) {
+	if capable {
+		atomic.StoreInt32(&r.referrersState, referrersStateSupported)
+	} else {
+		atomic.StoreInt32(&r.referrersState, referrersStateUnsupported)
+	}
 }
 
-// isReferrersUnsupported returns true if Referrers API is unsupported for the
-// repository, otherwise returns false.
-func (r *Repository) isReferrersUnsupported() bool {
-	return atomic.LoadInt32(&r.referrersUnsupported) == 1
+// setReferrersState atomically loads r.referrersState.
+func (r *Repository) loadReferrersState() referrersState {
+	return atomic.LoadInt32(&r.referrersState)
 }
 
 // client returns an HTTP client used to access the remote repository.
@@ -316,59 +332,57 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 }
 
 // Referrers lists the descriptors of manifests directly referencing the given
-// manifest descriptor. fn is called for each page of
-// the referrers result. If artifactType is not empty, only referrers of the
-// same artifact type are fed to fn.
+// manifest descriptor. fn is called for each page of the referrers result.
+// If artifactType is not empty, only referrers of the same artifact type are
+// fed to fn.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers
 func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
 	ref := r.Reference
 	ref.Reference = desc.Digest.String()
 	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
-	url := buildReferrersURL(r.PlainHTTP, ref, artifactType)
 
-	var err error
-	var tagSchemaUsed bool
-	if !r.isReferrersUnsupported() {
-		url, err = r.referrers(ctx, artifactType, fn, url, tagSchemaUsed)
-		if errors.Is(err, errdef.ErrNotFound) {
-			// to save future requests to Referrers API
-			r.setReferrersUnsupported()
+	if state := r.loadReferrersState(); state == referrersStateUnknown || state == referrersStateSupported {
+		url := buildReferrersURL(r.PlainHTTP, ref, artifactType)
+		url, err := r.referrers(ctx, artifactType, fn, url)
+		for err == nil {
+			url, err = r.referrers(ctx, artifactType, fn, url)
 		}
-	}
-	if r.isReferrersUnsupported() {
-		// Referrers API is unavailable, fallback to the referrers tag schema
-		// reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
-		url, err = buildReferrersTagSchemaURL(r.PlainHTTP, ref)
-		if err != nil {
+		if err == errNoLink {
+			// no more pages
+			r.SetReferrersCapability(true)
+			return nil
+		}
+		if errors.Is(err, errdef.ErrNotFound) && state == referrersStateUnknown {
+			// A 404 returned by Referrers API represents that Referrers API is
+			// not supported. If the repository Referrers state is unknown,
+			// fallback to tag schema.
+			r.SetReferrersCapability(false)
+		} else {
+			// If the repository is known to support Referrers, or err is
+			// anything other than 404, return err.
 			return err
 		}
-		tagSchemaUsed = true
 	}
-
-	for err == nil {
-		url, err = r.referrers(ctx, artifactType, fn, url, tagSchemaUsed)
+	if state := r.loadReferrersState(); state == referrersStateUnsupported {
+		// The repository is known to not support Referrers API, fallback to
+		// tag schema.
+		// reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
+		return r.referrersTagSchema(ctx, ref, artifactType, fn)
 	}
-	if err == errNoLink {
-		return nil
-	}
-	if errors.Is(err, errdef.ErrNotFound) && tagSchemaUsed {
-		// If the tag schema API does not return a valid image index,
-		// consider that there are no referrers to the manifest.
-		return nil
-	}
-	return err
+	return nil
 }
 
-// referrers returns a single page of the manifest descriptors directly
-// referencing the given manifest descriptor with the next link.
-func (r *Repository) referrers(ctx context.Context, artifactType string, fn func(referrers []ocispec.Descriptor) error, url string, tagSchemaUsed bool) (string, error) {
+// referrers lists a single page of the descriptors of manifests directly
+// referencing the given manifest descriptor. fn is called for a page of
+// referrers result. If artifactType is not empty, only referrers of the same
+// artifact type are fed to fn.
+// referrers returns the link url for the next page.
+func (r *Repository) referrers(ctx context.Context, artifactType string, fn func(referrers []ocispec.Descriptor) error, url string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
-	if !tagSchemaUsed && r.ReferrerListPageSize > 0 {
-		// Referrers tag schema does not support paging
-		// reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
+	if r.ReferrerListPageSize > 0 {
 		q := req.URL.Query()
 		q.Set("n", strconv.Itoa(r.ReferrerListPageSize))
 		req.URL.RawQuery = q.Encode()
@@ -386,12 +400,12 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
 	}
+
 	var index ocispec.Index
 	lr := limitReader(resp.Body, r.MaxMetadataBytes)
 	if err := json.NewDecoder(lr).Decode(&index); err != nil {
 		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
-
 	referrers := index.Manifests
 	if artifactType != "" &&
 		!isReferrersFilterApplied(index.Annotations[ocispec.AnnotationReferrersFiltersApplied], "artifactType") {
@@ -405,6 +419,48 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 		}
 	}
 	return parseLink(resp)
+}
+
+// referrersTagSchema lists the descriptors of manifests directly referencing
+// the given manifest descriptor by requesting referrers tag schema url.
+// fn is called for the referrers result. If artifactType is not empty,
+// only referrers of the same artifact type are fed to fn.
+// reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
+func (r *Repository) referrersTagSchema(ctx context.Context, ref registry.Reference, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
+	url, err := buildReferrersTagSchemaURL(r.PlainHTTP, ref)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := r.client().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		// no referrers to the manifest
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return errutil.ParseErrorResponse(resp)
+	}
+
+	var index ocispec.Index
+	lr := limitReader(resp.Body, r.MaxMetadataBytes)
+	if err := json.NewDecoder(lr).Decode(&index); err != nil {
+		return fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+
+	referrers := filterReferrers(index.Manifests, artifactType)
+	if len(referrers) == 0 {
+		return nil
+	}
+	return fn(referrers)
 }
 
 // isReferrersFilterApplied checks the filtersApplied annotation to see if
