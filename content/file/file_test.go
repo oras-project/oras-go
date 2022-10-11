@@ -1063,28 +1063,6 @@ func TestStore_PackFiles(t *testing.T) {
 	if !exists {
 		t.Errorf("Store.Exists() = %v, want %v", exists, true)
 	}
-
-	// test fetch
-	rc, err := s.Fetch(ctx, manifestDesc)
-	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
-	}
-
-	var manifest ocispec.Manifest
-	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
-		t.Fatal("failed to decode manifest, err =", err)
-	}
-	if err = rc.Close(); err != nil {
-		t.Error("Store.Fetch().Close() error =", err)
-	}
-
-	exists, err = s.Exists(ctx, manifest.Config)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
 }
 
 func TestStore_File_Push_SameContent(t *testing.T) {

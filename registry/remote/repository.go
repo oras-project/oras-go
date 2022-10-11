@@ -1046,7 +1046,11 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return errutil.ParseErrorResponse(resp)
+		err := errutil.ParseErrorResponse(resp)
+		if resp.StatusCode == http.StatusBadRequest {
+			return fmt.Errorf("%w: %s: %v", errdef.ErrBadRequest, expected.MediaType, err)
+		}
+		return err
 	}
 	return verifyContentDigest(resp, expected.Digest)
 }

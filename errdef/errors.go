@@ -20,11 +20,12 @@ import "errors"
 // Common errors used in ORAS
 var (
 	ErrAlreadyExists      = errors.New("already exists")
-	ErrUnsupported        = errors.New("unsupported")
-	ErrInvalidReference   = errors.New("invalid reference")
+	ErrBadRequest         = errors.New("bad request")
 	ErrInvalidDigest      = errors.New("invalid digest")
-	ErrNotFound           = errors.New("not found")
-	ErrUnsupportedVersion = errors.New("unsupported version")
+	ErrInvalidReference   = errors.New("invalid reference")
 	ErrMissingReference   = errors.New("missing reference")
+	ErrNotFound           = errors.New("not found")
 	ErrSizeExceedsLimit   = errors.New("size exceeds limit")
+	ErrUnsupported        = errors.New("unsupported")
+	ErrUnsupportedVersion = errors.New("unsupported version")
 )

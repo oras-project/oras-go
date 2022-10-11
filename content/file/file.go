@@ -440,7 +440,7 @@ func (s *Store) PackFiles(ctx context.Context, names []string) (ocispec.Descript
 		layers = append(layers, desc)
 	}
 
-	return oras.Pack(ctx, s, layers, oras.PackOptions{})
+	return oras.Pack(ctx, s, "", layers, oras.PackOptions{})
 }
 
 // saveFile saves content matching the descriptor to the given file.
