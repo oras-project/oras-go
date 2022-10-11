@@ -52,13 +52,13 @@ type referrersState = int32
 
 const (
 	// referrersStateUnknown represents an unknown state of Referrers API.
-	referrersStateUnknown referrersState = 0
+	referrersStateUnknown referrersState = iota
 	// referrersStateSupported represents that the repository is known to
 	// support Referrers API
-	referrersStateSupported referrersState = 1
+	referrersStateSupported
 	// referrersStateUnsupported represents that the repository is known to
 	// not support Referrers API
-	referrersStateUnsupported referrersState = 2
+	referrersStateUnsupported
 )
 
 // Client is an interface for a HTTP client.
@@ -128,19 +128,20 @@ func NewRepository(reference string) (*Repository, error) {
 	}, nil
 }
 
-// SetReferrersCapability sets the capability of Referrers API for the
+// SetReferrersCapabilityOnce sets the capability of Referrers API for the
 // repository. true: capable; false: not capable.
+// SetReferrersCapabilityOnce is valid only when it is called for the first time.
 // - When the capability is set to true, the Referrers() function will always
 // request the Referrers API. Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers
 // - When the capability is set to false, the Referrers() function will always
 // request the Referrers Tag. Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#referrers-tag-schema
 // - When the capability is not set, the Referrers() function will automatically
 // determine which API to use.
-func (r *Repository) SetReferrersCapability(capable bool) {
+func (r *Repository) SetReferrersCapabilityOnce(capable bool) {
 	if capable {
-		atomic.StoreInt32(&r.referrersState, referrersStateSupported)
+		atomic.CompareAndSwapInt32(&r.referrersState, referrersStateUnknown, referrersStateSupported)
 	} else {
-		atomic.StoreInt32(&r.referrersState, referrersStateUnsupported)
+		atomic.CompareAndSwapInt32(&r.referrersState, referrersStateUnknown, referrersStateUnsupported)
 	}
 }
 
@@ -357,14 +358,14 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 		}
 		if err == errNoLink {
 			// no more pages
-			r.SetReferrersCapability(true)
+			r.SetReferrersCapabilityOnce(true)
 			return nil
 		}
 		if errors.Is(err, errdef.ErrNotFound) && state == referrersStateUnknown {
 			// A 404 returned by Referrers API represents that Referrers API is
 			// not supported. If the repository Referrers state is unknown,
 			// fallback to referrers tag schema.
-			r.SetReferrersCapability(false)
+			r.SetReferrersCapabilityOnce(false)
 		} else {
 			// If the repository is known to support Referrers, or err is
 			// anything other than 404, return err.
@@ -445,6 +446,7 @@ func (r *Repository) referrersTagSchema(ctx context.Context, desc ocispec.Descri
 			return err
 		}
 	}
+	defer rc.Close()
 
 	var index ocispec.Index
 	lr := limitReader(rc, r.MaxMetadataBytes)

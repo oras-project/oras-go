@@ -1058,16 +1058,16 @@ func TestRepository_Referrers(t *testing.T) {
 		t.Fatalf("invalid test http server: %v", err)
 	}
 
+	ctx := context.Background()
+
+	// test auto detect
+	// remote server supports Referrers, should be no error
 	repo, err := NewRepository(uri.Host + "/test")
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
 	repo.ReferrerListPageSize = 2
-	ctx := context.Background()
-
-	// test auto detect
-	// remote server supports Referrers, should be no error
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
@@ -1091,7 +1091,13 @@ func TestRepository_Referrers(t *testing.T) {
 
 	// test force attempt Referrers
 	// remote server supports Referrers, should be no error
-	repo.SetReferrersCapability(true)
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListPageSize = 2
+	repo.SetReferrersCapabilityOnce(true)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
@@ -1115,7 +1121,13 @@ func TestRepository_Referrers(t *testing.T) {
 
 	// test force attempt tag schema
 	// request tag schema but got 404, should be no error
-	repo.SetReferrersCapability(false)
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListPageSize = 2
+	repo.SetReferrersCapabilityOnce(false)
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
@@ -1196,17 +1208,15 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invalid test http server: %v", err)
 	}
+	ctx := context.Background()
 
+	// test auto detect
+	// remote server does not support Referrers, should fallback to tag schema
 	repo, err := NewRepository(uri.Host + "/test")
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
-	repo.ReferrerListPageSize = 2
-	ctx := context.Background()
-
-	// test auto detect
-	// remote server does not support Referrers, should fallback to tag schema
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
@@ -1224,7 +1234,12 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 
 	// test force attempt Referrers
 	// remote server does not support Referrers, should return error
-	repo.SetReferrersCapability(true)
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapabilityOnce(true)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
@@ -1239,7 +1254,12 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 
 	// test force attempt tag schema
 	// should request tag schema
-	repo.SetReferrersCapability(false)
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapabilityOnce(false)
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
@@ -1282,16 +1302,15 @@ func TestRepository_Referrers_TagSchemaFallback_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invalid test http server: %v", err)
 	}
+	ctx := context.Background()
 
+	// test auto detect
+	// tag schema referrers not found, should be no error
 	repo, err := NewRepository(uri.Host + "/test")
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
-	ctx := context.Background()
-
-	// test auto detect
-	// tag schema referrers not found, should be no error
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
@@ -1306,7 +1325,12 @@ func TestRepository_Referrers_TagSchemaFallback_NotFound(t *testing.T) {
 
 	// test force attempt tag schema
 	// tag schema referrers not found, should be no error
-	repo.SetReferrersCapability(false)
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapabilityOnce(false)
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
@@ -1345,16 +1369,15 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invalid test http server: %v", err)
 	}
+	ctx := context.Background()
 
+	// test auto detect
+	// Referrers returns error
 	repo, err := NewRepository(uri.Host + "/test")
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
-	ctx := context.Background()
-
-	// test auto detect
-	// Referrers returns error
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
@@ -1369,7 +1392,12 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 
 	// test force attempt Referrers
 	// Referrers returns error
-	repo.SetReferrersCapability(true)
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapabilityOnce(true)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
@@ -1384,7 +1412,12 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 
 	// test force attempt tag schema
 	// Referrers returns error
-	repo.SetReferrersCapability(false)
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapabilityOnce(false)
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
@@ -3753,6 +3786,29 @@ func TestRepository_ParseReference(t *testing.T) {
 				t.Errorf("Repository.ParseReference() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRepository_SetReferrersCapabilityOnce(t *testing.T) {
+	repo, err := NewRepository("registry.example.com/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	// initial state
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+
+	// valid first time set
+	repo.SetReferrersCapabilityOnce(true)
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+
+	// invalid second time set, should be no change
+	repo.SetReferrersCapabilityOnce(false)
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 }
 
