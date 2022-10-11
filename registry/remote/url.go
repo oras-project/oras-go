@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/opencontainers/go-digest"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -105,20 +104,4 @@ func buildReferrersURL(plainHTTP bool, ref registry.Reference, artifactType stri
 		ref.Reference,
 		query,
 	)
-}
-
-// buildReferrersTagSchemaURL builds the URL for querying referrers stored in a
-// Image Index tagged by the referrers tag schema.
-// Format: <scheme>://<registry>/v2/<repository>/manifests/<algorithm>-<digest>
-// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#unavailable-referrers-api
-func buildReferrersTagSchemaURL(plainHTTP bool, ref registry.Reference) (string, error) {
-	dgst, err := digest.Parse(ref.Reference)
-	if err != nil {
-		return "", err
-	}
-	alg := dgst.Algorithm().String()
-	encoded := dgst.Encoded()
-	refTag := alg + "-" + encoded
-	ref.Reference = refTag
-	return buildRepositoryManifestURL(plainHTTP, ref), nil
 }

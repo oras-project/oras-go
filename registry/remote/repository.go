@@ -30,6 +30,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/httputil"
@@ -338,10 +339,10 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers
 func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
 	ref := r.Reference
-	ref.Reference = desc.Digest.String()
 	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
 
 	if state := r.loadReferrersState(); state == referrersStateUnknown || state == referrersStateSupported {
+		ref.Reference = desc.Digest.String()
 		url := buildReferrersURL(r.PlainHTTP, ref, artifactType)
 		url, err := r.referrers(ctx, artifactType, fn, url)
 		for err == nil {
@@ -367,7 +368,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 		// The repository is known to not support Referrers API, fallback to
 		// tag schema.
 		// reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
-		return r.referrersTagSchema(ctx, ref, artifactType, fn)
+		return r.referrersTagSchema(ctx, desc, artifactType, fn)
 	}
 	return nil
 }
@@ -422,38 +423,30 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 }
 
 // referrersTagSchema lists the descriptors of manifests directly referencing
-// the given manifest descriptor by requesting referrers tag schema url.
+// the given manifest descriptor by requesting referrers tag.
 // fn is called for the referrers result. If artifactType is not empty,
 // only referrers of the same artifact type are fed to fn.
 // reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
-func (r *Repository) referrersTagSchema(ctx context.Context, ref registry.Reference, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
-	url, err := buildReferrersTagSchemaURL(r.PlainHTTP, ref)
+func (r *Repository) referrersTagSchema(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
+	referrersTag := getReferrersTag(desc)
+	desc, rc, err := r.FetchReference(ctx, referrersTag)
 	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := r.client().Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		// no referrers to the manifest
-		return nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		return errutil.ParseErrorResponse(resp)
+		if errors.Is(err, errdef.ErrNotFound) {
+			// no referrers to the manifest
+			return nil
+		} else {
+			return err
+		}
 	}
 
 	var index ocispec.Index
-	lr := limitReader(resp.Body, r.MaxMetadataBytes)
-	if err := json.NewDecoder(lr).Decode(&index); err != nil {
-		return fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
+	lr := limitReader(rc, r.MaxMetadataBytes)
+	indexJson, err := content.ReadAll(lr, desc)
+	if err != nil {
+		return fmt.Errorf("failed to read referrers from Referrers tag %s: %w", referrersTag, err)
+	}
+	if err := json.Unmarshal(indexJson, &index); err != nil {
+		return fmt.Errorf("failed to decode referrers from Referrers tag %s: %w", referrersTag, err)
 	}
 
 	referrers := filterReferrers(index.Manifests, artifactType)
@@ -461,6 +454,15 @@ func (r *Repository) referrersTagSchema(ctx context.Context, ref registry.Refere
 		return nil
 	}
 	return fn(referrers)
+}
+
+// getReferrersTag returns the referrers tag for the given manifest descriptor.
+// Format: <algorithm>-<digest>
+// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#unavailable-referrers-api
+func getReferrersTag(desc ocispec.Descriptor) string {
+	alg := desc.Digest.Algorithm().String()
+	encoded := desc.Digest.Encoded()
+	return alg + "-" + encoded
 }
 
 // isReferrersFilterApplied checks the filtersApplied annotation to see if

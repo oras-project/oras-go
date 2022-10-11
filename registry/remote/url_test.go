@@ -71,61 +71,6 @@ func Test_buildReferrersURL(t *testing.T) {
 	}
 }
 
-func Test_buildReferrersTagSchemaURL(t *testing.T) {
-	digestRef := registry.Reference{
-		Registry:   "localhost",
-		Repository: "hello-world",
-		Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-	}
-	tagRef := registry.Reference{
-		Registry:   "localhost",
-		Repository: "hello-world",
-		Reference:  "tag",
-	}
-
-	params := []struct {
-		name      string
-		ref       registry.Reference
-		plainHttp bool
-		want      string
-		wantErr   bool
-	}{
-		{
-			name:      "plain http",
-			ref:       digestRef,
-			plainHttp: true,
-			want:      "http://localhost/v2/hello-world/manifests/sha256-b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			wantErr:   false,
-		},
-		{
-			name:      "https",
-			ref:       digestRef,
-			plainHttp: false,
-			want:      "https://localhost/v2/hello-world/manifests/sha256-b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			wantErr:   false,
-		},
-		{
-			name:      "invalid reference",
-			ref:       tagRef,
-			plainHttp: true,
-			want:      "",
-			wantErr:   true,
-		},
-	}
-	for _, tt := range params {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildReferrersTagSchemaURL(tt.plainHttp, tt.ref)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("buildReferrersTagSchemaURL() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !compareUrl(got, tt.want) {
-				t.Errorf("buildReferrersTagSchemaURL() = %s, want %s", got, tt.want)
-			}
-		})
-	}
-}
-
 // compareUrl compares two urls, regardless of query order and encoding
 func compareUrl(s1, s2 string) bool {
 	u1, err := url.Parse(s1)
