@@ -3838,7 +3838,7 @@ func Test_getReferrersTag(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := getReferrersTag(tt.desc); got != tt.want {
+			if got := buildReferrersTag(tt.desc); got != tt.want {
 				t.Errorf("getReferrersTag() = %v, want %v", got, tt.want)
 			}
 		})

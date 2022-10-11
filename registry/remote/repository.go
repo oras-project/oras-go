@@ -130,6 +130,12 @@ func NewRepository(reference string) (*Repository, error) {
 
 // SetReferrersCapability sets the capability of Referrers API for the
 // repository. true: capable; false: not capable.
+// - When the capability is set to true, the Referrers() function will always
+// request the Referrers API. Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers
+// - When the capability is set to false, the Referrers() function will always
+// request the Referrers Tag. Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#referrers-tag-schema
+// - When the capability is not set, the Referrers() function will automatically
+// determine which API to use.
 func (r *Repository) SetReferrersCapability(capable bool) {
 	if capable {
 		atomic.StoreInt32(&r.referrersState, referrersStateSupported)
@@ -317,8 +323,8 @@ func (r *Repository) tags(ctx context.Context, last string, fn func(tags []strin
 	return parseLink(resp)
 }
 
-// Predecessors returns the descriptors of manifests directly referencing the
-// given manifest descriptor.
+// Predecessors returns the descriptors of image or artifact manifests directly
+// referencing the given manifest descriptor.
 // Predecessors internally leverages Referrers.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers
 func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
@@ -332,8 +338,9 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 	return res, nil
 }
 
-// Referrers lists the descriptors of manifests directly referencing the given
-// manifest descriptor. fn is called for each page of the referrers result.
+// Referrers lists the descriptors of image or artifact manifests directly
+// referencing the given manifest descriptor.
+// fn is called for each page of the referrers result.
 // If artifactType is not empty, only referrers of the same artifact type are
 // fed to fn.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers
@@ -356,7 +363,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 		if errors.Is(err, errdef.ErrNotFound) && state == referrersStateUnknown {
 			// A 404 returned by Referrers API represents that Referrers API is
 			// not supported. If the repository Referrers state is unknown,
-			// fallback to tag schema.
+			// fallback to referrers tag schema.
 			r.SetReferrersCapability(false)
 		} else {
 			// If the repository is known to support Referrers, or err is
@@ -366,7 +373,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 	}
 	if state := r.loadReferrersState(); state == referrersStateUnsupported {
 		// The repository is known to not support Referrers API, fallback to
-		// tag schema.
+		// referrers tag schema.
 		// reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
 		return r.referrersTagSchema(ctx, desc, artifactType, fn)
 	}
@@ -428,7 +435,7 @@ func (r *Repository) referrers(ctx context.Context, artifactType string, fn func
 // only referrers of the same artifact type are fed to fn.
 // reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#backwards-compatibility
 func (r *Repository) referrersTagSchema(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
-	referrersTag := getReferrersTag(desc)
+	referrersTag := buildReferrersTag(desc)
 	desc, rc, err := r.FetchReference(ctx, referrersTag)
 	if err != nil {
 		if errors.Is(err, errdef.ErrNotFound) {
@@ -456,10 +463,10 @@ func (r *Repository) referrersTagSchema(ctx context.Context, desc ocispec.Descri
 	return fn(referrers)
 }
 
-// getReferrersTag returns the referrers tag for the given manifest descriptor.
+// buildReferrersTag builds the referrers tag for the given manifest descriptor.
 // Format: <algorithm>-<digest>
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#unavailable-referrers-api
-func getReferrersTag(desc ocispec.Descriptor) string {
+func buildReferrersTag(desc ocispec.Descriptor) string {
 	alg := desc.Digest.Algorithm().String()
 	encoded := desc.Digest.Encoded()
 	return alg + "-" + encoded
