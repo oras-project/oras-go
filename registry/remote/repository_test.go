@@ -1097,7 +1097,7 @@ func TestRepository_Referrers(t *testing.T) {
 	}
 	repo.PlainHTTP = true
 	repo.ReferrerListPageSize = 2
-	repo.SetReferrersCapabilityOnce(true)
+	repo.SetReferrersCapability(true)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
@@ -1127,7 +1127,7 @@ func TestRepository_Referrers(t *testing.T) {
 	}
 	repo.PlainHTTP = true
 	repo.ReferrerListPageSize = 2
-	repo.SetReferrersCapabilityOnce(false)
+	repo.SetReferrersCapability(false)
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
@@ -1239,7 +1239,7 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
-	repo.SetReferrersCapabilityOnce(true)
+	repo.SetReferrersCapability(true)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
@@ -1259,7 +1259,7 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
-	repo.SetReferrersCapabilityOnce(false)
+	repo.SetReferrersCapability(false)
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
@@ -1330,7 +1330,7 @@ func TestRepository_Referrers_TagSchemaFallback_NotFound(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
-	repo.SetReferrersCapabilityOnce(false)
+	repo.SetReferrersCapability(false)
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
@@ -1397,7 +1397,7 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
-	repo.SetReferrersCapabilityOnce(true)
+	repo.SetReferrersCapability(true)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
@@ -1417,7 +1417,7 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
-	repo.SetReferrersCapabilityOnce(false)
+	repo.SetReferrersCapability(false)
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
@@ -3800,13 +3800,13 @@ func TestRepository_SetReferrersCapabilityOnce(t *testing.T) {
 	}
 
 	// valid first time set
-	repo.SetReferrersCapabilityOnce(true)
+	repo.SetReferrersCapability(true)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 
 	// invalid second time set, should be no change
-	repo.SetReferrersCapabilityOnce(false)
+	repo.SetReferrersCapability(false)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}

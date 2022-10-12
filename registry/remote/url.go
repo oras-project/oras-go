@@ -89,7 +89,7 @@ func buildRepositoryBlobUploadURL(plainHTTP bool, ref registry.Reference) string
 
 // buildReferrersURL builds the URL for querying the Referrers API.
 // Format: <scheme>://<registry>/v2/<repository>/referrers/<digest>?artifactType=<artifactType>
-// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#listing-referrers
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
 func buildReferrersURL(plainHTTP bool, ref registry.Reference, artifactType string) string {
 	var query string
 	if artifactType != "" {
