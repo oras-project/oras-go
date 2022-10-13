@@ -368,7 +368,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 
 	err := r.referrersByAPI(ctx, desc, artifactType, fn)
 	if state == referrersStateSupported {
-		// The repository is known to support Referrers, no fallback.
+		// The repository is known to support Referrers API, no fallback.
 		return err
 	}
 
