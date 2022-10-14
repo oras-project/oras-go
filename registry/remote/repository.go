@@ -29,7 +29,9 @@ import (
 	"sync/atomic"
 
 	"github.com/opencontainers/go-digest"
+	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/httputil"
@@ -877,8 +879,45 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 }
 
 // Push pushes the content, matching the expected descriptor.
-func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	return s.push(ctx, expected, content, expected.Digest.String())
+func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, body io.Reader) error {
+	var buf bytes.Buffer
+	lr := io.LimitReader(body, s.repo.MaxMetadataBytes)
+	tr := io.TeeReader(lr, &buf)
+	isArtifact, artifactDesc, err := checkArtifact(expected, tr)
+	if err != nil {
+		return err
+	}
+
+	if err := s.push(ctx, expected, &buf, expected.Digest.String()); err != nil {
+		return err
+	}
+	if isArtifact {
+		return s.indexReferrers(ctx, artifactDesc)
+	}
+	return nil
+}
+
+func checkArtifact(expected ocispec.Descriptor, r io.Reader) (bool, ocispec.Descriptor, error) {
+	manifestJSON, err := content.ReadAll(r, expected)
+	if err != nil {
+		return false, ocispec.Descriptor{}, err
+	}
+	type manifest struct {
+		ArtifactType string              `json:"artifactType"`
+		Subject      *ocispec.Descriptor `json:"subject,omitempty"`
+		Annotations  map[string]string   `json:"annotations,omitempty"`
+	}
+	var m manifest
+	if err := json.Unmarshal(manifestJSON, &m); err != nil {
+		return false, ocispec.Descriptor{}, err
+	}
+
+	if m.Subject != nil {
+		expected.ArtifactType = m.ArtifactType
+		expected.Annotations = m.Annotations
+		return true, expected, nil
+	}
+	return false, expected, nil
 }
 
 // Exists returns true if the described content exists.
@@ -992,6 +1031,7 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 	if err != nil {
 		return err
 	}
+	// TODO: clone body
 	return s.push(ctx, expected, content, ref.Reference)
 }
 
@@ -1049,6 +1089,78 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 		return errutil.ParseErrorResponse(resp)
 	}
 	return verifyContentDigest(resp, expected.Digest)
+}
+
+func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descriptor) error {
+	ok, err := s.repo.testReferrersAPI(ctx, desc)
+	if err != nil {
+		return err
+	}
+	if ok {
+		// no need to index
+		return nil
+	}
+
+	var existingReferrers []ocispec.Descriptor
+	// TODO: call referrersTagSchema
+	if err != nil && !errors.Is(err, errdef.ErrNotFound) {
+		// If that pull returns a manifest other than the expected image index, the client SHOULD report a failure and skip the remaining steps.
+		return err
+	}
+
+	var referrers []ocispec.Descriptor
+	// If the tag returns a 404, the client MUST begin with an empty image index.
+	for _, r := range existingReferrers {
+		if desc.Digest == r.Digest {
+			// note: desc should already contain the artifact type and annotations
+			referrers = append(referrers, desc)
+		} else {
+			referrers = append(referrers, r)
+		}
+	}
+
+	index := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: referrers,
+	}
+	indexJSON, err := json.Marshal(index)
+	if err != nil {
+		return err // TODO: format
+	}
+	referrersTag := "" // TODO: build referrers tag
+
+	// TODO: concurrency?
+	return s.push(ctx, desc, bytes.NewReader(indexJSON), referrersTag)
+}
+
+func (r *Repository) testReferrersAPI(ctx context.Context, desc ocispec.Descriptor) (bool, error) {
+	ref := r.Reference
+	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+	ref.Reference = desc.Digest.String()
+	// url := buildReferrersURL(r.PlainHTTP, ref, "")
+	url := ""
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := r.client().Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, errutil.ParseErrorResponse(resp)
+	}
 }
 
 // ParseReference parses a reference to a fully qualified reference.
