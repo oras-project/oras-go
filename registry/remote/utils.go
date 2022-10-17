@@ -16,6 +16,7 @@ limitations under the License.
 package remote
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 )
 
@@ -75,4 +77,14 @@ func limitSize(desc ocispec.Descriptor, n int64) error {
 		return errdef.ErrSizeExceedsLimit
 	}
 	return nil
+}
+
+// decodeJSON safely reads the JSON content described by desc, and
+// decodes it into v.
+func decodeJSON(r io.Reader, desc ocispec.Descriptor, v any) error {
+	indexJSON, err := content.ReadAll(r, desc)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(indexJSON, v)
 }

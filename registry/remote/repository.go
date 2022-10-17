@@ -30,7 +30,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/httputil"
@@ -152,10 +151,10 @@ func (r *Repository) SetReferrersCapability(capable bool) error {
 	}
 	if swapped := atomic.CompareAndSwapInt32(&r.referrersState, referrersStateUnknown, state); !swapped {
 		if fact := r.loadReferrersState(); fact != state {
-			return fmt.Errorf("%w: new capability = %v, set capability = %v",
+			return fmt.Errorf("%w: current capability = %v, new capability = %v",
 				ErrReferrersCapabilityAlreadySet,
-				capable,
-				fact == referrersStateSupported)
+				fact == referrersStateSupported,
+				capable)
 		}
 	}
 	return nil
@@ -478,13 +477,9 @@ func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Desc
 	if err := limitSize(desc, r.MaxMetadataBytes); err != nil {
 		return fmt.Errorf("failed to read referrers index from referrers tag %s: %w", referrersTag, err)
 	}
-	vr := content.NewVerifyReader(rc, desc)
 	var index ocispec.Index
-	if err := json.NewDecoder(vr).Decode(&index); err != nil {
+	if err := decodeJSON(rc, desc, &index); err != nil {
 		return fmt.Errorf("failed to decode referrers index from referrers tag %s: %w", referrersTag, err)
-	}
-	if err := vr.Verify(); err != nil {
-		return fmt.Errorf("failed to verify referrers index: referrers tag: %s: %w", referrersTag, err)
 	}
 
 	referrers := filterReferrers(index.Manifests, artifactType)
