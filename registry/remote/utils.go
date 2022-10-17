@@ -16,11 +16,16 @@ limitations under the License.
 package remote
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/errdef"
 )
 
 // defaultMaxMetadataBytes specifies the default limit on how many response
@@ -60,4 +65,26 @@ func limitReader(r io.Reader, n int64) io.Reader {
 		n = defaultMaxMetadataBytes
 	}
 	return io.LimitReader(r, n)
+}
+
+// limitSize returns ErrSizeExceedsLimit if the size of desc exceeds the limit n.
+// If n is less than or equal to zero, defaultMaxMetadataBytes is used.
+func limitSize(desc ocispec.Descriptor, n int64) error {
+	if n <= 0 {
+		n = defaultMaxMetadataBytes
+	}
+	if desc.Size > n {
+		return errdef.ErrSizeExceedsLimit
+	}
+	return nil
+}
+
+// decodeJSON safely reads the JSON content described by desc, and
+// decodes it into v.
+func decodeJSON(r io.Reader, desc ocispec.Descriptor, v any) error {
+	jsonBytes, err := content.ReadAll(r, desc)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(jsonBytes, v)
 }

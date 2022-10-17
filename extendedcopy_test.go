@@ -909,8 +909,18 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex_Referrers(t *testin
 	// set up test server
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		switch {
+		case p == "/v2/test/referrers/"+descs[0].Digest.String():
+			result := ocispec.Index{
+				Versioned: specs.Versioned{
+					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+				},
+				MediaType: ocispec.MediaTypeImageIndex,
+				Manifests: descs[1:],
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 		case strings.Contains(p, descs[0].Digest.String()):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
 			w.Header().Set("Content-Digest", descs[0].Digest.String())
@@ -941,20 +951,6 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex_Referrers(t *testin
 			w.Header().Set("Content-Digest", descs[5].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[5])))
 			w.Write(blobs[5])
-		case strings.Contains(p, "referrers"):
-			q := r.URL.Query()
-			var referrers []ocispec.Descriptor
-			if q.Get("digest") == descs[0].Digest.String() {
-				referrers = descs[1:]
-			}
-			result := struct {
-				Referrers []ocispec.Descriptor `json:"referrers"`
-			}{
-				Referrers: referrers,
-			}
-			if err := json.NewEncoder(w).Encode(result); err != nil {
-				t.Errorf("failed to write response: %v", err)
-			}
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -1336,8 +1332,18 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex_Referrers(t *test
 	// set up test server
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		switch {
+		case p == "/v2/test/referrers/"+descs[0].Digest.String():
+			result := ocispec.Index{
+				Versioned: specs.Versioned{
+					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+				},
+				MediaType: ocispec.MediaTypeImageIndex,
+				Manifests: descs[1:],
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 		case strings.Contains(p, descs[0].Digest.String()):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
 			w.Header().Set("Content-Digest", descs[0].Digest.String())
@@ -1368,20 +1374,6 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex_Referrers(t *test
 			w.Header().Set("Content-Digest", descs[5].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[5])))
 			w.Write(blobs[5])
-		case strings.Contains(p, "referrers"):
-			q := r.URL.Query()
-			var referrers []ocispec.Descriptor
-			if q.Get("digest") == descs[0].Digest.String() {
-				referrers = descs[1:]
-			}
-			result := struct {
-				Referrers []ocispec.Descriptor `json:"referrers"`
-			}{
-				Referrers: referrers,
-			}
-			if err := json.NewEncoder(w).Encode(result); err != nil {
-				t.Errorf("failed to write response: %v", err)
-			}
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -1581,8 +1573,18 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex_Refe
 	// set up test server
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		w.Header().Set("ORAS-Api-Version", "oras/1.0")
 		switch {
+		case p == "/v2/test/referrers/"+descs[0].Digest.String():
+			result := ocispec.Index{
+				Versioned: specs.Versioned{
+					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+				},
+				MediaType: ocispec.MediaTypeImageIndex,
+				Manifests: descs[1:],
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
 		case strings.Contains(p, descs[0].Digest.String()):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
 			w.Header().Set("Content-Digest", descs[0].Digest.String())
@@ -1633,20 +1635,6 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex_Refe
 			w.Header().Set("Content-Digest", descs[9].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[9])))
 			w.Write(blobs[9])
-		case strings.Contains(p, "referrers"):
-			q := r.URL.Query()
-			var referrers []ocispec.Descriptor
-			if q.Get("digest") == descs[0].Digest.String() {
-				referrers = descs[1:]
-			}
-			result := struct {
-				Referrers []ocispec.Descriptor `json:"referrers"`
-			}{
-				Referrers: referrers,
-			}
-			if err := json.NewEncoder(w).Encode(result); err != nil {
-				t.Errorf("failed to write response: %v", err)
-			}
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)

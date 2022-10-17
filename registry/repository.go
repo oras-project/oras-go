@@ -94,7 +94,7 @@ type ReferenceFetcher interface {
 }
 
 // ReferrerFinder provides the Referrers API.
-// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
 type ReferrerFinder interface {
 	Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error
 }
