@@ -82,9 +82,9 @@ func limitSize(desc ocispec.Descriptor, n int64) error {
 // decodeJSON safely reads the JSON content described by desc, and
 // decodes it into v.
 func decodeJSON(r io.Reader, desc ocispec.Descriptor, v any) error {
-	indexJSON, err := content.ReadAll(r, desc)
+	jsonBytes, err := content.ReadAll(r, desc)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(indexJSON, v)
+	return json.Unmarshal(jsonBytes, v)
 }
