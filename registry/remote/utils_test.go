@@ -16,9 +16,13 @@ limitations under the License.
 package remote
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"testing"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/errdef"
 )
 
 func Test_parseLink(t *testing.T) {
@@ -75,6 +79,71 @@ func Test_parseLink(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("parseLink() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_limitSize(t *testing.T) {
+	tests := []struct {
+		name    string
+		desc    ocispec.Descriptor
+		n       int64
+		wantErr error
+	}{
+		{
+			name: "size within specified limit",
+			desc: ocispec.Descriptor{
+				Size: 1,
+			},
+			n:       2,
+			wantErr: nil,
+		},
+		{
+			name: "size equals specified limit",
+			desc: ocispec.Descriptor{
+				Size: 1,
+			},
+			n:       1,
+			wantErr: nil,
+		},
+		{
+			name: "size exceeds specified limit",
+			desc: ocispec.Descriptor{
+				Size: 2,
+			},
+			n:       1,
+			wantErr: errdef.ErrSizeExceedsLimit,
+		},
+		{
+			name: "size within default limit",
+			desc: ocispec.Descriptor{
+				Size: 4*1024*1024 - 1, // 4 MiB - 1
+			},
+			n:       0,
+			wantErr: nil,
+		},
+		{
+			name: "size equals default limit",
+			desc: ocispec.Descriptor{
+				Size: 4 * 1024 * 1024, // 4 MiB
+			},
+			n:       0,
+			wantErr: nil,
+		},
+		{
+			name: "size exceeds default limit",
+			desc: ocispec.Descriptor{
+				Size: 4*1024*1024 + 1, // 4 MiB + 1
+			},
+			n:       0,
+			wantErr: errdef.ErrSizeExceedsLimit,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := limitSize(tt.desc, tt.n); !errors.Is(err, tt.wantErr) {
+				t.Errorf("limitSize() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

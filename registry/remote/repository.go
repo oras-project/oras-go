@@ -63,7 +63,7 @@ const (
 
 // ErrReferrersCapabilityAlreadySet is returned by SetReferrersCapability()
 // when the Referrers API capability has been already set.
-var ErrReferrersCapabilityAlreadySet = errors.New("referrers capability already set")
+var ErrReferrersCapabilityAlreadySet = errors.New("referrers capability cannot be changed once set")
 
 // Client is an interface for a HTTP client.
 type Client interface {
@@ -144,16 +144,19 @@ func NewRepository(reference string) (*Repository, error) {
 //   - When the capability is not set, the Referrers() function will automatically
 //     determine which API to use.
 func (r *Repository) SetReferrersCapability(capable bool) error {
-	var swapped bool
+	var state referrersState
 	if capable {
-		swapped = atomic.CompareAndSwapInt32(&r.referrersState, referrersStateUnknown, referrersStateSupported)
+		state = referrersStateSupported
 	} else {
-		swapped = atomic.CompareAndSwapInt32(&r.referrersState, referrersStateUnknown, referrersStateUnsupported)
+		state = referrersStateUnsupported
 	}
-	if !swapped {
-		return fmt.Errorf("%w: current capability = %v",
-			ErrReferrersCapabilityAlreadySet,
-			r.loadReferrersState() == referrersStateSupported)
+	if swapped := atomic.CompareAndSwapInt32(&r.referrersState, referrersStateUnknown, state); !swapped {
+		if fact := r.loadReferrersState(); fact != state {
+			return fmt.Errorf("%w: new capability = %v, set capability = %v",
+				ErrReferrersCapabilityAlreadySet,
+				capable,
+				fact == referrersStateSupported)
+		}
 	}
 	return nil
 }
@@ -393,9 +396,9 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 // only referrers of the same artifact type are fed to fn.
 func (r *Repository) referrersByAPI(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
 	ref := r.Reference
+	ref.Reference = desc.Digest.String()
 	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
 
-	ref.Reference = desc.Digest.String()
 	url := buildReferrersURL(r.PlainHTTP, ref, artifactType)
 	var err error
 	for err == nil {
@@ -443,8 +446,7 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	referrers := index.Manifests
-	if artifactType != "" &&
-		!isReferrersFilterApplied(index.Annotations, "artifactType") {
+	if artifactType != "" && !isReferrersFilterApplied(index.Annotations, "artifactType") {
 		// perform client side filtering if the filter is not applied on the server side
 		referrers = filterReferrers(referrers, artifactType)
 	}
@@ -462,7 +464,6 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 // only referrers of the same artifact type are fed to fn.
 // reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#backwards-compatibility
 func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
-	ctx = registryutil.WithScopeHint(ctx, r.Reference, auth.ActionPull)
 	referrersTag := buildReferrersTag(desc)
 	desc, rc, err := r.FetchReference(ctx, referrersTag)
 	if err != nil {
@@ -474,14 +475,16 @@ func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Desc
 	}
 	defer rc.Close()
 
-	var index ocispec.Index
-	lr := limitReader(rc, r.MaxMetadataBytes)
-	indexJSON, err := content.ReadAll(lr, desc)
-	if err != nil {
+	if err := limitSize(desc, r.MaxMetadataBytes); err != nil {
 		return fmt.Errorf("failed to read referrers index from referrers tag %s: %w", referrersTag, err)
 	}
-	if err := json.Unmarshal(indexJSON, &index); err != nil {
+	vr := content.NewVerifyReader(rc, desc)
+	var index ocispec.Index
+	if err := json.NewDecoder(vr).Decode(&index); err != nil {
 		return fmt.Errorf("failed to decode referrers index from referrers tag %s: %w", referrersTag, err)
+	}
+	if err := vr.Verify(); err != nil {
+		return fmt.Errorf("failed to verify referrers index: referrers tag: %s: %w", referrersTag, err)
 	}
 
 	referrers := filterReferrers(index.Manifests, artifactType)
