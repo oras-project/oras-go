@@ -63,11 +63,12 @@ type PackOptions struct {
 	PackImageManifest bool
 	// ConfigDescriptor is a pointer to the descriptor of the config blob.
 	// If specified, artifactType will be implied by the media type of the
-	// specified descriptor.
+	// specified descriptor, and ConfigAnnotations will be ignored.
 	// This option is valid only when PackImageManifest is true.
 	ConfigDescriptor *ocispec.Descriptor
 	// ConfigAnnotations is the annotation map of the config descriptor.
-	// This option is valid only when PackImageManifest is true.
+	// This option is valid only when PackImageManifest is true,
+	// and ConfigDescriptor is nil.
 	ConfigAnnotations map[string]string
 }
 
