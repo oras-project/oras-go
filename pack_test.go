@@ -197,31 +197,10 @@ func Test_Pack_NoBlob(t *testing.T) {
 		t.Fatal("Store.Fetch().Close() error =", err)
 	}
 
-	// test media type
-	got := manifest.MediaType
-	if got != ocispec.MediaTypeArtifactManifest {
-		t.Fatalf("got media type = %s, want %s", got, ocispec.MediaTypeArtifactManifest)
-	}
-
-	// test artifact type
-	got = manifest.ArtifactType
-	if got != artifactType {
-		t.Fatalf("got artifact type = %s, want %s", got, artifactType)
-	}
-
 	// test blobs
-	if !reflect.DeepEqual(manifest.Blobs, []ocispec.Descriptor{}) {
-		t.Errorf("Store.Fetch() = %v, want %v", manifest.Blobs, []ocispec.Descriptor{})
-	}
-
-	// test created time annotation
-	createdTime, ok := manifest.Annotations[ocispec.AnnotationArtifactCreated]
-	if !ok {
-		t.Errorf("Annotation %s = %v, want %v", ocispec.AnnotationArtifactCreated, ok, true)
-	}
-	_, err = time.Parse(time.RFC3339, createdTime)
-	if err != nil {
-		t.Errorf("error parsing created time: %s, error = %v", createdTime, err)
+	var expectedBlobs []ocispec.Descriptor
+	if !reflect.DeepEqual(manifest.Blobs, expectedBlobs) {
+		t.Errorf("Store.Fetch() = %v, want %v", manifest.Blobs, expectedBlobs)
 	}
 }
 
@@ -533,8 +512,9 @@ func Test_Pack_Image_NoLayer(t *testing.T) {
 	}
 
 	// test layers
-	if !reflect.DeepEqual(manifest.Layers, []ocispec.Descriptor{}) {
-		t.Errorf("got layers = %v, want %v", manifest.Layers, []ocispec.Descriptor{})
+	expectedLayers := []ocispec.Descriptor{}
+	if !reflect.DeepEqual(manifest.Layers, expectedLayers) {
+		t.Errorf("got layers = %v, want %v", manifest.Layers, expectedLayers)
 	}
 }
 
