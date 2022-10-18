@@ -20,8 +20,6 @@ import (
 	"encoding/json"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
-	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/docker"
 )
 
@@ -88,24 +86,6 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 			return nil, err
 		}
 		return index.Manifests, nil
-	case artifactspec.MediaTypeArtifactManifest: // TODO: deprecate
-		content, err := FetchAll(ctx, fetcher, node)
-		if err != nil {
-			return nil, err
-		}
-
-		var manifest artifactspec.Manifest
-		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, err
-		}
-		var nodes []ocispec.Descriptor
-		if manifest.Subject != nil {
-			nodes = append(nodes, descriptor.ArtifactToOCI(*manifest.Subject))
-		}
-		for _, blob := range manifest.Blobs {
-			nodes = append(nodes, descriptor.ArtifactToOCI(blob))
-		}
-		return nodes, nil
 	case ocispec.MediaTypeArtifactManifest:
 		content, err := FetchAll(ctx, fetcher, node)
 		if err != nil {

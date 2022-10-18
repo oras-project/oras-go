@@ -55,10 +55,11 @@ func TestExtendedCopy_FullCopy(t *testing.T) {
 			Size:      int64(len(blob)),
 		})
 	}
-	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+	generateManifest := func(subject *ocispec.Descriptor, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
 		manifest := ocispec.Manifest{
-			Config: config,
-			Layers: layers,
+			Config:  config,
+			Layers:  layers,
+			Subject: subject,
 		}
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
@@ -82,11 +83,13 @@ func TestExtendedCopy_FullCopy(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
-	generateManifest(descs[0], descs[1:3]...)                  // Blob 3
+	generateManifest(nil, descs[0], descs[1:3]...)             // Blob 3
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("sig_1"))   // Blob 4
 	generateArtifactManifest(descs[3], descs[4])               // Blob 5
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("sig_2"))   // Blob 6
 	generateArtifactManifest(descs[5], descs[6])               // Blob 7
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("baz"))     // Blob 8
+	generateManifest(&descs[3], descs[0], descs[8])            // Blob 9
 
 	ctx := context.Background()
 	for i := range blobs {
