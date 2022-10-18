@@ -28,6 +28,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 )
 
@@ -35,22 +36,9 @@ func Test_Pack_Default(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
-	blob_1 := []byte("hello world")
-	desc_1 := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(blob_1),
-		Size:      int64(len(blob_1)),
-	}
-
-	blob_2 := []byte("goodbye world")
-	desc_2 := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(blob_2),
-		Size:      int64(len(blob_2)),
-	}
 	blobs := []ocispec.Descriptor{
-		desc_1,
-		desc_2,
+		content.NewDescriptorFromBytes("test", []byte("hello world")),
+		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
 	}
 	artifactType := "application/vnd.test"
 
@@ -102,22 +90,9 @@ func Test_Pack_WithOptions(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
-	blob_1 := []byte("hello world")
-	desc_1 := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(blob_1),
-		Size:      int64(len(blob_1)),
-	}
-
-	blob_2 := []byte("goodbye world")
-	desc_2 := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(blob_2),
-		Size:      int64(len(blob_2)),
-	}
 	blobs := []ocispec.Descriptor{
-		desc_1,
-		desc_2,
+		content.NewDescriptorFromBytes("test", []byte("hello world")),
+		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
 	}
 
 	artifactType := "application/vnd.test"
@@ -254,22 +229,9 @@ func Test_Pack_Image(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
-	layer_1 := []byte("hello world")
-	desc_1 := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(layer_1),
-		Size:      int64(len(layer_1)),
-	}
-
-	layer_2 := []byte("goodbye world")
-	desc_2 := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(layer_2),
-		Size:      int64(len(layer_2)),
-	}
 	layers := []ocispec.Descriptor{
-		desc_1,
-		desc_2,
+		content.NewDescriptorFromBytes("test", []byte("hello world")),
+		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
 	}
 
 	// test Pack
@@ -329,29 +291,12 @@ func Test_Pack_Image_WithOptions(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
-	layer_1 := []byte("hello world")
-	desc_1 := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(layer_1),
-		Size:      int64(len(layer_1)),
-	}
-
-	layer_2 := []byte("goodbye world")
-	desc_2 := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(layer_2),
-		Size:      int64(len(layer_2)),
-	}
 	layers := []ocispec.Descriptor{
-		desc_1,
-		desc_2,
+		content.NewDescriptorFromBytes("test", []byte("hello world")),
+		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
 	}
 	configBytes := []byte("{}")
-	configDesc := ocispec.Descriptor{
-		MediaType: MediaTypeUnknownConfig,
-		Digest:    digest.FromBytes(configBytes),
-		Size:      int64(len(configBytes)),
-	}
+	configDesc := content.NewDescriptorFromBytes("testconfig", configBytes)
 	configAnnotations := map[string]string{"foo": "bar"}
 	annotations := map[string]string{
 		ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
@@ -421,12 +366,8 @@ func Test_Pack_Image_WithOptions(t *testing.T) {
 		t.Fatal("Oras.Pack() error =", err)
 	}
 
-	expectedConfigDesc := ocispec.Descriptor{
-		MediaType:   artifactType,
-		Digest:      digest.FromBytes(configBytes),
-		Size:        int64(len(configBytes)),
-		Annotations: configAnnotations,
-	}
+	expectedConfigDesc := content.NewDescriptorFromBytes(artifactType, configBytes)
+	expectedConfigDesc.Annotations = configAnnotations
 	expectedManifest = ocispec.Manifest{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version

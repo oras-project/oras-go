@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
@@ -56,7 +55,7 @@ type PackOptions struct {
 
 	// PackImageManifest controls whether to pack an image manifest or not.
 	//   - If true, pack an image manifest; artifactType will be used as the
-	// the config media type of the image manifest.
+	// the config descriptor mediaType of the image manifest.
 	// media type.
 	//   - If false, pack an artifact manifest.
 	// Default: false.
@@ -74,6 +73,8 @@ type PackOptions struct {
 
 // Pack packs the given blobs, generates a manifest for the pack,
 // and pushes it to a content storage.
+// When opts.PackImageManifest is true, artifactType will be used as the
+// the config descriptor mediaType of the image manifest.
 // If succeeded, returns a descriptor of the manifest.
 func Pack(ctx context.Context, pusher content.Pusher, artifactType string, blobs []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	if opts.PackImageManifest {
@@ -94,9 +95,6 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	if blobs == nil {
-		blobs = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
-	}
 	manifest := ocispec.Artifact{
 		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: artifactType,
@@ -104,20 +102,16 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 		Subject:      opts.Subject,
 		Annotations:  annotations,
 	}
-	manifestBytes, err := json.Marshal(manifest)
+	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
 	}
-	manifestDesc := ocispec.Descriptor{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
-		Digest:       digest.FromBytes(manifestBytes),
-		Size:         int64(len(manifestBytes)),
-		ArtifactType: manifest.ArtifactType,
-		Annotations:  manifest.Annotations,
-	}
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, manifestJSON)
+	manifestDesc.ArtifactType = manifest.ArtifactType
+	manifestDesc.Annotations = manifest.Annotations
 
 	// push manifest
-	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestBytes)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
 	}
 
@@ -125,12 +119,12 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 }
 
 // packImage packs the given blobs, generates an image manifest for the pack,
-// and pushes it to a content storage.
-// artifactType will be used as the config media type of the image manifest.
+// and pushes it to a content storage. artifactType will be used as the config
+// descriptor mediaType of the image manifest.
 // If succeeded, returns a descriptor of the manifest.
-func packImage(ctx context.Context, pusher content.Pusher, artifactType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
-	if artifactType == "" {
-		artifactType = MediaTypeUnknownConfig
+func packImage(ctx context.Context, pusher content.Pusher, configMediaType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
+	if configMediaType == "" {
+		configMediaType = MediaTypeUnknownConfig
 	}
 
 	var configDesc ocispec.Descriptor
@@ -142,7 +136,7 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 		// As of September 2022, GAR is known to return 400 on empty blob upload.
 		// See https://github.com/oras-project/oras-go/issues/294 for details.
 		configBytes := []byte("{}")
-		configDesc = content.NewDescriptorFromBytes(artifactType, configBytes)
+		configDesc = content.NewDescriptorFromBytes(configMediaType, configBytes)
 		configDesc.Annotations = opts.ConfigAnnotations
 		// push config
 		if err := pusher.Push(ctx, configDesc, bytes.NewReader(configBytes)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
@@ -167,20 +161,16 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 		Subject:     opts.Subject,
 		Annotations: annotations,
 	}
-	manifestBytes, err := json.Marshal(manifest)
+	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
 	}
-	manifestDesc := ocispec.Descriptor{
-		MediaType:    ocispec.MediaTypeImageManifest,
-		Digest:       digest.FromBytes(manifestBytes),
-		Size:         int64(len(manifestBytes)),
-		ArtifactType: manifest.Config.MediaType,
-		Annotations:  manifest.Annotations,
-	}
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+	manifestDesc.ArtifactType = manifest.Config.MediaType
+	manifestDesc.Annotations = manifest.Annotations
 
 	// push manifest
-	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestBytes)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
 	}
 
@@ -197,16 +187,16 @@ func ensureAnnotationCreated(annotations map[string]string, annotationCreatedKey
 			return nil, fmt.Errorf("%w: %v", ErrInvalidDateTimeFormat, err)
 		}
 		return annotations, nil
-	} else {
-		// copy the original annotation map
-		copied := make(map[string]string, len(annotations)+1)
-		for k, v := range annotations {
-			copied[k] = v
-		}
-		// set creation time in RFC 3339 format
-		// reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/annotations.md#pre-defined-annotation-keys
-		now := time.Now().UTC()
-		copied[annotationCreatedKey] = now.Format(time.RFC3339)
-		return copied, nil
 	}
+
+	// copy the original annotation map
+	copied := make(map[string]string, len(annotations)+1)
+	for k, v := range annotations {
+		copied[k] = v
+	}
+	// set creation time in RFC 3339 format
+	// reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/annotations.md#pre-defined-annotation-keys
+	now := time.Now().UTC()
+	copied[annotationCreatedKey] = now.Format(time.RFC3339)
+	return copied, nil
 }
