@@ -20,7 +20,6 @@ import "errors"
 // Common errors used in ORAS
 var (
 	ErrAlreadyExists      = errors.New("already exists")
-	ErrBadRequest         = errors.New("bad request")
 	ErrInvalidDigest      = errors.New("invalid digest")
 	ErrInvalidReference   = errors.New("invalid reference")
 	ErrMissingReference   = errors.New("missing reference")
