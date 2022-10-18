@@ -56,7 +56,6 @@ type PackOptions struct {
 	// PackImageManifest controls whether to pack an image manifest or not.
 	//   - If true, pack an image manifest; artifactType will be used as the
 	// the config descriptor mediaType of the image manifest.
-	// media type.
 	//   - If false, pack an artifact manifest.
 	// Default: false.
 	PackImageManifest bool
