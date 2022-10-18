@@ -60,15 +60,9 @@ const (
 	referrersStateUnsupported
 )
 
-var (
-	// ErrUnsupportedArtifactManifest is returned by Repository.Manifests.Push()
-	// when the remote server does not support artifact manifest.
-	ErrUnsupportedArtifactManifest = errors.New("unsupported artifact manifest")
-	// ErrReferrersCapabilityAlreadySet is returned by
-	// Repository.SetReferrersCapability() when the Referrers API capability
-	// has been already set.
-	ErrReferrersCapabilityAlreadySet = errors.New("referrers capability cannot be changed once set")
-)
+// ErrReferrersCapabilityAlreadySet is returned by SetReferrersCapability()
+// when the Referrers API capability has been already set.
+var ErrReferrersCapabilityAlreadySet = errors.New("referrers capability cannot be changed once set")
 
 // Client is an interface for a HTTP client.
 type Client interface {
@@ -1051,20 +1045,10 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	}
 	defer resp.Body.Close()
 
-	switch resp.StatusCode {
-	case http.StatusCreated:
-		return verifyContentDigest(resp, expected.Digest)
-	case http.StatusBadRequest:
-		if expected.MediaType == ocispec.MediaTypeArtifactManifest {
-			// As of October 2022, most registries do not support artifact
-			// manifest. Returning ErrUnsupportedArtifactManifest allows users
-			// to fallback to a compatible manifest type.
-			return fmt.Errorf("%s: %s: %w", expected.Digest, expected.MediaType, ErrUnsupportedArtifactManifest)
-		}
-		return errutil.ParseErrorResponse(resp)
-	default:
+	if resp.StatusCode != http.StatusCreated {
 		return errutil.ParseErrorResponse(resp)
 	}
+	return verifyContentDigest(resp, expected.Digest)
 }
 
 // ParseReference parses a reference to a fully qualified reference.

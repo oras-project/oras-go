@@ -35,7 +35,6 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/interfaces"
 	"oras.land/oras-go/v2/registry"
@@ -2765,41 +2764,6 @@ func Test_ManifestStore_Push(t *testing.T) {
 	}
 	if !bytes.Equal(gotManifest, manifest) {
 		t.Errorf("Manifests.Push() = %v, want %v", gotManifest, manifest)
-	}
-}
-
-func Test_ManifestStore_Push_BadRequest(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
-
-	repo, err := NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	store := repo.Manifests()
-	ctx := context.Background()
-
-	// test push artifact manifest
-	artifactBytes := []byte(`{"blobs":[]}`)
-	artifactDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, artifactBytes)
-	err = store.Push(ctx, artifactDesc, bytes.NewReader(artifactBytes))
-	if !errors.Is(err, ErrUnsupportedArtifactManifest) {
-		t.Fatalf("Manifests.Push() error = %v, wantErr %v", err, ErrUnsupportedArtifactManifest)
-	}
-
-	// test push image manifest
-	manifestBytes := []byte(`{"layers":[]}`)
-	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestBytes)
-	err = store.Push(ctx, manifestDesc, bytes.NewReader(manifestBytes))
-	if errors.Is(err, ErrUnsupportedArtifactManifest) {
-		t.Fatalf("Manifests.Push() error = %v, wantErr unexpected error", err)
 	}
 }
 
