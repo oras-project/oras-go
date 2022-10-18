@@ -60,12 +60,12 @@ type PackOptions struct {
 	// Default: false.
 	PackImageManifest bool
 	// ConfigDescriptor is a pointer to the descriptor of the config blob.
-	// If specified, artifactType will be implied by the media type of the
-	// specified descriptor, and ConfigAnnotations will be ignored.
+	// If not nil, artifactType will be implied by the mediaType of the
+	// specified ConfigDescriptor, and ConfigAnnotations will be ignored.
 	// This option is valid only when PackImageManifest is true.
 	ConfigDescriptor *ocispec.Descriptor
 	// ConfigAnnotations is the annotation map of the config descriptor.
-	// This option is valid only when PackImageManifest is true,
+	// This option is valid only when PackImageManifest is true
 	// and ConfigDescriptor is nil.
 	ConfigAnnotations map[string]string
 }
@@ -106,6 +106,7 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
 	}
 	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, manifestJSON)
+	// populate ArtifactType and Annotations of the manifest into manifestDesc
 	manifestDesc.ArtifactType = manifest.ArtifactType
 	manifestDesc.Annotations = manifest.Annotations
 
@@ -165,6 +166,7 @@ func packImage(ctx context.Context, pusher content.Pusher, configMediaType strin
 		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
 	}
 	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+	// populate ArtifactType and Annotations of the manifest into manifestDesc
 	manifestDesc.ArtifactType = manifest.Config.MediaType
 	manifestDesc.Annotations = manifest.Annotations
 

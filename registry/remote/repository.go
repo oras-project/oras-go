@@ -1051,17 +1051,20 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
-		err := errutil.ParseErrorResponse(resp)
-		if resp.StatusCode == http.StatusBadRequest && expected.MediaType == ocispec.MediaTypeArtifactManifest {
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		return verifyContentDigest(resp, expected.Digest)
+	case http.StatusBadRequest:
+		if expected.MediaType == ocispec.MediaTypeArtifactManifest {
 			// As of October 2022, most registries do not support artifact
 			// manifest. Returning ErrUnsupportedArtifactManifest allows users
 			// to fallback to a compatible manifest type.
 			return fmt.Errorf("%s: %s: %w", expected.Digest, expected.MediaType, ErrUnsupportedArtifactManifest)
 		}
-		return err
+		fallthrough
+	default:
+		return errutil.ParseErrorResponse(resp)
 	}
-	return verifyContentDigest(resp, expected.Digest)
 }
 
 // ParseReference parses a reference to a fully qualified reference.
