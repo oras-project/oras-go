@@ -1061,7 +1061,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 			// to fallback to a compatible manifest type.
 			return fmt.Errorf("%s: %s: %w", expected.Digest, expected.MediaType, ErrUnsupportedArtifactManifest)
 		}
-		fallthrough
+		return errutil.ParseErrorResponse(resp)
 	default:
 		return errutil.ParseErrorResponse(resp)
 	}
