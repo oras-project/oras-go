@@ -959,6 +959,7 @@ func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descrip
 	defer s.repo.unlockReferrersTag(referrersTag)
 
 	// TODO: add referrers or delete referrers
+	// TODO: func() referrers
 	var existingReferrers []ocispec.Descriptor
 	// call referrersTagSchema
 	err = s.repo.referrersByTagSchema(ctx, subject, "", func(referrers []ocispec.Descriptor) error {
