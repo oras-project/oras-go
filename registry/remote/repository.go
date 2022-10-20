@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/opencontainers/go-digest"
@@ -118,6 +119,23 @@ type Repository struct {
 	// referrersState represents that if the repository supports Referrers API.
 	// default: referrersStateUnknown
 	referrersState referrersState
+
+	referrersTagLocks sync.Map // map[string]sync.Mutex
+}
+
+func (r *Repository) lockReferrersTag(tag string) {
+	v, _ := r.referrersTagLocks.LoadOrStore(tag, &sync.Mutex{})
+	lock := v.(*sync.Mutex)
+	lock.Lock()
+}
+
+func (r *Repository) unlockReferrersTag(tag string) {
+	v, ok := r.referrersTagLocks.Load(tag)
+	if !ok {
+		return
+	}
+	lock := v.(*sync.Mutex)
+	lock.Unlock()
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -881,7 +899,7 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 // Push pushes the content, matching the expected descriptor.
 func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, body io.Reader) error {
 	var buf bytes.Buffer
-	lr := io.LimitReader(body, s.repo.MaxMetadataBytes)
+	lr := limitReader(body, s.repo.MaxMetadataBytes)
 	tr := io.TeeReader(lr, &buf)
 	if err := s.push(ctx, expected, tr, expected.Digest.String()); err != nil {
 		return err
@@ -891,42 +909,56 @@ func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, b
 }
 
 func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error {
-	if desc.MediaType != ocispec.MediaTypeArtifactManifest && desc.MediaType != ocispec.MediaTypeImageManifest {
+	var subject ocispec.Descriptor
+	var err error
+	switch desc.MediaType {
+	case ocispec.MediaTypeArtifactManifest:
+		var artifact ocispec.Artifact
+		if err := decodeJSON(r, desc, &artifact); err != nil {
+			return err // TODO: format
+		}
+		if artifact.Subject == nil {
+			return nil
+		}
+		subject = *artifact.Subject
+		desc.ArtifactType = artifact.ArtifactType
+		desc.Annotations = artifact.Annotations
+	case ocispec.MediaTypeImageManifest:
+		var manifest ocispec.Manifest
+		if err := decodeJSON(r, desc, &manifest); err != nil {
+			return err // TODO: format
+		}
+		if manifest.Subject == nil {
+			return nil
+		}
+		subject = *manifest.Subject
+		desc.ArtifactType = manifest.Config.MediaType
+		desc.Annotations = manifest.Annotations
+	default:
 		// no need to index
 		return nil
 	}
 
-	manifestJSON, err := content.ReadAll(r, desc)
-	if err != nil {
-		return err
-	}
-	type manifest struct {
-		ArtifactType string              `json:"artifactType"`
-		Subject      *ocispec.Descriptor `json:"subject,omitempty"`
-		Annotations  map[string]string   `json:"annotations,omitempty"`
-	}
-	var m manifest
-	if err := json.Unmarshal(manifestJSON, &m); err != nil {
-		return err
-	}
-	if m.Subject == nil {
+	if state := s.repo.loadReferrersState(); state == referrersStateSupported {
 		// no need to index
 		return nil
 	}
-
-	subject := *m.Subject
-	// populate ArtifactType and Annotations
-	desc.ArtifactType = m.ArtifactType
-	desc.Annotations = m.Annotations
 	ok, err := s.repo.testReferrersAPI(ctx, subject)
 	if err != nil {
 		return err
 	}
 	if ok {
 		// no need to index
+		s.repo.SetReferrersCapability(true)
 		return nil
 	}
+	s.repo.SetReferrersCapability(false)
 
+	referrersTag := buildReferrersTag(subject)
+	s.repo.lockReferrersTag(referrersTag)
+	defer s.repo.unlockReferrersTag(referrersTag)
+
+	// TODO: add referrers or delete referrers
 	var existingReferrers []ocispec.Descriptor
 	// call referrersTagSchema
 	err = s.repo.referrersByTagSchema(ctx, subject, "", func(referrers []ocispec.Descriptor) error {
@@ -960,8 +992,6 @@ func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descrip
 		return err // TODO: format
 	}
 	indexDesc := content.NewDescriptorFromBytes(index.MediaType, indexJSON)
-	referrersTag := buildReferrersTag(subject)
-	// TODO: concurrency?
 	return s.push(ctx, indexDesc, bytes.NewReader(indexJSON), referrersTag)
 }
 
