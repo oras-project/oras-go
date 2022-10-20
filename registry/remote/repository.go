@@ -883,24 +883,22 @@ func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, b
 	var buf bytes.Buffer
 	lr := io.LimitReader(body, s.repo.MaxMetadataBytes)
 	tr := io.TeeReader(lr, &buf)
-	isArtifact, artifactDesc, err := checkArtifact(expected, tr)
-	if err != nil {
+	if err := s.push(ctx, expected, tr, expected.Digest.String()); err != nil {
 		return err
 	}
 
-	if err := s.push(ctx, expected, &buf, expected.Digest.String()); err != nil {
-		return err
-	}
-	if isArtifact {
-		return s.indexReferrers(ctx, artifactDesc)
-	}
-	return nil
+	return s.indexReferrers(ctx, expected, &buf)
 }
 
-func checkArtifact(expected ocispec.Descriptor, r io.Reader) (bool, ocispec.Descriptor, error) {
-	manifestJSON, err := content.ReadAll(r, expected)
+func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error {
+	if desc.MediaType != ocispec.MediaTypeArtifactManifest && desc.MediaType != ocispec.MediaTypeImageManifest {
+		// no need to index
+		return nil
+	}
+
+	manifestJSON, err := content.ReadAll(r, desc)
 	if err != nil {
-		return false, ocispec.Descriptor{}, err
+		return err
 	}
 	type manifest struct {
 		ArtifactType string              `json:"artifactType"`
@@ -909,15 +907,62 @@ func checkArtifact(expected ocispec.Descriptor, r io.Reader) (bool, ocispec.Desc
 	}
 	var m manifest
 	if err := json.Unmarshal(manifestJSON, &m); err != nil {
-		return false, ocispec.Descriptor{}, err
+		return err
+	}
+	if m.Subject == nil {
+		// no need to index
+		return nil
 	}
 
-	if m.Subject != nil {
-		expected.ArtifactType = m.ArtifactType
-		expected.Annotations = m.Annotations
-		return true, expected, nil
+	subject := *m.Subject
+	// populate ArtifactType and Annotations
+	desc.ArtifactType = m.ArtifactType
+	desc.Annotations = m.Annotations
+	ok, err := s.repo.testReferrersAPI(ctx, subject)
+	if err != nil {
+		return err
 	}
-	return false, expected, nil
+	if ok {
+		// no need to index
+		return nil
+	}
+
+	var existingReferrers []ocispec.Descriptor
+	// call referrersTagSchema
+	err = s.repo.referrersByTagSchema(ctx, subject, "", func(referrers []ocispec.Descriptor) error {
+		existingReferrers = append(existingReferrers, referrers...)
+		return nil
+	})
+	if err != nil && !errors.Is(err, errdef.ErrNotFound) {
+		// If that pull returns a manifest other than the expected image index, the client SHOULD report a failure and skip the remaining steps.
+		return err
+	}
+
+	var referrers []ocispec.Descriptor
+	// If the tag returns a 404, the client MUST begin with an empty image index.
+	for _, r := range existingReferrers {
+		if r.Digest != desc.Digest {
+			// TODO: equals?
+			referrers = append(referrers, r)
+		}
+	}
+	referrers = append(referrers, desc)
+
+	index := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: referrers,
+	}
+	indexJSON, err := json.Marshal(index)
+	if err != nil {
+		return err // TODO: format
+	}
+	indexDesc := content.NewDescriptorFromBytes(index.MediaType, indexJSON)
+	referrersTag := buildReferrersTag(subject)
+	// TODO: concurrency?
+	return s.push(ctx, indexDesc, bytes.NewReader(indexJSON), referrersTag)
 }
 
 // Exists returns true if the described content exists.
@@ -1091,58 +1136,12 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	return verifyContentDigest(resp, expected.Digest)
 }
 
-func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descriptor) error {
-	ok, err := s.repo.testReferrersAPI(ctx, desc)
-	if err != nil {
-		return err
-	}
-	if ok {
-		// no need to index
-		return nil
-	}
-
-	var existingReferrers []ocispec.Descriptor
-	// TODO: call referrersTagSchema
-	if err != nil && !errors.Is(err, errdef.ErrNotFound) {
-		// If that pull returns a manifest other than the expected image index, the client SHOULD report a failure and skip the remaining steps.
-		return err
-	}
-
-	var referrers []ocispec.Descriptor
-	// If the tag returns a 404, the client MUST begin with an empty image index.
-	for _, r := range existingReferrers {
-		if desc.Digest == r.Digest {
-			// note: desc should already contain the artifact type and annotations
-			referrers = append(referrers, desc)
-		} else {
-			referrers = append(referrers, r)
-		}
-	}
-
-	index := ocispec.Index{
-		Versioned: specs.Versioned{
-			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
-		},
-		MediaType: ocispec.MediaTypeImageIndex,
-		Manifests: referrers,
-	}
-	indexJSON, err := json.Marshal(index)
-	if err != nil {
-		return err // TODO: format
-	}
-	referrersTag := "" // TODO: build referrers tag
-
-	// TODO: concurrency?
-	return s.push(ctx, desc, bytes.NewReader(indexJSON), referrersTag)
-}
-
 func (r *Repository) testReferrersAPI(ctx context.Context, desc ocispec.Descriptor) (bool, error) {
 	ref := r.Reference
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
 	ref.Reference = desc.Digest.String()
-	// url := buildReferrersURL(r.PlainHTTP, ref, "")
-	url := ""
+	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
 
+	url := buildReferrersURL(r.PlainHTTP, ref, "")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false, err
