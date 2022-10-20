@@ -905,10 +905,21 @@ func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, b
 		return err
 	}
 
-	return s.indexReferrers(ctx, expected, &buf)
+	return s.indexReferrers(ctx, expected, &buf, addReferrers)
 }
 
-func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error {
+func addReferrers(origin []ocispec.Descriptor, desc ocispec.Descriptor) []ocispec.Descriptor {
+	var referrers []ocispec.Descriptor
+	for _, r := range origin {
+		if r.Digest != desc.Digest {
+			// TODO: equals?
+			referrers = append(referrers, r)
+		}
+	}
+	return append(referrers, desc)
+}
+
+func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descriptor, r io.Reader, fn func(origin []ocispec.Descriptor, desc ocispec.Descriptor) []ocispec.Descriptor) error {
 	var subject ocispec.Descriptor
 	var err error
 	switch desc.MediaType {
@@ -966,27 +977,26 @@ func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descrip
 		existingReferrers = append(existingReferrers, referrers...)
 		return nil
 	})
-	if err != nil && !errors.Is(err, errdef.ErrNotFound) {
-		// If that pull returns a manifest other than the expected image index, the client SHOULD report a failure and skip the remaining steps.
+	if err != nil {
 		return err
 	}
 
-	var referrers []ocispec.Descriptor
-	// If the tag returns a 404, the client MUST begin with an empty image index.
-	for _, r := range existingReferrers {
-		if r.Digest != desc.Digest {
-			// TODO: equals?
-			referrers = append(referrers, r)
-		}
-	}
-	referrers = append(referrers, desc)
+	// var referrers []ocispec.Descriptor
+	// // If the tag returns a 404, the client MUST begin with an empty image index.
+	// for _, r := range existingReferrers {
+	// 	if r.Digest != desc.Digest {
+	// 		// TODO: equals?
+	// 		referrers = append(referrers, r)
+	// 	}
+	// }
+	// referrers = append(referrers, desc)
 
 	index := ocispec.Index{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
 		},
 		MediaType: ocispec.MediaTypeImageIndex,
-		Manifests: referrers,
+		Manifests: fn(existingReferrers, desc),
 	}
 	indexJSON, err := json.Marshal(index)
 	if err != nil {
