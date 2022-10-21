@@ -1024,7 +1024,14 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 		return err
 	}
 
-	return s.push(ctx, expected, content, ref.Reference)
+	// copy content for referrers indexing
+	var buf bytes.Buffer
+	lr := limitReader(content, s.repo.MaxMetadataBytes)
+	tr := io.TeeReader(lr, &buf)
+	if err := s.push(ctx, expected, tr, ref.Reference); err != nil {
+		return err
+	}
+	return s.indexReferrersForPush(ctx, expected, &buf)
 }
 
 // push pushes the manifest content, matching the expected descriptor.
@@ -1146,29 +1153,11 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 	}
 
 	updatedReferrers = append(updatedReferrers, desc)
-	newIndexDesc, newIndex, err := generateReferrersIndex(updatedReferrers)
+	indexDesc, index, err := generateReferrersIndex(updatedReferrers)
 	if err != nil {
 		return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
 	}
-	return s.push(ctx, newIndexDesc, newIndex, referrersTag)
-}
-
-// generateReferrersIndex generates an image index containing the given
-// referrers list in its manifests field.
-func generateReferrersIndex(referrers []ocispec.Descriptor) (ocispec.Descriptor, io.Reader, error) {
-	index := ocispec.Index{
-		Versioned: specs.Versioned{
-			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
-		},
-		MediaType: ocispec.MediaTypeImageIndex,
-		Manifests: referrers,
-	}
-	indexJSON, err := json.Marshal(index)
-	if err != nil {
-		return ocispec.Descriptor{}, nil, err
-	}
-	indexDesc := content.NewDescriptorFromBytes(index.MediaType, indexJSON)
-	return indexDesc, bytes.NewReader(indexJSON), nil
+	return s.push(ctx, indexDesc, bytes.NewReader(index), referrersTag)
 }
 
 // isReferrersAPIAvailable returns true if the Referrers API is available for r.
@@ -1346,4 +1335,25 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 	}
 
 	return nil
+}
+
+// generateReferrersIndex generates an image index containing the given
+// referrers list in its manifests field.
+func generateReferrersIndex(referrers []ocispec.Descriptor) (ocispec.Descriptor, []byte, error) {
+	if referrers == nil {
+		referrers = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
+	}
+	index := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: referrers,
+	}
+	indexJSON, err := json.Marshal(index)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	indexDesc := content.NewDescriptorFromBytes(index.MediaType, indexJSON)
+	return indexDesc, indexJSON, nil
 }

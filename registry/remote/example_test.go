@@ -40,7 +40,7 @@ import (
 const (
 	exampleRepositoryName   = "example"
 	exampleTag              = "latest"
-	exampleManifest         = "Example manifest content"
+	exampleConfig           = "Example config content"
 	exampleLayer            = "Example layer content"
 	exampleUploadUUid       = "0bc84d80-837c-41d9-824e-1907463c53b3"
 	ManifestDigest          = "sha256:0b696106ecd0654e031f19e0a8cbd1aee4ad457d7c9cea881f07b12a930cd307"
@@ -49,12 +49,19 @@ const (
 )
 
 var (
-	exampleLayerDigest        = digest.FromBytes([]byte(exampleLayer)).String()
-	exampleManifestDigest     = digest.FromBytes([]byte(exampleManifest)).String()
-	exampleManifestDescriptor = ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.Digest(exampleManifestDigest),
-		Size:      int64(len(exampleManifest))}
+	exampleLayerDescriptor = content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, []byte(exampleLayer))
+	exampleLayerDigest     = exampleLayerDescriptor.Digest.String()
+	exampleManifest, _     = json.Marshal(ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		Config: content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, []byte(exampleConfig)),
+		Layers: []ocispec.Descriptor{
+			exampleLayerDescriptor,
+		},
+	})
+	exampleManifestDescriptor   = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, exampleManifest)
+	exampleManifestDigest       = exampleManifestDescriptor.Digest.String()
 	exampleSignatureManifest, _ = json.Marshal(ocispec.Artifact{
 		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
@@ -322,8 +329,8 @@ func ExampleRepository_Resolve_byTag() {
 
 	// Output:
 	// application/vnd.oci.image.manifest.v1+json
-	// sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b
-	// 24
+	// sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7
+	// 337
 }
 
 // ExampleRepository_Resolve_byDigest gives example snippets for resolving a digest to a manifest descriptor.
@@ -333,7 +340,7 @@ func ExampleRepository_Resolve_byDigest() {
 		panic(err)
 	}
 	ctx := context.Background()
-	exampleDigest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
+	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
 	descriptor, err := repo.Resolve(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
@@ -345,8 +352,8 @@ func ExampleRepository_Resolve_byDigest() {
 
 	// Output:
 	// application/vnd.oci.image.manifest.v1+json
-	// sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b
-	// 24
+	// sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7
+	// 337
 }
 
 // ExampleRepository_Fetch_byTag gives example snippets for downloading a manifest by tag.
@@ -375,7 +382,7 @@ func ExampleRepository_Fetch_manifestByTag() {
 	fmt.Println(string(pulledBlob))
 
 	// Output:
-	// Example manifest content
+	// {"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:569224ae188c06e97b9fcadaeb2358fb0fb7c4eb105d49aee2620b2719abea43","size":22},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}]}
 }
 
 // ExampleRepository_Fetch_manifestByDigest gives example snippets for downloading a manifest by digest.
@@ -386,7 +393,7 @@ func ExampleRepository_Fetch_manifestByDigest() {
 	}
 	ctx := context.Background()
 
-	exampleDigest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
+	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
 	// resolve the blob descriptor to obtain the size of the blob
 	descriptor, err := repo.Resolve(ctx, exampleDigest)
 	if err != nil {
@@ -404,7 +411,7 @@ func ExampleRepository_Fetch_manifestByDigest() {
 
 	fmt.Println(string(pulled))
 	// Output:
-	// Example manifest content
+	// {"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:569224ae188c06e97b9fcadaeb2358fb0fb7c4eb105d49aee2620b2719abea43","size":22},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}]}
 }
 
 // ExampleRepository_Fetch_artifactReferenceManifest gives an example of fetching
@@ -443,8 +450,8 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 		panic(err)
 	}
 	// Output:
-	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/SBoM","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
-	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/signature","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
+	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/SBoM","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7","size":337}}
+	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/signature","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7","size":337}}
 }
 
 // ExampleRepository_fetchArtifactBlobs gives an example of pulling the blobs
@@ -457,7 +464,7 @@ func ExampleRepository_fetchArtifactBlobs() {
 	ctx := context.Background()
 
 	// 1. Fetch the artifact manifest by digest.
-	exampleDigest := "sha256:1907bb31b7add4d47d74d2c5c1c10d67b757a996f8e8186e562113bc9879b1a3"
+	exampleDigest := "sha256:f3550fd0947402d140fd0470702abc92c69f7e9b08d5ca2438f42f8a0ea3fd97"
 	descriptor, rc, err := repo.FetchReference(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
@@ -484,7 +491,7 @@ func ExampleRepository_fetchArtifactBlobs() {
 	}
 
 	// Output:
-	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/manifest","blobs":[{"mediaType":"application/tar","digest":"sha256:8d6497c94694a292c04f85cd055d8b5c03eda835dd311e20dfbbf029ff9748cc","size":20}],"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b","size":24}}
+	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/manifest","blobs":[{"mediaType":"application/tar","digest":"sha256:8d6497c94694a292c04f85cd055d8b5c03eda835dd311e20dfbbf029ff9748cc","size":20}],"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7","size":337}}
 	// example blob content
 }
 
@@ -510,7 +517,7 @@ func ExampleRepository_FetchReference_manifestByTag() {
 	fmt.Println(string(pulledBlob))
 
 	// Output:
-	// Example manifest content
+	// {"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:569224ae188c06e97b9fcadaeb2358fb0fb7c4eb105d49aee2620b2719abea43","size":22},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}]}
 }
 
 // ExampleRepository_FetchReference_manifestByDigest gives example snippets for downloading a manifest by digest.
@@ -521,7 +528,7 @@ func ExampleRepository_FetchReference_manifestByDigest() {
 	}
 	ctx := context.Background()
 
-	exampleDigest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
+	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
 	descriptor, rc, err := repo.FetchReference(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
@@ -535,7 +542,7 @@ func ExampleRepository_FetchReference_manifestByDigest() {
 	fmt.Println(string(pulled))
 
 	// Output:
-	// Example manifest content
+	// {"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:569224ae188c06e97b9fcadaeb2358fb0fb7c4eb105d49aee2620b2719abea43","size":22},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}]}
 }
 
 // ExampleRepository_Fetch_layer gives example snippets for downloading a layer blob by digest.
@@ -593,7 +600,7 @@ func ExampleRepository_Tag() {
 	}
 	ctx := context.Background()
 
-	exampleDigest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
+	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
 	descriptor, err := repo.Resolve(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
@@ -623,7 +630,7 @@ func ExampleRepository_TagReference() {
 	}
 
 	// tag a manifest referenced by the exampleDigest below
-	exampleDigest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
+	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
 	tag := "latest"
 	err = oras.Tag(ctx, repo, exampleDigest, tag)
 	if err != nil {
@@ -685,9 +692,9 @@ func Example_pullByTag() {
 	fmt.Println(string(pulledBlob))
 
 	// Output:
-	// sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b
-	// 24
-	// Example manifest content
+	// sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7
+	// 337
+	// {"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:569224ae188c06e97b9fcadaeb2358fb0fb7c4eb105d49aee2620b2719abea43","size":22},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}]}
 }
 
 func Example_pullByDigest() {
@@ -697,7 +704,7 @@ func Example_pullByDigest() {
 	}
 	ctx := context.Background()
 
-	exampleDigest := "sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b"
+	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
 	// 1. resolve the descriptor
 	descriptor, err := repo.Resolve(ctx, exampleDigest)
 	if err != nil {
@@ -714,9 +721,9 @@ func Example_pullByDigest() {
 	fmt.Println(string(pulledBlob))
 
 	// Output:
-	// sha256:00e5ffa7d914b4e6aa3f1a324f37df0625ccc400be333deea5ecaa199f9eff5b
-	// 24
-	// Example manifest content
+	// sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7
+	// 337
+	// {"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:569224ae188c06e97b9fcadaeb2358fb0fb7c4eb105d49aee2620b2719abea43","size":22},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}]}
 }
 
 // Example_pushAndTag gives example snippet of pushing an OCI image with a tag.
