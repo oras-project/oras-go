@@ -2768,7 +2768,7 @@ func Test_ManifestStore_Push(t *testing.T) {
 	}
 }
 
-func Test_ManifestStore_Push_ServerToIndexReferrers(t *testing.T) {
+func Test_ManifestStore_Push_ReferrersAPIAvailable(t *testing.T) {
 	// generate test content
 	subject := []byte(`{"layers":[]}`)
 	subjectDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, subject)
@@ -2872,7 +2872,7 @@ func Test_ManifestStore_Push_ServerToIndexReferrers(t *testing.T) {
 	}
 }
 
-func Test_ManifestStore_Push_ClientToIndexReferrers(t *testing.T) {
+func Test_ManifestStore_Push_ReferrersAPIUnAvailable(t *testing.T) {
 	// generate test content
 	subject := []byte(`{"layers":[]}`)
 	subjectDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, subject)
