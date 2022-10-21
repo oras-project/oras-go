@@ -905,7 +905,7 @@ func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, b
 		return err
 	}
 
-	return s.indexReferrers(ctx, expected, &buf, addReferrers)
+	return s.indexReferrersForPush(ctx, expected, &buf)
 }
 
 // Exists returns true if the described content exists.
@@ -1021,6 +1021,14 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 	}
 	// TODO: clone body
 	return s.push(ctx, expected, content, ref.Reference)
+	// var buf bytes.Buffer
+	// lr := limitReader(content, s.repo.MaxMetadataBytes)
+	// tr := io.TeeReader(lr, &buf)
+	// if err := s.push(ctx, expected, tr, ref.Reference); err != nil {
+	// 	return err
+	// }
+
+	// return s.indexReferrers(ctx, expected, &buf, false)
 }
 
 // push pushes the manifest content, matching the expected descriptor.
@@ -1079,12 +1087,11 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	return verifyContentDigest(resp, expected.Digest)
 }
 
-// indexReferrers indexes referrers for image or artifact manifest with the
+// indexReferrersForPush indexes referrers for image or artifact manifest with the
 // subject field.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject
-func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descriptor, r io.Reader, fn func(origin []ocispec.Descriptor, desc ocispec.Descriptor) []ocispec.Descriptor) error {
+func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error {
 	var subject ocispec.Descriptor
-	var err error
 	switch desc.MediaType {
 	case ocispec.MediaTypeArtifactManifest:
 		var artifact ocispec.Artifact
@@ -1109,52 +1116,44 @@ func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descrip
 		desc.ArtifactType = manifest.Config.MediaType
 		desc.Annotations = manifest.Annotations
 	default:
-		// no subject, no client-side indexing needed
 		return nil
 	}
 
-	if state := s.repo.loadReferrersState(); state == referrersStateSupported {
-		// referrers API is available, no client-side indexing needed
-		return nil
-	}
 	ok, err := s.repo.testReferrersAPI(ctx, subject)
 	if err != nil {
 		return err
 	}
 	if ok {
 		// referrers API is available, no client-side indexing needed
-		s.repo.SetReferrersCapability(true)
 		return nil
 	}
-	s.repo.SetReferrersCapability(false)
 
 	// there can be multiple go-routines updating the referrers tag concurrently
 	referrersTag := buildReferrersTag(subject)
 	s.repo.lockReferrersTag(referrersTag)
 	defer s.repo.unlockReferrersTag(referrersTag)
 
-	// TODO: add referrers or delete referrers
-	// TODO: func() referrers
-	var existingReferrers []ocispec.Descriptor
+	var updatedReferrers []ocispec.Descriptor
 	err = s.repo.referrersByTagSchema(ctx, subject, "", func(referrers []ocispec.Descriptor) error {
-		existingReferrers = append(existingReferrers, referrers...)
+		for _, r := range referrers {
+			if !content.Equal(r, desc) {
+				updatedReferrers = append(updatedReferrers, r)
+			}
+		}
 		return nil
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, errdef.ErrNotFound) {
 		return err
 	}
+	updatedReferrers = append(updatedReferrers, desc)
+	newIndexDesc, newIndex, err := generateReferrersIndex(updatedReferrers)
+	if err != nil {
+		return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
+	}
+	return s.push(ctx, newIndexDesc, newIndex, referrersTag)
+}
 
-	// var referrers []ocispec.Descriptor
-	// // If the tag returns a 404, the client MUST begin with an empty image index.
-	// for _, r := range existingReferrers {
-	// 	if r.Digest != desc.Digest {
-	// 		// TODO: equals?
-	// 		referrers = append(referrers, r)
-	// 	}
-	// }
-	// referrers = append(referrers, desc)
-
-	referrers := fn(existingReferrers, desc)
+func generateReferrersIndex(referrers []ocispec.Descriptor) (ocispec.Descriptor, io.Reader, error) {
 	index := ocispec.Index{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
@@ -1164,13 +1163,20 @@ func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descrip
 	}
 	indexJSON, err := json.Marshal(index)
 	if err != nil {
-		return fmt.Errorf("failed to marshal referrers index for referrers tag %s: %w", referrersTag, err)
+		return ocispec.Descriptor{}, nil, err
 	}
 	indexDesc := content.NewDescriptorFromBytes(index.MediaType, indexJSON)
-	return s.push(ctx, indexDesc, bytes.NewReader(indexJSON), referrersTag)
+	return indexDesc, bytes.NewReader(indexJSON), nil
 }
 
 func (r *Repository) testReferrersAPI(ctx context.Context, desc ocispec.Descriptor) (bool, error) {
+	switch r.loadReferrersState() {
+	case referrersStateSupported:
+		return true, nil
+	case referrersStateUnsupported:
+		return false, nil
+	}
+
 	ref := r.Reference
 	ref.Reference = desc.Digest.String()
 	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
@@ -1188,23 +1194,14 @@ func (r *Repository) testReferrersAPI(ctx context.Context, desc ocispec.Descript
 
 	switch resp.StatusCode {
 	case http.StatusOK:
+		r.SetReferrersCapability(true)
 		return true, nil
 	case http.StatusNotFound:
+		r.SetReferrersCapability(false)
 		return false, nil
 	default:
 		return false, errutil.ParseErrorResponse(resp)
 	}
-}
-
-func addReferrers(origin []ocispec.Descriptor, desc ocispec.Descriptor) []ocispec.Descriptor {
-	var referrers []ocispec.Descriptor
-	for _, r := range origin {
-		if r.Digest != desc.Digest {
-			// TODO: equals?
-			referrers = append(referrers, r)
-		}
-	}
-	return append(referrers, desc)
 }
 
 // ParseReference parses a reference to a fully qualified reference.
