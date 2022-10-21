@@ -124,23 +124,6 @@ type Repository struct {
 	referrersTagLocks sync.Map // map[string]sync.Mutex
 }
 
-// lockReferrersTag locks a referrers tag.
-func (r *Repository) lockReferrersTag(tag string) {
-	v, _ := r.referrersTagLocks.LoadOrStore(tag, &sync.Mutex{})
-	lock := v.(*sync.Mutex)
-	lock.Lock()
-}
-
-// unlockReferrersTag unlocks a referrers tag.
-func (r *Repository) unlockReferrersTag(tag string) {
-	v, ok := r.referrersTagLocks.Load(tag)
-	if !ok {
-		return
-	}
-	lock := v.(*sync.Mutex)
-	lock.Unlock()
-}
-
 // NewRepository creates a client to the remote repository identified by a
 // reference.
 // Example: localhost:5000/hello-world
@@ -186,6 +169,23 @@ func (r *Repository) SetReferrersCapability(capable bool) error {
 // setReferrersState atomically loads r.referrersState.
 func (r *Repository) loadReferrersState() referrersState {
 	return atomic.LoadInt32(&r.referrersState)
+}
+
+// lockReferrersTag locks a referrers tag.
+func (r *Repository) lockReferrersTag(tag string) {
+	v, _ := r.referrersTagLocks.LoadOrStore(tag, &sync.Mutex{})
+	lock := v.(*sync.Mutex)
+	lock.Lock()
+}
+
+// unlockReferrersTag unlocks a referrers tag.
+func (r *Repository) unlockReferrersTag(tag string) {
+	v, ok := r.referrersTagLocks.Load(tag)
+	if !ok {
+		return
+	}
+	lock := v.(*sync.Mutex)
+	lock.Unlock()
 }
 
 // client returns an HTTP client used to access the remote repository.
@@ -1025,15 +1025,6 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 	}
 
 	return s.push(ctx, expected, content, ref.Reference)
-	// // copy content for referrers indexing
-	// var buf bytes.Buffer
-	// lr := limitReader(content, s.repo.MaxMetadataBytes)
-	// tr := io.TeeReader(lr, &buf)
-	// if err := s.push(ctx, expected, tr, ref.Reference); err != nil {
-	// 	return err
-	// }
-
-	// return s.indexReferrersForPush(ctx, expected, &buf)
 }
 
 // push pushes the manifest content, matching the expected descriptor.
