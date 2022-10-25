@@ -4744,7 +4744,7 @@ func Test_getReferrersTag(t *testing.T) {
 	}
 }
 
-func Test_generateReferrersIndex(t *testing.T) {
+func Test_generateIndex(t *testing.T) {
 	referrer_1 := ocispec.Artifact{
 		MediaType:    ocispec.MediaTypeArtifactManifest,
 		ArtifactType: "foo",
@@ -4794,28 +4794,28 @@ func Test_generateReferrersIndex(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		referrers []ocispec.Descriptor
+		manifests []ocispec.Descriptor
 		wantDesc  ocispec.Descriptor
 		wantBytes []byte
 		wantErr   bool
 	}{
 		{
 			name:      "non-empty referrers list",
-			referrers: referrers,
+			manifests: referrers,
 			wantDesc:  wantIndexDesc,
 			wantBytes: wantIndexJSON,
 			wantErr:   false,
 		},
 		{
 			name:      "nil referrers list",
-			referrers: nil,
+			manifests: nil,
 			wantDesc:  wantEmptyIndexDesc,
 			wantBytes: wantEmptyIndexJSON,
 			wantErr:   false,
 		},
 		{
 			name:      "empty referrers list",
-			referrers: nil,
+			manifests: nil,
 			wantDesc:  wantEmptyIndexDesc,
 			wantBytes: wantEmptyIndexJSON,
 			wantErr:   false,
@@ -4823,7 +4823,7 @@ func Test_generateReferrersIndex(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1, err := generateReferrersIndex(tt.referrers)
+			got, got1, err := generateIndex(tt.manifests)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("generateReferrersIndex() error = %v, wantErr %v", err, tt.wantErr)
 				return

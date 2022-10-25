@@ -1177,7 +1177,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		}
 	}
 	referrers = append(referrers, desc)
-	newIndexDesc, newIndex, err := generateReferrersIndex(referrers)
+	newIndexDesc, newIndex, err := generateIndex(referrers)
 	if err != nil {
 		return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
 	}
@@ -1368,18 +1368,17 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 	return nil
 }
 
-// generateReferrersIndex generates an image index containing the given
-// referrers list in its manifests field.
-func generateReferrersIndex(referrers []ocispec.Descriptor) (ocispec.Descriptor, []byte, error) {
-	if referrers == nil {
-		referrers = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
+// generateIndex generates an image index containing the given manifests list.
+func generateIndex(manifests []ocispec.Descriptor) (ocispec.Descriptor, []byte, error) {
+	if manifests == nil {
+		manifests = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
 	}
 	index := ocispec.Index{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
 		},
 		MediaType: ocispec.MediaTypeImageIndex,
-		Manifests: referrers,
+		Manifests: manifests,
 	}
 	indexJSON, err := json.Marshal(index)
 	if err != nil {
