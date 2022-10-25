@@ -905,24 +905,7 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 
 // Push pushes the content, matching the expected descriptor.
 func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	switch expected.MediaType {
-	case ocispec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest:
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
-			// referrers API is available, no client-side indexing needed
-			return s.push(ctx, expected, content, expected.Digest.String())
-		}
-
-		// buffer content for referrers indexing
-		var buf bytes.Buffer
-		lr := limitReader(content, s.repo.MaxMetadataBytes)
-		tr := io.TeeReader(lr, &buf)
-		if err := s.push(ctx, expected, tr, expected.Digest.String()); err != nil {
-			return err
-		}
-		return s.indexReferrersForPush(ctx, expected, &buf)
-	default:
-		return s.push(ctx, expected, content, expected.Digest.String())
-	}
+	return s.pushWithIndexing(ctx, expected, content, expected.Digest.String())
 }
 
 // Exists returns true if the described content exists.
@@ -1036,25 +1019,7 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 	if err != nil {
 		return err
 	}
-
-	switch expected.MediaType {
-	case ocispec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest:
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
-			// referrers API is available, no client-side indexing needed
-			return s.push(ctx, expected, content, ref.Reference)
-		}
-
-		// buffer content for referrers indexing
-		var buf bytes.Buffer
-		lr := limitReader(content, s.repo.MaxMetadataBytes)
-		tr := io.TeeReader(lr, &buf)
-		if err := s.push(ctx, expected, tr, ref.Reference); err != nil {
-			return err
-		}
-		return s.indexReferrersForPush(ctx, expected, &buf)
-	default:
-		return s.push(ctx, expected, content, ref.Reference)
-	}
+	return s.pushWithIndexing(ctx, expected, content, ref.Reference)
 }
 
 // push pushes the manifest content, matching the expected descriptor.
@@ -1113,15 +1078,41 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	return verifyContentDigest(resp, expected.Digest)
 }
 
+// pushWithIndexing pushes the manifest content, and indexes referrers for it
+// if needed.
+func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
+	switch expected.MediaType {
+	case ocispec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest:
+		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+			// referrers API is available, no client-side indexing needed
+			return s.push(ctx, expected, r, reference)
+		}
+
+		if err := limitSize(expected, s.repo.MaxMetadataBytes); err != nil {
+			return err
+		}
+		manifestJSON, err := content.ReadAll(r, expected)
+		if err != nil {
+			return err
+		}
+		if err := s.push(ctx, expected, bytes.NewReader(manifestJSON), reference); err != nil {
+			return err
+		}
+		return s.indexReferrersForPush(ctx, expected, manifestJSON)
+	default:
+		return s.push(ctx, expected, r, reference)
+	}
+}
+
 // indexReferrersForPush indexes referrers for image or artifact manifest with
 // the subject field.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject
-func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error {
+func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	var subject ocispec.Descriptor
 	switch desc.MediaType {
 	case ocispec.MediaTypeArtifactManifest:
 		var artifact ocispec.Artifact
-		if err := decodeJSON(r, desc, &artifact); err != nil {
+		if err := json.Unmarshal(manifestJSON, &artifact); err != nil {
 			return fmt.Errorf("failed to decode manifest: %s: %s: %w", desc.Digest, desc.MediaType, err)
 		}
 		if artifact.Subject == nil {
@@ -1133,7 +1124,7 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		desc.Annotations = artifact.Annotations
 	case ocispec.MediaTypeImageManifest:
 		var manifest ocispec.Manifest
-		if err := decodeJSON(r, desc, &manifest); err != nil {
+		if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
 			return fmt.Errorf("failed to decode manifest: %s: %s: %w", desc.Digest, desc.MediaType, err)
 		}
 		if manifest.Subject == nil {
