@@ -508,8 +508,10 @@ func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Desc
 	}
 
 	referrers := filterReferrers(index.Manifests, artifactType)
-	if err := fn(referrers); err != nil {
-		return ocispec.Descriptor{}, err
+	if len(referrers) > 0 {
+		if err := fn(referrers); err != nil {
+			return ocispec.Descriptor{}, err
+		}
 	}
 	return desc, nil
 }
