@@ -937,12 +937,7 @@ func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) e
 // and indexes referrers for the manifest when needed.
 func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.Descriptor) error {
 	if target.MediaType == ocispec.MediaTypeArtifactManifest || target.MediaType == ocispec.MediaTypeImageManifest {
-		yes, err := s.repo.isReferrersAPIAvailable(ctx, target)
-		if err != nil {
-			return err
-		}
-		if yes {
-			// referrers API is available, no client-side indexing needed
+		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
 			return s.repo.delete(ctx, target, true)
 		}
 
@@ -974,7 +969,16 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 		return nil
 	}
 
-	return s.updateReferrersIndexForDelete(ctx, desc, *manifest.Subject)
+	subject := *manifest.Subject
+	yes, err := s.repo.isReferrersAPIAvailable(ctx, subject)
+	if err != nil {
+		return err
+	}
+	if yes {
+		// referrers API is available, no client-side indexing needed
+		return nil
+	}
+	return s.updateReferrersIndexForDelete(ctx, desc, subject)
 }
 
 // updateReferrersIndexForDelete updates the referrers index for desc referencing
@@ -988,12 +992,16 @@ func (s *manifestStore) updateReferrersIndexForDelete(ctx context.Context, desc,
 	oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
 	if err != nil {
 		if errors.Is(err, errdef.ErrNotFound) {
-			// no old index found, skip update
-			// TODO: or return error?
+			// inconsistent indexing state: no old index found, skip update
 			return nil
 		}
 		return err
 	}
+	if len(referrers) == 0 {
+		// inconsistent indexing state: no referrers to the subject, skip update
+		return nil
+	}
+
 	var updatedReferrers []ocispec.Descriptor
 	for _, r := range referrers {
 		// remove the current entry
