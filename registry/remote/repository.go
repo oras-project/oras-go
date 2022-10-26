@@ -928,9 +928,90 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 	return false, err
 }
 
-// Delete removes the content identified by the descriptor.
+// Delete removes the manifest content identified by the descriptor.
 func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	return s.deleteWithIndexing(ctx, target)
+}
+
+// deleteWithIndexing removes the manifest content identified by the descriptor,
+// and indexes referrers for the manifest when needed.
+func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.Descriptor) error {
+	if target.MediaType == ocispec.MediaTypeArtifactManifest || target.MediaType == ocispec.MediaTypeImageManifest {
+		yes, err := s.repo.isReferrersAPIAvailable(ctx, target)
+		if err != nil {
+			return err
+		}
+		if yes {
+			// referrers API is available, no client-side indexing needed
+			return s.repo.delete(ctx, target, true)
+		}
+
+		manifestJSON, err := content.FetchAll(ctx, s, target)
+		if err != nil {
+			return err
+		}
+		if err := s.indexReferrersForDelete(ctx, target, manifestJSON); err != nil {
+			return err
+		}
+	}
+
 	return s.repo.delete(ctx, target, true)
+}
+
+// indexReferrersForDelete indexes referrers for image or artifact manifest with
+// the subject field on manifest delete.
+// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject
+func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
+	type artifact struct {
+		Subject *ocispec.Descriptor `json:"subject,omitempty"`
+	}
+	var manifest artifact
+	if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
+		return fmt.Errorf("failed to decode manifest: %s: %s: %w", desc.Digest, desc.MediaType, err)
+	}
+	if manifest.Subject == nil {
+		// no subject, no indexing needed
+		return nil
+	}
+
+	return s.updateReferrersIndexForDelete(ctx, desc, *manifest.Subject)
+}
+
+// updateReferrersIndexForDelete updates the referrers index for desc referencing
+// subject on manifest delete.
+func (s *manifestStore) updateReferrersIndexForDelete(ctx context.Context, desc, subject ocispec.Descriptor) error {
+	// there can be multiple go-routines updating the referrers tag concurrently
+	referrersTag := buildReferrersTag(subject)
+	s.repo.lockReferrersTag(referrersTag)
+	defer s.repo.unlockReferrersTag(referrersTag)
+
+	oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
+	if err != nil {
+		if errors.Is(err, errdef.ErrNotFound) {
+			// no old index found, skip update
+			// TODO: or return error?
+			return nil
+		}
+		return err
+	}
+	var updatedReferrers []ocispec.Descriptor
+	for _, r := range referrers {
+		// remove the current entry
+		if !content.Equal(r, desc) {
+			updatedReferrers = append(updatedReferrers, r)
+		}
+	}
+	if len(updatedReferrers) > 0 {
+		newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
+		if err != nil {
+			return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
+		}
+		if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
+			return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
+		}
+	}
+
+	return s.repo.delete(ctx, oldIndexDesc, true)
 }
 
 // Resolve resolves a reference to a descriptor.
@@ -1106,16 +1187,16 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 		if err := s.push(ctx, expected, bytes.NewReader(manifestJSON), reference); err != nil {
 			return err
 		}
-		return s.indexReferrers(ctx, expected, manifestJSON)
+		return s.indexReferrersForPush(ctx, expected, manifestJSON)
 	default:
 		return s.push(ctx, expected, r, reference)
 	}
 }
 
-// indexReferrers indexes referrers for image or artifact manifest with
-// the subject field.
+// indexReferrersForPush indexes referrers for image or artifact manifest with
+// the subject field on manifest push.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject
-func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
+func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	var subject ocispec.Descriptor
 	switch desc.MediaType {
 	case ocispec.MediaTypeArtifactManifest:
@@ -1154,11 +1235,12 @@ func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descrip
 		// referrers API is available, no client-side indexing needed
 		return nil
 	}
-	return s.updateReferrersIndex(ctx, desc, subject)
+	return s.updateReferrersIndexForPush(ctx, desc, subject)
 }
 
-// updateReferrersIndex updates the referrers index for desc referencing subject.
-func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject ocispec.Descriptor) error {
+// updateReferrersIndexForPush updates the referrers index for desc referencing
+// subject on manifest push.
+func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, subject ocispec.Descriptor) error {
 	// there can be multiple go-routines updating the referrers tag concurrently
 	referrersTag := buildReferrersTag(subject)
 	s.repo.lockReferrersTag(referrersTag)
