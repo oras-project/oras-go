@@ -74,7 +74,11 @@ func limitSize(desc ocispec.Descriptor, n int64) error {
 		n = defaultMaxMetadataBytes
 	}
 	if desc.Size > n {
-		return errdef.ErrSizeExceedsLimit
+		return fmt.Errorf(
+			"content size %v exceeds MaxMetadataBytes %v: %w",
+			desc.Size,
+			n,
+			errdef.ErrSizeExceedsLimit)
 	}
 	return nil
 }

@@ -503,6 +503,9 @@ func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Desc
 	return fn(filtered)
 }
 
+// referrersFromIndex queries the referrers index using the the given referrers
+// tag. If Succeeded, returns the descriptor of referrers index and the
+// referrers list.
 func (r *Repository) referrersFromIndex(ctx context.Context, referrersTag string) (ocispec.Descriptor, []ocispec.Descriptor, error) {
 	desc, rc, err := r.FetchReference(ctx, referrersTag)
 	if err != nil {
@@ -1083,8 +1086,8 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	return verifyContentDigest(resp, expected.Digest)
 }
 
-// pushWithIndexing pushes the manifest content, and indexes referrers for it
-// if needed.
+// pushWithIndexing pushes the manifest content matching the expected descriptor,
+// and indexes referrers for the manifest when needed.
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
 	switch expected.MediaType {
 	case ocispec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest:
@@ -1154,6 +1157,7 @@ func (s *manifestStore) indexReferrers(ctx context.Context, desc ocispec.Descrip
 	return s.updateReferrersIndex(ctx, desc, subject)
 }
 
+// updateReferrersIndex updates the referrers index for desc referencing subject.
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject ocispec.Descriptor) error {
 	// there can be multiple go-routines updating the referrers tag concurrently
 	referrersTag := buildReferrersTag(subject)
