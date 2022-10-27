@@ -942,6 +942,9 @@ func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.D
 			return s.repo.delete(ctx, target, true)
 		}
 
+		if err := limitSize(target, s.repo.MaxMetadataBytes); err != nil {
+			return err
+		}
 		manifestJSON, err := content.FetchAll(ctx, s, target)
 		if err != nil {
 			return err
@@ -959,7 +962,7 @@ func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.D
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#deleting-manifests
 func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	type artifact struct {
-		Subject *ocispec.Descriptor `json:"subject,omitempty"`
+		Subject *ocispec.Descriptor `json:"subject"`
 	}
 	var manifest artifact
 	if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
