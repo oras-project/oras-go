@@ -63,9 +63,16 @@ const (
 	referrersStateUnsupported
 )
 
-// ErrReferrersCapabilityAlreadySet is returned by SetReferrersCapability()
-// when the Referrers API capability has been already set.
-var ErrReferrersCapabilityAlreadySet = errors.New("referrers capability cannot be changed once set")
+var (
+	// ErrReferrersCapabilityAlreadySet is returned by
+	// Repository.SetReferrersCapability() when the Referrers API capability has
+	// been already set.
+	ErrReferrersCapabilityAlreadySet = errors.New("referrers capability cannot be changed once set")
+	// ErrBadRequest is returned by Repository.Manifests().Push() and
+	// Repository.Manifests().PushReference() when the response status code
+	// is 400.
+	ErrBadRequest = errors.New("bad request")
+)
 
 // Client is an interface for a HTTP client.
 type Client interface {
@@ -1080,10 +1087,15 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		return verifyContentDigest(resp, expected.Digest)
+	case http.StatusBadRequest:
+		err := errutil.ParseErrorResponse(resp)
+		return fmt.Errorf("%w: %s: %s: %v", ErrBadRequest, expected.Digest, expected.MediaType, err)
+	default:
 		return errutil.ParseErrorResponse(resp)
 	}
-	return verifyContentDigest(resp, expected.Digest)
 }
 
 // pushWithIndexing pushes the manifest content matching the expected descriptor,
