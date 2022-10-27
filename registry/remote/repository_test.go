@@ -3131,6 +3131,36 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	}
 }
 
+func Test_ManifestStore_Push_BadRequest(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Manifests()
+	ctx := context.Background()
+
+	err = store.Push(ctx, manifestDesc, bytes.NewReader(manifest))
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("Manifests.Push() error = %v, wantErr %v", err, ErrBadRequest)
+	}
+}
+
 func Test_ManifestStore_Exists(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
