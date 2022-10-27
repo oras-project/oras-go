@@ -961,10 +961,9 @@ func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.D
 // the subject field on manifest delete.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#deleting-manifests
 func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
-	type artifact struct {
+	var manifest struct {
 		Subject *ocispec.Descriptor `json:"subject"`
 	}
-	var manifest artifact
 	if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
 		return fmt.Errorf("failed to decode manifest: %s: %s: %w", desc.Digest, desc.MediaType, err)
 	}
