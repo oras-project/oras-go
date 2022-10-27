@@ -3226,7 +3226,6 @@ func Test_ManifestStore_Delete(t *testing.T) {
 			}
 		default:
 			w.WriteHeader(http.StatusNotFound)
-
 		}
 	}))
 	defer ts.Close()
@@ -3259,7 +3258,6 @@ func Test_ManifestStore_Delete(t *testing.T) {
 		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)),
 	}
-	ctx = context.Background()
 	err = store.Delete(ctx, contentDesc)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Manifests.Delete() error = %v, wantErr %v", err, errdef.ErrNotFound)
