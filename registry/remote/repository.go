@@ -1092,7 +1092,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 		return verifyContentDigest(resp, expected.Digest)
 	case http.StatusBadRequest:
 		err := errutil.ParseErrorResponse(resp)
-		return fmt.Errorf("%w: %s: %s: %v", ErrBadRequest, expected.Digest, expected.MediaType, err)
+		return fmt.Errorf("%s: %s: %w: %v", expected.Digest, expected.MediaType, ErrBadRequest, err)
 	default:
 		return errutil.ParseErrorResponse(resp)
 	}

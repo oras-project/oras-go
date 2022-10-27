@@ -3132,15 +3132,18 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 }
 
 func Test_ManifestStore_Push_BadRequest(t *testing.T) {
-	manifest := []byte(`{"layers":[]}`)
-	manifestDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(manifest),
-		Size:      int64(len(manifest)),
-	}
+	manifest_1 := []byte(`{"layers":[]}`)
+	manifestDesc_1 := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest_1)
+	manifest_2 := []byte("whatever")
+	manifestDesc_2 := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest_2)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
+		switch r.URL.Path {
+		case "/v2/test/manifests/" + manifestDesc_1.Digest.String():
+			w.WriteHeader(http.StatusBadRequest)
+		case "/v2/test/manifests/" + manifestDesc_2.Digest.String():
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 	}))
 	defer ts.Close()
 	uri, err := url.Parse(ts.URL)
@@ -3155,9 +3158,15 @@ func Test_ManifestStore_Push_BadRequest(t *testing.T) {
 	store := repo.Manifests()
 	ctx := context.Background()
 
-	err = store.Push(ctx, manifestDesc, bytes.NewReader(manifest))
+	// test bad request
+	err = store.Push(ctx, manifestDesc_1, bytes.NewReader(manifest_1))
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("Manifests.Push() error = %v, wantErr %v", err, ErrBadRequest)
+	}
+	// test other errors
+	err = store.Push(ctx, manifestDesc_2, bytes.NewReader(manifest_2))
+	if errors.Is(err, ErrBadRequest) {
+		t.Fatalf("Manifests.Push() error = %v, want unexpected error", err)
 	}
 }
 
