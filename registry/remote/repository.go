@@ -938,6 +938,7 @@ func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) e
 func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.Descriptor) error {
 	if target.MediaType == ocispec.MediaTypeArtifactManifest || target.MediaType == ocispec.MediaTypeImageManifest {
 		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+			// referrers API is available, no client-side indexing needed
 			return s.repo.delete(ctx, target, true)
 		}
 
@@ -955,7 +956,7 @@ func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.D
 
 // indexReferrersForDelete indexes referrers for image or artifact manifest with
 // the subject field on manifest delete.
-// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject
+// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#deleting-manifests
 func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	type artifact struct {
 		Subject *ocispec.Descriptor `json:"subject,omitempty"`
