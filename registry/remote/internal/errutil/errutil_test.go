@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package remoteerr
+package errutil
 
 import (
 	"errors"
@@ -21,11 +21,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"oras.land/oras-go/v2/registry/remote/remoteerr"
 )
 
 func Test_ParseErrorResponse(t *testing.T) {
 	path := "/test"
-	expectedErrs := ResponseInnerErrors{
+	expectedErrs := remoteerr.ResponseInnerErrors{
 		{
 			Code:    "UNAUTHORIZED",
 			Message: "authentication required",
@@ -60,25 +62,25 @@ func Test_ParseErrorResponse(t *testing.T) {
 		t.Errorf("ParseErrorResponse() error = %v, wantErr %v", err, true)
 	}
 
-	var wrappedErr *ErrorResponse
-	if ok := errors.As(err, &wrappedErr); !ok {
+	var errResp *remoteerr.ErrorResponse
+	if ok := errors.As(err, &errResp); !ok {
 		t.Errorf("errors.As(err, &UnexpectedStatusCodeError) = %v, want %v", ok, true)
 	}
-	if wrappedErr.Method != http.MethodGet {
-		t.Errorf("ParseErrorResponse() Method = %v, want Method %v", wrappedErr.Method, http.MethodGet)
+	if want := http.MethodGet; errResp.Method != want {
+		t.Errorf("ParseErrorResponse() Method = %v, want Method %v", errResp.Method, want)
 	}
-	if wrappedErr.StatusCode != http.StatusUnauthorized {
-		t.Errorf("ParseErrorResponse() StatusCode = %v, want StatusCode %v", wrappedErr.StatusCode, http.StatusUnauthorized)
+	if want := http.StatusUnauthorized; errResp.StatusCode != want {
+		t.Errorf("ParseErrorResponse() StatusCode = %v, want StatusCode %v", errResp.StatusCode, want)
 	}
-	if wrappedErr.URL.Path != path {
-		t.Errorf("ParseErrorResponse() URL = %v, want URL %v", wrappedErr.URL.Path, path)
+	if want := path; errResp.URL.Path != want {
+		t.Errorf("ParseErrorResponse() URL = %v, want URL %v", errResp.URL.Path, want)
 	}
-	for i, e := range wrappedErr.InnerErrors {
-		if e.Code != expectedErrs[i].Code {
-			t.Errorf("ParseErrorResponse() Code = %v, want Code %v", e.Code, expectedErrs[i].Code)
+	for i, e := range errResp.InnerErrors {
+		if want := expectedErrs[i].Code; e.Code != expectedErrs[i].Code {
+			t.Errorf("ParseErrorResponse() Code = %v, want Code %v", e.Code, want)
 		}
-		if e.Message != expectedErrs[i].Message {
-			t.Errorf("ParseErrorResponse() Message = %v, want Code %v", e.Code, expectedErrs[i].Message)
+		if want := expectedErrs[i].Message; e.Message != want {
+			t.Errorf("ParseErrorResponse() Message = %v, want Code %v", e.Code, want)
 		}
 	}
 
@@ -86,10 +88,18 @@ func Test_ParseErrorResponse(t *testing.T) {
 	if want := "401"; !strings.Contains(errmsg, want) {
 		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
 	}
+	// first error
 	if want := "unauthorized"; !strings.Contains(errmsg, want) {
 		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
 	}
 	if want := "authentication required"; !strings.Contains(errmsg, want) {
+		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
+	}
+	// second error
+	if want := "name unknown"; !strings.Contains(errmsg, want) {
+		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
+	}
+	if want := "repository name not known to registry"; !strings.Contains(errmsg, want) {
 		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
 	}
 }

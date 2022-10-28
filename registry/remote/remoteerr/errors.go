@@ -16,22 +16,14 @@ limitations under the License.
 package remoteerr
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"unicode"
 )
 
-// maxErrorBytes specifies the default limit on how many response bytes are
-// allowed in the server's error response.
-// A typical error message is around 200 bytes. Hence, 8 KiB should be
-// sufficient.
-const maxErrorBytes int64 = 8 * 1024 // 8 KiB
-
-// ResponseInnerError represent a response inner error returned by the remote
+// ResponseInnerError represents a response inner error returned by the remote
 // registry.
 type ResponseInnerError struct {
 	Code    string `json:"code"`
@@ -53,8 +45,8 @@ func (e ResponseInnerError) Error() string {
 	return fmt.Sprintf("%s: %s: %v", code, e.Message, e.Detail)
 }
 
-// ResponseInnerErrors represent a list of response inner errors returned by the
-// remote server.
+// ResponseInnerErrors represents a list of response inner errors returned by
+// the remote server.
 type ResponseInnerErrors []ResponseInnerError
 
 // Error returns a error string describing the error.
@@ -72,7 +64,7 @@ func (errs ResponseInnerErrors) Error() string {
 	return strings.Join(errmsgs, "; ")
 }
 
-// ErrorResponse represent an error response.
+// ErrorResponse represents an error response.
 type ErrorResponse struct {
 	Method      string
 	URL         *url.URL
@@ -89,23 +81,4 @@ func (err *ErrorResponse) Error() string {
 		errmsg = http.StatusText(err.StatusCode)
 	}
 	return fmt.Sprintf("%s %q: response status code %d: %s", err.Method, err.URL, err.StatusCode, errmsg)
-}
-
-// ParseErrorResponse parses the error returned by the remote registry.
-func ParseErrorResponse(resp *http.Response) error {
-	resultErr := &ErrorResponse{
-		Method:     resp.Request.Method,
-		URL:        resp.Request.URL,
-		StatusCode: resp.StatusCode,
-	}
-	var body struct {
-		Errors ResponseInnerErrors `json:"errors"`
-	}
-	lr := io.LimitReader(resp.Body, maxErrorBytes)
-	if err := json.NewDecoder(lr).Decode(&body); err != nil {
-		return resultErr
-	}
-
-	resultErr.InnerErrors = body.Errors
-	return resultErr
 }
