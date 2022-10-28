@@ -23,9 +23,9 @@ import (
 	"testing"
 )
 
-func Test_parseErrorResponse(t *testing.T) {
+func Test_ParseErrorResponse(t *testing.T) {
 	path := "/test"
-	expectedErrs := ResponseErrors{
+	expectedErrs := ResponseInnerErrors{
 		{
 			Code:    "UNAUTHORIZED",
 			Message: "authentication required",
@@ -57,7 +57,7 @@ func Test_parseErrorResponse(t *testing.T) {
 	}
 	err = ParseErrorResponse(resp)
 	if err == nil {
-		t.Errorf("parseErrorResponse() error = %v, wantErr %v", err, true)
+		t.Errorf("ParseErrorResponse() error = %v, wantErr %v", err, true)
 	}
 
 	var wrappedErr *ErrorResponse
@@ -65,36 +65,36 @@ func Test_parseErrorResponse(t *testing.T) {
 		t.Errorf("errors.As(err, &UnexpectedStatusCodeError) = %v, want %v", ok, true)
 	}
 	if wrappedErr.Method != http.MethodGet {
-		t.Errorf("parseErrorResponse() Method = %v, want Method %v", wrappedErr.Method, http.MethodGet)
+		t.Errorf("ParseErrorResponse() Method = %v, want Method %v", wrappedErr.Method, http.MethodGet)
 	}
 	if wrappedErr.StatusCode != http.StatusUnauthorized {
-		t.Errorf("parseErrorResponse() StatusCode = %v, want StatusCode %v", wrappedErr.StatusCode, http.StatusUnauthorized)
+		t.Errorf("ParseErrorResponse() StatusCode = %v, want StatusCode %v", wrappedErr.StatusCode, http.StatusUnauthorized)
 	}
 	if wrappedErr.URL.Path != path {
-		t.Errorf("parseErrorResponse() URL = %v, want URL %v", wrappedErr.URL.Path, path)
+		t.Errorf("ParseErrorResponse() URL = %v, want URL %v", wrappedErr.URL.Path, path)
 	}
 	for i, e := range wrappedErr.InnerErrors {
 		if e.Code != expectedErrs[i].Code {
-			t.Errorf("parseErrorResponse() Code = %v, want Code %v", e.Code, expectedErrs[i].Code)
+			t.Errorf("ParseErrorResponse() Code = %v, want Code %v", e.Code, expectedErrs[i].Code)
 		}
 		if e.Message != expectedErrs[i].Message {
-			t.Errorf("parseErrorResponse() Message = %v, want Code %v", e.Code, expectedErrs[i].Message)
+			t.Errorf("ParseErrorResponse() Message = %v, want Code %v", e.Code, expectedErrs[i].Message)
 		}
 	}
 
 	errmsg := err.Error()
 	if want := "401"; !strings.Contains(errmsg, want) {
-		t.Errorf("parseErrorResponse() error = %v, want err message %v", err, want)
+		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
 	}
 	if want := "unauthorized"; !strings.Contains(errmsg, want) {
-		t.Errorf("parseErrorResponse() error = %v, want err message %v", err, want)
+		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
 	}
 	if want := "authentication required"; !strings.Contains(errmsg, want) {
-		t.Errorf("parseErrorResponse() error = %v, want err message %v", err, want)
+		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
 	}
 }
 
-func Test_parseErrorResponse_plain(t *testing.T) {
+func Test_ParseErrorResponse_plain(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
@@ -106,13 +106,13 @@ func Test_parseErrorResponse_plain(t *testing.T) {
 	}
 	err = ParseErrorResponse(resp)
 	if err == nil {
-		t.Errorf("parseErrorResponse() error = %v, wantErr %v", err, true)
+		t.Errorf("ParseErrorResponse() error = %v, wantErr %v", err, true)
 	}
 	errmsg := err.Error()
 	if want := "401"; !strings.Contains(errmsg, want) {
-		t.Errorf("parseErrorResponse() error = %v, want err message %v", err, want)
+		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
 	}
 	if want := http.StatusText(http.StatusUnauthorized); !strings.Contains(errmsg, want) {
-		t.Errorf("parseErrorResponse() error = %v, want err message %v", err, want)
+		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
 	}
 }

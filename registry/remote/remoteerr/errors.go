@@ -31,15 +31,16 @@ import (
 // sufficient.
 const maxErrorBytes int64 = 8 * 1024 // 8 KiB
 
-// ResponseError represent a response error returned by the remote registry.
-type ResponseError struct {
+// ResponseInnerError represent a response inner error returned by the remote
+// registry.
+type ResponseInnerError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Detail  any    `json:"detail"`
 }
 
 // Error returns a error string describing the error.
-func (e ResponseError) Error() string {
+func (e ResponseInnerError) Error() string {
 	code := strings.Map(func(r rune) rune {
 		if r == '_' {
 			return ' '
@@ -52,12 +53,12 @@ func (e ResponseError) Error() string {
 	return fmt.Sprintf("%s: %s: %v", code, e.Message, e.Detail)
 }
 
-// ResponseErrors represent a list of response errors returned by the remote
-// server.
-type ResponseErrors []ResponseError
+// ResponseInnerErrors represent a list of response inner errors returned by the
+// remote server.
+type ResponseInnerErrors []ResponseInnerError
 
 // Error returns a error string describing the error.
-func (errs ResponseErrors) Error() string {
+func (errs ResponseInnerErrors) Error() string {
 	switch len(errs) {
 	case 0:
 		return "<nil>"
@@ -76,7 +77,7 @@ type ErrorResponse struct {
 	Method      string
 	URL         *url.URL
 	StatusCode  int
-	InnerErrors ResponseErrors
+	InnerErrors ResponseInnerErrors
 }
 
 // Error returns a error string describing the error.
@@ -98,7 +99,7 @@ func ParseErrorResponse(resp *http.Response) error {
 		StatusCode: resp.StatusCode,
 	}
 	var body struct {
-		Errors ResponseErrors `json:"errors"`
+		Errors ResponseInnerErrors `json:"errors"`
 	}
 	lr := io.LimitReader(resp.Body, maxErrorBytes)
 	if err := json.NewDecoder(lr).Decode(&body); err != nil {
