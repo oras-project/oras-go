@@ -40,10 +40,8 @@ func ParseErrorResponse(resp *http.Response) error {
 		Errors errcode.Errors `json:"errors"`
 	}
 	lr := io.LimitReader(resp.Body, maxErrorBytes)
-	if err := json.NewDecoder(lr).Decode(&body); err != nil {
-		return resultErr
+	if err := json.NewDecoder(lr).Decode(&body); err == nil {
+		resultErr.Errors = body.Errors
 	}
-
-	resultErr.Errors = body.Errors
 	return resultErr
 }
