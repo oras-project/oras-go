@@ -5221,6 +5221,13 @@ func Test_getReferrersTag(t *testing.T) {
 		want string
 	}{
 		{
+			name: "zero digest",
+			desc: ocispec.Descriptor{
+				Digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+			},
+			want: "sha256-0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
 			name: "sha256",
 			desc: ocispec.Descriptor{
 				Digest: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -5338,7 +5345,7 @@ func Test_generateIndex(t *testing.T) {
 	}
 }
 
-func TestRepository_isReferrersAPIAvailable(t *testing.T) {
+func TestRepository_PingReferrersAPI(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
@@ -5376,36 +5383,36 @@ func TestRepository_isReferrersAPIAvailable(t *testing.T) {
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
-	got, err := repo.isReferrersAPIAvailable(ctx, manifestDesc)
+	got, err := repo.PingReferrersAPI(ctx)
 	if err != nil {
-		t.Errorf("Repository.isReferrersAPIAvailable() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.PingReferrersAPI() error = %v, wantErr %v", err, nil)
 	}
 	if got != true {
-		t.Errorf("Repository.isReferrersAPIAvailable() = %v, want %v", got, true)
+		t.Errorf("Repository.PingReferrersAPI() = %v, want %v", got, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.isReferrersAPIAvailable()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.PingReferrersAPI()) = %v, want %v", count, 1)
 	}
 
 	// 2nd call
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
-	got, err = repo.isReferrersAPIAvailable(ctx, manifestDesc)
+	got, err = repo.PingReferrersAPI(ctx)
 	if err != nil {
-		t.Errorf("Repository.isReferrersAPIAvailable() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.PingReferrersAPI() error = %v, wantErr %v", err, nil)
 	}
 	if got != true {
-		t.Errorf("Repository.isReferrersAPIAvailable() = %v, want %v", got, true)
+		t.Errorf("Repository.PingReferrersAPI() = %v, want %v", got, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.isReferrersAPIAvailable()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.PingReferrersAPI()) = %v, want %v", count, 1)
 	}
 
 	// referrers unavailable
@@ -5438,35 +5445,35 @@ func TestRepository_isReferrersAPIAvailable(t *testing.T) {
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
-	got, err = repo.isReferrersAPIAvailable(ctx, manifestDesc)
+	got, err = repo.PingReferrersAPI(ctx)
 	if err != nil {
-		t.Errorf("Repository.isReferrersAPIAvailable() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.PingReferrersAPI() error = %v, wantErr %v", err, nil)
 	}
 	if got != false {
-		t.Errorf("Repository.isReferrersAPIAvailable() = %v, want %v", got, false)
+		t.Errorf("Repository.PingReferrersAPI() = %v, want %v", got, false)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.isReferrersAPIAvailable()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.PingReferrersAPI()) = %v, want %v", count, 1)
 	}
 
 	// 2nd call
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
-	got, err = repo.isReferrersAPIAvailable(ctx, manifestDesc)
+	got, err = repo.PingReferrersAPI(ctx)
 	if err != nil {
-		t.Errorf("Repository.isReferrersAPIAvailable() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.PingReferrersAPI() error = %v, wantErr %v", err, nil)
 	}
 	if got != false {
-		t.Errorf("Repository.isReferrersAPIAvailable() = %v, want %v", got, false)
+		t.Errorf("Repository.PingReferrersAPI() = %v, want %v", got, false)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.isReferrersAPIAvailable()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.PingReferrersAPI()) = %v, want %v", count, 1)
 	}
 }

@@ -44,11 +44,14 @@ import (
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
-// dockerContentDigestHeader - The Docker-Content-Digest header, if present on
-// the response, returns the canonical digest of the uploaded blob.
-// See https://docs.docker.com/registry/spec/api/#digest-header
-// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
-const dockerContentDigestHeader = "Docker-Content-Digest"
+const (
+	// dockerContentDigestHeader - The Docker-Content-Digest header, if present on
+	// the response, returns the canonical digest of the uploaded blob.
+	// See https://docs.docker.com/registry/spec/api/#digest-header
+	// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
+	dockerContentDigestHeader = "Docker-Content-Digest"
+	zeroDigest                = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+)
 
 // referrersState represents the state of Referrers API.
 type referrersState = int32
@@ -83,6 +86,8 @@ type Client interface {
 
 // Repository is an HTTP client to a remote repository.
 type Repository struct {
+	*sync.Mutex
+
 	// Client is the underlying HTTP client used to access the remote registry.
 	// If nil, auth.DefaultClient is used.
 	Client Client
@@ -122,7 +127,7 @@ type Repository struct {
 	referrersState referrersState
 
 	// referrersTagLocks maps a referrers tag to a lock.
-	referrersTagLocks sync.Map // map[string]sync.Mutex
+	referrersTagLocks sync.Map // map[string]*sync.Mutex
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -135,6 +140,7 @@ func NewRepository(reference string) (*Repository, error) {
 	}
 	return &Repository{
 		Reference: ref,
+		Mutex:     &sync.Mutex{},
 	}, nil
 }
 
@@ -975,7 +981,7 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 	}
 
 	subject := *manifest.Subject
-	yes, err := s.repo.isReferrersAPIAvailable(ctx, subject)
+	yes, err := s.repo.PingReferrersAPI(ctx)
 	if err != nil {
 		return err
 	}
@@ -1240,7 +1246,7 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		return nil
 	}
 
-	yes, err := s.repo.isReferrersAPIAvailable(ctx, subject)
+	yes, err := s.repo.PingReferrersAPI(ctx)
 	if err != nil {
 		return err
 	}
@@ -1290,8 +1296,8 @@ func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, s
 	return s.repo.delete(ctx, oldIndexDesc, true)
 }
 
-// isReferrersAPIAvailable returns true if the Referrers API is available for r.
-func (r *Repository) isReferrersAPIAvailable(ctx context.Context, desc ocispec.Descriptor) (bool, error) {
+// PingReferrersAPI returns true if the Referrers API is available for r.
+func (r *Repository) PingReferrersAPI(ctx context.Context) (bool, error) {
 	switch r.loadReferrersState() {
 	case referrersStateSupported:
 		return true, nil
@@ -1300,8 +1306,12 @@ func (r *Repository) isReferrersAPIAvailable(ctx context.Context, desc ocispec.D
 	}
 
 	// referrers state is unknown
+	// TODO: struct lock?
+	// r.Mutex.Lock()
+	// defer r.Mutex.Unlock()
+
 	ref := r.Reference
-	ref.Reference = desc.Digest.String()
+	ref.Reference = zeroDigest
 	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
 
 	url := buildReferrersURL(r.PlainHTTP, ref, "")
