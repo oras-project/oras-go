@@ -20,7 +20,7 @@ import (
 	"io"
 	"net/http"
 
-	"oras.land/oras-go/v2/registry/remote/remoteerr"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
 // maxErrorBytes specifies the default limit on how many response bytes are
@@ -31,19 +31,19 @@ const maxErrorBytes int64 = 8 * 1024 // 8 KiB
 
 // ParseErrorResponse parses the error returned by the remote registry.
 func ParseErrorResponse(resp *http.Response) error {
-	resultErr := &remoteerr.ErrorResponse{
+	resultErr := &errcode.ErrorResponse{
 		Method:     resp.Request.Method,
 		URL:        resp.Request.URL,
 		StatusCode: resp.StatusCode,
 	}
 	var body struct {
-		Errors remoteerr.ResponseInnerErrors `json:"errors"`
+		Errors errcode.Errors `json:"errors"`
 	}
 	lr := io.LimitReader(resp.Body, maxErrorBytes)
 	if err := json.NewDecoder(lr).Decode(&body); err != nil {
 		return resultErr
 	}
 
-	resultErr.InnerErrors = body.Errors
+	resultErr.Errors = body.Errors
 	return resultErr
 }

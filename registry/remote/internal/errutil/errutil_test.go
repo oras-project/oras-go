@@ -22,12 +22,12 @@ import (
 	"strings"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/remoteerr"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
 func Test_ParseErrorResponse(t *testing.T) {
 	path := "/test"
-	expectedErrs := remoteerr.ResponseInnerErrors{
+	expectedErrs := errcode.Errors{
 		{
 			Code:    "UNAUTHORIZED",
 			Message: "authentication required",
@@ -62,7 +62,7 @@ func Test_ParseErrorResponse(t *testing.T) {
 		t.Errorf("ParseErrorResponse() error = %v, wantErr %v", err, true)
 	}
 
-	var errResp *remoteerr.ErrorResponse
+	var errResp *errcode.ErrorResponse
 	if ok := errors.As(err, &errResp); !ok {
 		t.Errorf("errors.As(err, &UnexpectedStatusCodeError) = %v, want %v", ok, true)
 	}
@@ -75,7 +75,7 @@ func Test_ParseErrorResponse(t *testing.T) {
 	if want := path; errResp.URL.Path != want {
 		t.Errorf("ParseErrorResponse() URL = %v, want URL %v", errResp.URL.Path, want)
 	}
-	for i, e := range errResp.InnerErrors {
+	for i, e := range errResp.Errors {
 		if want := expectedErrs[i].Code; e.Code != expectedErrs[i].Code {
 			t.Errorf("ParseErrorResponse() Code = %v, want Code %v", e.Code, want)
 		}
