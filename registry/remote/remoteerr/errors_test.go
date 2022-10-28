@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package remote
+package remoteerr
 
 import (
 	"errors"
@@ -55,7 +55,7 @@ func Test_parseErrorResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to do request: %v", err)
 	}
-	err = parseErrorResponse(resp)
+	err = ParseErrorResponse(resp)
 	if err == nil {
 		t.Errorf("parseErrorResponse() error = %v, wantErr %v", err, true)
 	}
@@ -104,7 +104,7 @@ func Test_parseErrorResponse_plain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to do request: %v", err)
 	}
-	err = parseErrorResponse(resp)
+	err = ParseErrorResponse(resp)
 	if err == nil {
 		t.Errorf("parseErrorResponse() error = %v, wantErr %v", err, true)
 	}

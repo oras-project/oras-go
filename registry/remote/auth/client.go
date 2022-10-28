@@ -27,7 +27,7 @@ import (
 	"net/url"
 	"strings"
 
-	"oras.land/oras-go/v2/registry/remote/internal/errutil"
+	"oras.land/oras-go/v2/registry/remote/remoteerr"
 )
 
 // DefaultClient is the default auth-decorated client.
@@ -312,7 +312,7 @@ func (c *Client) fetchDistributionToken(ctx context.Context, realm, service stri
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", errutil.ParseErrorResponse(resp)
+		return "", remoteerr.ParseErrorResponse(resp)
 	}
 
 	// As specified in https://docs.docker.com/registry/spec/auth/token/ section
@@ -372,7 +372,7 @@ func (c *Client) fetchOAuth2Token(ctx context.Context, realm, service string, sc
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", errutil.ParseErrorResponse(resp)
+		return "", remoteerr.ParseErrorResponse(resp)
 	}
 
 	var result struct {

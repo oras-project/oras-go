@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package remote
+package remoteerr
 
 import (
 	"encoding/json"
@@ -90,8 +90,8 @@ func (err *ErrorResponse) Error() string {
 	return fmt.Sprintf("%s %q: response status code %d: %s", err.Method, err.URL, err.StatusCode, errmsg)
 }
 
-// parseErrorResponse parses the error returned by the remote registry.
-func parseErrorResponse(resp *http.Response) error {
+// ParseErrorResponse parses the error returned by the remote registry.
+func ParseErrorResponse(resp *http.Response) error {
 	resultErr := &ErrorResponse{
 		Method:     resp.Request.Method,
 		URL:        resp.Request.URL,

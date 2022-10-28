@@ -28,7 +28,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/internal/errutil"
+	"oras.land/oras-go/v2/registry/remote/remoteerr"
 )
 
 func TestClient_SetUserAgent(t *testing.T) {
@@ -2211,7 +2211,7 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 	}
 	_, err = clientInvalid.Do(req)
 
-	var expectedError *errutil.UnexpectedStatusCodeError
+	var expectedError *remoteerr.ErrorResponse
 	if !errors.As(err, &expectedError) || expectedError.StatusCode != http.StatusUnauthorized {
 		t.Errorf("incorrect error: %v, expected %v", err, expectedError)
 	}
