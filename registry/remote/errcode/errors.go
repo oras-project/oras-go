@@ -23,6 +23,22 @@ import (
 	"unicode"
 )
 
+const (
+	ErrorCodeBlobUnknown         = "BLOB_UNKNOWN"
+	ErrorCodeBlobUploadInvalid   = "BLOB_UPLOAD_INVALID"
+	ErrorCodeBlobUploadUnknown   = "BLOB_UPLOAD_UNKNOWN"
+	ErrorCodeDigestInvalid       = "DIGEST_INVALID"
+	ErrorCodeManifestBlobUnknown = "MANIFEST_BLOB_UNKNOWN"
+	ErrorCodeManifestInvalid     = "MANIFEST_INVALID"
+	ErrorCodeManifestUnknown     = "MANIFEST_UNKNOWN"
+	ErrorCodeNameInvalid         = "NAME_INVALID"
+	ErrorCodeNameUnknown         = "NAME_UNKNOWN"
+	ErrorCodeSizeInvalid         = "SIZE_INVALID"
+	ErrorCodeUnauthorized        = "UNAUTHORIZED"
+	ErrorCodeDenied              = "DENIED"
+	ErrorCodeUnsupported         = "UNSUPPORTED"
+)
+
 // Error represents a response inner error returned by the remote
 // registry.
 type Error struct {
@@ -101,3 +117,7 @@ func (err *ErrorResponse) Unwrap() error {
 	}
 	return err.Errors
 }
+
+// func IsErrorCode(err error, code string) bool {
+
+// }
