@@ -50,7 +50,9 @@ const (
 	// See https://docs.docker.com/registry/spec/api/#digest-header
 	// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
 	dockerContentDigestHeader = "Docker-Content-Digest"
-	zeroDigest                = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	// zeroDigest represents a digest that consists of zeros. zeroDigest is used
+	// for pinging Referrers API.
+	zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 )
 
 // referrersState represents the state of Referrers API.
@@ -1310,7 +1312,6 @@ func (r *Repository) pingReferrersAPI(ctx context.Context) (bool, error) {
 	case referrersStateUnsupported:
 		return false, nil
 	}
-
 	// referrers state is unknown
 	ref := r.Reference
 	ref.Reference = zeroDigest
