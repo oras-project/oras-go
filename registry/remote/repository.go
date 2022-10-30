@@ -86,8 +86,6 @@ type Client interface {
 
 // Repository is an HTTP client to a remote repository.
 type Repository struct {
-	*sync.Mutex
-
 	// Client is the underlying HTTP client used to access the remote registry.
 	// If nil, auth.DefaultClient is used.
 	Client Client
@@ -128,6 +126,10 @@ type Repository struct {
 
 	// referrersTagLocks maps a referrers tag to a lock.
 	referrersTagLocks sync.Map // map[string]*sync.Mutex
+
+	// referrersPingLock locks the pingReferrersAPI() method and allows only
+	// one go-routine to send the request.
+	referrersPingLock *sync.Mutex
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -139,8 +141,8 @@ func NewRepository(reference string) (*Repository, error) {
 		return nil, err
 	}
 	return &Repository{
-		Reference: ref,
-		Mutex:     &sync.Mutex{},
+		Reference:         ref,
+		referrersPingLock: &sync.Mutex{},
 	}, nil
 }
 
@@ -981,7 +983,7 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 	}
 
 	subject := *manifest.Subject
-	yes, err := s.repo.PingReferrersAPI(ctx)
+	yes, err := s.repo.pingReferrersAPI(ctx)
 	if err != nil {
 		return err
 	}
@@ -1246,7 +1248,7 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		return nil
 	}
 
-	yes, err := s.repo.PingReferrersAPI(ctx)
+	yes, err := s.repo.pingReferrersAPI(ctx)
 	if err != nil {
 		return err
 	}
@@ -1296,8 +1298,12 @@ func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, s
 	return s.repo.delete(ctx, oldIndexDesc, true)
 }
 
-// PingReferrersAPI returns true if the Referrers API is available for r.
-func (r *Repository) PingReferrersAPI(ctx context.Context) (bool, error) {
+// pingReferrersAPI returns true if the Referrers API is available for r.
+func (r *Repository) pingReferrersAPI(ctx context.Context) (bool, error) {
+	// limit the rate of pinging referrers API
+	r.referrersPingLock.Lock()
+	defer r.referrersPingLock.Unlock()
+
 	switch r.loadReferrersState() {
 	case referrersStateSupported:
 		return true, nil
@@ -1306,10 +1312,6 @@ func (r *Repository) PingReferrersAPI(ctx context.Context) (bool, error) {
 	}
 
 	// referrers state is unknown
-	// TODO: struct lock?
-	// r.Mutex.Lock()
-	// defer r.Mutex.Unlock()
-
 	ref := r.Reference
 	ref.Reference = zeroDigest
 	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
