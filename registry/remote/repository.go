@@ -393,30 +393,24 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 	}
 
 	err := r.referrersByAPI(ctx, desc, artifactType, fn)
-	// if state == referrersStateSupported {
-	// 	// The repository is known to support Referrers API, no fallback.
-	// 	return err
-	// }
-	// The referrers state is unknown.
 	if err != nil {
-		var errResp *errcode.ErrorResponse
-		if errors.As(err, &errResp) && errResp.StatusCode == http.StatusNotFound {
-			var innerErr errcode.Error
-			if errors.As(err, &innerErr); innerErr.Code == errcode.ErrorCodeNameUnknown {
-				// repository not found, no fallback
-				return fmt.Errorf("%s: %w", r.Reference.Repository, errdef.ErrNotFound)
-			}
-			if state == referrersStateSupported {
-				// The repository is known to support Referrers API, no fallback.
-				return fmt.Errorf("referrers not found for %s: %w", r.Reference, errdef.ErrNotFound)
-			}
-			// The referrers state is unknown.
-			// A 404 returned by Referrers API indicates that Referrers API is
-			// not supported. Fallback to referrers tag schema.
-			r.SetReferrersCapability(false)
-			return r.referrersByTagSchema(ctx, desc, artifactType, fn)
+		if !errcode.IsErrorResponseStatus(err, http.StatusNotFound) {
+			return err
 		}
-		return err
+
+		if errcode.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
+			// The repository name is not found, no fallback
+			return fmt.Errorf("%s: %w", r.Reference.Repository, errdef.ErrNotFound)
+		}
+		if state == referrersStateSupported {
+			// The repository is known to support Referrers API, no fallback.
+			return fmt.Errorf("referrers not found for %s: %w", r.Reference, errdef.ErrNotFound)
+		}
+		// The referrers state is unknown.
+		// A 404 returned by Referrers API indicates that Referrers API is
+		// not supported. Fallback to referrers tag schema.
+		r.SetReferrersCapability(false)
+		return r.referrersByTagSchema(ctx, desc, artifactType, fn)
 	}
 
 	r.SetReferrersCapability(true)
@@ -1326,9 +1320,7 @@ func (r *Repository) isReferrersAPIAvailable(ctx context.Context, desc ocispec.D
 		r.SetReferrersCapability(true)
 		return true, nil
 	case http.StatusNotFound:
-		respErr := errutil.ParseErrorResponse(resp)
-		var err errcode.Error
-		if errors.As(respErr, &err) && err.Code == errcode.ErrorCodeNameUnknown {
+		if err := errutil.ParseErrorResponse(resp); errcode.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
 			// repository not found
 			return false, fmt.Errorf("%s: %w", ref.Repository, errdef.ErrNotFound)
 		}

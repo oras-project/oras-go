@@ -16,6 +16,7 @@ limitations under the License.
 package errcode
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -118,6 +119,15 @@ func (err *ErrorResponse) Unwrap() error {
 	return err.Errors
 }
 
-// func IsErrorCode(err error, code string) bool {
+// IsErrorResponseStatus returns true if err is an ErrorResponse and its
+// / StatusCode equals to statusCode.
+func IsErrorResponseStatus(err error, statusCode int) bool {
+	var errResp *ErrorResponse
+	return errors.As(err, &errResp) && errResp.StatusCode == statusCode
+}
 
-// }
+// IsErrorCode returns true if err is an Error and its Code equals to code.
+func IsErrorCode(err error, code string) bool {
+	var ec Error
+	return errors.As(err, &ec) && ec.Code == code
+}
