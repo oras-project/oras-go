@@ -5470,6 +5470,40 @@ func TestRepository_pingReferrersAPI(t *testing.T) {
 	}
 }
 
+func TestRepository_pingReferrersAPI_RepositoryNotFound(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{ "errors": [ { "code": "NAME_UNKNOWN", "message": "repository name not known to registry" } ] }`))
+			return
+		}
+		t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	ctx := context.Background()
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	_, err = repo.pingReferrersAPI(ctx)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("Repository.pingReferrersAPI() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+}
+
 func TestRepository_pingReferrersAPI_Concurrent(t *testing.T) {
 	// referrers available
 	var count int32

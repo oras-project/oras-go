@@ -131,7 +131,7 @@ type Repository struct {
 
 	// referrersPingLock locks the pingReferrersAPI() method and allows only
 	// one go-routine to send the request.
-	referrersPingLock *sync.Mutex
+	referrersPingLock sync.Mutex
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -143,8 +143,7 @@ func NewRepository(reference string) (*Repository, error) {
 		return nil, err
 	}
 	return &Repository{
-		Reference:         ref,
-		referrersPingLock: &sync.Mutex{},
+		Reference: ref,
 	}, nil
 }
 
