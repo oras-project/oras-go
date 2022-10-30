@@ -1432,6 +1432,47 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 	}
 }
 
+func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+manifestDesc.Digest.String() {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{ "errors": [ { "code": "NAME_UNKNOWN", "message": "repository name not known to registry" } ] }`))
+			return
+		}
+		t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	ctx := context.Background()
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		return nil
+	}); !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+}
+
 func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
