@@ -45,8 +45,8 @@ import (
 )
 
 const (
-	// dockerContentDigestHeader - The Docker-Content-Digest header, if present on
-	// the response, returns the canonical digest of the uploaded blob.
+	// dockerContentDigestHeader - The Docker-Content-Digest header, if present
+	// on the response, returns the canonical digest of the uploaded blob.
 	// See https://docs.docker.com/registry/spec/api/#digest-header
 	// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
 	dockerContentDigestHeader = "Docker-Content-Digest"
