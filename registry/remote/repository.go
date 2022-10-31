@@ -402,20 +402,21 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 	}
 
 	err := r.referrersByAPI(ctx, desc, artifactType, fn)
+	if state == referrersStateSupported {
+		// The repository is known to support Referrers API, no fallback.
+		return err
+	}
+
+	// The referrers state is unknown.
 	if err != nil {
-		if !errcode.IsErrorResponseStatus(err, http.StatusNotFound) {
+		var errResp *errcode.ErrorResponse
+		if ok := errors.As(err, &errResp); !ok || errResp.StatusCode != http.StatusNotFound {
 			return err
 		}
-
-		if errcode.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
-			// The repository name is not found, no fallback
-			return fmt.Errorf("%s: %w", r.Reference.Repository, errdef.ErrNotFound)
+		if errcode.IsErrorCode(errResp, errcode.ErrorCodeNameUnknown) {
+			// The repository is not found, no fallback.
+			return err
 		}
-		if state == referrersStateSupported {
-			// The repository is known to support Referrers API, no fallback.
-			return fmt.Errorf("referrers not found for %s: %w", r.Reference, errdef.ErrNotFound)
-		}
-		// The referrers state is unknown.
 		// A 404 returned by Referrers API indicates that Referrers API is
 		// not supported. Fallback to referrers tag schema.
 		r.SetReferrersCapability(false)
@@ -1334,7 +1335,7 @@ func (r *Repository) pingReferrersAPI(ctx context.Context) (bool, error) {
 	case http.StatusNotFound:
 		if err := errutil.ParseErrorResponse(resp); errcode.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
 			// repository not found
-			return false, fmt.Errorf("%s: %w", ref.Repository, errdef.ErrNotFound)
+			return false, err
 		}
 		r.SetReferrersCapability(false)
 		return false, nil

@@ -1248,8 +1248,8 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
-	}); !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}); err == nil {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
@@ -1467,8 +1467,8 @@ func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
-	}); !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}); err == nil {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
@@ -5495,9 +5495,8 @@ func TestRepository_pingReferrersAPI_RepositoryNotFound(t *testing.T) {
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
-	_, err = repo.pingReferrersAPI(ctx)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Fatalf("Repository.pingReferrersAPI() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	if _, err = repo.pingReferrersAPI(ctx); err == nil {
+		t.Fatalf("Repository.pingReferrersAPI() error = %v, wantErr %v", err, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
