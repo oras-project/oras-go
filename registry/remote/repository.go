@@ -40,14 +40,20 @@ import (
 	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
-// dockerContentDigestHeader - The Docker-Content-Digest header, if present on
-// the response, returns the canonical digest of the uploaded blob.
-// See https://docs.docker.com/registry/spec/api/#digest-header
-// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
-const dockerContentDigestHeader = "Docker-Content-Digest"
+const (
+	// dockerContentDigestHeader - The Docker-Content-Digest header, if present
+	// on the response, returns the canonical digest of the uploaded blob.
+	// See https://docs.docker.com/registry/spec/api/#digest-header
+	// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
+	dockerContentDigestHeader = "Docker-Content-Digest"
+	// zeroDigest represents a digest that consists of zeros. zeroDigest is used
+	// for pinging Referrers API.
+	zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+)
 
 // referrersState represents the state of Referrers API.
 type referrersState = int32
@@ -121,7 +127,11 @@ type Repository struct {
 	referrersState referrersState
 
 	// referrersTagLocks maps a referrers tag to a lock.
-	referrersTagLocks sync.Map // map[string]sync.Mutex
+	referrersTagLocks sync.Map // map[string]*sync.Mutex
+
+	// referrersPingLock locks the pingReferrersAPI() method and allows only
+	// one go-routine to send the request.
+	referrersPingLock sync.Mutex
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -399,13 +409,18 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 
 	// The referrers state is unknown.
 	if err != nil {
-		if errors.Is(err, errdef.ErrNotFound) {
-			// A 404 returned by Referrers API indicates that Referrers API is
-			// not supported. Fallback to referrers tag schema.
-			r.SetReferrersCapability(false)
-			return r.referrersByTagSchema(ctx, desc, artifactType, fn)
+		var errResp *errcode.ErrorResponse
+		if !errors.As(err, &errResp) || errResp.StatusCode != http.StatusNotFound {
+			return err
 		}
-		return err
+		if errutil.IsErrorCode(errResp, errcode.ErrorCodeNameUnknown) {
+			// The repository is not found, no fallback.
+			return err
+		}
+		// A 404 returned by Referrers API indicates that Referrers API is
+		// not supported. Fallback to referrers tag schema.
+		r.SetReferrersCapability(false)
+		return r.referrersByTagSchema(ctx, desc, artifactType, fn)
 	}
 
 	r.SetReferrersCapability(true)
@@ -455,9 +470,6 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, errdef.ErrNotFound)
-	}
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
 	}
@@ -973,11 +985,11 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 	}
 
 	subject := *manifest.Subject
-	yes, err := s.repo.isReferrersAPIAvailable(ctx, subject)
+	ok, err := s.repo.pingReferrers(ctx)
 	if err != nil {
 		return err
 	}
-	if yes {
+	if ok {
 		// referrers API is available, no client-side indexing needed
 		return nil
 	}
@@ -1238,11 +1250,11 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		return nil
 	}
 
-	yes, err := s.repo.isReferrersAPIAvailable(ctx, subject)
+	ok, err := s.repo.pingReferrers(ctx)
 	if err != nil {
 		return err
 	}
-	if yes {
+	if ok {
 		// referrers API is available, no client-side indexing needed
 		return nil
 	}
@@ -1288,8 +1300,8 @@ func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, s
 	return s.repo.delete(ctx, oldIndexDesc, true)
 }
 
-// isReferrersAPIAvailable returns true if the Referrers API is available for r.
-func (r *Repository) isReferrersAPIAvailable(ctx context.Context, desc ocispec.Descriptor) (bool, error) {
+// pingReferrers returns true if the Referrers API is available for r.
+func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 	switch r.loadReferrersState() {
 	case referrersStateSupported:
 		return true, nil
@@ -1298,8 +1310,19 @@ func (r *Repository) isReferrersAPIAvailable(ctx context.Context, desc ocispec.D
 	}
 
 	// referrers state is unknown
+	// limit the rate of pinging referrers API
+	r.referrersPingLock.Lock()
+	defer r.referrersPingLock.Unlock()
+
+	switch r.loadReferrersState() {
+	case referrersStateSupported:
+		return true, nil
+	case referrersStateUnsupported:
+		return false, nil
+	}
+
 	ref := r.Reference
-	ref.Reference = desc.Digest.String()
+	ref.Reference = zeroDigest
 	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
 
 	url := buildReferrersURL(r.PlainHTTP, ref, "")
@@ -1318,6 +1341,10 @@ func (r *Repository) isReferrersAPIAvailable(ctx context.Context, desc ocispec.D
 		r.SetReferrersCapability(true)
 		return true, nil
 	case http.StatusNotFound:
+		if err := errutil.ParseErrorResponse(resp); errutil.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
+			// repository not found
+			return false, err
+		}
 		r.SetReferrersCapability(false)
 		return false, nil
 	default:

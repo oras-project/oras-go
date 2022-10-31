@@ -17,6 +17,7 @@ package errutil
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -44,4 +45,10 @@ func ParseErrorResponse(resp *http.Response) error {
 		resultErr.Errors = body.Errors
 	}
 	return resultErr
+}
+
+// IsErrorCode returns true if err is an Error and its Code equals to code.
+func IsErrorCode(err error, code string) bool {
+	var ec errcode.Error
+	return errors.As(err, &ec) && ec.Code == code
 }

@@ -23,8 +23,30 @@ import (
 	"unicode"
 )
 
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#error-codes
+//   - https://docs.docker.com/registry/spec/api/#errors-2
+const (
+	ErrorCodeBlobUnknown         = "BLOB_UNKNOWN"
+	ErrorCodeBlobUploadInvalid   = "BLOB_UPLOAD_INVALID"
+	ErrorCodeBlobUploadUnknown   = "BLOB_UPLOAD_UNKNOWN"
+	ErrorCodeDigestInvalid       = "DIGEST_INVALID"
+	ErrorCodeManifestBlobUnknown = "MANIFEST_BLOB_UNKNOWN"
+	ErrorCodeManifestInvalid     = "MANIFEST_INVALID"
+	ErrorCodeManifestUnknown     = "MANIFEST_UNKNOWN"
+	ErrorCodeNameInvalid         = "NAME_INVALID"
+	ErrorCodeNameUnknown         = "NAME_UNKNOWN"
+	ErrorCodeSizeInvalid         = "SIZE_INVALID"
+	ErrorCodeUnauthorized        = "UNAUTHORIZED"
+	ErrorCodeDenied              = "DENIED"
+	ErrorCodeUnsupported         = "UNSUPPORTED"
+)
+
 // Error represents a response inner error returned by the remote
 // registry.
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#error-codes
+//   - https://docs.docker.com/registry/spec/api/#errors-2
 type Error struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -48,8 +70,11 @@ func (e Error) Error() string {
 	return fmt.Sprintf("%s: %s: %v", code, e.Message, e.Detail)
 }
 
-// Errors represents a list of response inner errors returned by
-// the remote server.
+// Errors represents a list of response inner errors returned by the remote
+// server.
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#error-codes
+//   - https://docs.docker.com/registry/spec/api/#errors-2
 type Errors []Error
 
 // Error returns a error string describing the error.

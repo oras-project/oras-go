@@ -30,11 +30,13 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/interfaces"
@@ -1246,8 +1248,8 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
-	}); !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}); err == nil {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
@@ -1426,6 +1428,93 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 		return nil
 	}); err == nil {
 		t.Errorf("Repository.Referrers() error = nil, wantErr %v", true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+}
+
+func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		referrersUrl := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		referrersTag := strings.Replace(manifestDesc.Digest.String(), ":", "-", 1)
+		tagSchemaUrl := "/v2/test/manifests/" + referrersTag
+		if r.Method == http.MethodGet &&
+			(r.URL.Path == referrersUrl || r.URL.Path == tagSchemaUrl) {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{ "errors": [ { "code": "NAME_UNKNOWN", "message": "repository name not known to registry" } ] }`))
+			return
+		}
+		t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	ctx := context.Background()
+
+	// test auto detect
+	// repository not found, should return error
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		return nil
+	}); err == nil {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+
+	// test force attempt Referrers
+	// repository not found, should return error
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapability(true)
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		return nil
+	}); err == nil {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+
+	// test force attempt tag schema
+	// repository not found, but should not return error
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapability(false)
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		return nil
+	}); err != nil {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, nil)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
@@ -2818,7 +2907,7 @@ func Test_ManifestStore_Push_ReferrersAPIAvailable(t *testing.T) {
 			gotManifest = buf.Bytes()
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			result := ocispec.Index{
 				Versioned: specs.Versioned{
 					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
@@ -2922,7 +3011,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			gotManifest = buf.Bytes()
 			w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			w.WriteHeader(http.StatusNotFound)
@@ -3019,7 +3108,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			gotManifest = buf.Bytes()
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			w.Write(indexJSON_1)
@@ -3091,7 +3180,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			gotManifest = buf.Bytes()
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			w.Write(indexJSON_2)
@@ -3313,16 +3402,13 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 			if _, err := w.Write(artifactJSON); err != nil {
 				t.Errorf("failed to write %q: %v", r.URL, err)
 			}
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			result := ocispec.Index{
 				Versioned: specs.Versioned{
 					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
 				},
 				MediaType: ocispec.MediaTypeImageIndex,
-				Manifests: []ocispec.Descriptor{
-					manifestDesc,
-					artifactDesc,
-				},
+				Manifests: []ocispec.Descriptor{},
 			}
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				t.Errorf("failed to write response: %v", err)
@@ -3456,7 +3542,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 			if _, err := w.Write(artifactJSON); err != nil {
 				t.Errorf("failed to write %q: %v", r.URL, err)
 			}
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			w.Write(indexJSON_1)
@@ -3535,7 +3621,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 			if _, err := w.Write(manifestJSON); err != nil {
 				t.Errorf("failed to write %q: %v", r.URL, err)
 			}
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			w.Write(indexJSON_2)
@@ -3612,7 +3698,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 			if _, err := w.Write(artifactJSON); err != nil {
 				t.Errorf("failed to write %q: %v", r.URL, err)
 			}
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			w.WriteHeader(http.StatusNotFound)
@@ -3666,7 +3752,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 			if _, err := w.Write(artifactJSON); err != nil {
 				t.Errorf("failed to write %q: %v", r.URL, err)
 			}
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			result := ocispec.Index{
@@ -4131,7 +4217,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable(t *testing.T) {
 			gotManifest = buf.Bytes()
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			result := ocispec.Index{
 				Versioned: specs.Versioned{
 					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
@@ -4236,7 +4322,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 			gotManifest = buf.Bytes()
 			w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			w.WriteHeader(http.StatusNotFound)
@@ -4335,7 +4421,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 			gotManifest = buf.Bytes()
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			w.Write(indexJSON_1)
@@ -4407,7 +4493,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 			gotManifest = buf.Bytes()
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subjectDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			w.Write(indexJSON_2)
@@ -5180,6 +5266,13 @@ func Test_getReferrersTag(t *testing.T) {
 		want string
 	}{
 		{
+			name: "zero digest",
+			desc: ocispec.Descriptor{
+				Digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+			},
+			want: "sha256-0000000000000000000000000000000000000000000000000000000000000000",
+		},
+		{
 			name: "sha256",
 			desc: ocispec.Descriptor{
 				Digest: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
@@ -5297,19 +5390,12 @@ func Test_generateIndex(t *testing.T) {
 	}
 }
 
-func TestRepository_isReferrersAPIAvailable(t *testing.T) {
-	manifest := []byte(`{"layers":[]}`)
-	manifestDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(manifest),
-		Size:      int64(len(manifest)),
-	}
-
+func TestRepository_pingReferrers(t *testing.T) {
 	// referrers available
 	count := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+manifestDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			count++
 			w.WriteHeader(http.StatusOK)
 		default:
@@ -5335,43 +5421,43 @@ func TestRepository_isReferrersAPIAvailable(t *testing.T) {
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
-	got, err := repo.isReferrersAPIAvailable(ctx, manifestDesc)
+	got, err := repo.pingReferrers(ctx)
 	if err != nil {
-		t.Errorf("Repository.isReferrersAPIAvailable() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
 	}
 	if got != true {
-		t.Errorf("Repository.isReferrersAPIAvailable() = %v, want %v", got, true)
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.isReferrersAPIAvailable()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 	}
 
 	// 2nd call
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
-	got, err = repo.isReferrersAPIAvailable(ctx, manifestDesc)
+	got, err = repo.pingReferrers(ctx)
 	if err != nil {
-		t.Errorf("Repository.isReferrersAPIAvailable() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
 	}
 	if got != true {
-		t.Errorf("Repository.isReferrersAPIAvailable() = %v, want %v", got, true)
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.isReferrersAPIAvailable()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 	}
 
 	// referrers unavailable
 	count = 0
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+manifestDesc.Digest.String():
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			count++
 			w.WriteHeader(http.StatusNotFound)
 		default:
@@ -5397,35 +5483,170 @@ func TestRepository_isReferrersAPIAvailable(t *testing.T) {
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
-	got, err = repo.isReferrersAPIAvailable(ctx, manifestDesc)
+	got, err = repo.pingReferrers(ctx)
 	if err != nil {
-		t.Errorf("Repository.isReferrersAPIAvailable() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
 	}
 	if got != false {
-		t.Errorf("Repository.isReferrersAPIAvailable() = %v, want %v", got, false)
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.isReferrersAPIAvailable()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 	}
 
 	// 2nd call
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
-	got, err = repo.isReferrersAPIAvailable(ctx, manifestDesc)
+	got, err = repo.pingReferrers(ctx)
 	if err != nil {
-		t.Errorf("Repository.isReferrersAPIAvailable() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
 	}
 	if got != false {
-		t.Errorf("Repository.isReferrersAPIAvailable() = %v, want %v", got, false)
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.isReferrersAPIAvailable()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
+	}
+}
+
+func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{ "errors": [ { "code": "NAME_UNKNOWN", "message": "repository name not known to registry" } ] }`))
+			return
+		}
+		t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	ctx := context.Background()
+
+	// test referrers state unknown
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	if _, err = repo.pingReferrers(ctx); err == nil {
+		t.Fatalf("Repository.pingReferrers() error = %v, wantErr %v", err, true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+
+	// test referrers state supported
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapability(true)
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+	got, err := repo.pingReferrers(ctx)
+	if err != nil {
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+	}
+	if got != true {
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+
+	// test referrers state unsupported
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapability(false)
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+	got, err = repo.pingReferrers(ctx)
+	if err != nil {
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+	}
+	if got != false {
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+}
+
+func TestRepository_pingReferrers_Concurrent(t *testing.T) {
+	// referrers available
+	var count int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+			atomic.AddInt32(&count, 1)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	ctx := context.Background()
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+
+	concurrency := 64
+	eg, egCtx := errgroup.WithContext(ctx)
+
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	for i := 0; i < concurrency; i++ {
+		eg.Go(func() func() error {
+			return func() error {
+				got, err := repo.pingReferrers(egCtx)
+				if err != nil {
+					t.Fatalf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+				}
+				if got != true {
+					t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
+				}
+				return nil
+			}
+		}())
+	}
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := atomic.LoadInt32(&count); got != 1 {
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 }
