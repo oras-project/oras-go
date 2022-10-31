@@ -1442,7 +1442,11 @@ func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
 		Size:      int64(len(manifest)),
 	}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+manifestDesc.Digest.String() {
+		referrersUrl := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		referrersTag := strings.Replace(manifestDesc.Digest.String(), ":", "-", 1)
+		tagSchemaUrl := "/v2/test/manifests/" + referrersTag
+		if r.Method == http.MethodGet &&
+			(r.URL.Path == referrersUrl || r.URL.Path == tagSchemaUrl) {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(`{ "errors": [ { "code": "NAME_UNKNOWN", "message": "repository name not known to registry" } ] }`))
 			return
@@ -1457,6 +1461,8 @@ func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
 	}
 	ctx := context.Background()
 
+	// test auto detect
+	// repository not found, should return error
 	repo, err := NewRepository(uri.Host + "/test")
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
@@ -1472,6 +1478,46 @@ func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+
+	// test force attempt Referrers
+	// repository not found, should return error
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapability(true)
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		return nil
+	}); err == nil {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+
+	// test force attempt tag schema
+	// repository not found, but should not return error
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapability(false)
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		return nil
+	}); err != nil {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, nil)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 }
 
@@ -5487,6 +5533,7 @@ func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
 	}
 	ctx := context.Background()
 
+	// test referrers state unknown
 	repo, err := NewRepository(uri.Host + "/test")
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
@@ -5500,6 +5547,48 @@ func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+
+	// test referrers state supported
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapability(true)
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+	got, err := repo.pingReferrers(ctx)
+	if err != nil {
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+	}
+	if got != true {
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+
+	// test referrers state unsupported
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SetReferrersCapability(false)
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+	got, err = repo.pingReferrers(ctx)
+	if err != nil {
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+	}
+	if got != false {
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 }
 
