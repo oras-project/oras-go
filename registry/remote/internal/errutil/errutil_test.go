@@ -126,3 +126,114 @@ func Test_ParseErrorResponse_plain(t *testing.T) {
 		t.Errorf("ParseErrorResponse() error = %v, want err message %v", err, want)
 	}
 }
+
+func TestIsErrorCode(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		code string
+		want bool
+	}{
+		{
+			name: "test errcode.Error, same code",
+			err: errcode.Error{
+				Code: errcode.ErrorCodeNameUnknown,
+			},
+			code: errcode.ErrorCodeNameUnknown,
+			want: true,
+		},
+		{
+			name: "test errcode.Error, different code",
+			err: errcode.Error{
+				Code: errcode.ErrorCodeUnauthorized,
+			},
+			code: errcode.ErrorCodeNameUnknown,
+			want: false,
+		},
+		{
+			name: "test errcode.Errors containing single error, same code",
+			err: errcode.Errors{
+				{
+					Code: errcode.ErrorCodeNameUnknown,
+				},
+			},
+			code: errcode.ErrorCodeNameUnknown,
+			want: true,
+		},
+		{
+			name: "test errcode.Errors containing single error, different code",
+			err: errcode.Errors{
+				{
+					Code: errcode.ErrorCodeNameUnknown,
+				},
+			},
+			code: errcode.ErrorCodeNameUnknown,
+			want: true,
+		},
+		{
+			name: "test errcode.Errors containing multiple errors, same code",
+			err: errcode.Errors{
+				{
+					Code: errcode.ErrorCodeNameUnknown,
+				},
+				{
+					Code: errcode.ErrorCodeUnauthorized,
+				},
+			},
+			code: errcode.ErrorCodeNameUnknown,
+			want: false,
+		},
+		{
+			name: "test errcode.ErrorResponse containing single error, same code",
+			err: &errcode.ErrorResponse{
+				Errors: errcode.Errors{
+					{
+						Code: errcode.ErrorCodeNameUnknown,
+					},
+				},
+			},
+			code: errcode.ErrorCodeNameUnknown,
+			want: true,
+		},
+		{
+			name: "test errcode.ErrorResponse containing single error, different code",
+			err: &errcode.ErrorResponse{
+				Errors: errcode.Errors{
+					{
+						Code: errcode.ErrorCodeUnauthorized,
+					},
+				},
+			},
+			code: errcode.ErrorCodeNameUnknown,
+			want: false,
+		},
+		{
+			name: "test errcode.ErrorResponse containing multiple errors, same code",
+			err: &errcode.ErrorResponse{
+				Errors: errcode.Errors{
+					{
+						Code: errcode.ErrorCodeNameUnknown,
+					},
+					{
+						Code: errcode.ErrorCodeUnauthorized,
+					},
+				},
+			},
+			code: errcode.ErrorCodeNameUnknown,
+			want: false,
+		},
+		{
+			name: "test unstructured error",
+			err:  errors.New(errcode.ErrorCodeNameUnknown),
+			code: errcode.ErrorCodeNameUnknown,
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsErrorCode(tt.err, tt.code); got != tt.want {
+				t.Errorf("IsErrorCode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
