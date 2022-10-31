@@ -120,7 +120,7 @@ func (err *ErrorResponse) Unwrap() error {
 }
 
 // IsErrorResponseStatus returns true if err is an ErrorResponse and its
-// / StatusCode equals to statusCode.
+// StatusCode equals to statusCode.
 func IsErrorResponseStatus(err error, statusCode int) bool {
 	var errResp *ErrorResponse
 	return errors.As(err, &errResp) && errResp.StatusCode == statusCode
