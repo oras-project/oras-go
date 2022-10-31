@@ -985,11 +985,11 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 	}
 
 	subject := *manifest.Subject
-	yes, err := s.repo.pingReferrersAPI(ctx)
+	ok, err := s.repo.pingReferrersAPI(ctx)
 	if err != nil {
 		return err
 	}
-	if yes {
+	if ok {
 		// referrers API is available, no client-side indexing needed
 		return nil
 	}
@@ -1250,11 +1250,11 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		return nil
 	}
 
-	yes, err := s.repo.pingReferrersAPI(ctx)
+	ok, err := s.repo.pingReferrersAPI(ctx)
 	if err != nil {
 		return err
 	}
-	if yes {
+	if ok {
 		// referrers API is available, no client-side indexing needed
 		return nil
 	}
