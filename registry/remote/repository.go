@@ -410,10 +410,10 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 	// The referrers state is unknown.
 	if err != nil {
 		var errResp *errcode.ErrorResponse
-		if ok := errors.As(err, &errResp); !ok || errResp.StatusCode != http.StatusNotFound {
+		if !errors.As(err, &errResp) || errResp.StatusCode != http.StatusNotFound {
 			return err
 		}
-		if errcode.IsErrorCode(errResp, errcode.ErrorCodeNameUnknown) {
+		if errutil.IsErrorCode(errResp, errcode.ErrorCodeNameUnknown) {
 			// The repository is not found, no fallback.
 			return err
 		}
@@ -985,7 +985,7 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 	}
 
 	subject := *manifest.Subject
-	ok, err := s.repo.pingReferrersAPI(ctx)
+	ok, err := s.repo.pingReferrers(ctx)
 	if err != nil {
 		return err
 	}
@@ -1250,7 +1250,7 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		return nil
 	}
 
-	ok, err := s.repo.pingReferrersAPI(ctx)
+	ok, err := s.repo.pingReferrers(ctx)
 	if err != nil {
 		return err
 	}
@@ -1300,8 +1300,16 @@ func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, s
 	return s.repo.delete(ctx, oldIndexDesc, true)
 }
 
-// pingReferrersAPI returns true if the Referrers API is available for r.
-func (r *Repository) pingReferrersAPI(ctx context.Context) (bool, error) {
+// pingReferrers returns true if the Referrers API is available for r.
+func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
+	switch r.loadReferrersState() {
+	case referrersStateSupported:
+		return true, nil
+	case referrersStateUnsupported:
+		return false, nil
+	}
+
+	// referrers state is unknown
 	// limit the rate of pinging referrers API
 	r.referrersPingLock.Lock()
 	defer r.referrersPingLock.Unlock()
@@ -1312,7 +1320,7 @@ func (r *Repository) pingReferrersAPI(ctx context.Context) (bool, error) {
 	case referrersStateUnsupported:
 		return false, nil
 	}
-	// referrers state is unknown
+
 	ref := r.Reference
 	ref.Reference = zeroDigest
 	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
@@ -1333,7 +1341,7 @@ func (r *Repository) pingReferrersAPI(ctx context.Context) (bool, error) {
 		r.SetReferrersCapability(true)
 		return true, nil
 	case http.StatusNotFound:
-		if err := errutil.ParseErrorResponse(resp); errcode.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
+		if err := errutil.ParseErrorResponse(resp); errutil.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
 			// repository not found
 			return false, err
 		}

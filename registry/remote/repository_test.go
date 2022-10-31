@@ -5344,7 +5344,7 @@ func Test_generateIndex(t *testing.T) {
 	}
 }
 
-func TestRepository_pingReferrersAPI(t *testing.T) {
+func TestRepository_pingReferrers(t *testing.T) {
 	// referrers available
 	count := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -5375,36 +5375,36 @@ func TestRepository_pingReferrersAPI(t *testing.T) {
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
-	got, err := repo.pingReferrersAPI(ctx)
+	got, err := repo.pingReferrers(ctx)
 	if err != nil {
-		t.Errorf("Repository.pingReferrersAPI() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
 	}
 	if got != true {
-		t.Errorf("Repository.pingReferrersAPI() = %v, want %v", got, true)
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.pingReferrersAPI()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 	}
 
 	// 2nd call
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
-	got, err = repo.pingReferrersAPI(ctx)
+	got, err = repo.pingReferrers(ctx)
 	if err != nil {
-		t.Errorf("Repository.pingReferrersAPI() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
 	}
 	if got != true {
-		t.Errorf("Repository.pingReferrersAPI() = %v, want %v", got, true)
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.pingReferrersAPI()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 	}
 
 	// referrers unavailable
@@ -5437,40 +5437,40 @@ func TestRepository_pingReferrersAPI(t *testing.T) {
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
-	got, err = repo.pingReferrersAPI(ctx)
+	got, err = repo.pingReferrers(ctx)
 	if err != nil {
-		t.Errorf("Repository.pingReferrersAPI() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
 	}
 	if got != false {
-		t.Errorf("Repository.pingReferrersAPI() = %v, want %v", got, false)
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.pingReferrersAPI()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 	}
 
 	// 2nd call
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
-	got, err = repo.pingReferrersAPI(ctx)
+	got, err = repo.pingReferrers(ctx)
 	if err != nil {
-		t.Errorf("Repository.pingReferrersAPI() error = %v, wantErr %v", err, nil)
+		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
 	}
 	if got != false {
-		t.Errorf("Repository.pingReferrersAPI() = %v, want %v", got, false)
+		t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 	if count != 1 {
-		t.Errorf("count(Repository.pingReferrersAPI()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 	}
 }
 
-func TestRepository_pingReferrersAPI_RepositoryNotFound(t *testing.T) {
+func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest {
 			w.WriteHeader(http.StatusNotFound)
@@ -5495,15 +5495,15 @@ func TestRepository_pingReferrersAPI_RepositoryNotFound(t *testing.T) {
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
-	if _, err = repo.pingReferrersAPI(ctx); err == nil {
-		t.Fatalf("Repository.pingReferrersAPI() error = %v, wantErr %v", err, true)
+	if _, err = repo.pingReferrers(ctx); err == nil {
+		t.Fatalf("Repository.pingReferrers() error = %v, wantErr %v", err, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
 }
 
-func TestRepository_pingReferrersAPI_Concurrent(t *testing.T) {
+func TestRepository_pingReferrers_Concurrent(t *testing.T) {
 	// referrers available
 	var count int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -5539,12 +5539,12 @@ func TestRepository_pingReferrersAPI_Concurrent(t *testing.T) {
 	for i := 0; i < concurrency; i++ {
 		eg.Go(func() func() error {
 			return func() error {
-				got, err := repo.pingReferrersAPI(egCtx)
+				got, err := repo.pingReferrers(egCtx)
 				if err != nil {
-					t.Fatalf("Repository.pingReferrersAPI() error = %v, wantErr %v", err, nil)
+					t.Fatalf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
 				}
 				if got != true {
-					t.Errorf("Repository.pingReferrersAPI() = %v, want %v", got, true)
+					t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
 				}
 				return nil
 			}
@@ -5555,7 +5555,7 @@ func TestRepository_pingReferrersAPI_Concurrent(t *testing.T) {
 	}
 
 	if got := atomic.LoadInt32(&count); got != 1 {
-		t.Errorf("count(Repository.pingReferrersAPI()) = %v, want %v", count, 1)
+		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
