@@ -38,10 +38,10 @@ import (
 // Note: Handlers with `github.com/containerd/containerd/images.ErrSkipDesc`
 // cannot be used in this function.
 // WARNING:
-// - This function does not detect circles. It is possible running into an
-//   infinite loop. The caller is required to make sure the graph is a DAG.
-// - This function does not record walk history. Nodes might be visited multiple
-//   times if they are directly pointed by multiple nodes.
+//   - This function does not detect circles. It is possible running into an
+//     infinite loop. The caller is required to make sure the graph is a DAG.
+//   - This function does not record walk history. Nodes might be visited multiple
+//     times if they are directly pointed by multiple nodes.
 func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *semaphore.Weighted, roots ...ocispec.Descriptor) error {
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, root := range roots {
@@ -69,10 +69,12 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 				// post-handle
 				defer func() {
 					if err == nil {
+						endLimitRegion(ctx, limiter)
 						_, err = postHandler.Handle(egCtx, desc)
 						if err != nil && errors.Is(err, ErrSkipDesc) {
 							err = nil
 						}
+						shouldEndLimitRegion = false
 					}
 				}()
 

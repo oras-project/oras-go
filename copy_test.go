@@ -1416,8 +1416,6 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 
 func TestCopyGraph_WithConcurrencyLimit(t *testing.T) {
 	src := cas.NewMemory()
-	dst := cas.NewMemory()
-
 	// generate test content
 	var blobs [][]byte
 	var descs []ocispec.Descriptor
@@ -1484,26 +1482,32 @@ func TestCopyGraph_WithConcurrencyLimit(t *testing.T) {
 		}
 	}
 
+	// test different concurrency limit
 	root := descs[len(descs)-1]
+	artifactNum := len(descs[4:8])
 	opts := oras.DefaultCopyGraphOptions
-	opts.Concurrency = 1
-	if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
-		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
+	for i := 1; i <= artifactNum; i++ {
+		dst := cas.NewMemory()
+		opts.Concurrency = int64(i)
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+			t.Fatalf("CopyGraph(concurrency: %d) error = %v, wantErr %v", i, err, false)
+		}
+
+		// verify contents
+		contents := dst.Map()
+		if got, want := len(contents), len(blobs); got != want {
+			t.Errorf("len(dst) = %v, wantErr %v", got, want)
+		}
+		for i := range blobs {
+			got, err := content.FetchAll(ctx, dst, descs[i])
+			if err != nil {
+				t.Errorf("content[%d] error = %v, wantErr %v", i, err, false)
+				continue
+			}
+			if want := blobs[i]; !bytes.Equal(got, want) {
+				t.Errorf("content[%d] = %v, want %v", i, got, want)
+			}
+		}
 	}
 
-	// verify contents
-	contents := dst.Map()
-	if got, want := len(contents), len(blobs); got != want {
-		t.Errorf("len(dst) = %v, wantErr %v", got, want)
-	}
-	for i := range blobs {
-		got, err := content.FetchAll(ctx, dst, descs[i])
-		if err != nil {
-			t.Errorf("content[%d] error = %v, wantErr %v", i, err, false)
-			continue
-		}
-		if want := blobs[i]; !bytes.Equal(got, want) {
-			t.Errorf("content[%d] = %v, want %v", i, got, want)
-		}
-	}
 }
