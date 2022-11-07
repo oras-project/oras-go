@@ -48,11 +48,12 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 		if err := startLimitRegion(ctx, limiter); err != nil {
 			return err
 		}
+		isLimitRegionEnded := false
+
 		eg.Go(func(desc ocispec.Descriptor) func() error {
 			return func() (err error) {
-				shouldEndLimitRegion := true
 				defer func() {
-					if shouldEndLimitRegion {
+					if !isLimitRegionEnded {
 						endLimitRegion(ctx, limiter)
 					}
 				}()
@@ -74,14 +75,14 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 						if err != nil && errors.Is(err, ErrSkipDesc) {
 							err = nil
 						}
-						shouldEndLimitRegion = false
+						isLimitRegionEnded = true
 					}
 				}()
 
 				// handle successors
 				if len(nodes) > 0 {
 					endLimitRegion(ctx, limiter)
-					shouldEndLimitRegion = false
+					isLimitRegionEnded = true
 
 					err = Dispatch(egCtx, preHandler, postHandler, limiter, nodes...)
 					if err != nil {
@@ -91,7 +92,7 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 					if err = startLimitRegion(ctx, limiter); err != nil {
 						return err
 					}
-					shouldEndLimitRegion = true
+					isLimitRegionEnded = false
 				}
 				return nil
 			}
