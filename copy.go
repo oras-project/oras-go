@@ -169,9 +169,6 @@ func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 // copyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
 // the destination CAS with specified caching.
 func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, proxy *cas.Proxy, root ocispec.Descriptor, opts CopyGraphOptions) error {
-	// track content status
-	tracker := status.NewTracker()
-
 	// if FindSuccessors is not provided, use the default one
 	if opts.FindSuccessors == nil {
 		opts.FindSuccessors = content.Successors
@@ -183,101 +180,96 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 	}
 	limiter := semaphore.NewWeighted(opts.Concurrency)
 
+	// track content status
+	tracker := status.NewTracker()
+
 	// traverse the graph
 	var fn dispatchFunc
-	fn = func(ctx context.Context, lr *graph.LimitRegion, desc ocispec.Descriptor) func() error {
-		return func() (err error) {
-			defer lr.End()
-
-			// skip the descriptor if other go routine is working on it
-			done, committed := tracker.TryCommit(desc)
-			if !committed {
-				return nil
+	fn = func(ctx context.Context, lr *graph.LimitRegion, desc ocispec.Descriptor) (err error) {
+		// skip the descriptor if other go routine is working on it
+		done, committed := tracker.TryCommit(desc)
+		if !committed {
+			return nil
+		}
+		defer func() {
+			if err == nil {
+				// mark the content as done on success
+				close(done)
 			}
-			defer func() {
-				if err == nil {
-					// mark the content as done on success
-					close(done)
-				}
-			}()
+		}()
 
-			// skip if a rooted sub-DAG exists
-			exists, err := dst.Exists(ctx, desc)
-			if err != nil {
-				return err
-			}
-			if exists {
-				if opts.OnCopySkipped != nil {
-					if err := opts.OnCopySkipped(ctx, desc); err != nil {
-						return err
-					}
-				}
-				return nil
-			}
-
-			// find successors while non-leaf nodes will be fetched and cached
-			successors, err := opts.FindSuccessors(ctx, proxy, desc)
-			if err != nil {
-				return err
-			}
-
-			// handle successors
-			if len(successors) > 0 {
-				lr.End()
-
-				err = dispatch(ctx, limiter, fn, successors...)
-				if err != nil {
-					return err
-				}
-
-				if err = lr.Start(); err != nil {
+		// skip if a rooted sub-DAG exists
+		exists, err := dst.Exists(ctx, desc)
+		if err != nil {
+			return err
+		}
+		if exists {
+			if opts.OnCopySkipped != nil {
+				if err := opts.OnCopySkipped(ctx, desc); err != nil {
 					return err
 				}
 			}
+			return nil
+		}
 
-			// leaf nodes does not exist in the cache.
-			// copy them directly.
+		// find successors while non-leaf nodes will be fetched and cached
+		successors, err := opts.FindSuccessors(ctx, proxy, desc)
+		if err != nil {
+			return err
+		}
+
+		// handle leaf nodes
+		if len(successors) == 0 {
 			exists, err = proxy.Cache.Exists(ctx, desc)
 			if err != nil {
 				return err
 			}
-			if !exists {
-				return copyNode(ctx, src, dst, desc, opts)
+			if exists {
+				return copyNode(ctx, proxy.Cache, dst, desc, opts)
 			}
-
-			// for non-leaf nodes, wait for its successors to complete
-			lr.End()
-			for _, node := range successors {
-				done, committed := tracker.TryCommit(node)
-				if committed {
-					return fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
-				}
-				select {
-				case <-done:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-			if err = lr.Start(); err != nil {
-				return err
-			}
-			return copyNode(ctx, proxy.Cache, dst, desc, opts)
+			return copyNode(ctx, src, dst, desc, opts)
 		}
+
+		// for non-leaf nodes, process successors and wait for them to complete
+		lr.End()
+		if err := dispatch(ctx, limiter, fn, successors...); err != nil {
+			return err
+		}
+		for _, node := range successors {
+			done, committed := tracker.TryCommit(node)
+			if committed {
+				return fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
+			}
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if err := lr.Start(); err != nil {
+			return err
+		}
+		return copyNode(ctx, proxy.Cache, dst, desc, opts)
 	}
 
 	return dispatch(ctx, limiter, fn, root)
 }
 
-type dispatchFunc func(ctx context.Context, lr *graph.LimitRegion, desc ocispec.Descriptor) func() error
+type dispatchFunc func(ctx context.Context, lr *graph.LimitRegion, desc ocispec.Descriptor) error
 
-func dispatch(originCtx context.Context, limiter *semaphore.Weighted, fn dispatchFunc, roots ...ocispec.Descriptor) error {
-	eg, ctx := errgroup.WithContext(originCtx)
+func dispatch(ctx context.Context, limiter *semaphore.Weighted, fn dispatchFunc, roots ...ocispec.Descriptor) error {
+	eg, egCtx := errgroup.WithContext(ctx)
 	for _, root := range roots {
-		lr := graph.NewLimitRegion(originCtx, limiter)
+		lr := graph.NewLimitRegion(ctx, limiter)
 		if err := lr.Start(); err != nil {
 			return err
 		}
-		eg.Go(fn(ctx, lr, root))
+		eg.Go(func(desc ocispec.Descriptor) func() error {
+			return func() error {
+				defer lr.End()
+				return fn(egCtx, lr, desc)
+			}
+		}(root))
 	}
 	return eg.Wait()
 }
