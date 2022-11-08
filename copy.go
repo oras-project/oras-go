@@ -22,6 +22,7 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
@@ -176,78 +177,109 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		opts.FindSuccessors = content.Successors
 	}
 
-	// prepare pre-handler
-	preHandler := graph.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-		// skip the descriptor if other go routine is working on it
-		done, committed := tracker.TryCommit(desc)
-		if !committed {
-			return nil, graph.ErrSkipDesc
-		}
-
-		// skip if a rooted sub-DAG exists
-		exists, err := dst.Exists(ctx, desc)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			// mark the content as done
-			close(done)
-			if opts.OnCopySkipped != nil {
-				if err := opts.OnCopySkipped(ctx, desc); err != nil {
-					return nil, err
-				}
-			}
-			return nil, graph.ErrSkipDesc
-		}
-
-		// find successors while non-leaf nodes will be fetched and cached
-		return opts.FindSuccessors(ctx, proxy, desc)
-	})
-
-	// prepare post-handler
-	postHandler := graph.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) (_ []ocispec.Descriptor, err error) {
-		defer func() {
-			if err == nil {
-				// mark the content as done on success
-				done, _ := tracker.TryCommit(desc)
-				close(done)
-			}
-		}()
-
-		// leaf nodes does not exist in the cache.
-		// copy them directly.
-		exists, err := proxy.Cache.Exists(ctx, desc)
-		if err != nil {
-			return nil, err
-		}
-		if !exists {
-			return nil, copyNode(ctx, src, dst, desc, opts)
-		}
-
-		// for non-leaf nodes, wait for its successors to complete
-		successors, err := opts.FindSuccessors(ctx, proxy, desc)
-		if err != nil {
-			return nil, err
-		}
-		for _, node := range successors {
-			done, committed := tracker.TryCommit(node)
-			if committed {
-				return nil, fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
-			}
-			select {
-			case <-done:
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-		}
-		return nil, copyNode(ctx, proxy.Cache, dst, desc, opts)
-	})
-
+	// set concurrency level
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultConcurrency
 	}
+	limiter := semaphore.NewWeighted(opts.Concurrency)
+
 	// traverse the graph
-	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(opts.Concurrency), root)
+	var fn dispatchFunc
+	fn = func(ctx context.Context, lr *graph.LimitRegion, desc ocispec.Descriptor) func() error {
+		return func() (err error) {
+			defer lr.End()
+
+			// skip the descriptor if other go routine is working on it
+			done, committed := tracker.TryCommit(desc)
+			if !committed {
+				return nil
+			}
+			defer func() {
+				if err == nil {
+					// mark the content as done on success
+					close(done)
+				}
+			}()
+
+			// skip if a rooted sub-DAG exists
+			exists, err := dst.Exists(ctx, desc)
+			if err != nil {
+				return err
+			}
+			if exists {
+				if opts.OnCopySkipped != nil {
+					if err := opts.OnCopySkipped(ctx, desc); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+
+			// find successors while non-leaf nodes will be fetched and cached
+			successors, err := opts.FindSuccessors(ctx, proxy, desc)
+			if err != nil {
+				return err
+			}
+
+			// handle successors
+			if len(successors) > 0 {
+				lr.End()
+
+				err = dispatch(ctx, limiter, fn, successors...)
+				if err != nil {
+					return err
+				}
+
+				if err = lr.Start(); err != nil {
+					return err
+				}
+			}
+
+			// leaf nodes does not exist in the cache.
+			// copy them directly.
+			exists, err = proxy.Cache.Exists(ctx, desc)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return copyNode(ctx, src, dst, desc, opts)
+			}
+
+			// for non-leaf nodes, wait for its successors to complete
+			lr.End()
+			for _, node := range successors {
+				done, committed := tracker.TryCommit(node)
+				if committed {
+					return fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
+				}
+				select {
+				case <-done:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			if err = lr.Start(); err != nil {
+				return err
+			}
+			return copyNode(ctx, proxy.Cache, dst, desc, opts)
+		}
+	}
+
+	return dispatch(ctx, limiter, fn, root)
+}
+
+type dispatchFunc func(ctx context.Context, lr *graph.LimitRegion, desc ocispec.Descriptor) func() error
+
+func dispatch(originCtx context.Context, limiter *semaphore.Weighted, fn dispatchFunc, roots ...ocispec.Descriptor) error {
+	eg, ctx := errgroup.WithContext(originCtx)
+	for _, root := range roots {
+		lr := graph.NewLimitRegion(originCtx, limiter)
+		if err := lr.Start(); err != nil {
+			return err
+		}
+		eg.Go(fn(ctx, lr, root))
+	}
+	return eg.Wait()
 }
 
 // doCopyNode copies a single content from the source CAS to the destination CAS.

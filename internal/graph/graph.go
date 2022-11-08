@@ -45,18 +45,13 @@ import (
 func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *semaphore.Weighted, roots ...ocispec.Descriptor) error {
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, root := range roots {
-		if err := startLimitRegion(ctx, limiter); err != nil {
+		lr := NewLimitRegion(ctx, limiter)
+		if err := lr.Start(); err != nil {
 			return err
 		}
-		isLimitRegionEnded := false
-
 		eg.Go(func(desc ocispec.Descriptor) func() error {
 			return func() (err error) {
-				defer func() {
-					if !isLimitRegionEnded {
-						endLimitRegion(ctx, limiter)
-					}
-				}()
+				defer lr.End()
 
 				// pre-handle
 				nodes, err := preHandler.Handle(egCtx, desc)
@@ -70,29 +65,25 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 				// post-handle
 				defer func() {
 					if err == nil {
-						endLimitRegion(ctx, limiter)
 						_, err = postHandler.Handle(egCtx, desc)
 						if err != nil && errors.Is(err, ErrSkipDesc) {
 							err = nil
 						}
-						isLimitRegionEnded = true
 					}
 				}()
 
 				// handle successors
 				if len(nodes) > 0 {
-					endLimitRegion(ctx, limiter)
-					isLimitRegionEnded = true
+					lr.End()
 
 					err = Dispatch(egCtx, preHandler, postHandler, limiter, nodes...)
 					if err != nil {
 						return err
 					}
 
-					if err = startLimitRegion(ctx, limiter); err != nil {
+					if err = lr.Start(); err != nil {
 						return err
 					}
-					isLimitRegionEnded = false
 				}
 				return nil
 			}
@@ -101,15 +92,38 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 	return eg.Wait()
 }
 
-func startLimitRegion(ctx context.Context, limiter *semaphore.Weighted) error {
+type LimitRegion struct {
+	ctx     context.Context
+	limiter *semaphore.Weighted
+	ended   bool
+}
+
+func NewLimitRegion(ctx context.Context, limiter *semaphore.Weighted) *LimitRegion {
 	if limiter == nil {
 		return nil
 	}
-	return limiter.Acquire(ctx, 1)
+	return &LimitRegion{
+		ctx:     ctx,
+		limiter: limiter,
+		ended:   true,
+	}
 }
 
-func endLimitRegion(ctx context.Context, limiter *semaphore.Weighted) {
-	if limiter != nil {
-		limiter.Release(1)
+func (lr *LimitRegion) Start() error {
+	if lr == nil || !lr.ended {
+		return nil
 	}
+	if err := lr.limiter.Acquire(lr.ctx, 1); err != nil {
+		return err
+	}
+	lr.ended = false
+	return nil
+}
+
+func (lr *LimitRegion) End() {
+	if lr == nil || lr.ended {
+		return
+	}
+	lr.limiter.Release(1)
+	lr.ended = true
 }
