@@ -26,10 +26,10 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/internal/status"
+	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -44,6 +44,9 @@ var (
 	// DefaultCopyGraphOptions provides the default CopyGraphOptions.
 	DefaultCopyGraphOptions CopyGraphOptions
 )
+
+// errSkipDesc signals copyNode() to stop processing a descriptor.
+var errSkipDesc = errors.New("skip descriptor")
 
 // CopyOptions contains parameters for oras.Copy.
 type CopyOptions struct {
@@ -168,86 +171,88 @@ func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 // copyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
 // the destination CAS with specified caching.
 func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, proxy *cas.Proxy, root ocispec.Descriptor, opts CopyGraphOptions) error {
-	// track content status
-	tracker := status.NewTracker()
-
 	// if FindSuccessors is not provided, use the default one
 	if opts.FindSuccessors == nil {
 		opts.FindSuccessors = content.Successors
 	}
+	// if Concurrency is not set or invalid, use the default concurrency
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultConcurrency
+	}
+	limiter := semaphore.NewWeighted(opts.Concurrency)
+	// track content status
+	tracker := status.NewTracker()
 
-	// prepare pre-handler
-	preHandler := graph.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	// traverse the graph
+	var fn syncutil.GoFunc[ocispec.Descriptor]
+	fn = func(ctx context.Context, region *syncutil.LimitedRegion, desc ocispec.Descriptor) (err error) {
 		// skip the descriptor if other go routine is working on it
 		done, committed := tracker.TryCommit(desc)
 		if !committed {
-			return nil, graph.ErrSkipDesc
+			return nil
 		}
-
-		// skip if a rooted sub-DAG exists
-		exists, err := dst.Exists(ctx, desc)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			// mark the content as done
-			close(done)
-			if opts.OnCopySkipped != nil {
-				if err := opts.OnCopySkipped(ctx, desc); err != nil {
-					return nil, err
-				}
-			}
-			return nil, graph.ErrSkipDesc
-		}
-
-		// find successors while non-leaf nodes will be fetched and cached
-		return opts.FindSuccessors(ctx, proxy, desc)
-	})
-
-	// prepare post-handler
-	postHandler := graph.HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) (_ []ocispec.Descriptor, err error) {
 		defer func() {
 			if err == nil {
 				// mark the content as done on success
-				done, _ := tracker.TryCommit(desc)
 				close(done)
 			}
 		}()
 
-		// leaf nodes does not exist in the cache.
-		// copy them directly.
-		exists, err := proxy.Cache.Exists(ctx, desc)
+		// skip if a rooted sub-DAG exists
+		exists, err := dst.Exists(ctx, desc)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if !exists {
-			return nil, copyNode(ctx, src, dst, desc, opts)
+		if exists {
+			if opts.OnCopySkipped != nil {
+				if err := opts.OnCopySkipped(ctx, desc); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 
-		// for non-leaf nodes, wait for its successors to complete
+		// find successors while non-leaf nodes will be fetched and cached
 		successors, err := opts.FindSuccessors(ctx, proxy, desc)
 		if err != nil {
-			return nil, err
+			return err
+		}
+
+		// handle leaf nodes
+		if len(successors) == 0 {
+			exists, err = proxy.Cache.Exists(ctx, desc)
+			if err != nil {
+				return err
+			}
+			if exists {
+				return copyNode(ctx, proxy.Cache, dst, desc, opts)
+			}
+			return copyNode(ctx, src, dst, desc, opts)
+		}
+
+		// for non-leaf nodes, process successors and wait for them to complete
+		region.End()
+		if err := syncutil.Go(ctx, limiter, fn, successors...); err != nil {
+			return err
 		}
 		for _, node := range successors {
 			done, committed := tracker.TryCommit(node)
 			if committed {
-				return nil, fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
+				return fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
 			}
 			select {
 			case <-done:
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return ctx.Err()
 			}
 		}
-		return nil, copyNode(ctx, proxy.Cache, dst, desc, opts)
-	})
-
-	if opts.Concurrency <= 0 {
-		opts.Concurrency = defaultConcurrency
+		if err := region.Start(); err != nil {
+			return err
+		}
+		return copyNode(ctx, proxy.Cache, dst, desc, opts)
 	}
-	// traverse the graph
-	return graph.Dispatch(ctx, preHandler, postHandler, semaphore.NewWeighted(opts.Concurrency), root)
+
+	return syncutil.Go(ctx, limiter, fn, root)
 }
 
 // doCopyNode copies a single content from the source CAS to the destination CAS.
@@ -269,7 +274,7 @@ func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.St
 func copyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
 	if opts.PreCopy != nil {
 		if err := opts.PreCopy(ctx, desc); err != nil {
-			if err == graph.ErrSkipDesc {
+			if err == errSkipDesc {
 				return nil
 			}
 			return err
@@ -361,7 +366,7 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 				}
 			}
 			// skip the regular copy workflow
-			return graph.ErrSkipDesc
+			return errSkipDesc
 		}
 	} else {
 		postCopy := opts.PostCopy

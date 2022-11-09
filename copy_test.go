@@ -1413,3 +1413,101 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
 	}
 }
+
+func TestCopyGraph_WithConcurrencyLimit(t *testing.T) {
+	src := cas.NewMemory()
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Config:    config,
+			Layers:    layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(manifest.MediaType, manifestJSON)
+	}
+	generateArtifact := func(subject *ocispec.Descriptor, artifactType string, blobs ...ocispec.Descriptor) {
+		manifest := ocispec.Artifact{
+			MediaType:    ocispec.MediaTypeArtifactManifest,
+			Subject:      subject,
+			Blobs:        blobs,
+			ArtifactType: artifactType,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(manifest.MediaType, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(index.MediaType, indexJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
+	generateManifest(descs[0], descs[1:3]...)                  // Blob 3
+	generateArtifact(&descs[3], "artifact.1")                  // Blob 4
+	generateArtifact(&descs[3], "artifact.2")                  // Blob 5
+	generateArtifact(&descs[3], "artifact.3")                  // Blob 6
+	generateArtifact(&descs[3], "artifact.4")                  // Blob 7
+	generateIndex(descs[3:8]...)                               // Blob 8
+
+	ctx := context.Background()
+	for i := range blobs {
+		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// test different concurrency limit
+	root := descs[len(descs)-1]
+	directSuccessorsNum := 5
+	opts := oras.DefaultCopyGraphOptions
+	for i := 1; i <= directSuccessorsNum; i++ {
+		dst := cas.NewMemory()
+		opts.Concurrency = int64(i)
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+			t.Fatalf("CopyGraph(concurrency: %d) error = %v, wantErr %v", i, err, false)
+		}
+
+		// verify contents
+		contents := dst.Map()
+		if got, want := len(contents), len(blobs); got != want {
+			t.Errorf("len(dst) = %v, wantErr %v", got, want)
+		}
+		for i := range blobs {
+			got, err := content.FetchAll(ctx, dst, descs[i])
+			if err != nil {
+				t.Errorf("content[%d] error = %v, wantErr %v", i, err, false)
+				continue
+			}
+			if want := blobs[i]; !bytes.Equal(got, want) {
+				t.Errorf("content[%d] = %v, want %v", i, got, want)
+			}
+		}
+	}
+
+}
