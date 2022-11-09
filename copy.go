@@ -185,7 +185,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 
 	// traverse the graph
 	var fn syncutil.GoFunc[ocispec.Descriptor]
-	fn = func(ctx context.Context, region *syncutil.LimitRegion, desc ocispec.Descriptor) (err error) {
+	fn = func(ctx context.Context, region *syncutil.LimitedRegion, desc ocispec.Descriptor) (err error) {
 		// skip the descriptor if other go routine is working on it
 		done, committed := tracker.TryCommit(desc)
 		if !committed {

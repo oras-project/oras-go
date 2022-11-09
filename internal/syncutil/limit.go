@@ -22,19 +22,19 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// LimitRegion provides a way to bound concurrent access to a code block.
-type LimitRegion struct {
+// LimitedRegion provides a way to bound concurrent access to a code block.
+type LimitedRegion struct {
 	ctx     context.Context
 	limiter *semaphore.Weighted
 	ended   bool
 }
 
-// NewLimitRegion creates a new LimitRegion.
-func NewLimitRegion(ctx context.Context, limiter *semaphore.Weighted) *LimitRegion {
+// LimitRegion creates a new LimitedRegion.
+func LimitRegion(ctx context.Context, limiter *semaphore.Weighted) *LimitedRegion {
 	if limiter == nil {
 		return nil
 	}
-	return &LimitRegion{
+	return &LimitedRegion{
 		ctx:     ctx,
 		limiter: limiter,
 		ended:   true,
@@ -42,7 +42,7 @@ func NewLimitRegion(ctx context.Context, limiter *semaphore.Weighted) *LimitRegi
 }
 
 // Start starts the region with concurrency limit.
-func (lr *LimitRegion) Start() error {
+func (lr *LimitedRegion) Start() error {
 	if lr == nil || !lr.ended {
 		return nil
 	}
@@ -54,7 +54,7 @@ func (lr *LimitRegion) Start() error {
 }
 
 // End ends the region with concurrency limit.
-func (lr *LimitRegion) End() {
+func (lr *LimitedRegion) End() {
 	if lr == nil || lr.ended {
 		return
 	}
@@ -63,13 +63,13 @@ func (lr *LimitRegion) End() {
 }
 
 // GoFunc represents a function that can be invoked by Go.
-type GoFunc[T any] func(ctx context.Context, region *LimitRegion, t T) error
+type GoFunc[T any] func(ctx context.Context, region *LimitedRegion, t T) error
 
 // Go concurrently invokes fn on items.
 func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], items ...T) error {
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, item := range items {
-		region := NewLimitRegion(ctx, limiter)
+		region := LimitRegion(ctx, limiter)
 		if err := region.Start(); err != nil {
 			return err
 		}

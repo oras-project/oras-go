@@ -58,7 +58,7 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 	tracker := status.NewTracker()
 
 	var fn syncutil.GoFunc[ocispec.Descriptor]
-	fn = func(ctx context.Context, region *syncutil.LimitRegion, desc ocispec.Descriptor) error {
+	fn = func(ctx context.Context, region *syncutil.LimitedRegion, desc ocispec.Descriptor) error {
 		// skip the node if other go routine is working on it
 		_, committed := tracker.TryCommit(desc)
 		if !committed {
