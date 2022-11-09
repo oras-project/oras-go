@@ -26,7 +26,6 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/internal/status"
@@ -45,6 +44,9 @@ var (
 	// DefaultCopyGraphOptions provides the default CopyGraphOptions.
 	DefaultCopyGraphOptions CopyGraphOptions
 )
+
+// errSkipDesc signals copyNode() to stop processing a descriptor.
+var errSkipDesc = errors.New("skip descriptor")
 
 // CopyOptions contains parameters for oras.Copy.
 type CopyOptions struct {
@@ -274,7 +276,7 @@ func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.St
 func copyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
 	if opts.PreCopy != nil {
 		if err := opts.PreCopy(ctx, desc); err != nil {
-			if err == graph.ErrSkipDesc {
+			if err == errSkipDesc {
 				return nil
 			}
 			return err
@@ -366,7 +368,7 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 				}
 			}
 			// skip the regular copy workflow
-			return graph.ErrSkipDesc
+			return errSkipDesc
 		}
 	} else {
 		postCopy := opts.PostCopy

@@ -23,6 +23,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/status"
+	"oras.land/oras-go/v2/internal/syncutil"
 )
 
 // Memory is a memory based PredecessorFinder.
@@ -55,37 +56,33 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 	// track content status
 	tracker := status.NewTracker()
 
-	// prepare pre-handler
-	preHandler := HandlerFunc(func(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	var fn syncutil.GoFunc[ocispec.Descriptor]
+	fn = func(ctx context.Context, region *syncutil.LimitRegion, desc ocispec.Descriptor) error {
 		// skip the node if other go routine is working on it
 		_, committed := tracker.TryCommit(desc)
 		if !committed {
-			return nil, ErrSkipDesc
+			return nil
 		}
 
 		// skip the node if it has been indexed
 		key := descriptor.FromOCI(desc)
 		_, exists := m.indexed.Load(key)
 		if exists {
-			return nil, ErrSkipDesc
+			return nil
 		}
 
 		successors, err := content.Successors(ctx, fetcher, desc)
 		if err != nil {
-			return nil, err
+			return err
 		}
-
 		if err := m.index(ctx, desc, successors); err != nil {
-			return nil, err
+			return err
 		}
+		// traverse the graph
+		return syncutil.Go(ctx, nil, fn, successors...)
+	}
 
-		return successors, nil
-	})
-
-	postHandler := Handlers()
-
-	// traverse the graph
-	return Dispatch(ctx, preHandler, postHandler, nil, node)
+	return syncutil.Go(ctx, nil, fn, node)
 }
 
 // Predecessors returns the nodes directly pointing to the current node.
