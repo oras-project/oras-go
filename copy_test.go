@@ -1472,7 +1472,7 @@ func TestCopyGraph_WithConcurrencyLimit(t *testing.T) {
 	generateArtifact(&descs[3], "artifact.2")                  // Blob 5
 	generateArtifact(&descs[3], "artifact.3")                  // Blob 6
 	generateArtifact(&descs[3], "artifact.4")                  // Blob 7
-	generateIndex(descs[4:8]...)                               // Blob 8
+	generateIndex(descs[3:8]...)                               // Blob 8
 
 	ctx := context.Background()
 	for i := range blobs {
@@ -1484,9 +1484,9 @@ func TestCopyGraph_WithConcurrencyLimit(t *testing.T) {
 
 	// test different concurrency limit
 	root := descs[len(descs)-1]
-	artifactNum := len(descs[4:8])
+	directSuccessorsNum := 5
 	opts := oras.DefaultCopyGraphOptions
-	for i := 1; i <= artifactNum; i++ {
+	for i := 1; i <= directSuccessorsNum; i++ {
 		dst := cas.NewMemory()
 		opts.Concurrency = int64(i)
 		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
