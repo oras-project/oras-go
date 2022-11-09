@@ -39,6 +39,7 @@ type Repository interface {
 	content.TagResolver
 	ReferenceFetcher
 	ReferencePusher
+	ReferrerFinder
 
 	// Blobs provides access to the blob CAS only, which contains config blobs,
 	// layers, and other generic blobs.
