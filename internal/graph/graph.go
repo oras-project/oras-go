@@ -22,6 +22,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
+	"oras.land/oras-go/v2/internal/syncutil"
 )
 
 // Dispatch traverses a graph concurrently. To maximize the concurrency, the
@@ -45,8 +46,8 @@ import (
 func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *semaphore.Weighted, roots ...ocispec.Descriptor) error {
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, root := range roots {
-		lr := NewLimitRegion(ctx, limiter)
-		if err := lr.Start(); err != nil {
+		lr := syncutil.NewLimitRegion(ctx, limiter)
+		if err := lr.Begin(); err != nil {
 			return err
 		}
 		eg.Go(func(desc ocispec.Descriptor) func() error {
@@ -81,7 +82,7 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 						return err
 					}
 
-					if err = lr.Start(); err != nil {
+					if err = lr.Begin(); err != nil {
 						return err
 					}
 				}
@@ -90,40 +91,4 @@ func Dispatch(ctx context.Context, preHandler, postHandler Handler, limiter *sem
 		}(root))
 	}
 	return eg.Wait()
-}
-
-type LimitRegion struct {
-	ctx     context.Context
-	limiter *semaphore.Weighted
-	ended   bool
-}
-
-func NewLimitRegion(ctx context.Context, limiter *semaphore.Weighted) *LimitRegion {
-	if limiter == nil {
-		return nil
-	}
-	return &LimitRegion{
-		ctx:     ctx,
-		limiter: limiter,
-		ended:   true,
-	}
-}
-
-func (lr *LimitRegion) Start() error {
-	if lr == nil || !lr.ended {
-		return nil
-	}
-	if err := lr.limiter.Acquire(lr.ctx, 1); err != nil {
-		return err
-	}
-	lr.ended = false
-	return nil
-}
-
-func (lr *LimitRegion) End() {
-	if lr == nil || lr.ended {
-		return
-	}
-	lr.limiter.Release(1)
-	lr.ended = true
 }

@@ -22,7 +22,6 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
@@ -31,6 +30,7 @@ import (
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/internal/status"
+	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -184,8 +184,8 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 	tracker := status.NewTracker()
 
 	// traverse the graph
-	var fn dispatchFunc
-	fn = func(ctx context.Context, lr *graph.LimitRegion, desc ocispec.Descriptor) (err error) {
+	var fn syncutil.GoFunc[ocispec.Descriptor]
+	fn = func(ctx context.Context, region *syncutil.LimitRegion, desc ocispec.Descriptor) (err error) {
 		// skip the descriptor if other go routine is working on it
 		done, committed := tracker.TryCommit(desc)
 		if !committed {
@@ -231,8 +231,8 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		}
 
 		// for non-leaf nodes, process successors and wait for them to complete
-		lr.End()
-		if err := dispatch(ctx, limiter, fn, successors...); err != nil {
+		region.End()
+		if err := syncutil.Go(ctx, limiter, fn, successors...); err != nil {
 			return err
 		}
 		for _, node := range successors {
@@ -246,32 +246,13 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 				return ctx.Err()
 			}
 		}
-		if err := lr.Start(); err != nil {
+		if err := region.Begin(); err != nil {
 			return err
 		}
 		return copyNode(ctx, proxy.Cache, dst, desc, opts)
 	}
 
-	return dispatch(ctx, limiter, fn, root)
-}
-
-type dispatchFunc func(ctx context.Context, lr *graph.LimitRegion, desc ocispec.Descriptor) error
-
-func dispatch(ctx context.Context, limiter *semaphore.Weighted, fn dispatchFunc, roots ...ocispec.Descriptor) error {
-	eg, egCtx := errgroup.WithContext(ctx)
-	for _, root := range roots {
-		lr := graph.NewLimitRegion(ctx, limiter)
-		if err := lr.Start(); err != nil {
-			return err
-		}
-		eg.Go(func(desc ocispec.Descriptor) func() error {
-			return func() error {
-				defer lr.End()
-				return fn(egCtx, lr, desc)
-			}
-		}(root))
-	}
-	return eg.Wait()
+	return syncutil.Go(ctx, limiter, fn, root)
 }
 
 // doCopyNode copies a single content from the source CAS to the destination CAS.
