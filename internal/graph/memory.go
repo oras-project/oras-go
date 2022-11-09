@@ -29,7 +29,7 @@ import (
 // Memory is a memory based PredecessorFinder.
 type Memory struct {
 	predecessors sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
-	indexed      sync.Map // map[descriptor.Descriptor]bool
+	indexed      sync.Map // map[descriptor.Descriptor]struct{}
 }
 
 // NewMemory creates a new memory PredecessorFinder.
@@ -75,13 +75,18 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 		if err != nil {
 			return err
 		}
+		if len(successors) == 0 {
+			// skip the node if it has no successors
+			return nil
+		}
+
 		if err := m.index(ctx, desc, successors); err != nil {
 			return err
 		}
-		// traverse the graph
+		m.indexed.Store(key, struct{}{})
+		// traverse and index successors
 		return syncutil.Go(ctx, nil, fn, successors...)
 	}
-
 	return syncutil.Go(ctx, nil, fn, node)
 }
 
@@ -112,14 +117,11 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 // for the underlying storage.
 func (m *Memory) index(ctx context.Context, node ocispec.Descriptor, successors []ocispec.Descriptor) error {
 	predecessorKey := descriptor.FromOCI(node)
-
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
 		value, _ := m.predecessors.LoadOrStore(successorKey, &sync.Map{})
 		predecessors := value.(*sync.Map)
 		predecessors.Store(predecessorKey, node)
 	}
-
-	m.indexed.Store(predecessorKey, true)
 	return nil
 }

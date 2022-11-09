@@ -175,13 +175,11 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 	if opts.FindSuccessors == nil {
 		opts.FindSuccessors = content.Successors
 	}
-
-	// set concurrency level
+	// if Concurrency is not set or invalid, use the default concurrency
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultConcurrency
 	}
 	limiter := semaphore.NewWeighted(opts.Concurrency)
-
 	// track content status
 	tracker := status.NewTracker()
 
@@ -248,7 +246,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 				return ctx.Err()
 			}
 		}
-		if err := region.Begin(); err != nil {
+		if err := region.Start(); err != nil {
 			return err
 		}
 		return copyNode(ctx, proxy.Cache, dst, desc, opts)
