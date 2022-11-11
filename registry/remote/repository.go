@@ -35,9 +35,11 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
+	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/internal/ioutil"
 	"oras.land/oras-go/v2/internal/registryutil"
+	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/errcode"
@@ -132,6 +134,8 @@ type Repository struct {
 	// referrersPingLock locks the pingReferrersAPI() method and allows only
 	// one go-routine to send the request.
 	referrersPingLock sync.Mutex
+
+	quay *syncutil.Quay
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -144,6 +148,7 @@ func NewRepository(reference string) (*Repository, error) {
 	}
 	return &Repository{
 		Reference: ref,
+		quay:      syncutil.NewQuay(),
 	}, nil
 }
 
@@ -1263,41 +1268,63 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 
 // updateReferrersIndexForPush updates the referrers index for desc referencing
 // subject on manifest push.
-func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, subject ocispec.Descriptor) error {
-	// there can be multiple go-routines updating the referrers tag concurrently
+func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, subject ocispec.Descriptor) (err error) {
 	referrersTag := buildReferrersTag(subject)
-	s.repo.lockReferrersTag(referrersTag)
-	defer s.repo.unlockReferrersTag(referrersTag)
+	// enter quay
+	if wharf, captain, dispose := s.repo.quay.Enter(referrersTag, desc); <-captain {
+		defer dispose()
+		referrersToAdd := wharf.Close()
+		defer wharf.Arrive()
 
-	var skipDelete bool
-	oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
-	if err != nil {
-		if !errors.Is(err, errdef.ErrNotFound) {
-			return err
+		var skipDelete bool
+		oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
+		if err != nil {
+			if !errors.Is(err, errdef.ErrNotFound) {
+				return err
+			}
+			// no old index found, skip delete
+			skipDelete = true
 		}
-		// no old index found, skip delete
-		skipDelete = true
-	}
 
-	for _, r := range referrers {
-		if content.Equal(r, desc) {
-			// desc is already in the referrers list, skip update
+		// handle referrers
+		existed := make(map[descriptor.Descriptor]struct{}, len(referrers)+len(referrersToAdd))
+		for _, r := range referrers {
+			key := descriptor.FromOCI(r)
+			existed[key] = struct{}{}
+		}
+		referrersUpdated := false
+		for _, r := range referrersToAdd {
+			referrer, ok := r.(ocispec.Descriptor)
+			if !ok {
+				// TODO: error msg
+				return fmt.Errorf("unexpected ticket: %v", r)
+			}
+			key := descriptor.FromOCI(referrer)
+			if _, ok := existed[key]; !ok {
+				referrers = append(referrers, referrer)
+				existed[key] = struct{}{}
+				referrersUpdated = true
+			}
+		}
+		if !referrersUpdated {
+			// no update to the referrers
 			return nil
 		}
-	}
-	referrers = append(referrers, desc)
-	newIndexDesc, newIndex, err := generateIndex(referrers)
-	if err != nil {
-		return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
-	}
-	if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
-		return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
+		newIndexDesc, newIndex, err := generateIndex(referrers)
+		if err != nil {
+			return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
+		}
+		if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
+			return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
+		}
+
+		if skipDelete {
+			return nil
+		}
+		return s.repo.delete(ctx, oldIndexDesc, true)
 	}
 
-	if skipDelete {
-		return nil
-	}
-	return s.repo.delete(ctx, oldIndexDesc, true)
+	return nil
 }
 
 // pingReferrers returns true if the Referrers API is available for r.
