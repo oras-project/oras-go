@@ -42,17 +42,22 @@ var (
 	tagRegexp = regexp.MustCompile(`^[\w][\w.-]{0,127}$`)
 )
 
-// Reference references to a descriptor in the registry.
+// Reference references either a resource descriptor (where Reference.Reference
+// is a tag or a digest), or a resource repository (where Reference.Reference
+// is the empty string).
 type Reference struct {
-	// Registry is the name of the registry.
-	// It is usually the domain name of the registry optionally with a port.
+	// Registry is the name of the registry. It is usually the domain name of
+	// the registry optionally with a port.
 	Registry string
 
 	// Repository is the name of the repository.
 	Repository string
 
-	// Reference is the reference of the object in the repository.
-	// A reference can be a tag or a digest.
+	// Reference is the reference of the object in the repository. This field
+	// can take any one of the four valid forms (see ParseReference). In the
+	// case where it's the empty string, it necessarily implies valid form D,
+	// and where it is non-empty, then it is either a tag, or a digest
+	// (implying one of valid forms A, B, or C).
 	Reference string
 }
 
@@ -61,25 +66,41 @@ type Reference struct {
 // Note: An "image" is an "artifact", however, an "artifact" is not necessarily
 // an "image".
 //
-// The parameter `artifact` is an opaque polymorphic string, composed of two
-// other opaque tokens; namely `socketaddr` and `path`: These can in turn take
-// on their own polymorphic forms.  To do this, the Backus–Naur Form (BNF)
-// notation has been adopted, with the exception that *lowercase* labels here
-// imply opaque values (composed of other components), and *uppercase* labels
-// imply resolute/final values (can not be expanded further into subcomponents).
+// The token `artifact` is composed of other tokens, and those in turn are
+// composed of others.  This definition recursivity requires a notation capable
+// of recursion, thus the following two forms have been adopted:
 //
-//	  <artifact> ::= <socketaddr> "/" <path>
+//  1. Backus–Naur Form (BNF) has been adopted to address the recursive nature
+//     of the definition.
+//  2. Token opacity is revealed via its label letter-casing.  That is, "opaque"
+//     tokens (i.e., tokens that are not final, and must therefore be further
+//     broken down into their constituents) are denoted in *lowercase*, while
+//     final tokens (i.e., leaf-node tokens that are final) are denoted in
+//     *uppercase*.
 //
-//	<socketaddr> ::= <host> | <host> ":" <PORT>
-//	      <host> ::= <ip> | <FQDN>
-//	        <ip> ::= <IPV4-ADDR> | <IPV6-ADDR>
+// Finally, note that a number of the opaque tokens are polymorphic in nature;
+// that is, they can take on one of numerous forms, not restricted to a single
+// defining form.
 //
-//	      <path> ::= <REPOSITORY> | <REPOSITORY> <reference>
-//	 <reference> ::= "@" <digest> | ":" <TAG> "@" <DIGEST> | ":" <TAG>
-//	    <digest> ::= <ALGO> ":" <HASH>
+// The top-level token, `artifact`, is composed of two (opaque) tokens; namely
+// `socketaddr` and `path`:
 //
-// That is, of all the possible forms that `path` can take, there are exactly 4
-// that are considered valid.  Expanding the BNF notation for `path`, the 4 are:
+//	<artifact> ::= <socketaddr> "/" <path>
+//
+// The former is described as follows:
+//
+//	   <socketaddr> ::= <host> | <host> ":" <PORT>
+//		     <host> ::= <ip> | <FQDN>
+//		       <ip> ::= <IPV4-ADDR> | <IPV6-ADDR>
+//
+// The latter, which is of greater interest here, is described as follows:
+//
+//	     <path> ::= <REPOSITORY> | <REPOSITORY> <reference>
+//	<reference> ::= "@" <digest> | ":" <TAG> "@" <DIGEST> | ":" <TAG>
+//	   <digest> ::= <ALGO> ":" <HASH>
+//
+// This second token--`path`--can take on exactly four forms, each of which will
+// now be illustrated:
 //
 //	<--- path --------------------------------------------> |  - Decode `path`
 //	<=== REPOSITORY ===> <--- reference ------------------> |    - Decode `reference`
