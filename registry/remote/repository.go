@@ -1004,42 +1004,54 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 // updateReferrersIndexForDelete updates the referrers index for desc referencing
 // subject on manifest delete.
 func (s *manifestStore) updateReferrersIndexForDelete(ctx context.Context, desc, subject ocispec.Descriptor) error {
-	// there can be multiple go-routines updating the referrers tag concurrently
 	referrersTag := buildReferrersTag(subject)
-	s.repo.lockReferrersTag(referrersTag)
-	defer s.repo.unlockReferrersTag(referrersTag)
+	if wharf, captain, dispose := s.repo.quay.Enter(referrersTag, desc); <-captain {
+		defer dispose()
+		referrersToRemove := wharf.Close()
+		defer wharf.Arrive()
 
-	oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
-	if err != nil {
-		if errors.Is(err, errdef.ErrNotFound) {
-			// inconsistent indexing state: no old index found, skip update
+		oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
+		if err != nil {
+			if errors.Is(err, errdef.ErrNotFound) {
+				// inconsistent indexing state: no old index found, skip update
+				return nil
+			}
+			return err
+		}
+		if len(referrers) == 0 {
+			// inconsistent indexing state: no referrers to the subject, skip update
 			return nil
 		}
-		return err
-	}
-	if len(referrers) == 0 {
-		// inconsistent indexing state: no referrers to the subject, skip update
-		return nil
+
+		removeSet := make(map[descriptor.Descriptor]struct{}, len(referrersToRemove))
+		for _, r := range referrersToRemove {
+			referrer := r.(ocispec.Descriptor)
+			key := descriptor.FromOCI(referrer)
+			removeSet[key] = struct{}{}
+		}
+		var updatedReferrers []ocispec.Descriptor
+		for _, r := range referrers {
+			key := descriptor.FromOCI(r)
+			if _, ok := removeSet[key]; !ok {
+				// add entries that are not in the remove set
+				updatedReferrers = append(updatedReferrers, r)
+			}
+		}
+
+		if len(updatedReferrers) > 0 {
+			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
+			if err != nil {
+				return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
+			}
+			if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
+				return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
+			}
+		}
+
+		return s.repo.delete(ctx, oldIndexDesc, true)
 	}
 
-	var updatedReferrers []ocispec.Descriptor
-	for _, r := range referrers {
-		// remove the current entry
-		if !content.Equal(r, desc) {
-			updatedReferrers = append(updatedReferrers, r)
-		}
-	}
-	if len(updatedReferrers) > 0 {
-		newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
-		if err != nil {
-			return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
-		}
-		if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
-			return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
-		}
-	}
-
-	return s.repo.delete(ctx, oldIndexDesc, true)
+	return nil
 }
 
 // Resolve resolves a reference to a descriptor.
