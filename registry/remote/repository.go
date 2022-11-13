@@ -1037,6 +1037,10 @@ func (s *manifestStore) updateReferrersIndexForDelete(ctx context.Context, desc,
 				updatedReferrers = append(updatedReferrers, r)
 			}
 		}
+		if len(updatedReferrers) == len(referrers) {
+			// inconsistent indexing state: no referrer to remove, skip update
+			return nil
+		}
 
 		if len(updatedReferrers) > 0 {
 			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
