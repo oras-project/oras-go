@@ -132,7 +132,9 @@ type Repository struct {
 	// one go-routine to send the request.
 	referrersPingLock sync.Mutex
 
-	quay *syncutil.Quay
+	// referrersQuay provides a way to manage concurrent updates to a referrers
+	// index tagged by referrers tag schema.
+	referrersQuay *syncutil.Quay
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -144,8 +146,8 @@ func NewRepository(reference string) (*Repository, error) {
 		return nil, err
 	}
 	return &Repository{
-		Reference: ref,
-		quay:      syncutil.NewQuay(),
+		Reference:     ref,
+		referrersQuay: syncutil.NewQuay(),
 	}, nil
 }
 
@@ -985,7 +987,9 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 // subject on manifest delete.
 func (s *manifestStore) updateReferrersIndexForDelete(ctx context.Context, desc, subject ocispec.Descriptor) error {
 	referrersTag := buildReferrersTag(subject)
-	if wharf, captain, dispose := s.repo.quay.Enter(referrersTag, desc); <-captain {
+	// all passengers to add desc to the removal list for referrersTag
+	if wharf, captain, dispose := s.repo.referrersQuay.Enter(referrersTag, desc); <-captain {
+		// captain to perform the index update for all the items in the removal list
 		defer dispose()
 		referrersToRemove := wharf.Close()
 		defer wharf.Arrive()
@@ -1269,8 +1273,9 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 // subject on manifest push.
 func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, subject ocispec.Descriptor) (err error) {
 	referrersTag := buildReferrersTag(subject)
-	// enter quay
-	if wharf, captain, dispose := s.repo.quay.Enter(referrersTag, desc); <-captain {
+	// all passengers to add desc to the addition list for referrersTag
+	if wharf, captain, dispose := s.repo.referrersQuay.Enter(referrersTag, desc); <-captain {
+		// captain to perform the index update for all the items in the addition list
 		defer dispose()
 		referrersToAdd := wharf.Close()
 		defer wharf.Arrive()
@@ -1285,7 +1290,7 @@ func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, s
 			skipDelete = true
 		}
 
-		// handle referrers
+		// ensure that each new referrer is added only once
 		existed := make(map[descriptor.Descriptor]struct{}, len(referrers)+len(referrersToAdd))
 		for _, r := range referrers {
 			key := descriptor.FromOCI(r)
@@ -1293,11 +1298,7 @@ func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, s
 		}
 		referrersUpdated := false
 		for _, r := range referrersToAdd {
-			referrer, ok := r.(ocispec.Descriptor)
-			if !ok {
-				// TODO: error msg
-				return fmt.Errorf("unexpected ticket: %v", r)
-			}
+			referrer := r.(ocispec.Descriptor)
 			key := descriptor.FromOCI(referrer)
 			if _, ok := existed[key]; !ok {
 				referrers = append(referrers, referrer)
@@ -1309,6 +1310,7 @@ func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, s
 			// no update to the referrers
 			return nil
 		}
+
 		newIndexDesc, newIndex, err := generateIndex(referrers)
 		if err != nil {
 			return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
