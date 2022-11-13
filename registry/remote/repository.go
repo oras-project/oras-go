@@ -128,9 +128,6 @@ type Repository struct {
 	// default: referrersStateUnknown
 	referrersState referrersState
 
-	// referrersTagLocks maps a referrers tag to a lock.
-	referrersTagLocks sync.Map // map[string]*sync.Mutex
-
 	// referrersPingLock locks the pingReferrersAPI() method and allows only
 	// one go-routine to send the request.
 	referrersPingLock sync.Mutex
@@ -184,23 +181,6 @@ func (r *Repository) SetReferrersCapability(capable bool) error {
 // setReferrersState atomically loads r.referrersState.
 func (r *Repository) loadReferrersState() referrersState {
 	return atomic.LoadInt32(&r.referrersState)
-}
-
-// lockReferrersTag locks a referrers tag.
-func (r *Repository) lockReferrersTag(tag string) {
-	v, _ := r.referrersTagLocks.LoadOrStore(tag, &sync.Mutex{})
-	lock := v.(*sync.Mutex)
-	lock.Lock()
-}
-
-// unlockReferrersTag unlocks a referrers tag.
-func (r *Repository) unlockReferrersTag(tag string) {
-	v, ok := r.referrersTagLocks.Load(tag)
-	if !ok {
-		return
-	}
-	lock := v.(*sync.Mutex)
-	lock.Unlock()
 }
 
 // client returns an HTTP client used to access the remote repository.
@@ -1023,17 +1003,17 @@ func (s *manifestStore) updateReferrersIndexForDelete(ctx context.Context, desc,
 			return nil
 		}
 
-		removeSet := make(map[descriptor.Descriptor]struct{}, len(referrersToRemove))
+		removalSet := make(map[descriptor.Descriptor]struct{}, len(referrersToRemove))
 		for _, r := range referrersToRemove {
-			referrer := r.(ocispec.Descriptor)
-			key := descriptor.FromOCI(referrer)
-			removeSet[key] = struct{}{}
+			d := r.(ocispec.Descriptor)
+			key := descriptor.FromOCI(d)
+			removalSet[key] = struct{}{}
 		}
 		var updatedReferrers []ocispec.Descriptor
 		for _, r := range referrers {
 			key := descriptor.FromOCI(r)
-			if _, ok := removeSet[key]; !ok {
-				// add entries that are not in the remove set
+			if _, ok := removalSet[key]; !ok {
+				// add referrers that are not in the removal set
 				updatedReferrers = append(updatedReferrers, r)
 			}
 		}
@@ -1052,7 +1032,10 @@ func (s *manifestStore) updateReferrersIndexForDelete(ctx context.Context, desc,
 			}
 		}
 
-		return s.repo.delete(ctx, oldIndexDesc, true)
+		if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
+			return fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err)
+		}
+		return nil
 	}
 
 	return nil
@@ -1334,10 +1317,12 @@ func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, s
 			return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
 		}
 
-		if skipDelete {
-			return nil
+		if !skipDelete {
+			if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
+				return fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err)
+			}
 		}
-		return s.repo.delete(ctx, oldIndexDesc, true)
+		return nil
 	}
 
 	return nil
