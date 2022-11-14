@@ -3795,6 +3795,71 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
+
+	// test inconsistent state: current referrer is not in referrers list
+	manifestDeleted = true
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+artifactDesc.Digest.String():
+			manifestDeleted = true
+			// no "Docker-Content-Digest" header for manifest deletion
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+artifactDesc.Digest.String():
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, artifactDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", artifactDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
+			if _, err := w.Write(artifactJSON); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			result := ocispec.Index{
+				Versioned: specs.Versioned{
+					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+				},
+				MediaType: ocispec.MediaTypeImageIndex,
+				Manifests: []ocispec.Descriptor{
+					content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, []byte("whaterver")),
+				},
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err = url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store = repo.Manifests()
+	ctx = context.Background()
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	err = store.Delete(ctx, artifactDesc)
+	if err != nil {
+		t.Fatalf("Manifests.Delete() error = %v", err)
+	}
+	if !manifestDeleted {
+		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
 }
 
 func Test_ManifestStore_Resolve(t *testing.T) {

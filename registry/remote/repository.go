@@ -35,6 +35,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
+	"oras.land/oras-go/v2/internal/container/set"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/internal/ioutil"
@@ -83,8 +84,8 @@ const (
 
 // referrerChange represents a change on a referrer.
 type referrerChange struct {
-	referrerOperation
-	referrer ocispec.Descriptor
+	operation referrerOperation
+	referrer  ocispec.Descriptor
 }
 
 // ErrReferrersCapabilityAlreadySet is returned by SetReferrersCapability()
@@ -1279,13 +1280,11 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject ocispec.Descriptor, operation referrerOperation) (err error) {
 	referrersTag := buildReferrersTag(subject)
 	change := referrerChange{
-		referrer:          desc,
-		referrerOperation: operation,
+		referrer:  desc,
+		operation: operation,
 	}
 	if wharf, captain, dispose := s.repo.referrersQuay.Enter(referrersTag, change); <-captain {
 		defer dispose()
-		referrerChanges := wharf.Close()
-		defer wharf.Arrive()
 
 		var skipDelete bool
 		oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
@@ -1296,47 +1295,14 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 			// no old index found, skip delete
 			skipDelete = true
 		}
+		referrerChanges := wharf.Close()
+		defer wharf.Arrive()
 
-		// merge the change list and remove duplicates
-		var referrersUpdated bool
-		referrersSet := make(map[descriptor.Descriptor]struct{}, len(referrers))
-		removalSet := make(map[descriptor.Descriptor]struct{}, len(referrers))
-		for _, r := range referrers {
-			key := descriptor.FromOCI(r)
-			referrersSet[key] = struct{}{}
-		}
-		for _, c := range referrerChanges {
-			change := c.(referrerChange)
-			key := descriptor.FromOCI(change.referrer)
-			switch change.referrerOperation {
-			case referrerOperationAdd:
-				if _, ok := referrersSet[key]; !ok {
-					// add unique referrers
-					referrers = append(referrers, change.referrer)
-					referrersSet[key] = struct{}{}
-					referrersUpdated = true
-				}
-			case referrerOperationRemove:
-				// log referrers to remove
-				removalSet[key] = struct{}{}
-			}
-		}
-
-		var updatedReferrers []ocispec.Descriptor
-		for _, r := range referrers {
-			key := descriptor.FromOCI(r)
-			if _, ok := removalSet[key]; ok {
-				referrersUpdated = true
-				continue
-			}
-			// add referrers that are not in the removal set
-			updatedReferrers = append(updatedReferrers, r)
-		}
-		if !referrersUpdated {
+		updatedReferrers, err := updateReferrers(referrers, referrerChanges)
+		if err == errNoReferrerUpdate {
 			// no update to the referrers
 			return nil
 		}
-
 		if len(updatedReferrers) > 0 {
 			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
 			if err != nil {
@@ -1354,6 +1320,73 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		return nil
 	}
 	return nil
+}
+
+// errNoReferrerUpdate is returned by updateReferrers() when there is no any
+// referrer updates.
+var errNoReferrerUpdate = errors.New("no referrer update")
+
+// updateReferrers updates the given referrers according to the referrerChanges.
+func updateReferrers(referrers []ocispec.Descriptor, referrerChanges []any) ([]ocispec.Descriptor, error) {
+	referrersSet := make(set.Set[descriptor.Descriptor], len(referrers))
+	for _, r := range referrers {
+		key := descriptor.FromOCI(r)
+		referrersSet.Add(key)
+	}
+
+	var referrersUpdated bool
+	var referrersToAdd []ocispec.Descriptor
+	referrersToRemove := make(set.Set[descriptor.Descriptor], len(referrers))
+	for _, c := range referrerChanges {
+		change := c.(referrerChange)
+		key := descriptor.FromOCI(change.referrer)
+		switch change.operation {
+		case referrerOperationAdd:
+			if !referrersSet.Contains(key) {
+				// add unique referrers
+				referrersSet.Add(key)
+				referrersToAdd = append(referrersToAdd, change.referrer)
+				referrersUpdated = true
+			}
+		case referrerOperationRemove:
+			// log referrers to remove
+			referrersToRemove.Add(key)
+		}
+	}
+	if len(referrersToAdd) == 0 && len(referrersToRemove) == 0 {
+		return nil, errNoReferrerUpdate
+	}
+	if len(referrersToAdd) == len(referrersToRemove) {
+		neutralized := true
+		for _, r := range referrersToAdd {
+			key := descriptor.FromOCI(r)
+			if !referrersToRemove.Contains(key) {
+				neutralized = false
+				break
+			}
+		}
+		if neutralized {
+			return nil, errNoReferrerUpdate
+		}
+	}
+
+	// referrers = append(referrersToAdd, referrers...)
+	referrers = append(referrers, referrersToAdd...)
+	var updatedReferrers []ocispec.Descriptor
+	for _, r := range referrers {
+		key := descriptor.FromOCI(r)
+		if referrersToRemove.Contains(key) {
+			referrersUpdated = true
+			continue
+		}
+		// add referrers that are not in the removal set
+		updatedReferrers = append(updatedReferrers, r)
+	}
+	if !referrersUpdated {
+		return nil, errNoReferrerUpdate
+	}
+
+	return updatedReferrers, nil
 }
 
 // ParseReference parses a reference to a fully qualified reference.
