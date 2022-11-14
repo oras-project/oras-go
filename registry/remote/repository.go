@@ -987,6 +987,9 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 // subject on manifest delete.
 func (s *manifestStore) updateReferrersIndexForDelete(ctx context.Context, desc, subject ocispec.Descriptor) error {
 	referrersTag := buildReferrersTag(subject)
+	if s.repo.referrersQuay == nil {
+		s.repo.referrersQuay = syncutil.NewQuay()
+	}
 	// all passengers to add desc to the removal list for referrersTag
 	if wharf, captain, dispose := s.repo.referrersQuay.Enter(referrersTag, desc); <-captain {
 		// captain to perform the index update for all the items in the removal list
@@ -1273,6 +1276,9 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 // subject on manifest push.
 func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, subject ocispec.Descriptor) (err error) {
 	referrersTag := buildReferrersTag(subject)
+	if s.repo.referrersQuay == nil {
+		s.repo.referrersQuay = syncutil.NewQuay()
+	}
 	// all passengers to add desc to the addition list for referrersTag
 	if wharf, captain, dispose := s.repo.referrersQuay.Enter(referrersTag, desc); <-captain {
 		// captain to perform the index update for all the items in the addition list
