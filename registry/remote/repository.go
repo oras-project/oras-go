@@ -72,7 +72,7 @@ const (
 	referrersStateUnsupported
 )
 
-// referrerOperation represents a referrer operation.
+// referrerOperation represents an operation on a referrer.
 type referrerOperation = int32
 
 const (
@@ -84,8 +84,8 @@ const (
 
 // referrerChange represents a change on a referrer.
 type referrerChange struct {
-	operation referrerOperation
 	referrer  ocispec.Descriptor
+	operation referrerOperation
 }
 
 // ErrReferrersCapabilityAlreadySet is returned by SetReferrersCapability()
@@ -1276,7 +1276,10 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 }
 
 // updateReferrersIndex updates the referrers index for desc referencing subject
-// on manifest push and on manifest delete.
+// on manifest push an manifest delete.
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject
+//   - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#deleting-manifests
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject ocispec.Descriptor, operation referrerOperation) (err error) {
 	referrersTag := buildReferrersTag(subject)
 	change := referrerChange{
@@ -1286,6 +1289,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 	if wharf, status, dispose := s.repo.referrersQuay.Enter(referrersTag, change); (<-status).Elected {
 		defer dispose()
 
+		// 1. pull the original referrers list using the referrers tag schema
 		var skipDelete bool
 		oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
 		if err != nil {
@@ -1298,11 +1302,14 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		referrerChanges := wharf.Close()
 		defer wharf.Arrive(err)
 
+		// 2. apply the referrer changes on the referrers list
 		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
-		if err == errNoReferrerChange {
+		if err == errNoReferrerUpdate {
 			// no update to the referrers
 			return nil
 		}
+
+		// 3. push the updated referrers list using referrers tag schema
 		if len(updatedReferrers) > 0 {
 			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
 			if err != nil {
@@ -1312,6 +1319,8 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 				return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
 			}
 		}
+
+		// 4. delete the dangling original referrers index
 		if !skipDelete {
 			if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
 				return fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err)
@@ -1322,9 +1331,9 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 	return nil
 }
 
-// errNoReferrerChange is returned by applyReferrerChanges() when there is no
-// any actual referrer changes.
-var errNoReferrerChange = errors.New("no referrer change")
+// errNoReferrerUpdate is returned by applyReferrerChanges() when there
+// is no any referrer updates.
+var errNoReferrerUpdate = errors.New("no referrer update")
 
 // applyReferrerChanges applies referrerChanges on referrers and returns the
 // updated referrers.
@@ -1342,26 +1351,28 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 		switch change.operation {
 		case referrerOperationAdd:
 			if !referrersSet.Contains(key) {
-				// add unique referrers
+				// add distinct referrers
 				referrersSet.Add(key)
 				referrersToAdd = append(referrersToAdd, change.referrer)
 			}
 		case referrerOperationRemove:
-			// log referrers to remove
+			// log distinct referrers to remove
 			referrersToRemove.Add(key)
 		}
 	}
 	if len(referrersToAdd) == len(referrersToRemove) {
-		neutralized := true
+		// the changes can be offset when the items in referrersToAdd and
+		// referrersToRemove are the same
+		canOffset := true
 		for _, r := range referrersToAdd {
 			key := descriptor.FromOCI(r)
 			if !referrersToRemove.Contains(key) {
-				neutralized = false
+				canOffset = false
 				break
 			}
 		}
-		if neutralized {
-			return nil, errNoReferrerChange
+		if canOffset {
+			return nil, errNoReferrerUpdate
 		}
 	}
 
@@ -1376,14 +1387,14 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 	for _, r := range referrers {
 		key := descriptor.FromOCI(r)
 		if referrersToRemove.Contains(key) {
+			// exclude the referrers that are in the removal set
 			referrersUpdated = true
-			continue
+		} else {
+			updatedReferrers = append(updatedReferrers, r)
 		}
-		// add referrers that are not in the removal set
-		updatedReferrers = append(updatedReferrers, r)
 	}
 	if !referrersUpdated {
-		return nil, errNoReferrerChange
+		return nil, errNoReferrerUpdate
 	}
 
 	return updatedReferrers, nil
