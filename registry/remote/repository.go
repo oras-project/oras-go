@@ -1298,8 +1298,8 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		referrerChanges := wharf.Close()
 		defer wharf.Arrive()
 
-		updatedReferrers, err := updateReferrers(referrers, referrerChanges)
-		if err == errNoReferrerUpdate {
+		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
+		if err == errNoReferrerChange {
 			// no update to the referrers
 			return nil
 		}
@@ -1322,19 +1322,19 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 	return nil
 }
 
-// errNoReferrerUpdate is returned by updateReferrers() when there is no any
-// referrer updates.
-var errNoReferrerUpdate = errors.New("no referrer update")
+// errNoReferrerChange is returned by applyReferrerChanges() when there is no
+// any actual referrer changes.
+var errNoReferrerChange = errors.New("no referrer change")
 
-// updateReferrers updates the given referrers according to the referrerChanges.
-func updateReferrers(referrers []ocispec.Descriptor, referrerChanges []any) ([]ocispec.Descriptor, error) {
+// applyReferrerChanges applies referrerChanges on referrers and returns the
+// updated referrers.
+func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []any) ([]ocispec.Descriptor, error) {
 	referrersSet := make(set.Set[descriptor.Descriptor], len(referrers))
 	for _, r := range referrers {
 		key := descriptor.FromOCI(r)
 		referrersSet.Add(key)
 	}
 
-	var referrersUpdated bool
 	var referrersToAdd []ocispec.Descriptor
 	referrersToRemove := make(set.Set[descriptor.Descriptor], len(referrers))
 	for _, c := range referrerChanges {
@@ -1346,15 +1346,11 @@ func updateReferrers(referrers []ocispec.Descriptor, referrerChanges []any) ([]o
 				// add unique referrers
 				referrersSet.Add(key)
 				referrersToAdd = append(referrersToAdd, change.referrer)
-				referrersUpdated = true
 			}
 		case referrerOperationRemove:
 			// log referrers to remove
 			referrersToRemove.Add(key)
 		}
-	}
-	if len(referrersToAdd) == 0 && len(referrersToRemove) == 0 {
-		return nil, errNoReferrerUpdate
 	}
 	if len(referrersToAdd) == len(referrersToRemove) {
 		neutralized := true
@@ -1366,12 +1362,17 @@ func updateReferrers(referrers []ocispec.Descriptor, referrerChanges []any) ([]o
 			}
 		}
 		if neutralized {
-			return nil, errNoReferrerUpdate
+			return nil, errNoReferrerChange
 		}
 	}
 
-	// referrers = append(referrersToAdd, referrers...)
-	referrers = append(referrers, referrersToAdd...)
+	var referrersUpdated bool
+	if len(referrersToAdd) > 0 {
+		// append to the front
+		// referrers = append(referrersToAdd, referrers...)
+		referrers = append(referrers, referrersToAdd...)
+		referrersUpdated = true
+	}
 	var updatedReferrers []ocispec.Descriptor
 	for _, r := range referrers {
 		key := descriptor.FromOCI(r)
@@ -1383,7 +1384,7 @@ func updateReferrers(referrers []ocispec.Descriptor, referrerChanges []any) ([]o
 		updatedReferrers = append(updatedReferrers, r)
 	}
 	if !referrersUpdated {
-		return nil, errNoReferrerUpdate
+		return nil, errNoReferrerChange
 	}
 
 	return updatedReferrers, nil
