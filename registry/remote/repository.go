@@ -1304,9 +1304,11 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 
 		// 2. apply the referrer changes on the referrers list
 		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
-		if err == errNoReferrerUpdate {
-			// no update to the referrers
-			return nil
+		if err != nil {
+			if err == errNoReferrerUpdate {
+				return nil
+			}
+			return err
 		}
 
 		// 3. push the updated referrers list using referrers tag schema
@@ -1332,7 +1334,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 }
 
 // errNoReferrerUpdate is returned by applyReferrerChanges() when there
-// is no any referrer updates.
+// is no any referrer update.
 var errNoReferrerUpdate = errors.New("no referrer update")
 
 // applyReferrerChanges applies referrerChanges on referrers and returns the
@@ -1377,13 +1379,11 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 	}
 
 	var referrersUpdated bool
+	var updatedReferrers []ocispec.Descriptor
 	if len(referrersToAdd) > 0 {
-		// append to the front
-		// referrers = append(referrersToAdd, referrers...)
 		referrers = append(referrers, referrersToAdd...)
 		referrersUpdated = true
 	}
-	var updatedReferrers []ocispec.Descriptor
 	for _, r := range referrers {
 		key := descriptor.FromOCI(r)
 		if referrersToRemove.Contains(key) {
