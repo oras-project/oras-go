@@ -151,7 +151,7 @@ type Repository struct {
 
 	// referrersQuay provides a way to manage concurrent updates to a referrers
 	// index tagged by referrers tag schema.
-	referrersQuay syncutil.Quay
+	referrersQuay syncutil.Quay[referrerChange]
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -1283,7 +1283,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		referrer:  desc,
 		operation: operation,
 	}
-	if wharf, captain, dispose := s.repo.referrersQuay.Enter(referrersTag, change); <-captain {
+	if wharf, status, dispose := s.repo.referrersQuay.Enter(referrersTag, change); (<-status).Elected {
 		defer dispose()
 
 		var skipDelete bool
@@ -1296,7 +1296,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 			skipDelete = true
 		}
 		referrerChanges := wharf.Close()
-		defer wharf.Arrive()
+		defer wharf.Arrive(err)
 
 		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
 		if err == errNoReferrerChange {
@@ -1328,7 +1328,7 @@ var errNoReferrerChange = errors.New("no referrer change")
 
 // applyReferrerChanges applies referrerChanges on referrers and returns the
 // updated referrers.
-func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []any) ([]ocispec.Descriptor, error) {
+func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []referrerChange) ([]ocispec.Descriptor, error) {
 	referrersSet := make(set.Set[descriptor.Descriptor], len(referrers))
 	for _, r := range referrers {
 		key := descriptor.FromOCI(r)
@@ -1337,8 +1337,7 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []any)
 
 	var referrersToAdd []ocispec.Descriptor
 	referrersToRemove := make(set.Set[descriptor.Descriptor], len(referrers))
-	for _, c := range referrerChanges {
-		change := c.(referrerChange)
+	for _, change := range referrerChanges {
 		key := descriptor.FromOCI(change.referrer)
 		switch change.operation {
 		case referrerOperationAdd:

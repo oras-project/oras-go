@@ -18,28 +18,28 @@ package syncutil
 import "sync"
 
 // Quay is a quay with scalable wharves.
-type Quay struct {
+type Quay[T any] struct {
 	gate    sync.Mutex
-	wharves map[any]*Wharf
+	wharves map[any]*Wharf[T]
 }
 
-// NewQuay creates a virtual scalable quay.
-func NewQuay() *Quay {
-	return &Quay{}
+// New creates a virtual scalable quay.
+func New[T any]() *Quay[T] {
+	return &Quay[T]{}
 }
 
 // Enter enters a specific wharf, holding a ticket.
 // A captain gopher is responsible to dispose the wharf if it is no longer
 // needed, using the returned function.
-func (q *Quay) Enter(wharfID, ticket any) (*Wharf, <-chan bool, func()) {
+func (q *Quay[T]) Enter(wharfID any, ticket T) (*Wharf[T], <-chan Status, func()) {
 	q.gate.Lock()
 	defer q.gate.Unlock()
 
 	wharf, ok := q.wharves[wharfID]
 	if !ok {
-		wharf = NewWharf()
+		wharf = NewWharf[T]()
 		if q.wharves == nil {
-			q.wharves = map[any]*Wharf{
+			q.wharves = map[any]*Wharf[T]{
 				wharfID: wharf,
 			}
 		} else {
