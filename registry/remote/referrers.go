@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/internal/container/set"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/descriptor"
 )
 
@@ -111,65 +111,34 @@ func filterReferrers(refs []ocispec.Descriptor, artifactType string) []ocispec.D
 	return refs[:j]
 }
 
-// applyReferrerChanges applies referrerChanges on referrers and returns the
-// updated referrers.
-func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []referrerChange) ([]ocispec.Descriptor, error) {
-	referrersSet := make(set.Set[descriptor.Descriptor], len(referrers))
-	for _, r := range referrers {
+func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []referrerChange) []ocispec.Descriptor {
+	referrerIndexMap := make(map[descriptor.Descriptor]int, len(referrers))
+	for i, r := range referrers {
 		key := descriptor.FromOCI(r)
-		referrersSet.Add(key)
+		referrerIndexMap[key] = i
 	}
 
-	var referrersToAdd []ocispec.Descriptor
-	referrersToRemove := make(set.Set[descriptor.Descriptor], len(referrers))
 	for _, change := range referrerChanges {
 		key := descriptor.FromOCI(change.referrer)
 		switch change.operation {
 		case referrerOperationAdd:
-			if !referrersSet.Contains(key) {
-				// add distinct referrers
-				referrersSet.Add(key)
-				referrersToAdd = append(referrersToAdd, change.referrer)
+			if _, ok := referrerIndexMap[key]; !ok {
+				referrers = append(referrers, change.referrer)
+				referrerIndexMap[key] = len(referrers) - 1
 			}
 		case referrerOperationRemove:
-			// log distinct referrers to remove
-			referrersToRemove.Add(key)
-		}
-	}
-	if len(referrersToAdd) == len(referrersToRemove) {
-		// the changes can be offset when the items in referrersToAdd and
-		// referrersToRemove are the same
-		canOffset := true
-		for _, r := range referrersToAdd {
-			key := descriptor.FromOCI(r)
-			if !referrersToRemove.Contains(key) {
-				canOffset = false
-				break
+			if i, ok := referrerIndexMap[key]; ok {
+				referrers[i] = ocispec.Descriptor{}
+				delete(referrerIndexMap, key)
 			}
-		}
-		if canOffset {
-			return nil, errNoReferrerUpdate
 		}
 	}
 
-	var referrersUpdated bool
 	var updatedReferrers []ocispec.Descriptor
-	if len(referrersToAdd) > 0 {
-		referrers = append(referrers, referrersToAdd...)
-		referrersUpdated = true
-	}
 	for _, r := range referrers {
-		key := descriptor.FromOCI(r)
-		if referrersToRemove.Contains(key) {
-			// exclude the referrers that are in the removal set
-			referrersUpdated = true
-		} else {
+		if !content.Equal(r, ocispec.Descriptor{}) {
 			updatedReferrers = append(updatedReferrers, r)
 		}
 	}
-	if !referrersUpdated {
-		return nil, errNoReferrerUpdate
-	}
-
-	return updatedReferrers, nil
+	return updatedReferrers
 }
