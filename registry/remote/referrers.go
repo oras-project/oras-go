@@ -111,9 +111,10 @@ func filterReferrers(refs []ocispec.Descriptor, artifactType string) []ocispec.D
 	return refs[:j]
 }
 
-func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []referrerChange) []ocispec.Descriptor {
-	referrerIndexMap := make(map[descriptor.Descriptor]int, len(referrers))
-	for i, r := range referrers {
+func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []referrerChange) ([]ocispec.Descriptor, error) {
+	updatedReferrers := referrers
+	referrerIndexMap := make(map[descriptor.Descriptor]int, len(updatedReferrers))
+	for i, r := range updatedReferrers {
 		key := descriptor.FromOCI(r)
 		referrerIndexMap[key] = i
 	}
@@ -123,22 +124,36 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 		switch change.operation {
 		case referrerOperationAdd:
 			if _, ok := referrerIndexMap[key]; !ok {
-				referrers = append(referrers, change.referrer)
-				referrerIndexMap[key] = len(referrers) - 1
+				updatedReferrers = append(updatedReferrers, change.referrer)
+				referrerIndexMap[key] = len(updatedReferrers) - 1
 			}
 		case referrerOperationRemove:
 			if i, ok := referrerIndexMap[key]; ok {
-				referrers[i] = ocispec.Descriptor{}
+				updatedReferrers[i] = ocispec.Descriptor{}
 				delete(referrerIndexMap, key)
 			}
 		}
 	}
 
-	var updatedReferrers []ocispec.Descriptor
-	for _, r := range referrers {
+	var result []ocispec.Descriptor
+	for _, r := range updatedReferrers {
 		if !content.Equal(r, ocispec.Descriptor{}) {
-			updatedReferrers = append(updatedReferrers, r)
+			result = append(result, r)
 		}
 	}
-	return updatedReferrers
+
+	var referrersUpdated bool
+	if len(result) == len(referrers) {
+		for i, r := range result {
+			if !content.Equal(r, referrers[i]) {
+				referrersUpdated = true
+			}
+		}
+	} else {
+		referrersUpdated = true
+	}
+	if !referrersUpdated {
+		return nil, errNoReferrerUpdate
+	}
+	return result, nil
 }

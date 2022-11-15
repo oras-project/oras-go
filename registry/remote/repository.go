@@ -1221,7 +1221,13 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		defer wharf.Arrive(err)
 
 		// 2. apply the referrer changes on the referrers list
-		updatedReferrers := applyReferrerChanges(referrers, referrerChanges)
+		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
+		if err != nil {
+			if err == errNoReferrerUpdate {
+				return nil
+			}
+			return err
+		}
 
 		// 3. push the updated referrers list using referrers tag schema
 		if len(updatedReferrers) > 0 {

@@ -242,13 +242,6 @@ func Test_applyReferrerChanges(t *testing.T) {
 			ArtifactType: "goodbye",
 			Annotations:  map[string]string{"name": "goodbye"},
 		},
-		{
-			MediaType:    ocispec.MediaTypeDescriptor,
-			Digest:       "sha256:486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7",
-			Size:         5,
-			ArtifactType: "world",
-			Annotations:  map[string]string{"name": "world"},
-		},
 	}
 
 	tests := []struct {
@@ -256,9 +249,10 @@ func Test_applyReferrerChanges(t *testing.T) {
 		referrers       []ocispec.Descriptor
 		referrerChanges []referrerChange
 		want            []ocispec.Descriptor
+		wantErr         error
 	}{
 		{
-			name: "test addition only",
+			name: "addition only",
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
@@ -291,9 +285,10 @@ func Test_applyReferrerChanges(t *testing.T) {
 				descs[2],
 				descs[3],
 			},
+			wantErr: nil,
 		},
 		{
-			name: "test removal only",
+			name: "removal only",
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
@@ -324,9 +319,10 @@ func Test_applyReferrerChanges(t *testing.T) {
 			want: []ocispec.Descriptor{
 				descs[0],
 			},
+			wantErr: nil,
 		},
 		{
-			name: "add first, remove later",
+			name: "add a new one and remove it",
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
@@ -360,9 +356,10 @@ func Test_applyReferrerChanges(t *testing.T) {
 				descs[2],
 				descs[4],
 			},
+			wantErr: nil,
 		},
 		{
-			name: "remove first, add later",
+			name: "remove a new one and add it back",
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
@@ -398,9 +395,10 @@ func Test_applyReferrerChanges(t *testing.T) {
 				descs[3],
 				descs[4],
 			},
+			wantErr: nil,
 		},
 		{
-			name: "2 remove",
+			name: "remove existing one and add it back",
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
@@ -426,6 +424,7 @@ func Test_applyReferrerChanges(t *testing.T) {
 				descs[3],
 				descs[2],
 			},
+			wantErr: nil,
 		},
 		{
 			name: "no change",
@@ -452,16 +451,16 @@ func Test_applyReferrerChanges(t *testing.T) {
 					operation: referrerOperationRemove,
 				},
 			},
-			want: []ocispec.Descriptor{
-				descs[0],
-				descs[1],
-				descs[2],
-			},
+			want:    nil,
+			wantErr: errNoReferrerUpdate,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := applyReferrerChanges(tt.referrers, tt.referrerChanges)
+			got, err := applyReferrerChanges(tt.referrers, tt.referrerChanges)
+			if err != tt.wantErr {
+				t.Errorf("applyReferrerChanges() error = %v, wantErr %v", err, tt.wantErr)
+			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("applyReferrerChanges() = %v, want %v", got, tt.want)
 			}
