@@ -28,10 +28,20 @@ func New[T any]() *Quay[T] {
 	return &Quay[T]{}
 }
 
-// Enter enters a specific wharf, holding a ticket.
-// A captain gopher is responsible to dispose the wharf if it is no longer
-// needed, using the returned function.
-func (q *Quay[T]) Enter(wharfID any, ticket T) (*Wharf[T], <-chan Status, func()) {
+// Travel travels to the destination through a specific wharf, holding a ticket.
+func (q *Quay[T]) Travel(wharfID any, ticket T, learn func() error, sail func(tickets []T) error) error {
+	wharf := q.wharf(wharfID)
+	defer func() {
+		q.gate.Lock()
+		defer q.gate.Unlock()
+		if wharf.idle() {
+			delete(q.wharves, wharfID)
+		}
+	}()
+	return wharf.Travel(ticket, learn, sail)
+}
+
+func (q *Quay[T]) wharf(wharfID any) *Wharf[T] {
 	q.gate.Lock()
 	defer q.gate.Unlock()
 
@@ -46,12 +56,5 @@ func (q *Quay[T]) Enter(wharfID any, ticket T) (*Wharf[T], <-chan Status, func()
 			q.wharves[wharfID] = wharf
 		}
 	}
-
-	return wharf, wharf.Enter(ticket), func() {
-		q.gate.Lock()
-		defer q.gate.Unlock()
-		if wharf.idle() {
-			delete(q.wharves, wharfID)
-		}
-	}
+	return wharf
 }

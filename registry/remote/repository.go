@@ -1204,12 +1204,14 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		referrer:  desc,
 		operation: operation,
 	}
-	if wharf, status, dispose := s.repo.referrersQuay.Enter(referrersTag, change); (<-status).Elected {
-		defer dispose()
 
+	var skipDelete bool
+	var oldIndexDesc ocispec.Descriptor
+	var referrers []ocispec.Descriptor
+	funcPrepare := func() error {
 		// 1. pull the original referrers list using the referrers tag schema
-		var skipDelete bool
-		oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
+		var err error
+		oldIndexDesc, referrers, err = s.repo.referrersFromIndex(ctx, referrersTag)
 		if err != nil {
 			if !errors.Is(err, errdef.ErrNotFound) {
 				return err
@@ -1217,9 +1219,9 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 			// no old index found, skip delete
 			skipDelete = true
 		}
-		referrerChanges := wharf.Close()
-		defer wharf.Arrive(err)
-
+		return nil
+	}
+	funcUpdate := func(referrerChanges []referrerChange) error {
 		// 2. apply the referrer changes on the referrers list
 		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
 		if err != nil {
@@ -1248,7 +1250,8 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		}
 		return nil
 	}
-	return nil
+
+	return s.repo.referrersQuay.Travel(referrersTag, change, funcPrepare, funcUpdate)
 }
 
 // ParseReference parses a reference to a fully qualified reference.

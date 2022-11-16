@@ -15,14 +15,11 @@ limitations under the License.
 
 package syncutil
 
-import (
-	"errors"
-	"sync"
-)
+import "sync"
 
-// Status represents if a gopher is elected as captain or not, and if the gopher
-// arrives in one piece.
-type Status struct {
+// sailStatus represents if a gopher is elected as captain or not, and if the
+// gopher arrives in one piece.
+type sailStatus struct {
 	Elected bool
 	Error   error
 }
@@ -32,9 +29,9 @@ type Wharf[T any] struct {
 	gate           sync.Mutex
 	closed         bool
 	ferry          []T
-	ferryStatus    chan Status
+	ferryStatus    chan sailStatus
 	platform       []T
-	platformStatus chan Status
+	platformStatus chan sailStatus
 }
 
 // NewWharf creates a virtual wharf with ferries.
@@ -42,48 +39,60 @@ func NewWharf[T any]() *Wharf[T] {
 	return &Wharf[T]{}
 }
 
-// Enter enters the wharf, holding a ticket.
+// Travel travels to the destination. If necessary, one gopher needs to learn
+// how to sail.
+func (w *Wharf[T]) Travel(ticket T, learn func() error, sail func(tickets []T) error) error {
+	status := <-w.enter(ticket)
+	if status.Elected {
+		if err := learn(); err != nil {
+			w.resign()
+			return err
+		}
+		tickets := w.close()
+		err := sail(tickets)
+		w.arrive(err)
+		return err
+	}
+	return status.Error
+}
+
+// enter enters the wharf, holding a ticket.
 // A channel is returned to indicate if the current gopher is elected as a
 // captain.
 // If a gopher is elected as a captain, it is responsible to Close() the gate
 // and set sail to process the tickets of gophers on boarded, and Arrive() once
 // all tickets are checked.
 // Otherwise, a gopher is known to be a passenger and it can check its ticket.
-func (w *Wharf[T]) Enter(ticket T) <-chan Status {
+func (w *Wharf[T]) enter(ticket T) <-chan sailStatus {
 	w.gate.Lock()
 	defer w.gate.Unlock()
 
 	if w.closed {
 		if w.platformStatus == nil {
-			w.platformStatus = make(chan Status, 1)
+			w.platformStatus = make(chan sailStatus, 1)
 		}
 		w.platform = append(w.platform, ticket)
 		return w.platformStatus
 	}
 
 	if w.ferryStatus == nil {
-		w.ferryStatus = make(chan Status, 1)
-		w.ferryStatus <- Status{Elected: true}
+		w.ferryStatus = make(chan sailStatus, 1)
+		w.ferryStatus <- sailStatus{Elected: true}
 	}
 	w.ferry = append(w.ferry, ticket)
 	return w.ferryStatus
 }
 
-// Resign notifies all passengers that the captain resigns. A captain can resign
+// resign notifies all passengers that the captain resigns. A captain can resign
 // at the wharf but will live with the ferry. If captain resign in the middle of
 // the journey, the ferry sinks.
-func (w *Wharf[T]) Resign() {
+func (w *Wharf[T]) resign() {
 	w.gate.Lock()
 	defer w.gate.Unlock()
 
-	if w.closed {
-		w.arrive(errors.New("ferry sinks: captain resign"))
-		return
-	}
-
 	if len(w.ferry) > 1 {
 		w.ferry = w.ferry[1:]
-		w.ferryStatus <- Status{Elected: true}
+		w.ferryStatus <- sailStatus{Elected: true}
 		return
 	}
 
@@ -92,9 +101,9 @@ func (w *Wharf[T]) Resign() {
 	w.ferryStatus = nil
 }
 
-// Close closes the gate for onboarding, returning the tickets of all on boarded
+// close closes the gate for onboarding, returning the tickets of all on boarded
 // gophers.
-func (w *Wharf[T]) Close() []T {
+func (w *Wharf[T]) close() []T {
 	w.gate.Lock()
 	defer w.gate.Unlock()
 
@@ -102,10 +111,10 @@ func (w *Wharf[T]) Close() []T {
 	return w.ferry
 }
 
-// Arrive notifies all passengers that the ferry has arrived its destination, or
+// arrive notifies all passengers that the ferry has arrived its destination, or
 // sunk due to error.
 // Onboarding gate is now open.
-func (w *Wharf[T]) Arrive(err error) {
+func (w *Wharf[T]) arrive(err error) {
 	// every one lives if arrived
 	if err == nil {
 		close(w.ferryStatus)
@@ -114,10 +123,6 @@ func (w *Wharf[T]) Arrive(err error) {
 	w.gate.Lock()
 	defer w.gate.Unlock()
 
-	w.arrive(err)
-}
-
-func (w *Wharf[T]) arrive(err error) {
 	w.closed = false
 	remaining := len(w.ferry) - 1
 	status := w.ferryStatus
@@ -127,13 +132,13 @@ func (w *Wharf[T]) arrive(err error) {
 	w.platformStatus = nil
 
 	if w.ferryStatus != nil {
-		w.ferryStatus <- Status{Elected: true}
+		w.ferryStatus <- sailStatus{Elected: true}
 	}
 
 	// deliver difficult message if sank
 	if err != nil {
 		for remaining > 0 {
-			status <- Status{Error: err}
+			status <- sailStatus{Error: err}
 			remaining--
 		}
 	}
