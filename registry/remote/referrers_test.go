@@ -414,7 +414,7 @@ func Test_applyReferrerChanges(t *testing.T) {
 					operation: referrerOperationAdd,
 				},
 				{
-					referrer:  descs[2], // add existing
+					referrer:  descs[2], // add existing back
 					operation: referrerOperationAdd,
 				},
 			},
@@ -427,7 +427,7 @@ func Test_applyReferrerChanges(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "no change",
+			name: "no update: same order",
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
@@ -439,6 +439,10 @@ func Test_applyReferrerChanges(t *testing.T) {
 					operation: referrerOperationAdd,
 				},
 				{
+					referrer:  descs[2], // remove existing
+					operation: referrerOperationRemove,
+				},
+				{
 					referrer:  descs[4], // add new
 					operation: referrerOperationAdd,
 				},
@@ -447,8 +451,40 @@ func Test_applyReferrerChanges(t *testing.T) {
 					operation: referrerOperationRemove,
 				},
 				{
+					referrer:  descs[2], // add existing back
+					operation: referrerOperationAdd,
+				},
+				{
 					referrer:  descs[3], // remove new
 					operation: referrerOperationRemove,
+				},
+			},
+			want:    nil,
+			wantErr: errNoReferrerUpdate,
+		},
+		{
+			name: "no update: different order",
+			referrers: []ocispec.Descriptor{
+				descs[0],
+				descs[1],
+				descs[2],
+			},
+			referrerChanges: []referrerChange{
+				{
+					referrer:  descs[2], // remove existing
+					operation: referrerOperationRemove,
+				},
+				{
+					referrer:  descs[0], // remove existing
+					operation: referrerOperationRemove,
+				},
+				{
+					referrer:  descs[0], // add existing back
+					operation: referrerOperationAdd,
+				},
+				{
+					referrer:  descs[2], // add existing back
+					operation: referrerOperationAdd,
 				},
 			},
 			want:    nil,
