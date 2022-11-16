@@ -1,0 +1,102 @@
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package syncutil
+
+import "sync"
+
+type mergeStatus struct {
+	main bool
+	err  error
+}
+
+type Merge[T any] struct {
+	lock          sync.Mutex
+	committed     bool
+	items         []T
+	status        chan mergeStatus
+	pending       []T
+	pendingStatus chan mergeStatus
+}
+
+func (m *Merge[T]) Do(item T, prepare func() error, resolve func(items []T) error) error {
+	status := <-m.assign(item)
+	if status.main {
+		err := prepare()
+		items := m.commit()
+		if err == nil {
+			err = resolve(items)
+		}
+		m.complete(err)
+		return err
+	}
+	return status.err
+}
+
+func (m *Merge[T]) assign(item T) <-chan mergeStatus {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	if m.committed {
+		if m.pendingStatus == nil {
+			m.pendingStatus = make(chan mergeStatus, 1)
+		}
+		m.pending = append(m.pending, item)
+		return m.pendingStatus
+	}
+
+	if m.status == nil {
+		m.status = make(chan mergeStatus, 1)
+		m.status <- mergeStatus{main: true}
+	}
+	m.items = append(m.items, item)
+	return m.status
+}
+
+func (m *Merge[T]) commit() []T {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.committed = true
+	return m.items
+}
+
+func (m *Merge[T]) complete(err error) {
+	// notify results
+	if err == nil {
+		close(m.status)
+	} else {
+		remaining := len(m.items) - 1
+		status := m.status
+		for remaining > 0 {
+			status <- mergeStatus{err: err}
+			remaining--
+		}
+	}
+
+	// move pending items to the stage
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.committed = false
+	m.items = m.pending
+	m.status = m.pendingStatus
+	m.pending = nil
+	m.pendingStatus = nil
+
+	if m.status != nil {
+		m.status <- mergeStatus{main: true}
+	}
+}

@@ -7,12 +7,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func TestWharf(t *testing.T) {
-	wharf := NewWharf[int]()
+func TestMerge(t *testing.T) {
+	var merge Merge[int]
 	var learnt bool
-
 	nums := []int{1, -2, 4, 5, 1, 7, 10, -6, 3, 0}
 	var expected int
+
 	for _, n := range nums {
 		expected += n
 	}
@@ -23,12 +23,12 @@ func TestWharf(t *testing.T) {
 	for _, n := range nums {
 		eg.Go(func(num int) func() error {
 			return func() error {
-				return wharf.Travel(num, func() error {
+				return merge.Do(num, func() error {
 					learnt = true
 					return nil
-				}, func(tickets []int) error {
-					for _, t := range tickets {
-						result += t
+				}, func(items []int) error {
+					for _, i := range items {
+						result += i
 					}
 					return nil
 				})

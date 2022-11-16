@@ -110,9 +110,9 @@ type Repository struct {
 	// one go-routine to send the request.
 	referrersPingLock sync.Mutex
 
-	// referrersQuay provides a way to manage concurrent updates to a referrers
+	// referrersMergePool provides a way to manage concurrent updates to a referrers
 	// index tagged by referrers tag schema.
-	referrersQuay syncutil.Quay[referrerChange]
+	referrersMergePool syncutil.Pool[syncutil.Merge[referrerChange]]
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -1208,7 +1208,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 	var skipDelete bool
 	var oldIndexDesc ocispec.Descriptor
 	var referrers []ocispec.Descriptor
-	funcPrepare := func() error {
+	prepare := func() error {
 		// 1. pull the original referrers list using the referrers tag schema
 		var err error
 		oldIndexDesc, referrers, err = s.repo.referrersFromIndex(ctx, referrersTag)
@@ -1221,7 +1221,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		}
 		return nil
 	}
-	funcUpdate := func(referrerChanges []referrerChange) error {
+	update := func(referrerChanges []referrerChange) error {
 		// 2. apply the referrer changes on the referrers list
 		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
 		if err != nil {
@@ -1251,7 +1251,9 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		return nil
 	}
 
-	return s.repo.referrersQuay.Travel(referrersTag, change, funcPrepare, funcUpdate)
+	merge, done := s.repo.referrersMergePool.Get(referrersTag)
+	defer done()
+	return merge.Do(change, prepare, update)
 }
 
 // ParseReference parses a reference to a fully qualified reference.
