@@ -121,6 +121,7 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 		referrerIndexMap[key] = i
 	}
 
+	// apply changes
 	updatedReferrers := make([]ocispec.Descriptor, len(referrers))
 	copy(updatedReferrers, referrers)
 	for _, change := range referrerChanges {
@@ -155,15 +156,21 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 		}
 	}
 
-	// TODO: in place
-	result := make([]ocispec.Descriptor, len(referrerIndexMap))
-	i := 0
-	for _, r := range updatedReferrers {
-		if content.Equal(r, ocispec.Descriptor{}) {
+	// in-place swap
+	size, cap := len(referrerIndexMap), len(updatedReferrers)
+	j := 0
+	for i := 0; i < size; i++ {
+		if !content.Equal(updatedReferrers[i], ocispec.Descriptor{}) {
+			// for i, skip non-empty slots
 			continue
 		}
-		result[i] = r
-		i++
+		for j < cap && (j <= i || content.Equal(updatedReferrers[j], ocispec.Descriptor{})) {
+			// for j, skip empty slots
+			j++
+		}
+		// i: empty slot, j: non-empty slot
+		updatedReferrers[i] = updatedReferrers[j]
+		updatedReferrers[j] = ocispec.Descriptor{}
 	}
-	return result, nil
+	return updatedReferrers[:size], nil
 }
