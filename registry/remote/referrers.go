@@ -115,41 +115,48 @@ func filterReferrers(refs []ocispec.Descriptor, artifactType string) []ocispec.D
 // updated referrers.
 // Returns errNoReferrerUpdate if there is no any referrers updates.
 func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []referrerChange) ([]ocispec.Descriptor, error) {
-	referrerIndexMap := make(map[descriptor.Descriptor]int, len(referrers))
-	for i, r := range referrers {
+	referrersMap := make(map[descriptor.Descriptor]int, len(referrers))
+	var updatedReferrers []ocispec.Descriptor
+	for _, r := range referrers {
+		if content.Equal(r, ocispec.Descriptor{}) {
+			// skip bad entry
+			continue
+		}
 		key := descriptor.FromOCI(r)
-		referrerIndexMap[key] = i
+		if _, ok := referrersMap[key]; !ok {
+			// duplicates will be skipped
+			updatedReferrers = append(updatedReferrers, r)
+			referrersMap[key] = len(updatedReferrers) - 1
+		}
 	}
 
 	// apply changes
-	updatedReferrers := make([]ocispec.Descriptor, len(referrers))
-	copy(updatedReferrers, referrers)
 	for _, change := range referrerChanges {
 		key := descriptor.FromOCI(change.referrer)
 		switch change.operation {
 		case referrerOperationAdd:
-			if _, ok := referrerIndexMap[key]; !ok {
+			if _, ok := referrersMap[key]; !ok {
 				// add distinct referrers
 				updatedReferrers = append(updatedReferrers, change.referrer)
-				referrerIndexMap[key] = len(updatedReferrers) - 1
+				referrersMap[key] = len(updatedReferrers) - 1
 			}
 		case referrerOperationRemove:
-			if i, ok := referrerIndexMap[key]; ok {
+			if pos, ok := referrersMap[key]; ok {
 				// remove referrers that are already in the map
-				updatedReferrers[i] = ocispec.Descriptor{}
-				delete(referrerIndexMap, key)
+				updatedReferrers[pos] = ocispec.Descriptor{}
+				delete(referrersMap, key)
 			}
 		}
 	}
 
-	if len(referrerIndexMap) == len(referrers) {
+	if len(referrersMap) == len(referrers) {
 		// if the result referrer map contains the same content as the
 		// original referrers, consider that there is no update on the
 		// referrers.
 		var referrersUpdated bool
 		for _, r := range referrers {
 			key := descriptor.FromOCI(r)
-			if _, ok := referrerIndexMap[key]; !ok {
+			if _, ok := referrersMap[key]; !ok {
 				referrersUpdated = true
 			}
 		}
@@ -158,7 +165,7 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 		}
 	}
 
-	slot, slotNum := 0, len(referrerIndexMap)
+	slot, slotNum := 0, len(referrersMap)
 	for i, r := range updatedReferrers {
 		if !content.Equal(r, ocispec.Descriptor{}) {
 			if i > slot {

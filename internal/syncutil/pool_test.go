@@ -17,11 +17,12 @@ package syncutil
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
 func TestPool(t *testing.T) {
-	var pool Pool[int]
+	var pool Pool[int64]
 	numbers := [][]int{
 		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
 		{-1, -2, -3, -4, -5, -6, -7, -8, -9, -10},
@@ -46,12 +47,12 @@ func TestPool(t *testing.T) {
 				defer wg.Done()
 				val, done := pool.Get(i)
 				defer done()
-				*val += n
+				atomic.AddInt64(val, int64(n))
 			}(num)
 		}
 		wg.Wait()
 		item := pool.items[i]
-		if got := item.value; got != expected[i] {
+		if got := item.value; got != int64(expected[i]) {
 			t.Errorf("Pool.Get(%v).value = %v, want %v", i, got, expected[i])
 		}
 		if got := item.refCount; got != 1 {
