@@ -494,3 +494,97 @@ func Test_applyReferrerChanges(t *testing.T) {
 		})
 	}
 }
+
+func Test_removeEmptyDescriptors(t *testing.T) {
+	descs := []ocispec.Descriptor{
+		{
+			MediaType:    ocispec.MediaTypeDescriptor,
+			Digest:       "sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+			Size:         3,
+			ArtifactType: "foo",
+			Annotations:  map[string]string{"name": "foo"},
+		},
+		{
+			MediaType:    ocispec.MediaTypeDescriptor,
+			Digest:       "sha256:fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+			Size:         3,
+			ArtifactType: "bar",
+			Annotations:  map[string]string{"name": "bar"},
+		},
+		{
+			MediaType:    ocispec.MediaTypeDescriptor,
+			Digest:       "sha256:baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096",
+			Size:         3,
+			ArtifactType: "baz",
+			Annotations:  map[string]string{"name": "baz"},
+		},
+	}
+	tests := []struct {
+		name  string
+		descs []ocispec.Descriptor
+		hint  int
+		want  []ocispec.Descriptor
+	}{
+		{
+			name:  "empty list",
+			descs: []ocispec.Descriptor{},
+			hint:  0,
+			want:  []ocispec.Descriptor{},
+		},
+		{
+			name:  "all non-empty",
+			descs: descs,
+			hint:  len(descs),
+			want:  descs,
+		},
+		{
+			name: "all empty",
+			descs: []ocispec.Descriptor{
+				{},
+				{},
+				{},
+			},
+			hint: 0,
+			want: []ocispec.Descriptor{},
+		},
+		{
+			name: "empty rear",
+			descs: []ocispec.Descriptor{
+				descs[0],
+				{},
+				descs[2],
+				{},
+				{},
+			},
+			hint: 2,
+			want: []ocispec.Descriptor{
+				descs[0],
+				descs[2],
+			},
+		},
+		{
+			name: "empty head",
+			descs: []ocispec.Descriptor{
+				{},
+				descs[0],
+				descs[1],
+				{},
+				{},
+				descs[2],
+			},
+			hint: 3,
+			want: []ocispec.Descriptor{
+				descs[0],
+				descs[1],
+				descs[2],
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := removeEmptyDescriptors(tt.descs, tt.hint); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("removeEmptyDescriptors() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
