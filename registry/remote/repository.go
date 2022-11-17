@@ -45,13 +45,11 @@ import (
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
-const (
-	// dockerContentDigestHeader - The Docker-Content-Digest header, if present
-	// on the response, returns the canonical digest of the uploaded blob.
-	// See https://docs.docker.com/registry/spec/api/#digest-header
-	// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
-	dockerContentDigestHeader = "Docker-Content-Digest"
-)
+// dockerContentDigestHeader - The Docker-Content-Digest header, if present
+// on the response, returns the canonical digest of the uploaded blob.
+// See https://docs.docker.com/registry/spec/api/#digest-header
+// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
+const dockerContentDigestHeader = "Docker-Content-Digest"
 
 // Client is an interface for a HTTP client.
 type Client interface {
@@ -1194,7 +1192,7 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 }
 
 // updateReferrersIndex updates the referrers index for desc referencing subject
-// on manifest push an manifest delete.
+// on manifest push and manifest delete.
 // References:
 //   - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject
 //   - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#deleting-manifests
