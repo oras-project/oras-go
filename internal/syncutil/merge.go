@@ -26,6 +26,31 @@ type mergeStatus struct {
 }
 
 // Merge represents a merge operation.
+// The state transfer is shown as below:
+//
+//	           +---------+
+//	           |  Start  +-------+-----------+
+//	           +----+----+       |           |
+//	                |            |           |
+//	                v            v           v
+//	           +----+----+   +---+---+   +---+---+
+//	   +-------+ Prepare +<--+Pending+-->+Waiting|
+//	   |       +----+----+   +-------+   +---+---+
+//	   |            |                        |
+//	   |            v                        |
+//	   +        +---+----+                   |
+//	On Error    |Resolve |                   |
+//	   +        +---+----+                   |
+//	   |            |                        |
+//	   |            v                        |
+//	   |        +---+----+                   |
+//	   +------->+Complete+<------------------+
+//	            +---+----+
+//	                |
+//	                v
+//	            +---+----+
+//	            |  End   |
+//	            +--------+
 type Merge[T any] struct {
 	lock          sync.Mutex
 	committed     bool
@@ -73,6 +98,7 @@ func (m *Merge[T]) assign(item T) <-chan mergeStatus {
 	return m.status
 }
 
+// commit commits the merge, and the merge is then ready for resolve.
 func (m *Merge[T]) commit() []T {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -81,7 +107,8 @@ func (m *Merge[T]) commit() []T {
 	return m.items
 }
 
-// complete completes a merge.
+// complete completes the previous merge, and moves the pending items to the
+// stage for the next merge.
 func (m *Merge[T]) complete(err error) {
 	// notify results
 	if err == nil {
