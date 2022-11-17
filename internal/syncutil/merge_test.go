@@ -9,39 +9,41 @@ import (
 
 func TestMerge(t *testing.T) {
 	var merge Merge[int]
-	var learnt bool
-	nums := []int{1, -2, 4, 5, 1, 7, 10, -6, 3, 0}
-	var expected int
 
-	for _, n := range nums {
-		expected += n
+	// generate expected
+	size := 100
+	factor := -1
+	var expected int
+	for i := 1; i < size; i++ {
+		expected += i * factor
 	}
 
+	// test merge
 	ctx := context.Background()
 	eg, _ := errgroup.WithContext(ctx)
 	var result int
-	for _, n := range nums {
+	for i := 1; i < size; i++ {
 		eg.Go(func(num int) func() error {
 			return func() error {
-				return merge.Do(num, func() error {
-					learnt = true
+				var f int
+				getFactor := func() error {
+					f = factor
 					return nil
-				}, func(items []int) error {
-					for _, i := range items {
-						result += i
+				}
+				calculate := func(items []int) error {
+					for _, item := range items {
+						result += item * f
 					}
 					return nil
-				})
+				}
+				return merge.Do(num, getFactor, calculate)
 			}
-		}(n))
+		}(i))
 	}
 	if err := eg.Wait(); err != nil {
-		t.Error(err)
-	}
-	if !learnt {
-		t.Errorf("learnt: %v, want %v", learnt, true)
+		t.Errorf("Merge.Do() error = %v, wantErr %v", err, nil)
 	}
 	if result != expected {
-		t.Errorf("result = %v, expected %v", result, expected)
+		t.Errorf("Merge.Do() = %v, want %v", result, expected)
 	}
 }

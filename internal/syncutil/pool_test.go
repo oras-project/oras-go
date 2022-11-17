@@ -1,28 +1,53 @@
 package syncutil
 
 import (
-	"fmt"
+	"sync"
 	"testing"
 )
 
 func TestPool(t *testing.T) {
 	var pool Pool[int]
-	i, done := pool.Get("foo")
-	*i++
+	numbers := [][]int{
+		{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+		{-1, -2, -3, -4, -5, -6, -7, -8, -9, -10},
+	}
 
-	i, done = pool.Get("foo")
-	*i++
-	done()
+	// generate expected result
+	expected := make([]int, len(numbers))
+	for i, nums := range numbers {
+		for _, num := range nums {
+			expected[i] += num
+		}
+	}
 
-	i, done = pool.Get("foo")
-	*i++
-	done()
+	// test pool
+	for i, nums := range numbers {
+		val, done := pool.Get(i)
+		*val = 0
+		var wg sync.WaitGroup
+		for _, num := range nums {
+			wg.Add(1)
+			go func(n int) {
+				defer wg.Done()
+				val, done := pool.Get(i)
+				defer done()
+				*val += n
+			}(num)
+		}
+		wg.Wait()
+		item := pool.items[i]
+		if got := item.value; got != expected[i] {
+			t.Errorf("Pool.Get(%v).value = %v, want %v", i, got, expected[i])
+		}
+		if got := item.refCount; got != 1 {
+			t.Errorf("Pool.Get(%v).refCount = %v, want %v", i, got, 1)
+		}
 
-	i, done = pool.Get("foo")
-	fmt.Println(*i)
-	fmt.Println(pool.items["foo"].refCount)
-	done()
-	done()
-
-	fmt.Println(pool.items["foo"])
+		// item should be cleaned up after done
+		done()
+		got := pool.items[i]
+		if got != nil {
+			t.Errorf("Pool.Get(%v) = %v, want %v", i, got, nil)
+		}
+	}
 }

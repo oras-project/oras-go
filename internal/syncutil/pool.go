@@ -17,11 +17,13 @@ package syncutil
 
 import "sync"
 
+// poolItem represents an item in Pool.
 type poolItem[T any] struct {
 	value    T
 	refCount int
 }
 
+// Pool is a pool with items identified by Ids.
 type Pool[T any] struct {
 	// New optionally specifies a function to generate
 	// a value when Get would otherwise return nil.
@@ -32,6 +34,7 @@ type Pool[T any] struct {
 	items map[any]*poolItem[T]
 }
 
+// Pool gets the item identified by id.
 func (p *Pool[T]) Get(id any) (*T, func()) {
 	p.lock.Lock()
 	defer p.lock.Unlock()

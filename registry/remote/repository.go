@@ -110,8 +110,8 @@ type Repository struct {
 	// one go-routine to send the request.
 	referrersPingLock sync.Mutex
 
-	// referrersMergePool provides a way to manage concurrent updates to a referrers
-	// index tagged by referrers tag schema.
+	// referrersMergePool provides a way to manage concurrent updates to a
+	// referrers index tagged by referrers tag schema.
 	referrersMergePool syncutil.Pool[syncutil.Merge[referrerChange]]
 }
 

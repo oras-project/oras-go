@@ -17,11 +17,15 @@ package syncutil
 
 import "sync"
 
+// mergeStatus represents the status of a merge operation.
 type mergeStatus struct {
+	// main indicates if the item is a main item
 	main bool
-	err  error
+	// err is the error of the main item
+	err error
 }
 
+// Merge represents a merge operation.
 type Merge[T any] struct {
 	lock          sync.Mutex
 	committed     bool
@@ -31,6 +35,9 @@ type Merge[T any] struct {
 	pendingStatus chan mergeStatus
 }
 
+// Do calls prepare before the merge and calls resolve on the merged items.
+// If Do is called multiple times, only one of the calls will be selected to
+// invoke prepare and resolve.
 func (m *Merge[T]) Do(item T, prepare func() error, resolve func(items []T) error) error {
 	status := <-m.assign(item)
 	if status.main {
@@ -45,6 +52,7 @@ func (m *Merge[T]) Do(item T, prepare func() error, resolve func(items []T) erro
 	return status.err
 }
 
+// assign adds a new item into the merge list.
 func (m *Merge[T]) assign(item T) <-chan mergeStatus {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -73,6 +81,7 @@ func (m *Merge[T]) commit() []T {
 	return m.items
 }
 
+// complete completes a merge.
 func (m *Merge[T]) complete(err error) {
 	// notify results
 	if err == nil {
