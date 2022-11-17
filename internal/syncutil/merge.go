@@ -17,11 +17,11 @@ package syncutil
 
 import "sync"
 
-// mergeStatus represents the status of a merge operation.
+// mergeStatus represents the merge status of an item.
 type mergeStatus struct {
-	// main indicates if the item is a main item.
+	// main indicates if items are being merged by the current go-routine.
 	main bool
-	// err is the error of the main item.
+	// err represents the error of the merge operation.
 	err error
 }
 
@@ -60,9 +60,10 @@ type Merge[T any] struct {
 	pendingStatus chan mergeStatus
 }
 
-// Do calls prepare before the merge and calls resolve on the merged items.
-// If Do is called multiple times, only one of the calls will be selected to
-// invoke prepare and resolve.
+// Do merges concurrent operations of items into a single call of prepare and
+// resolve.
+// If Do is called multiple times concurrently, only one of the calls will be
+// selected to invoke prepare and resolve.
 func (m *Merge[T]) Do(item T, prepare func() error, resolve func(items []T) error) error {
 	status := <-m.assign(item)
 	if status.main {
@@ -77,7 +78,7 @@ func (m *Merge[T]) Do(item T, prepare func() error, resolve func(items []T) erro
 	return status.err
 }
 
-// assign adds a new item into the merge list.
+// assign adds a new item into the item list.
 func (m *Merge[T]) assign(item T) <-chan mergeStatus {
 	m.lock.Lock()
 	defer m.lock.Unlock()
@@ -98,7 +99,8 @@ func (m *Merge[T]) assign(item T) <-chan mergeStatus {
 	return m.status
 }
 
-// commit commits the merge, and the merge is then ready for resolve.
+// commit closes the assignment window, and the assigned items will be ready
+// for resolve.
 func (m *Merge[T]) commit() []T {
 	m.lock.Lock()
 	defer m.lock.Unlock()

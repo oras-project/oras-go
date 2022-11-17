@@ -23,7 +23,7 @@ type poolItem[T any] struct {
 	refCount int
 }
 
-// Pool is a scalable pool with items identified by Ids.
+// Pool is a scalable pool with items identified by keys.
 type Pool[T any] struct {
 	// New optionally specifies a function to generate a value when Get would
 	// otherwise return nil.
@@ -34,13 +34,13 @@ type Pool[T any] struct {
 	items map[any]*poolItem[T]
 }
 
-// Get gets the item identified by id.
+// Get gets the value identified by key.
 // The caller should invoke the returned function after using the returned item.
-func (p *Pool[T]) Get(id any) (*T, func()) {
+func (p *Pool[T]) Get(key any) (*T, func()) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
-	item, ok := p.items[id]
+	item, ok := p.items[key]
 	if !ok {
 		if p.items == nil {
 			p.items = make(map[any]*poolItem[T])
@@ -49,7 +49,7 @@ func (p *Pool[T]) Get(id any) (*T, func()) {
 		if p.New != nil {
 			item.value = p.New()
 		}
-		p.items[id] = item
+		p.items[key] = item
 	}
 	item.refCount++
 
@@ -58,7 +58,7 @@ func (p *Pool[T]) Get(id any) (*T, func()) {
 		defer p.lock.Unlock()
 		item.refCount--
 		if item.refCount <= 0 {
-			delete(p.items, id)
+			delete(p.items, key)
 		}
 	}
 }
