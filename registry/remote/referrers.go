@@ -158,17 +158,16 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 		}
 	}
 
-	// in-place swap
-	i, size := 0, len(referrerIndexMap)
-	for j := range updatedReferrers {
-		for i < size && !content.Equal(updatedReferrers[i], ocispec.Descriptor{}) {
-			// for i, skip non-empty slots
-			i++
+	slot, size := 0, len(referrerIndexMap)
+	for i, r := range updatedReferrers {
+		if !content.Equal(r, ocispec.Descriptor{}) {
+			if i > slot {
+				updatedReferrers[slot] = r
+			}
+			slot++
 		}
-		if j > i && !content.Equal(updatedReferrers[j], ocispec.Descriptor{}) {
-			// i: empty slot, j: non-empty slot
-			updatedReferrers[i] = updatedReferrers[j]
-			updatedReferrers[j] = ocispec.Descriptor{}
+		if slot == size {
+			break
 		}
 	}
 	return updatedReferrers[:size], nil
