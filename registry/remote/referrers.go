@@ -158,7 +158,7 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 		}
 	}
 
-	slot, size := 0, len(referrerIndexMap)
+	slot, slotNum := 0, len(referrerIndexMap)
 	for i, r := range updatedReferrers {
 		if !content.Equal(r, ocispec.Descriptor{}) {
 			if i > slot {
@@ -166,9 +166,9 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 			}
 			slot++
 		}
-		if slot == size {
+		if slot == slotNum {
 			break
 		}
 	}
-	return updatedReferrers[:size], nil
+	return updatedReferrers[:slotNum], nil
 }
