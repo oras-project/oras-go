@@ -38,40 +38,18 @@ import (
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/internal/ioutil"
 	"oras.land/oras-go/v2/internal/registryutil"
+	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/errcode"
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
-const (
-	// dockerContentDigestHeader - The Docker-Content-Digest header, if present
-	// on the response, returns the canonical digest of the uploaded blob.
-	// See https://docs.docker.com/registry/spec/api/#digest-header
-	// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
-	dockerContentDigestHeader = "Docker-Content-Digest"
-	// zeroDigest represents a digest that consists of zeros. zeroDigest is used
-	// for pinging Referrers API.
-	zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-)
-
-// referrersState represents the state of Referrers API.
-type referrersState = int32
-
-const (
-	// referrersStateUnknown represents an unknown state of Referrers API.
-	referrersStateUnknown referrersState = iota
-	// referrersStateSupported represents that the repository is known to
-	// support Referrers API
-	referrersStateSupported
-	// referrersStateUnsupported represents that the repository is known to
-	// not support Referrers API
-	referrersStateUnsupported
-)
-
-// ErrReferrersCapabilityAlreadySet is returned by SetReferrersCapability()
-// when the Referrers API capability has been already set.
-var ErrReferrersCapabilityAlreadySet = errors.New("referrers capability cannot be changed once set")
+// dockerContentDigestHeader - The Docker-Content-Digest header, if present
+// on the response, returns the canonical digest of the uploaded blob.
+// See https://docs.docker.com/registry/spec/api/#digest-header
+// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
+const dockerContentDigestHeader = "Docker-Content-Digest"
 
 // Client is an interface for a HTTP client.
 type Client interface {
@@ -126,12 +104,13 @@ type Repository struct {
 	// default: referrersStateUnknown
 	referrersState referrersState
 
-	// referrersTagLocks maps a referrers tag to a lock.
-	referrersTagLocks sync.Map // map[string]*sync.Mutex
-
-	// referrersPingLock locks the pingReferrersAPI() method and allows only
+	// referrersPingLock locks the pingReferrers() method and allows only
 	// one go-routine to send the request.
 	referrersPingLock sync.Mutex
+
+	// referrersMergePool provides a way to manage concurrent updates to a
+	// referrers index tagged by referrers tag schema.
+	referrersMergePool syncutil.Pool[syncutil.Merge[referrerChange]]
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -179,23 +158,6 @@ func (r *Repository) SetReferrersCapability(capable bool) error {
 // setReferrersState atomically loads r.referrersState.
 func (r *Repository) loadReferrersState() referrersState {
 	return atomic.LoadInt32(&r.referrersState)
-}
-
-// lockReferrersTag locks a referrers tag.
-func (r *Repository) lockReferrersTag(tag string) {
-	v, _ := r.referrersTagLocks.LoadOrStore(tag, &sync.Mutex{})
-	lock := v.(*sync.Mutex)
-	lock.Lock()
-}
-
-// unlockReferrersTag unlocks a referrers tag.
-func (r *Repository) unlockReferrersTag(tag string) {
-	v, ok := r.referrersTagLocks.Load(tag)
-	if !ok {
-		return
-	}
-	lock := v.(*sync.Mutex)
-	lock.Unlock()
 }
 
 // client returns an HTTP client used to access the remote repository.
@@ -536,47 +498,56 @@ func (r *Repository) referrersFromIndex(ctx context.Context, referrersTag string
 	return desc, index.Manifests, nil
 }
 
-// buildReferrersTag builds the referrers tag for the given manifest descriptor.
-// Format: <algorithm>-<digest>
-// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#unavailable-referrers-api
-func buildReferrersTag(desc ocispec.Descriptor) string {
-	alg := desc.Digest.Algorithm().String()
-	encoded := desc.Digest.Encoded()
-	return alg + "-" + encoded
-}
+// pingReferrers returns true if the Referrers API is available for r.
+func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
+	switch r.loadReferrersState() {
+	case referrersStateSupported:
+		return true, nil
+	case referrersStateUnsupported:
+		return false, nil
+	}
 
-// isReferrersFilterApplied checks annotations to see if requested is in the
-// applied filter list.
-func isReferrersFilterApplied(annotations map[string]string, requested string) bool {
-	applied := annotations[ocispec.AnnotationReferrersFiltersApplied]
-	if applied == "" || requested == "" {
-		return false
-	}
-	filters := strings.Split(applied, ",")
-	for _, f := range filters {
-		if f == requested {
-			return true
-		}
-	}
-	return false
-}
+	// referrers state is unknown
+	// limit the rate of pinging referrers API
+	r.referrersPingLock.Lock()
+	defer r.referrersPingLock.Unlock()
 
-// filterReferrers filters a slice of referrers by artifactType in place.
-// The returned slice contains matching referrers.
-func filterReferrers(refs []ocispec.Descriptor, artifactType string) []ocispec.Descriptor {
-	if artifactType == "" {
-		return refs
+	switch r.loadReferrersState() {
+	case referrersStateSupported:
+		return true, nil
+	case referrersStateUnsupported:
+		return false, nil
 	}
-	var j int
-	for i, ref := range refs {
-		if ref.ArtifactType == artifactType {
-			if i != j {
-				refs[j] = ref
-			}
-			j++
+
+	ref := r.Reference
+	ref.Reference = zeroDigest
+	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+
+	url := buildReferrersURL(r.PlainHTTP, ref, "")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := r.client().Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		r.SetReferrersCapability(true)
+		return true, nil
+	case http.StatusNotFound:
+		if err := errutil.ParseErrorResponse(resp); errutil.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
+			// repository not found
+			return false, err
 		}
+		r.SetReferrersCapability(false)
+		return false, nil
+	default:
+		return false, errutil.ParseErrorResponse(resp)
 	}
-	return refs[:j]
 }
 
 // delete removes the content identified by the descriptor in the entity "blobs"
@@ -993,48 +964,7 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 		// referrers API is available, no client-side indexing needed
 		return nil
 	}
-	return s.updateReferrersIndexForDelete(ctx, desc, subject)
-}
-
-// updateReferrersIndexForDelete updates the referrers index for desc referencing
-// subject on manifest delete.
-func (s *manifestStore) updateReferrersIndexForDelete(ctx context.Context, desc, subject ocispec.Descriptor) error {
-	// there can be multiple go-routines updating the referrers tag concurrently
-	referrersTag := buildReferrersTag(subject)
-	s.repo.lockReferrersTag(referrersTag)
-	defer s.repo.unlockReferrersTag(referrersTag)
-
-	oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
-	if err != nil {
-		if errors.Is(err, errdef.ErrNotFound) {
-			// inconsistent indexing state: no old index found, skip update
-			return nil
-		}
-		return err
-	}
-	if len(referrers) == 0 {
-		// inconsistent indexing state: no referrers to the subject, skip update
-		return nil
-	}
-
-	var updatedReferrers []ocispec.Descriptor
-	for _, r := range referrers {
-		// remove the current entry
-		if !content.Equal(r, desc) {
-			updatedReferrers = append(updatedReferrers, r)
-		}
-	}
-	if len(updatedReferrers) > 0 {
-		newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
-		if err != nil {
-			return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
-		}
-		if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
-			return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
-		}
-	}
-
-	return s.repo.delete(ctx, oldIndexDesc, true)
+	return s.updateReferrersIndex(ctx, subject, referrerChange{desc, referrerOperationRemove})
 }
 
 // Resolve resolves a reference to a descriptor.
@@ -1258,98 +1188,67 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		// referrers API is available, no client-side indexing needed
 		return nil
 	}
-	return s.updateReferrersIndexForPush(ctx, desc, subject)
+	return s.updateReferrersIndex(ctx, subject, referrerChange{desc, referrerOperationAdd})
 }
 
-// updateReferrersIndexForPush updates the referrers index for desc referencing
-// subject on manifest push.
-func (s *manifestStore) updateReferrersIndexForPush(ctx context.Context, desc, subject ocispec.Descriptor) error {
-	// there can be multiple go-routines updating the referrers tag concurrently
+// updateReferrersIndex updates the referrers index for desc referencing subject
+// on manifest push and manifest delete.
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
+func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
-	s.repo.lockReferrersTag(referrersTag)
-	defer s.repo.unlockReferrersTag(referrersTag)
 
 	var skipDelete bool
-	oldIndexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
-	if err != nil {
-		if !errors.Is(err, errdef.ErrNotFound) {
+	var oldIndexDesc ocispec.Descriptor
+	var referrers []ocispec.Descriptor
+	prepare := func() error {
+		// 1. pull the original referrers list using the referrers tag schema
+		var err error
+		oldIndexDesc, referrers, err = s.repo.referrersFromIndex(ctx, referrersTag)
+		if err != nil {
+			if errors.Is(err, errdef.ErrNotFound) {
+				// no old index found, skip delete
+				skipDelete = true
+				return nil
+			}
 			return err
 		}
-		// no old index found, skip delete
-		skipDelete = true
-	}
-
-	for _, r := range referrers {
-		if content.Equal(r, desc) {
-			// desc is already in the referrers list, skip update
-			return nil
-		}
-	}
-	referrers = append(referrers, desc)
-	newIndexDesc, newIndex, err := generateIndex(referrers)
-	if err != nil {
-		return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
-	}
-	if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
-		return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
-	}
-
-	if skipDelete {
 		return nil
 	}
-	return s.repo.delete(ctx, oldIndexDesc, true)
-}
-
-// pingReferrers returns true if the Referrers API is available for r.
-func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
-	switch r.loadReferrersState() {
-	case referrersStateSupported:
-		return true, nil
-	case referrersStateUnsupported:
-		return false, nil
-	}
-
-	// referrers state is unknown
-	// limit the rate of pinging referrers API
-	r.referrersPingLock.Lock()
-	defer r.referrersPingLock.Unlock()
-
-	switch r.loadReferrersState() {
-	case referrersStateSupported:
-		return true, nil
-	case referrersStateUnsupported:
-		return false, nil
-	}
-
-	ref := r.Reference
-	ref.Reference = zeroDigest
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
-
-	url := buildReferrersURL(r.PlainHTTP, ref, "")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return false, err
-	}
-	resp, err := r.client().Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		r.SetReferrersCapability(true)
-		return true, nil
-	case http.StatusNotFound:
-		if err := errutil.ParseErrorResponse(resp); errutil.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
-			// repository not found
-			return false, err
+	update := func(referrerChanges []referrerChange) error {
+		// 2. apply the referrer changes on the referrers list
+		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
+		if err != nil {
+			if err == errNoReferrerUpdate {
+				return nil
+			}
+			return err
 		}
-		r.SetReferrersCapability(false)
-		return false, nil
-	default:
-		return false, errutil.ParseErrorResponse(resp)
+
+		// 3. push the updated referrers list using referrers tag schema
+		if len(updatedReferrers) > 0 {
+			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
+			if err != nil {
+				return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
+			}
+			if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
+				return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
+			}
+		}
+
+		// 4. delete the dangling original referrers index
+		if !skipDelete {
+			if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
+				return fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err)
+			}
+		}
+		return nil
 	}
+
+	merge, done := s.repo.referrersMergePool.Get(referrersTag)
+	defer done()
+	return merge.Do(change, prepare, update)
 }
 
 // ParseReference parses a reference to a fully qualified reference.

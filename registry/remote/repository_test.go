@@ -1884,86 +1884,6 @@ func TestRepository_Referrers_TagSchemaFallback_ClientFiltering(t *testing.T) {
 	}
 }
 
-func Test_filterReferrers(t *testing.T) {
-	refs := []ocispec.Descriptor{
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         1,
-			Digest:       digest.FromString("1"),
-			ArtifactType: "application/vnd.test",
-		},
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         2,
-			Digest:       digest.FromString("2"),
-			ArtifactType: "application/vnd.foo",
-		},
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         3,
-			Digest:       digest.FromString("3"),
-			ArtifactType: "application/vnd.bar",
-		},
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         4,
-			Digest:       digest.FromString("4"),
-			ArtifactType: "application/vnd.test",
-		},
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         5,
-			Digest:       digest.FromString("5"),
-			ArtifactType: "application/vnd.baz",
-		},
-	}
-	got := filterReferrers(refs, "application/vnd.test")
-	want := []ocispec.Descriptor{
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         1,
-			Digest:       digest.FromString("1"),
-			ArtifactType: "application/vnd.test",
-		},
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         4,
-			Digest:       digest.FromString("4"),
-			ArtifactType: "application/vnd.test",
-		},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("filterReferrers() = %v, want %v", got, want)
-	}
-}
-
-func Test_filterReferrers_allMatch(t *testing.T) {
-	refs := []ocispec.Descriptor{
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         1,
-			Digest:       digest.FromString("1"),
-			ArtifactType: "application/vnd.test",
-		},
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         4,
-			Digest:       digest.FromString("2"),
-			ArtifactType: "application/vnd.test",
-		},
-		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
-			Size:         5,
-			Digest:       digest.FromString("3"),
-			ArtifactType: "application/vnd.test",
-		},
-	}
-	got := filterReferrers(refs, "application/vnd.test")
-	if !reflect.DeepEqual(got, refs) {
-		t.Errorf("filterReferrers() = %v, want %v", got, refs)
-	}
-}
-
 func Test_BlobStore_Fetch(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
@@ -3795,6 +3715,71 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
+
+	// test inconsistent state: current referrer is not in referrers list
+	manifestDeleted = true
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+artifactDesc.Digest.String():
+			manifestDeleted = true
+			// no "Docker-Content-Digest" header for manifest deletion
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+artifactDesc.Digest.String():
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, artifactDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", artifactDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
+			if _, err := w.Write(artifactJSON); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			result := ocispec.Index{
+				Versioned: specs.Versioned{
+					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+				},
+				MediaType: ocispec.MediaTypeImageIndex,
+				Manifests: []ocispec.Descriptor{
+					content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, []byte("whaterver")),
+				},
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				t.Errorf("failed to write response: %v", err)
+			}
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err = url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store = repo.Manifests()
+	ctx = context.Background()
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	err = store.Delete(ctx, artifactDesc)
+	if err != nil {
+		t.Fatalf("Manifests.Delete() error = %v", err)
+	}
+	if !manifestDeleted {
+		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
 }
 
 func Test_ManifestStore_Resolve(t *testing.T) {
@@ -5191,108 +5176,6 @@ func TestRepository_SetReferrersCapability(t *testing.T) {
 	}
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
-	}
-}
-
-func Test_isReferrersFilterApplied(t *testing.T) {
-	tests := []struct {
-		name        string
-		annotations map[string]string
-		requested   string
-		want        bool
-	}{
-		{
-			name:        "single filter applied, specified filter matches",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "artifactType"},
-			requested:   "artifactType",
-			want:        true,
-		},
-		{
-			name:        "single filter applied, specified filter does not match",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "foo"},
-			requested:   "artifactType",
-			want:        false,
-		},
-		{
-			name:        "multiple filters applied, specified filter matches",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "foo,artifactType"},
-			requested:   "artifactType",
-			want:        true,
-		},
-		{
-			name:        "multiple filters applied, specified filter does not match",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "foo,bar"},
-			requested:   "artifactType",
-			want:        false,
-		},
-		{
-			name:        "single filter applied, specified filter empty",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "foo"},
-			requested:   "",
-			want:        false,
-		},
-		{
-			name:        "no filter applied",
-			annotations: map[string]string{},
-			requested:   "artifactType",
-			want:        false,
-		},
-		{
-			name:        "empty filter applied",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: ""},
-			requested:   "artifactType",
-			want:        false,
-		},
-		{
-			name:        "no filter applied, specified filter empty",
-			annotations: map[string]string{},
-			requested:   "",
-			want:        false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isReferrersFilterApplied(tt.annotations, tt.requested); got != tt.want {
-				t.Errorf("isReferrersFilterApplied() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_getReferrersTag(t *testing.T) {
-	tests := []struct {
-		name string
-		desc ocispec.Descriptor
-		want string
-	}{
-		{
-			name: "zero digest",
-			desc: ocispec.Descriptor{
-				Digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-			},
-			want: "sha256-0000000000000000000000000000000000000000000000000000000000000000",
-		},
-		{
-			name: "sha256",
-			desc: ocispec.Descriptor{
-				Digest: "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-			},
-			want: "sha256-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-		},
-		{
-			name: "sha512",
-			desc: ocispec.Descriptor{
-				Digest: "sha512:ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff",
-			},
-			want: "sha512-ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := buildReferrersTag(tt.desc); got != tt.want {
-				t.Errorf("getReferrersTag() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 
