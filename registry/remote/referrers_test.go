@@ -391,10 +391,10 @@ func Test_applyReferrerChanges(t *testing.T) {
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
-				descs[0],
+				descs[0], // duplicate
 				descs[2],
 				descs[3],
-				descs[1],
+				descs[1], // duplicate
 			},
 			referrerChanges: []referrerChange{
 				{descs[2], referrerOperationAdd},    // add new
@@ -458,6 +458,28 @@ func Test_applyReferrerChanges(t *testing.T) {
 			},
 			want:    nil,
 			wantErr: errNoReferrerUpdate, // internal result: 2, 1, 0
+		},
+		{
+			name: "no update: list containing duplicate entries",
+			referrers: []ocispec.Descriptor{
+				descs[0],
+				descs[1],
+				descs[0], // duplicate
+				descs[2],
+				descs[1], // duplicate
+			},
+			referrerChanges: []referrerChange{
+				{descs[2], referrerOperationRemove}, // remove existing
+				{descs[0], referrerOperationRemove}, // remove existing
+				{descs[0], referrerOperationAdd},    // add existing back
+				{descs[2], referrerOperationAdd},    // add existing back
+			},
+			want: []ocispec.Descriptor{
+				descs[1],
+				descs[0],
+				descs[2],
+			},
+			wantErr: nil,
 		},
 	}
 	for _, tt := range tests {

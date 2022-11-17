@@ -115,19 +115,23 @@ func filterReferrers(refs []ocispec.Descriptor, artifactType string) []ocispec.D
 // updated referrers.
 // Returns errNoReferrerUpdate if there is no any referrers updates.
 func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []referrerChange) ([]ocispec.Descriptor, error) {
-	referrersMap := make(map[descriptor.Descriptor]int, len(referrers))
-	var updatedReferrers []ocispec.Descriptor
+	referrersMap := make(map[descriptor.Descriptor]int, len(referrers)+len(referrerChanges))
+	updatedReferrers := make([]ocispec.Descriptor, 0, len(referrers)+len(referrerChanges))
+	var updateRequired bool
 	for _, r := range referrers {
 		if content.Equal(r, ocispec.Descriptor{}) {
 			// skip bad entry
+			updateRequired = true
 			continue
 		}
 		key := descriptor.FromOCI(r)
-		if _, ok := referrersMap[key]; !ok {
-			// duplicates will be skipped
-			updatedReferrers = append(updatedReferrers, r)
-			referrersMap[key] = len(updatedReferrers) - 1
+		if _, ok := referrersMap[key]; ok {
+			// skip duplicates
+			updateRequired = true
+			continue
 		}
+		updatedReferrers = append(updatedReferrers, r)
+		referrersMap[key] = len(updatedReferrers) - 1
 	}
 
 	// apply changes
@@ -149,33 +153,39 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 		}
 	}
 
-	if len(referrersMap) == len(referrers) {
+	// skip unnecessary update
+	if !updateRequired && len(referrersMap) == len(referrers) {
 		// if the result referrer map contains the same content as the
 		// original referrers, consider that there is no update on the
 		// referrers.
-		var referrersUpdated bool
 		for _, r := range referrers {
 			key := descriptor.FromOCI(r)
 			if _, ok := referrersMap[key]; !ok {
-				referrersUpdated = true
+				updateRequired = true
 			}
 		}
-		if !referrersUpdated {
+		if !updateRequired {
 			return nil, errNoReferrerUpdate
 		}
 	}
 
-	slot, slotNum := 0, len(referrersMap)
-	for i, r := range updatedReferrers {
+	return removeEmptyDescriptors(updatedReferrers, len(referrersMap)), nil
+}
+
+// removeEmptyDescriptors in-place removes empty items from descs, given a hint
+// of the number of non-empty descriptors.
+func removeEmptyDescriptors(descs []ocispec.Descriptor, hint int) []ocispec.Descriptor {
+	j := 0
+	for i, r := range descs {
 		if !content.Equal(r, ocispec.Descriptor{}) {
-			if i > slot {
-				updatedReferrers[slot] = r
+			if i > j {
+				descs[j] = r
 			}
-			slot++
+			j++
 		}
-		if slot == slotNum {
+		if j == hint {
 			break
 		}
 	}
-	return updatedReferrers[:slotNum], nil
+	return descs[:j]
 }
