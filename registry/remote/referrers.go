@@ -129,11 +129,13 @@ func applyReferrerChanges(referrers []ocispec.Descriptor, referrerChanges []refe
 		switch change.operation {
 		case referrerOperationAdd:
 			if _, ok := referrerIndexMap[key]; !ok {
+				// add distinct referrers
 				updatedReferrers = append(updatedReferrers, change.referrer)
 				referrerIndexMap[key] = len(updatedReferrers) - 1
 			}
 		case referrerOperationRemove:
 			if i, ok := referrerIndexMap[key]; ok {
+				// remove referrers that are already in the map
 				updatedReferrers[i] = ocispec.Descriptor{}
 				delete(referrerIndexMap, key)
 			}

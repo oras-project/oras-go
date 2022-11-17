@@ -23,10 +23,10 @@ type poolItem[T any] struct {
 	refCount int
 }
 
-// Pool is a pool with items identified by Ids.
+// Pool is a scalable pool with items identified by Ids.
 type Pool[T any] struct {
-	// New optionally specifies a function to generate
-	// a value when Get would otherwise return nil.
+	// New optionally specifies a function to generate a value when Get would
+	// otherwise return nil.
 	// It may not be changed concurrently with calls to Get.
 	New func() T
 
@@ -34,7 +34,8 @@ type Pool[T any] struct {
 	items map[any]*poolItem[T]
 }
 
-// Pool gets the item identified by id.
+// Get gets the item identified by id.
+// The caller should invoke the returned function after using the returned item.
 func (p *Pool[T]) Get(id any) (*T, func()) {
 	p.lock.Lock()
 	defer p.lock.Unlock()

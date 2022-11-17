@@ -379,7 +379,7 @@ func Test_applyReferrerChanges(t *testing.T) {
 					operation: referrerOperationRemove,
 				},
 				{
-					referrer:  descs[3], // add duplicate new
+					referrer:  descs[3], // add new back
 					operation: referrerOperationAdd,
 				},
 
@@ -398,7 +398,7 @@ func Test_applyReferrerChanges(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "remove existing one and add it back",
+			name: "remove an existing one and add it back",
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
@@ -488,7 +488,7 @@ func Test_applyReferrerChanges(t *testing.T) {
 				},
 			},
 			want:    nil,
-			wantErr: errNoReferrerUpdate,
+			wantErr: errNoReferrerUpdate, // internal result: 2, 1, 0
 		},
 	}
 	for _, tt := range tests {

@@ -19,38 +19,38 @@ import "sync"
 
 // mergeStatus represents the status of a merge operation.
 type mergeStatus struct {
-	// main indicates if the item is a main item
+	// main indicates if the item is a main item.
 	main bool
-	// err is the error of the main item
+	// err is the error of the main item.
 	err error
 }
 
-// Merge represents a merge operation.
+// Merge represents merge operations on items.
 // The state transfer is shown as below:
 //
-//	           +---------+
-//	           |  Start  +-------+-----------+
-//	           +----+----+       |           |
-//	                |            |           |
-//	                v            v           v
-//	           +----+----+   +---+---+   +---+---+
-//	   +-------+ Prepare +<--+Pending+-->+Waiting|
-//	   |       +----+----+   +-------+   +---+---+
-//	   |            |                        |
-//	   |            v                        |
-//	   +        +---+----+                   |
-//	On Error    |Resolve |                   |
-//	   +        +---+----+                   |
-//	   |            |                        |
-//	   |            v                        |
-//	   |        +---+----+                   |
-//	   +------->+Complete+<------------------+
-//	            +---+----+
+//	           +----------+
+//	           |  Start   +--------+-------------+
+//	           +----+-----+        |             |
+//	                |              |             |
+//	                v              v             v
+//	           +----+-----+   +----+----+   +----+----+
+//	   +-------+ Prepare  +<--+ Pending +-->+ Waiting |
+//	   |       +----+-----+   +---------+   +----+----+
+//	   |            |                            |
+//	   |            v                            |
+//	   |       + ---+---- +                      |
+//	On Error   | Resolve  |                      |
+//	   |       + ---+---- +                      |
+//	   |            |                            |
+//	   |            v                            |
+//	   |       +----+-----+                      |
+//	   +------>+ Complete +<---------------------+
+//	           +----+-----+
 //	                |
 //	                v
-//	            +---+----+
-//	            |  End   |
-//	            +--------+
+//	           +----+-----+
+//	           |   End    |
+//	           +----------+
 type Merge[T any] struct {
 	lock          sync.Mutex
 	committed     bool

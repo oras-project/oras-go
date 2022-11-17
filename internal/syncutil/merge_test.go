@@ -25,7 +25,7 @@ import (
 func TestMerge(t *testing.T) {
 	var merge Merge[int]
 
-	// generate expected
+	// generate expected result
 	size := 100
 	factor := -1
 	var expected int
