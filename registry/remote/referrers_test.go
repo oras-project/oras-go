@@ -252,7 +252,31 @@ func Test_applyReferrerChanges(t *testing.T) {
 		wantErr         error
 	}{
 		{
-			name: "addition only",
+			name:      "add to an empty list",
+			referrers: []ocispec.Descriptor{},
+			referrerChanges: []referrerChange{
+				{
+					referrer:  descs[0], // add new
+					operation: referrerOperationAdd,
+				},
+				{
+					referrer:  descs[1], // add new
+					operation: referrerOperationAdd,
+				},
+				{
+					referrer:  descs[2], // add new
+					operation: referrerOperationAdd,
+				},
+			},
+			want: []ocispec.Descriptor{
+				descs[0],
+				descs[1],
+				descs[2],
+			},
+			wantErr: nil,
+		},
+		{
+			name: "add to a non-empty list",
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
@@ -288,7 +312,7 @@ func Test_applyReferrerChanges(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "removal only",
+			name: "partially remove",
 			referrers: []ocispec.Descriptor{
 				descs[0],
 				descs[1],
@@ -319,6 +343,30 @@ func Test_applyReferrerChanges(t *testing.T) {
 			want: []ocispec.Descriptor{
 				descs[0],
 			},
+			wantErr: nil,
+		},
+		{
+			name: "remove all",
+			referrers: []ocispec.Descriptor{
+				descs[0],
+				descs[1],
+				descs[2],
+			},
+			referrerChanges: []referrerChange{
+				{
+					referrer:  descs[2], // remove existing
+					operation: referrerOperationRemove,
+				},
+				{
+					referrer:  descs[0], // remove existing
+					operation: referrerOperationRemove,
+				},
+				{
+					referrer:  descs[1], // remove existing
+					operation: referrerOperationRemove,
+				},
+			},
+			want:    []ocispec.Descriptor{},
 			wantErr: nil,
 		},
 		{
