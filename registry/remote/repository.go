@@ -964,7 +964,7 @@ func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispe
 		// referrers API is available, no client-side indexing needed
 		return nil
 	}
-	return s.updateReferrersIndex(ctx, desc, subject, referrerOperationRemove)
+	return s.updateReferrersIndex(ctx, subject, referrerChange{desc, referrerOperationRemove})
 }
 
 // Resolve resolves a reference to a descriptor.
@@ -1188,20 +1188,16 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		// referrers API is available, no client-side indexing needed
 		return nil
 	}
-	return s.updateReferrersIndex(ctx, desc, subject, referrerOperationAdd)
+	return s.updateReferrersIndex(ctx, subject, referrerChange{desc, referrerOperationAdd})
 }
 
 // updateReferrersIndex updates the referrers index for desc referencing subject
 // on manifest push and manifest delete.
 // References:
-//   - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject
-//   - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#deleting-manifests
-func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject ocispec.Descriptor, operation referrerOperation) (err error) {
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
+func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
-	change := referrerChange{
-		referrer:  desc,
-		operation: operation,
-	}
 
 	var skipDelete bool
 	var oldIndexDesc ocispec.Descriptor
@@ -1211,11 +1207,12 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, desc, subject 
 		var err error
 		oldIndexDesc, referrers, err = s.repo.referrersFromIndex(ctx, referrersTag)
 		if err != nil {
-			if !errors.Is(err, errdef.ErrNotFound) {
-				return err
+			if errors.Is(err, errdef.ErrNotFound) {
+				// no old index found, skip delete
+				skipDelete = true
+				return nil
 			}
-			// no old index found, skip delete
-			skipDelete = true
+			return err
 		}
 		return nil
 	}

@@ -35,10 +35,10 @@ const (
 	// referrersStateUnknown represents an unknown state of Referrers API.
 	referrersStateUnknown referrersState = iota
 	// referrersStateSupported represents that the repository is known to
-	// support Referrers API
+	// support Referrers API.
 	referrersStateSupported
 	// referrersStateUnsupported represents that the repository is known to
-	// not support Referrers API
+	// not support Referrers API.
 	referrersStateUnsupported
 )
 
@@ -46,9 +46,9 @@ const (
 type referrerOperation = int32
 
 const (
-	// referrersStateUnknown represents an addition operation on a referrer.
+	// referrerOperationAdd represents an addition operation on a referrer.
 	referrerOperationAdd referrerOperation = iota
-	// referrersStateUnknown represents a removal operation on a referrer.
+	// referrerOperationRemove represents a removal operation on a referrer.
 	referrerOperationRemove
 )
 
