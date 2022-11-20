@@ -100,6 +100,8 @@ type Repository struct {
 	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 
+	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
+
 	// referrersState represents that if the repository supports Referrers API.
 	// default: referrersStateUnknown
 	referrersState referrersState
@@ -124,6 +126,33 @@ func NewRepository(reference string) (*Repository, error) {
 	return &Repository{
 		Reference: ref,
 	}, nil
+}
+
+// newRepositoryWithOptions returns a Repository with the given reference and options.
+// RepositoryOptions are part of the Registry struct and may set defaults for the Registry.
+// RepositoryOptions share the same struct definition as Repository and therfore contain
+// unexported state that we must avoid copying around to different Repositories.
+// To handle this we explicitly copy only the fields that we want to reproduce.
+func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (*Repository, error) {
+	if err := ref.ValidateRepository(); err != nil {
+		return nil, err
+	}
+	return &Repository{
+		Client:               opts.Client,
+		Reference:            ref,
+		PlainHTTP:            opts.PlainHTTP,
+		ManifestMediaTypes:   cloneSlice(opts.ManifestMediaTypes),
+		TagListPageSize:      opts.TagListPageSize,
+		ReferrerListPageSize: opts.ReferrerListPageSize,
+		MaxMetadataBytes:     opts.MaxMetadataBytes,
+	}, nil
+}
+
+func cloneSlice[S ~[]E, E any](s S) S {
+	if s == nil {
+		return nil
+	}
+	return append(make(S, 0, len(s)), s...)
 }
 
 // SetReferrersCapability indicates the Referrers API capability of the remote

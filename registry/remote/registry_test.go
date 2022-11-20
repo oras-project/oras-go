@@ -184,13 +184,12 @@ func TestRegistry_Repository(t *testing.T) {
 	reg.MaxMetadataBytes = 8 * 1024 * 1024
 
 	ctx := context.Background()
-	want := &Repository{}
-	*want = Repository(reg.RepositoryOptions)
-	want.Reference.Repository = "hello-world"
 	got, err := reg.Repository(ctx, "hello-world")
 	if err != nil {
 		t.Fatalf("Registry.Repository() error = %v", err)
 	}
+	reg.Reference.Repository = "hello-world"
+	want := (*Repository)(&reg.RepositoryOptions)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Registry.Repository() = %v, want %v", got, want)
 	}
