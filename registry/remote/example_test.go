@@ -616,32 +616,6 @@ func ExampleRepository_Tag() {
 	// Succeed
 }
 
-// ExampleRepository_TagReference gives example snippets for tagging
-// a manifest.
-func ExampleRepository_TagReference() {
-	reg, err := remote.NewRegistry(host)
-	if err != nil {
-		panic(err)
-	}
-	ctx := context.Background()
-	repo, err := reg.Repository(ctx, exampleRepositoryName)
-	if err != nil {
-		panic(err)
-	}
-
-	// tag a manifest referenced by the exampleDigest below
-	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
-	tag := "latest"
-	err = oras.Tag(ctx, repo, exampleDigest, tag)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Succeed")
-
-	// Output:
-	// Succeed
-}
-
 // ExampleRegistry_Repositories gives example snippets for listing respositories in a HTTPS registry with pagination.
 func ExampleRegistry_Repositories() {
 	reg, err := remote.NewRegistry(host)
@@ -779,6 +753,32 @@ func Example_pushAndTag() {
 		panic(err)
 	}
 
+	fmt.Println("Succeed")
+
+	// Output:
+	// Succeed
+}
+
+// Example_tagReference gives example snippets for tagging
+// a manifest.
+func Example_tagReference() {
+	reg, err := remote.NewRegistry(host)
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+	repo, err := reg.Repository(ctx, exampleRepositoryName)
+	if err != nil {
+		panic(err)
+	}
+
+	// tag a manifest referenced by the exampleDigest below
+	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
+	tag := "latest"
+	err = oras.Tag(ctx, repo, exampleDigest, tag)
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println("Succeed")
 
 	// Output:
