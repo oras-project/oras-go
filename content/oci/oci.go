@@ -249,7 +249,7 @@ func (s *Store) SaveIndex() error {
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
 }
 
-// validateReference validates ref against desc.
+// validateReference validates ref.
 func validateReference(ref string) error {
 	if ref == "" {
 		return errdef.ErrMissingReference

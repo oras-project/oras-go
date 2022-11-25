@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/ioutil"
@@ -45,8 +44,9 @@ var bufPool = sync.Pool{
 // Storage is a CAS based on file system with the OCI-Image layout.
 // Reference: https://github.com/opencontainers/image-spec/blob/master/image-layout.md
 type Storage struct {
-	// blobRoot is the root directory of the stored blobs.
-	blobRoot string
+	*ReadOnlyStorage
+	// root is the root directory of the OCI layout.
+	root string
 	// ingestRoot is the root directory of the temporary ingest files.
 	ingestRoot string
 }
@@ -54,35 +54,19 @@ type Storage struct {
 // NewStorage creates a new CAS based on file system with the OCI-Image layout.
 func NewStorage(root string) *Storage {
 	return &Storage{
-		blobRoot:   filepath.Join(root, "blobs"),
-		ingestRoot: filepath.Join(root, "ingest"),
+		ReadOnlyStorage: NewStorageFromFS(os.DirFS(root)),
+		root:            root,
+		ingestRoot:      filepath.Join(root, "ingest"),
 	}
-}
-
-// Fetch fetches the content identified by the descriptor.
-func (s *Storage) Fetch(_ context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	path, err := s.blobPath(target.Digest)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrInvalidDigest)
-	}
-
-	fp, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrNotFound)
-		}
-		return nil, err
-	}
-
-	return fp, nil
 }
 
 // Push pushes the content, matching the expected descriptor.
 func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	target, err := s.blobPath(expected.Digest)
+	path, err := blobPath(expected.Digest)
 	if err != nil {
 		return fmt.Errorf("%s: %s: %w", expected.Digest, expected.MediaType, errdef.ErrInvalidDigest)
 	}
+	target := filepath.Join(s.root, path)
 
 	// check if the target content already exists in the blob directory.
 	if _, err := os.Stat(target); err == nil {
@@ -115,25 +99,6 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 	}
 
 	return nil
-}
-
-// Exists returns true if the described content Exists.
-func (s *Storage) Exists(_ context.Context, target ocispec.Descriptor) (bool, error) {
-	path, err := s.blobPath(target.Digest)
-	if err != nil {
-		return false, err
-	}
-
-	_, err = os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-
-	return false, err
 }
 
 // ingest write the content into a temporary ingest file.
@@ -173,15 +138,6 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 	}
 
 	return
-}
-
-// blobPath calculates blob path from the given digest.
-func (s *Storage) blobPath(dgst digest.Digest) (string, error) {
-	if err := dgst.Validate(); err != nil {
-		return "", fmt.Errorf("cannot calculate blob path from invalid digest %s: %v", dgst.String(), err)
-	}
-
-	return filepath.Join(s.blobRoot, dgst.Algorithm().String(), dgst.Encoded()), nil
 }
 
 // ensureDir ensures the directories of the path exists.
