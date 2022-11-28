@@ -38,6 +38,7 @@ import (
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/internal/ioutil"
 	"oras.land/oras-go/v2/internal/registryutil"
+	"oras.land/oras-go/v2/internal/slices"
 	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -143,18 +144,11 @@ func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (
 		Client:               opts.Client,
 		Reference:            ref,
 		PlainHTTP:            opts.PlainHTTP,
-		ManifestMediaTypes:   cloneSlice(opts.ManifestMediaTypes),
+		ManifestMediaTypes:   slices.Clone(opts.ManifestMediaTypes),
 		TagListPageSize:      opts.TagListPageSize,
 		ReferrerListPageSize: opts.ReferrerListPageSize,
 		MaxMetadataBytes:     opts.MaxMetadataBytes,
 	}, nil
-}
-
-func cloneSlice[S ~[]E, E any](s S) S {
-	if s == nil {
-		return nil
-	}
-	return append(make(S, 0, len(s)), s...)
 }
 
 // SetReferrersCapability indicates the Referrers API capability of the remote
