@@ -128,10 +128,12 @@ func NewRepository(reference string) (*Repository, error) {
 	}, nil
 }
 
-// newRepositoryWithOptions returns a Repository with the given reference and options.
-// RepositoryOptions are part of the Registry struct and may set defaults for the Registry.
-// RepositoryOptions share the same struct definition as Repository and therfore contain
-// unexported state that we must avoid copying around to different Repositories.
+// newRepositoryWithOptions returns a Repository with the given Reference and
+// RepositoryOptions.
+//
+// RepositoryOptions are part of the Registry struct and set its defaults.
+// RepositoryOptions shares the same struct definition as Repository, which
+// contains unexported state that must not be copied to multiple Repositories.
 // To handle this we explicitly copy only the fields that we want to reproduce.
 func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (*Repository, error) {
 	if err := ref.ValidateRepository(); err != nil {
