@@ -168,11 +168,5 @@ func (r *Registry) Repository(ctx context.Context, name string) (registry.Reposi
 		Registry:   r.Reference.Registry,
 		Repository: name,
 	}
-	if err := ref.ValidateRepository(); err != nil {
-		return nil, err
-	}
-
-	repo := Repository(r.RepositoryOptions)
-	repo.Reference = ref
-	return &repo, nil
+	return newRepositoryWithOptions(ref, &r.RepositoryOptions)
 }

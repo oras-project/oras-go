@@ -38,6 +38,7 @@ import (
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/internal/ioutil"
 	"oras.land/oras-go/v2/internal/registryutil"
+	"oras.land/oras-go/v2/internal/slices"
 	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -100,6 +101,8 @@ type Repository struct {
 	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 
+	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
+
 	// referrersState represents that if the repository supports Referrers API.
 	// default: referrersStateUnknown
 	referrersState referrersState
@@ -123,6 +126,28 @@ func NewRepository(reference string) (*Repository, error) {
 	}
 	return &Repository{
 		Reference: ref,
+	}, nil
+}
+
+// newRepositoryWithOptions returns a Repository with the given Reference and
+// RepositoryOptions.
+//
+// RepositoryOptions are part of the Registry struct and set its defaults.
+// RepositoryOptions shares the same struct definition as Repository, which
+// contains unexported state that must not be copied to multiple Repositories.
+// To handle this we explicitly copy only the fields that we want to reproduce.
+func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (*Repository, error) {
+	if err := ref.ValidateRepository(); err != nil {
+		return nil, err
+	}
+	return &Repository{
+		Client:               opts.Client,
+		Reference:            ref,
+		PlainHTTP:            opts.PlainHTTP,
+		ManifestMediaTypes:   slices.Clone(opts.ManifestMediaTypes),
+		TagListPageSize:      opts.TagListPageSize,
+		ReferrerListPageSize: opts.ReferrerListPageSize,
+		MaxMetadataBytes:     opts.MaxMetadataBytes,
 	}, nil
 }
 
