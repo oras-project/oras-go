@@ -806,13 +806,6 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	// probe server range request ability.
-	// Docker spec allows range header form of "Range: bytes=<start>-<end>".
-	// The form of "Range: bytes=<start>-" is also acceptable.
-	// However, the remote server may still not RFC 7233 compliant.
-	// Reference: https://docs.docker.com/registry/spec/api/#blob
-	req.Header.Set("Range", "bytes=0-")
-
 	resp, err := s.repo.client().Do(req)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -829,13 +822,16 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
-		return desc, resp.Body, nil
-	case http.StatusPartialContent:
-		desc, err = generateBlobDescriptor(resp, refDigest)
-		if err != nil {
-			return ocispec.Descriptor{}, nil, err
+
+		// check server range request capability.
+		// Docker spec allows range header form of "Range: bytes=<start>-<end>".
+		// The form of "Range: bytes=<start>-" is also acceptable.
+		// However, the remote server may still not RFC 7233 compliant.
+		// Reference: https://docs.docker.com/registry/spec/api/#blob
+		if rangeUnit := resp.Header.Get("Accept-Ranges"); rangeUnit == "bytes" {
+			return desc, httputil.NewReadSeekCloser(s.repo.client(), req, resp.Body, desc.Size), nil
 		}
-		return desc, httputil.NewReadSeekCloser(s.repo.client(), req, resp.Body, desc.Size), nil
+		return desc, resp.Body, nil
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, nil, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
