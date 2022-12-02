@@ -45,7 +45,6 @@ import (
 )
 
 type testIOStruct struct {
-	name                    string
 	isTag                   bool
 	clientSuppliedReference string
 	serverCalculatedDigest  digest.Digest // for non-HEAD (body-containing) requests only
@@ -1967,6 +1966,9 @@ func Test_BlobStore_Fetch_Seek(t *testing.T) {
 		case "/v2/test/blobs/" + blobDesc.Digest.String():
 			w.Header().Set("Content-Type", "application/octet-stream")
 			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			if seekable {
+				w.Header().Set("Accept-Ranges", "bytes")
+			}
 			rangeHeader := r.Header.Get("Range")
 			if !seekable || rangeHeader == "" {
 				w.WriteHeader(http.StatusOK)
@@ -2487,6 +2489,9 @@ func Test_BlobStore_FetchReference_Seek(t *testing.T) {
 		case "/v2/test/blobs/" + blobDesc.Digest.String():
 			w.Header().Set("Content-Type", "application/octet-stream")
 			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			if seekable {
+				w.Header().Set("Accept-Ranges", "bytes")
+			}
 			rangeHeader := r.Header.Get("Range")
 			if !seekable || rangeHeader == "" {
 				w.WriteHeader(http.StatusOK)

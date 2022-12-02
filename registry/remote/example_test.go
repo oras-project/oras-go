@@ -185,6 +185,7 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, exampleLayerDigest):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageLayer)
 			w.Header().Set("Docker-Content-Digest", string(exampleLayerDigest))
+			w.Header().Set("Accept-Ranges", "bytes")
 			var start, end = 0, len(exampleLayer) - 1
 			if h := r.Header.Get("Range"); h != "" {
 				w.WriteHeader(http.StatusPartialContent)
