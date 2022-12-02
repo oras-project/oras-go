@@ -825,7 +825,6 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 
 		// check server range request capability.
 		// Docker spec allows range header form of "Range: bytes=<start>-<end>".
-		// The form of "Range: bytes=<start>-" is also acceptable.
 		// However, the remote server may still not RFC 7233 compliant.
 		// Reference: https://docs.docker.com/registry/spec/api/#blob
 		if rangeUnit := resp.Header.Get("Accept-Ranges"); rangeUnit == "bytes" {
