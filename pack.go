@@ -38,13 +38,11 @@ const (
 	MediaTypeUnknownArtifact = "application/vnd.unknown.artifact.v1"
 )
 
-var (
-	// ErrInvalidDateTimeFormat is returned by Pack() when
-	// AnnotationArtifactCreated or AnnotationCreated is provided, but its value
-	// is not in RFC 3339 format.
-	// Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
-	ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
-)
+// ErrInvalidDateTimeFormat is returned by Pack() when
+// AnnotationArtifactCreated or AnnotationCreated is provided, but its value
+// is not in RFC 3339 format.
+// Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
+var ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
 
 // PackOptions contains parameters for oras.Pack.
 type PackOptions struct {
