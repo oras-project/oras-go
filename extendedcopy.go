@@ -29,20 +29,19 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
-var (
-	// DefaultExtendedCopyOptions provides the default ExtendedCopyOptions.
-	DefaultExtendedCopyOptions = ExtendedCopyOptions{
-		ExtendedCopyGraphOptions: DefaultExtendedCopyGraphOptions,
-	}
-	// DefaultExtendedCopyGraphOptions provides the default ExtendedCopyGraphOptions.
-	DefaultExtendedCopyGraphOptions = ExtendedCopyGraphOptions{
-		CopyGraphOptions: DefaultCopyGraphOptions,
-	}
-)
+// DefaultExtendedCopyOptions provides the default ExtendedCopyOptions.
+var DefaultExtendedCopyOptions ExtendedCopyOptions = ExtendedCopyOptions{
+	ExtendedCopyGraphOptions: DefaultExtendedCopyGraphOptions,
+}
 
 // ExtendedCopyOptions contains parameters for oras.ExtendedCopy.
 type ExtendedCopyOptions struct {
 	ExtendedCopyGraphOptions
+}
+
+// DefaultExtendedCopyGraphOptions provides the default ExtendedCopyGraphOptions.
+var DefaultExtendedCopyGraphOptions ExtendedCopyGraphOptions = ExtendedCopyGraphOptions{
+	CopyGraphOptions: DefaultCopyGraphOptions,
 }
 
 // ExtendedCopyGraphOptions contains parameters for oras.ExtendedCopyGraph.
