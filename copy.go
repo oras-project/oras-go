@@ -36,17 +36,13 @@ import (
 // defaultConcurrency is the default value of CopyGraphOptions.Concurrency.
 const defaultConcurrency = 3 // This value is consistent with dockerd and containerd.
 
-var (
-	// DefaultCopyOptions provides the default CopyOptions.
-	DefaultCopyOptions = CopyOptions{
-		CopyGraphOptions: DefaultCopyGraphOptions,
-	}
-	// DefaultCopyGraphOptions provides the default CopyGraphOptions.
-	DefaultCopyGraphOptions CopyGraphOptions
-)
-
 // errSkipDesc signals copyNode() to stop processing a descriptor.
 var errSkipDesc = errors.New("skip descriptor")
+
+// DefaultCopyOptions provides the default CopyOptions.
+var DefaultCopyOptions CopyOptions = CopyOptions{
+	CopyGraphOptions: DefaultCopyGraphOptions,
+}
 
 // CopyOptions contains parameters for oras.Copy.
 type CopyOptions struct {
@@ -85,6 +81,9 @@ func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
 // defaultCopyMaxMetadataBytes is the default value of
 // CopyGraphOptions.MaxMetadataBytes.
 const defaultCopyMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
+
+// DefaultCopyGraphOptions provides the default CopyGraphOptions.
+var DefaultCopyGraphOptions CopyGraphOptions
 
 // CopyGraphOptions contains parameters for oras.CopyGraph.
 type CopyGraphOptions struct {
