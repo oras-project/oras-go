@@ -16,13 +16,110 @@ limitations under the License.
 package tarfs
 
 import (
+	"bytes"
+	"errors"
+	"io"
+	"io/fs"
 	"testing"
+
+	"oras.land/oras-go/v2/errdef"
 )
 
-func TestTarFS_Open_Success(t *testing.T) {
+/**
+test.tar contains:
+	foobar
+	foobar_link
+	foobar_symlink
+	dir/
+		hello
+		subdir/
+			world
+*/
 
+func TestTarFS_Open_Success(t *testing.T) {
+	testFiles := map[string][]byte{
+		"foobar":           []byte("foobar"),
+		"dir/hello":        []byte("hello"),
+		"dir/subdir/world": []byte("world"),
+	}
+	tfs, err := New("testdata/test.tar")
+	if err != nil {
+		t.Errorf("New() error = %v, wantErr %v", err, nil)
+	}
+	for name, data := range testFiles {
+		func() {
+			f, err := tfs.Open(name)
+			if err != nil {
+				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
+			}
+			defer f.Close()
+
+			got, err := io.ReadAll(f)
+			if err != nil {
+				t.Errorf("failed to read %s: %v", name, err)
+			}
+			if want := data; !bytes.Equal(got, want) {
+				t.Errorf("TarFS.Open(%s) = %v, want %v", name, string(got), string(want))
+			}
+		}()
+	}
+}
+
+func TestTarFS_Open_NotExist(t *testing.T) {
+	testFiles := []string{
+		"dir/foo",
+		"subdir/bar",
+		"barfoo",
+	}
+	tfs, err := New("testdata/test.tar")
+	if err != nil {
+		t.Errorf("New() error = %v, wantErr %v", err, nil)
+	}
+	for _, name := range testFiles {
+		func() {
+			_, err := tfs.Open(name)
+			if want := fs.ErrNotExist; !errors.Is(err, want) {
+				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+			}
+		}()
+	}
+}
+
+func TestTarFS_Open_InvalidPath(t *testing.T) {
+	testFiles := []string{
+		"dir/",
+		"subdir/",
+		"dir/subdir/",
+	}
+	tfs, err := New("testdata/test.tar")
+	if err != nil {
+		t.Errorf("New() error = %v, wantErr %v", err, nil)
+	}
+	for _, name := range testFiles {
+		func() {
+			_, err := tfs.Open(name)
+			if want := fs.ErrInvalid; !errors.Is(err, want) {
+				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+			}
+		}()
+	}
 }
 
 func TestTarFS_Open_Unsupported(t *testing.T) {
-
+	testFiles := []string{
+		"foobar_link",
+		"foobar_symlink",
+	}
+	tfs, err := New("testdata/test.tar")
+	if err != nil {
+		t.Errorf("New() error = %v, wantErr %v", err, nil)
+	}
+	for _, name := range testFiles {
+		func() {
+			_, err := tfs.Open(name)
+			if want := errdef.ErrUnsupported; !errors.Is(err, want) {
+				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+			}
+		}()
+	}
 }
