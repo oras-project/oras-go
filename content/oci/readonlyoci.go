@@ -41,14 +41,8 @@ type ReadOnlyStore struct {
 	graph    *graph.Memory
 }
 
-// NewFromFS creates a new read-only OCI store from fsys with
-// context.Background().
-func NewFromFS(fsys fs.FS) (*ReadOnlyStore, error) {
-	return NewFromFSWithContext(context.Background(), fsys)
-}
-
-// NewFromFSWithContext creates a new read-only OCI store from fsys.
-func NewFromFSWithContext(ctx context.Context, fsys fs.FS) (*ReadOnlyStore, error) {
+// NewFromFS creates a new read-only OCI store from fsys.
+func NewFromFS(ctx context.Context, fsys fs.FS) (*ReadOnlyStore, error) {
 	store := &ReadOnlyStore{
 		fsys:     fsys,
 		storage:  NewStorageFromFS(fsys),

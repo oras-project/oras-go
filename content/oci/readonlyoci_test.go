@@ -136,7 +136,7 @@ func TestReadOnlyStore(t *testing.T) {
 
 	// test read-only store
 	ctx := context.Background()
-	s, err := NewFromFSWithContext(ctx, fsys)
+	s, err := NewFromFS(ctx, fsys)
 	if err != nil {
 		t.Fatal("NewFromFS() error =", err)
 	}
@@ -318,7 +318,7 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 	}
 
 	// test read-only store
-	readonlyS, err := NewFromFS(os.DirFS(tempDir))
+	readonlyS, err := NewFromFS(ctx, os.DirFS(tempDir))
 	if err != nil {
 		t.Fatal("New() error =", err)
 	}
@@ -434,7 +434,8 @@ func TestReadOnlyStore_BadIndex(t *testing.T) {
 		ociImageIndexFile: &fstest.MapFile{Data: content},
 	}
 
-	_, err := NewFromFS(fsys)
+	ctx := context.Background()
+	_, err := NewFromFS(ctx, fsys)
 	if err == nil {
 		t.Errorf("NewFromFS() error = %v, wantErr %v", err, true)
 	}
@@ -446,7 +447,8 @@ func TestReadOnlyStore_BadLayout(t *testing.T) {
 		ocispec.ImageLayoutFile: &fstest.MapFile{Data: content},
 	}
 
-	_, err := NewFromFS(fsys)
+	ctx := context.Background()
+	_, err := NewFromFS(ctx, fsys)
 	if err == nil {
 		t.Errorf("NewFromFS() error = %v, wantErr %v", err, true)
 	}
@@ -534,7 +536,7 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 
 	// test read-only store
 	ctx := context.Background()
-	src, err := NewFromFSWithContext(ctx, fsys)
+	src, err := NewFromFS(ctx, fsys)
 	if err != nil {
 		t.Fatal("NewFromFS() error =", err)
 	}
