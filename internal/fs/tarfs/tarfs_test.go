@@ -44,24 +44,23 @@ func TestTarFS_Open_Success(t *testing.T) {
 	}
 	tfs, err := New("testdata/test.tar")
 	if err != nil {
-		t.Errorf("New() error = %v, wantErr %v", err, nil)
+		t.Fatalf("New() error = %v, wantErr %v", err, nil)
 	}
 	for name, data := range testFiles {
-		func() {
-			f, err := tfs.Open(name)
-			if err != nil {
-				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
-			}
-			defer f.Close()
+		f, err := tfs.Open(name)
+		if err != nil {
+			t.Fatalf("TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
+			continue
+		}
 
-			got, err := io.ReadAll(f)
-			if err != nil {
-				t.Errorf("failed to read %s: %v", name, err)
-			}
-			if want := data; !bytes.Equal(got, want) {
-				t.Errorf("TarFS.Open(%s) = %v, want %v", name, string(got), string(want))
-			}
-		}()
+		got, err := io.ReadAll(f)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", name, err)
+		}
+		f.Close()
+		if want := data; !bytes.Equal(got, want) {
+			t.Errorf("TarFS.Open(%s) = %v, want %v", name, string(got), string(want))
+		}
 	}
 }
 
@@ -73,15 +72,13 @@ func TestTarFS_Open_NotExist(t *testing.T) {
 	}
 	tfs, err := New("testdata/test.tar")
 	if err != nil {
-		t.Errorf("New() error = %v, wantErr %v", err, nil)
+		t.Fatalf("New() error = %v, wantErr %v", err, nil)
 	}
 	for _, name := range testFiles {
-		func() {
-			_, err := tfs.Open(name)
-			if want := fs.ErrNotExist; !errors.Is(err, want) {
-				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
-			}
-		}()
+		_, err := tfs.Open(name)
+		if want := fs.ErrNotExist; !errors.Is(err, want) {
+			t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+		}
 	}
 }
 
@@ -93,15 +90,13 @@ func TestTarFS_Open_InvalidPath(t *testing.T) {
 	}
 	tfs, err := New("testdata/test.tar")
 	if err != nil {
-		t.Errorf("New() error = %v, wantErr %v", err, nil)
+		t.Fatalf("New() error = %v, wantErr %v", err, nil)
 	}
 	for _, name := range testFiles {
-		func() {
-			_, err := tfs.Open(name)
-			if want := fs.ErrInvalid; !errors.Is(err, want) {
-				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
-			}
-		}()
+		_, err := tfs.Open(name)
+		if want := fs.ErrInvalid; !errors.Is(err, want) {
+			t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+		}
 	}
 }
 
@@ -112,14 +107,12 @@ func TestTarFS_Open_Unsupported(t *testing.T) {
 	}
 	tfs, err := New("testdata/test.tar")
 	if err != nil {
-		t.Errorf("New() error = %v, wantErr %v", err, nil)
+		t.Fatalf("New() error = %v, wantErr %v", err, nil)
 	}
 	for _, name := range testFiles {
-		func() {
-			_, err := tfs.Open(name)
-			if want := errdef.ErrUnsupported; !errors.Is(err, want) {
-				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
-			}
-		}()
+		_, err := tfs.Open(name)
+		if want := errdef.ErrUnsupported; !errors.Is(err, want) {
+			t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+		}
 	}
 }
