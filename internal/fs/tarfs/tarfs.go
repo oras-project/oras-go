@@ -19,16 +19,19 @@ import (
 	"archive/tar"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
+
+	"oras.land/oras-go/v2/errdef"
 )
 
 // blockSize is the size of each block in a tarball.
 const blockSize int64 = 512
 
-// tarFS represents a file system (an fs.FS) based from a tarball.
-type tarFS struct {
+// TarFS represents a file system (an fs.FS) based from a tarball.
+type TarFS struct {
 	// path is the path to the tarball.
 	path string
 	// entries is the map of entry name to its position.
@@ -36,8 +39,8 @@ type tarFS struct {
 }
 
 // New returns a file system (an fs.FS) for a tarball located at path.
-func New(path string) (*tarFS, error) {
-	tarfs := &tarFS{
+func New(path string) (*TarFS, error) {
+	tarfs := &TarFS{
 		path:    path,
 		entries: make(map[string]int64),
 	}
@@ -48,7 +51,7 @@ func New(path string) (*tarFS, error) {
 }
 
 // indexEntries index entries in the tarball.
-func (tfs *tarFS) indexEntries() error {
+func (tfs *TarFS) indexEntries() error {
 	file, err := os.Open(tfs.path)
 	if err != nil {
 		return err
@@ -64,11 +67,6 @@ func (tfs *tarFS) indexEntries() error {
 			}
 			return err
 		}
-
-		// TODO: symbolic link? check types?
-		// if header.Typeflag != tar.TypeReg {
-		// 	continue
-		// }
 		pos, err := file.Seek(0, io.SeekCurrent)
 		if err != nil {
 			return err
@@ -87,33 +85,32 @@ func (tfs *tarFS) indexEntries() error {
 // Open should reject attempts to open names that do not satisfy
 // ValidPath(name), returning a *PathError with Err set to
 // ErrInvalid or ErrNotExist.
-func (tfs *tarFS) Open(name string) (fs.File, error) {
+func (tfs *TarFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Path: name, Err: fs.ErrInvalid}
 	}
-
-	tarFile, err := os.Open(tfs.path)
+	tarball, err := os.Open(tfs.path)
 	if err != nil {
 		return nil, err
 	}
-	defer tarFile.Close()
+	defer tarball.Close()
 
 	pos, ok := tfs.entries[name]
 	if !ok {
 		return nil, &fs.PathError{Path: name, Err: fs.ErrNotExist}
 	}
-	if _, err := tarFile.Seek(pos, io.SeekStart); err != nil {
+	if _, err := tarball.Seek(pos, io.SeekStart); err != nil {
 		return nil, err
 	}
 
-	tr := tar.NewReader(tarFile)
+	tr := tar.NewReader(tarball)
 	header, err := tr.Next()
 	if err != nil {
 		return nil, err
 	}
 	if header.Typeflag != tar.TypeReg {
-		// TODO: check type?
-		return nil, err
+		return nil, fmt.Errorf("failed to open %s: reading type %v is not supported: %w",
+			name, header.Typeflag, errdef.ErrUnsupported)
 	}
 
 	data, err := io.ReadAll(tr)
@@ -138,7 +135,7 @@ func (e *entry) Stat() (fs.FileInfo, error) {
 	return e.header.FileInfo(), nil
 }
 
-// Read reads e.
+// Read reads the content of e.
 func (e *entry) Read(b []byte) (int, error) {
 	return e.r.Read(b)
 }
