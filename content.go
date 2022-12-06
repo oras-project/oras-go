@@ -23,8 +23,6 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
@@ -32,6 +30,7 @@ import (
 	"oras.land/oras-go/v2/internal/interfaces"
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/internal/registryutil"
+	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
@@ -119,13 +118,10 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 			return err
 		}
 
-		limiter := semaphore.NewWeighted(opts.Concurrency)
-		eg, egCtx := errgroup.WithContext(ctx)
+		eg, egCtx := syncutil.LimitGroup(ctx, int(opts.Concurrency))
 		for _, dstRef := range dstReferences {
-			limiter.Acquire(ctx, 1)
 			eg.Go(func(dst string) func() error {
 				return func() error {
-					defer limiter.Release(1)
 					r := bytes.NewReader(contentBytes)
 					if err := refPusher.PushReference(egCtx, desc, r, dst); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 						return fmt.Errorf("failed to tag %s as %s: %w", srcReference, dst, err)
@@ -141,13 +137,10 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 	if err != nil {
 		return err
 	}
-	limiter := semaphore.NewWeighted(opts.Concurrency)
-	eg, egCtx := errgroup.WithContext(ctx)
+	eg, egCtx := syncutil.LimitGroup(ctx, int(opts.Concurrency))
 	for _, dstRef := range dstReferences {
-		limiter.Acquire(ctx, 1)
 		eg.Go(func(dst string) func() error {
 			return func() error {
-				defer limiter.Release(1)
 				if err := target.Tag(egCtx, desc, dst); err != nil {
 					return fmt.Errorf("failed to tag %s as %s: %w", srcReference, dst, err)
 				}
@@ -376,14 +369,11 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultTagConcurrency
 	}
-	limiter := semaphore.NewWeighted(opts.Concurrency)
-	eg, egCtx := errgroup.WithContext(ctx)
+	eg, egCtx := syncutil.LimitGroup(ctx, int(opts.Concurrency))
 	if refPusher, ok := target.(registry.ReferencePusher); ok {
 		for _, reference := range references {
-			limiter.Acquire(ctx, 1)
 			eg.Go(func(ref string) func() error {
 				return func() error {
-					defer limiter.Release(1)
 					r := bytes.NewReader(contentBytes)
 					if err := refPusher.PushReference(egCtx, desc, r, ref); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 						return fmt.Errorf("failed to tag %s: %w", ref, err)
@@ -397,12 +387,9 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 		if err := target.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 			return ocispec.Descriptor{}, fmt.Errorf("failed to push content: %w", err)
 		}
-
 		for _, reference := range references {
-			limiter.Acquire(ctx, 1)
 			eg.Go(func(ref string) func() error {
 				return func() error {
-					defer limiter.Release(1)
 					if err := target.Tag(egCtx, desc, ref); err != nil {
 						return fmt.Errorf("failed to tag %s: %w", ref, err)
 					}
