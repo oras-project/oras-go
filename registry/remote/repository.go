@@ -818,7 +818,11 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 
 	switch resp.StatusCode {
 	case http.StatusOK: // server does not support seek as `Range` was ignored.
-		desc, err = generateBlobDescriptor(resp, refDigest)
+		if resp.ContentLength == -1 {
+			desc, err = s.Resolve(ctx, reference)
+		} else {
+			desc, err = generateBlobDescriptor(resp, refDigest)
+		}
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
@@ -1044,7 +1048,11 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		desc, err = s.generateDescriptor(resp, ref, req.Method)
+		if resp.ContentLength == -1 {
+			desc, err = s.Resolve(ctx, reference)
+		} else {
+			desc, err = s.generateDescriptor(resp, ref, req.Method)
+		}
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
