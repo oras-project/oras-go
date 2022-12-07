@@ -1488,7 +1488,7 @@ func TestCopyGraph_WithConcurrencyLimit(t *testing.T) {
 	opts := oras.DefaultCopyGraphOptions
 	for i := 1; i <= directSuccessorsNum; i++ {
 		dst := cas.NewMemory()
-		opts.Concurrency = int64(i)
+		opts.Concurrency = i
 		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
 			t.Fatalf("CopyGraph(concurrency: %d) error = %v, wantErr %v", i, err, false)
 		}
