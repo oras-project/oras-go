@@ -109,6 +109,7 @@ func (tfs *TarFS) Open(name string) (fs.File, error) {
 		return nil, err
 	}
 	if header.Typeflag != tar.TypeReg {
+		// support regular files only
 		return nil, fmt.Errorf("failed to open %s: type flag %c is not supported: %w",
 			name, header.Typeflag, errdef.ErrUnsupported)
 	}
