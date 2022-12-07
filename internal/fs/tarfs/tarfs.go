@@ -30,11 +30,11 @@ import (
 // blockSize is the size of each block in a tarball.
 const blockSize int64 = 512
 
-// TarFS represents a file system (an fs.FS) based from a tarball.
+// TarFS represents a file system (an fs.FS) based on a tarball.
 type TarFS struct {
 	// path is the path to the tarball.
 	path string
-	// entries is the map of entry name to its position.
+	// entries is the map of entry names to their positions.
 	entries map[string]int64
 }
 
@@ -52,13 +52,13 @@ func New(path string) (*TarFS, error) {
 
 // indexEntries index entries in the tarball.
 func (tfs *TarFS) indexEntries() error {
-	file, err := os.Open(tfs.path)
+	tarball, err := os.Open(tfs.path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer tarball.Close()
 
-	tr := tar.NewReader(file)
+	tr := tar.NewReader(tarball)
 	for {
 		header, err := tr.Next()
 		if err != nil {
@@ -67,7 +67,7 @@ func (tfs *TarFS) indexEntries() error {
 			}
 			return err
 		}
-		pos, err := file.Seek(0, io.SeekCurrent)
+		pos, err := tarball.Seek(0, io.SeekCurrent)
 		if err != nil {
 			return err
 		}
@@ -89,20 +89,20 @@ func (tfs *TarFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Path: name, Err: fs.ErrInvalid}
 	}
+	pos, ok := tfs.entries[name]
+	if !ok {
+		return nil, &fs.PathError{Path: name, Err: fs.ErrNotExist}
+	}
+
 	tarball, err := os.Open(tfs.path)
 	if err != nil {
 		return nil, err
 	}
 	defer tarball.Close()
 
-	pos, ok := tfs.entries[name]
-	if !ok {
-		return nil, &fs.PathError{Path: name, Err: fs.ErrNotExist}
-	}
 	if _, err := tarball.Seek(pos, io.SeekStart); err != nil {
 		return nil, err
 	}
-
 	tr := tar.NewReader(tarball)
 	header, err := tr.Next()
 	if err != nil {
