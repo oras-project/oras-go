@@ -37,7 +37,7 @@ import (
 
 const (
 	// defaultTagConcurrency is the default concurrency of tagging.
-	defaultTagConcurrency int64 = 5 // This value is consistent with dockerd
+	defaultTagConcurrency int = 5 // This value is consistent with dockerd
 
 	// defaultTagNMaxMetadataBytes is the default value of
 	// TagNOptions.MaxMetadataBytes.
@@ -58,7 +58,7 @@ var DefaultTagNOptions TagNOptions
 type TagNOptions struct {
 	// Concurrency limits the maximum number of concurrent tag tasks.
 	// If less than or equal to 0, a default (currently 5) is used.
-	Concurrency int64
+	Concurrency int
 
 	// MaxMetadataBytes limits the maximum size of metadata that can be cached
 	// in the memory.
@@ -118,7 +118,7 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 			return err
 		}
 
-		eg, egCtx := syncutil.LimitGroup(ctx, int(opts.Concurrency))
+		eg, egCtx := syncutil.LimitGroup(ctx, opts.Concurrency)
 		for _, dstRef := range dstReferences {
 			eg.Go(func(dst string) func() error {
 				return func() error {
@@ -137,7 +137,7 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 	if err != nil {
 		return err
 	}
-	eg, egCtx := syncutil.LimitGroup(ctx, int(opts.Concurrency))
+	eg, egCtx := syncutil.LimitGroup(ctx, opts.Concurrency)
 	for _, dstRef := range dstReferences {
 		eg.Go(func(dst string) func() error {
 			return func() error {
@@ -354,7 +354,7 @@ var DefaultTagBytesNOptions TagBytesNOptions
 type TagBytesNOptions struct {
 	// Concurrency limits the maximum number of concurrent tag tasks.
 	// If less than or equal to 0, a default (currently 5) is used.
-	Concurrency int64
+	Concurrency int
 }
 
 // TagBytesN describes the contentBytes using the given mediaType, pushes it,
@@ -369,7 +369,7 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultTagConcurrency
 	}
-	eg, egCtx := syncutil.LimitGroup(ctx, int(opts.Concurrency))
+	eg, egCtx := syncutil.LimitGroup(ctx, opts.Concurrency)
 	if refPusher, ok := target.(registry.ReferencePusher); ok {
 		for _, reference := range references {
 			eg.Go(func(ref string) func() error {

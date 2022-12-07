@@ -34,7 +34,7 @@ import (
 )
 
 // defaultConcurrency is the default value of CopyGraphOptions.Concurrency.
-const defaultConcurrency = 3 // This value is consistent with dockerd and containerd.
+const defaultConcurrency int = 3 // This value is consistent with dockerd and containerd.
 
 // errSkipDesc signals copyNode() to stop processing a descriptor.
 var errSkipDesc = errors.New("skip descriptor")
@@ -89,7 +89,7 @@ var DefaultCopyGraphOptions CopyGraphOptions
 type CopyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent copy tasks.
 	// If less than or equal to 0, a default (currently 3) is used.
-	Concurrency int64
+	Concurrency int
 	// MaxMetadataBytes limits the maximum size of the metadata that can be
 	// cached in the memory.
 	// If less than or equal to 0, a default (currently 4 MiB) is used.
@@ -178,7 +178,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultConcurrency
 	}
-	limiter := semaphore.NewWeighted(opts.Concurrency)
+	limiter := semaphore.NewWeighted(int64(opts.Concurrency))
 	// track content status
 	tracker := status.NewTracker()
 
