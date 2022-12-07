@@ -18,6 +18,7 @@ package descriptor
 import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/internal/docker"
 )
 
 // Descriptor contains the minimun information to describe the disposition of
@@ -43,5 +44,17 @@ func FromOCI(desc ocispec.Descriptor) Descriptor {
 		MediaType: desc.MediaType,
 		Digest:    desc.Digest,
 		Size:      desc.Size,
+	}
+}
+
+func IsForeignLayer(desc ocispec.Descriptor) bool {
+	switch desc.MediaType {
+	case ocispec.MediaTypeImageLayerNonDistributable,
+		ocispec.MediaTypeImageLayerNonDistributableGzip,
+		ocispec.MediaTypeImageLayerNonDistributableZstd,
+		docker.MediaTypeForeignLayer:
+		return true
+	default:
+		return false
 	}
 }
