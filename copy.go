@@ -26,7 +26,6 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/internal/status"
@@ -259,9 +258,6 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
-		if descriptor.IsForeignLayer(desc) && errors.Is(err, errdef.ErrNotFound) {
-			return fmt.Errorf("the artifact with foreign layer %s is not supported: %w", desc.Digest, err)
-		}
 		return err
 	}
 	defer rc.Close()
