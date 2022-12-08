@@ -47,6 +47,7 @@ func FromOCI(desc ocispec.Descriptor) Descriptor {
 	}
 }
 
+// IsForeignLayer checks if a descriptor describes a foreign layer.
 func IsForeignLayer(desc ocispec.Descriptor) bool {
 	switch desc.MediaType {
 	case ocispec.MediaTypeImageLayerNonDistributable,

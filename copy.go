@@ -259,7 +259,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
-		if errors.Is(err, errdef.ErrNotFound) && descriptor.IsForeignLayer(desc) {
+		if descriptor.IsForeignLayer(desc) && errors.Is(err, errdef.ErrNotFound) {
 			return fmt.Errorf("the artifact with foreign layer %s is not supported: %w", desc.Digest, err)
 		}
 		return err
