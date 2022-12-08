@@ -32,7 +32,9 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
+	"oras.land/oras-go/v2/internal/docker"
 )
 
 func TestReadonlyStoreInterface(t *testing.T) {
@@ -425,7 +427,64 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 			t.Errorf("ReadOnlyStore.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
 	}
+}
 
+/*
+testdata/hello-world.tar contains:
+
+	blobs/
+		sha256/
+			2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54
+			f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4
+			faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af
+			feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412
+	index.json
+	manifest.json
+	oci-layout
+*/
+func TestReadOnlyStore_TarFS(t *testing.T) {
+	ctx := context.Background()
+	s, err := NewFromTar(ctx, "testdata/hello-world.tar")
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+
+	// test data in testdata/hello-world.tar
+	wantDesc := ocispec.Descriptor{
+		MediaType: docker.MediaTypeManifestList,
+		Size:      2561,
+		Digest:    "sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
+		Annotations: map[string]string{
+			"io.containerd.image.name": "docker.io/library/hello-world:latest",
+			ocispec.AnnotationRefName:  "latest",
+		},
+	}
+
+	// test Resolve
+	tag := "latest"
+	gotDesc, err := s.Resolve(ctx, tag)
+	if err != nil {
+		t.Fatal("ReadOnlyStore.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, wantDesc) {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, wantDesc)
+	}
+
+	// test Predecessors
+	gotSuccessors, err := content.Successors(ctx, s, gotDesc)
+	if err != nil {
+		t.Fatal("failed to get successors:", err)
+	}
+	wantPredecessors := []ocispec.Descriptor{gotDesc}
+	for i, successor := range gotSuccessors {
+		gotPredecessors, err := s.Predecessors(ctx, successor)
+		if err != nil {
+			t.Fatalf("ReadOnlyStore.Predecessor(%d) error = %v", i, err)
+		}
+		if !reflect.DeepEqual(gotPredecessors, wantPredecessors) {
+			t.Errorf("ReadOnlyStore.Predecessor(%d) = %v, want %v", i, gotPredecessors, wantPredecessors)
+		}
+	}
 }
 
 func TestReadOnlyStore_BadIndex(t *testing.T) {
@@ -570,5 +629,4 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 	if !reflect.DeepEqual(gotDesc, root) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
 	}
-
 }
