@@ -17,10 +17,12 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/status"
 	"oras.land/oras-go/v2/internal/syncutil"
@@ -74,6 +76,10 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 
 		successors, err := content.Successors(ctx, fetcher, desc)
 		if err != nil {
+			if errors.Is(err, errdef.ErrNotFound) {
+				// skip the node if it does not exist
+				return nil
+			}
 			return err
 		}
 		m.index(ctx, desc, successors)

@@ -26,6 +26,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/fs/tarfs"
 )
 
 // ReadOnlyStorage is a read-only CAS based on file system with the OCI-Image
@@ -40,6 +41,15 @@ func NewStorageFromFS(fsys fs.FS) *ReadOnlyStorage {
 	return &ReadOnlyStorage{
 		fsys: fsys,
 	}
+}
+
+// NewStorageFromTar creates a new read-only CAS from a tarball located at path.
+func NewStorageFromTar(path string) (*ReadOnlyStorage, error) {
+	tfs, err := tarfs.New(path)
+	if err != nil {
+		return nil, err
+	}
+	return NewStorageFromFS(tfs), nil
 }
 
 // Fetch fetches the content identified by the descriptor.

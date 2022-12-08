@@ -27,6 +27,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/fs/tarfs"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/resolver"
 )
@@ -58,6 +59,15 @@ func NewFromFS(ctx context.Context, fsys fs.FS) (*ReadOnlyStore, error) {
 	}
 
 	return store, nil
+}
+
+// NewFromTar creates a new read-only OCI store from a tarball located at path.
+func NewFromTar(ctx context.Context, path string) (*ReadOnlyStore, error) {
+	tfs, err := tarfs.New(path)
+	if err != nil {
+		return nil, err
+	}
+	return NewFromFS(ctx, tfs)
 }
 
 // Fetch fetches the content identified by the descriptor.
