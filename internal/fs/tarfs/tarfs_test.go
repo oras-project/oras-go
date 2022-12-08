@@ -25,8 +25,9 @@ import (
 	"oras.land/oras-go/v2/errdef"
 )
 
-/**
+/*
 testdata/test.tar contains:
+
 	foobar
 	foobar_link
 	foobar_symlink
@@ -35,7 +36,6 @@ testdata/test.tar contains:
 		subdir/
 			world
 */
-
 func TestTarFS_Open_Success(t *testing.T) {
 	testFiles := map[string][]byte{
 		"foobar":           []byte("foobar"),
