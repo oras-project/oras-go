@@ -43,7 +43,8 @@ func NewStorageFromFS(fsys fs.FS) *ReadOnlyStorage {
 	}
 }
 
-// NewStorageFromTar creates a new read-only CAS from a tarball located at path.
+// NewStorageFromTar creates a new read-only CAS from a tar archive located at
+// path.
 func NewStorageFromTar(path string) (*ReadOnlyStorage, error) {
 	tfs, err := tarfs.New(path)
 	if err != nil {

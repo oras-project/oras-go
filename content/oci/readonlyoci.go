@@ -61,7 +61,8 @@ func NewFromFS(ctx context.Context, fsys fs.FS) (*ReadOnlyStore, error) {
 	return store, nil
 }
 
-// NewFromTar creates a new read-only OCI store from a tarball located at path.
+// NewFromTar creates a new read-only OCI store from a tar archive located at
+// path.
 func NewFromTar(ctx context.Context, path string) (*ReadOnlyStore, error) {
 	tfs, err := tarfs.New(path)
 	if err != nil {

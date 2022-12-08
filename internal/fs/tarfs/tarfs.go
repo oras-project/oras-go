@@ -17,7 +17,6 @@ package tarfs
 
 import (
 	"archive/tar"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -27,22 +26,22 @@ import (
 	"oras.land/oras-go/v2/errdef"
 )
 
-// blockSize is the size of each block in a tarball.
+// blockSize is the size of each block in a tar archive.
 const blockSize int64 = 512
 
-// TarFS represents a file system (an fs.FS) based on a tarball.
+// TarFS represents a file system (an fs.FS) based on a tar archive.
 type TarFS struct {
 	path    string
 	entries map[string]*entry
 }
 
-// entry represents an entry in a tarball.
+// entry represents an entry in a tar archive.
 type entry struct {
 	header *tar.Header
 	pos    int64
 }
 
-// New returns a file system (an fs.FS) for a tarball located at path.
+// New returns a file system (an fs.FS) for a tar archive located at path.
 func New(path string) (*TarFS, error) {
 	tarfs := &TarFS{
 		path:    path,
@@ -62,35 +61,33 @@ func New(path string) (*TarFS, error) {
 // Open should reject attempts to open names that do not satisfy
 // ValidPath(name), returning a *PathError with Err set to
 // ErrInvalid or ErrNotExist.
-func (tfs *TarFS) Open(name string) (fs.File, error) {
+func (tfs *TarFS) Open(name string) (file fs.File, openErr error) {
 	entry, err := tfs.getEntry(name)
 	if err != nil {
 		return nil, err
 	}
-	tarball, err := os.Open(tfs.path)
+	tarFile, err := os.Open(tfs.path)
 	if err != nil {
 		return nil, err
 	}
-	defer tarball.Close()
+	defer func() {
+		if openErr != nil {
+			tarFile.Close()
+		}
+	}()
 
-	if _, err := tarball.Seek(entry.pos, io.SeekStart); err != nil {
+	if _, err := tarFile.Seek(entry.pos, io.SeekStart); err != nil {
 		return nil, err
 	}
-	tr := tar.NewReader(tarball)
-	_, err = tr.Next()
-	if err != nil {
+	tr := tar.NewReader(tarFile)
+	if _, err := tr.Next(); err != nil {
 		return nil, err
 	}
-
-	data, err := io.ReadAll(tr)
-	if err != nil {
-		return nil, err
-	}
-	f := &entryFile{
+	return &entryFile{
 		header: entry.header,
-		r:      bytes.NewReader(data),
-	}
-	return f, nil
+		reader: tr,
+		closer: tarFile,
+	}, nil
 }
 
 // Stat returns a FileInfo describing the file.
@@ -101,36 +98,6 @@ func (tfs *TarFS) Stat(name string) (fs.FileInfo, error) {
 		return nil, err
 	}
 	return entry.header.FileInfo(), nil
-}
-
-// indexEntries index entries in the tarball.
-func (tfs *TarFS) indexEntries() error {
-	tarball, err := os.Open(tfs.path)
-	if err != nil {
-		return err
-	}
-	defer tarball.Close()
-
-	tr := tar.NewReader(tarball)
-	for {
-		header, err := tr.Next()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return err
-		}
-		pos, err := tarball.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return err
-		}
-		tfs.entries[header.Name] = &entry{
-			header: header,
-			pos:    pos - blockSize,
-		}
-	}
-
-	return nil
 }
 
 // getEntry returns the named entry.
@@ -150,10 +117,41 @@ func (tfs *TarFS) getEntry(name string) (*entry, error) {
 	return entry, nil
 }
 
-// entryFile represents an entryFile in a tarball and implements `fs.File`.
+// indexEntries index entries in the tar archive.
+func (tfs *TarFS) indexEntries() error {
+	tarFile, err := os.Open(tfs.path)
+	if err != nil {
+		return err
+	}
+	defer tarFile.Close()
+
+	tr := tar.NewReader(tarFile)
+	for {
+		header, err := tr.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return err
+		}
+		pos, err := tarFile.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return err
+		}
+		tfs.entries[header.Name] = &entry{
+			header: header,
+			pos:    pos - blockSize,
+		}
+	}
+
+	return nil
+}
+
+// entryFile represents an entryFile in a tar archive and implements `fs.File`.
 type entryFile struct {
 	header *tar.Header
-	r      io.Reader
+	reader io.Reader
+	closer io.Closer
 }
 
 // Stat returns a fs.FileInfo describing e.
@@ -163,10 +161,10 @@ func (e *entryFile) Stat() (fs.FileInfo, error) {
 
 // Read reads the content of e.
 func (e *entryFile) Read(b []byte) (int, error) {
-	return e.r.Read(b)
+	return e.reader.Read(b)
 }
 
 // Close closes e.
 func (e *entryFile) Close() error {
-	return nil
+	return e.closer.Close()
 }
