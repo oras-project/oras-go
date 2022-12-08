@@ -1607,3 +1607,103 @@ func TestCopyGraph_ForeignLayers(t *testing.T) {
 		t.Errorf("count(dst.Exists()) = %v, want %v", got, want)
 	}
 }
+
+func TestCopyGraph_ForeignLayers_Mixed(t *testing.T) {
+	src := cas.NewMemory()
+	dst := cas.NewMemory()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		desc := ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		}
+		if mediaType == ocispec.MediaTypeImageLayerNonDistributable {
+			desc.URLs = append(desc.URLs, "http://127.0.0.1/dummy")
+			blob = nil
+		}
+		descs = append(descs, desc)
+		blobs = append(blobs, blob)
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config"))               // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayerNonDistributable, []byte("hello")) // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))                 // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                   // Blob 3
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))                   // Blob 4
+	generateManifest(descs[0], descs[1:5]...)                                // Blob 5
+
+	ctx := context.Background()
+	for i := range blobs {
+		if blobs[i] == nil {
+			continue
+		}
+		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// test copy
+	srcTracker := &storageTracker{Storage: src}
+	dstTracker := &storageTracker{Storage: dst}
+	root := descs[len(descs)-1]
+	if err := oras.CopyGraph(ctx, srcTracker, dstTracker, root, oras.CopyGraphOptions{
+		Concurrency: 1,
+	}); err != nil {
+		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
+	}
+
+	// verify contents
+	contents := dst.Map()
+	if got, want := len(contents), len(blobs)-1; got != want {
+		t.Errorf("len(dst) = %v, wantErr %v", got, want)
+	}
+	for i := range blobs {
+		if blobs[i] == nil {
+			continue
+		}
+		got, err := content.FetchAll(ctx, dst, descs[i])
+		if err != nil {
+			t.Errorf("content[%d] error = %v, wantErr %v", i, err, false)
+			continue
+		}
+		if want := blobs[i]; !bytes.Equal(got, want) {
+			t.Errorf("content[%d] = %v, want %v", i, got, want)
+		}
+	}
+
+	// verify API counts
+	if got, want := srcTracker.fetch, int64(len(blobs)-1); got != want {
+		t.Errorf("count(src.Fetch()) = %v, want %v", got, want)
+	}
+	if got, want := srcTracker.push, int64(0); got != want {
+		t.Errorf("count(src.Push()) = %v, want %v", got, want)
+	}
+	if got, want := srcTracker.exists, int64(0); got != want {
+		t.Errorf("count(src.Exists()) = %v, want %v", got, want)
+	}
+	if got, want := dstTracker.fetch, int64(0); got != want {
+		t.Errorf("count(dst.Fetch()) = %v, want %v", got, want)
+	}
+	if got, want := dstTracker.push, int64(len(blobs)-1); got != want {
+		t.Errorf("count(dst.Push()) = %v, want %v", got, want)
+	}
+	if got, want := dstTracker.exists, int64(len(blobs)-1); got != want {
+		t.Errorf("count(dst.Exists()) = %v, want %v", got, want)
+	}
+}
