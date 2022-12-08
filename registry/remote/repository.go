@@ -49,7 +49,7 @@ import (
 // dockerContentDigestHeader - The Docker-Content-Digest header, if present
 // on the response, returns the canonical digest of the uploaded blob.
 // See https://docs.docker.com/registry/spec/api/#digest-header
-// See https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pull
+// See https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pull
 const dockerContentDigestHeader = "Docker-Content-Digest"
 
 // Client is an interface for a HTTP client.
@@ -303,7 +303,7 @@ func (r *Repository) ParseReference(reference string) (registry.Reference, error
 // tag specified by `last`. Otherwise, the response starts from the top
 // of the Tags list.
 // References:
-// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#content-discovery
+// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#content-discovery
 // - https://docs.docker.com/registry/spec/api/#tags
 func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
 	ctx = registryutil.WithScopeHint(ctx, r.Reference, auth.ActionPull)
@@ -663,7 +663,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 // References:
 // - https://docs.docker.com/registry/spec/api/#pushing-an-image
 // - https://docs.docker.com/registry/spec/api/#initiate-blob-upload
-// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-a-blob-monolithically
+// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	// start an upload
 	// pushing usually requires both pull and push actions.
@@ -964,7 +964,7 @@ func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.D
 
 // indexReferrersForDelete indexes referrers for image or artifact manifest with
 // the subject field on manifest delete.
-// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#deleting-manifests
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
 func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	var manifest struct {
 		Subject *ocispec.Descriptor `json:"subject"`
@@ -1174,7 +1174,7 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 
 // indexReferrersForPush indexes referrers for image or artifact manifest with
 // the subject field on manifest push.
-// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pushing-manifests-with-subject
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
 func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	var subject ocispec.Descriptor
 	switch desc.MediaType {
