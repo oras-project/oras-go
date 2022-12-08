@@ -84,9 +84,9 @@ func (tfs *TarFS) Open(name string) (file fs.File, openErr error) {
 		return nil, err
 	}
 	return &entryFile{
+		Reader: tr,
+		Closer: tarFile,
 		header: entry.header,
-		reader: tr,
-		closer: tarFile,
 	}, nil
 }
 
@@ -149,22 +149,12 @@ func (tfs *TarFS) indexEntries() error {
 
 // entryFile represents an entryFile in a tar archive and implements `fs.File`.
 type entryFile struct {
+	io.Reader
+	io.Closer
 	header *tar.Header
-	reader io.Reader
-	closer io.Closer
 }
 
 // Stat returns a fs.FileInfo describing e.
 func (e *entryFile) Stat() (fs.FileInfo, error) {
 	return e.header.FileInfo(), nil
-}
-
-// Read reads the content of e.
-func (e *entryFile) Read(b []byte) (int, error) {
-	return e.reader.Read(b)
-}
-
-// Close closes e.
-func (e *entryFile) Close() error {
-	return e.closer.Close()
 }
