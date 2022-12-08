@@ -60,7 +60,7 @@ type Repository interface {
 	// However, not all registries supports pagination or conforms the
 	// specification.
 	// References:
-	// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#content-discovery
+	// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#content-discovery
 	// - https://docs.docker.com/registry/spec/api/#tags
 	// See also `Tags()` in this package.
 	Tags(ctx context.Context, last string, fn func(tags []string) error) error

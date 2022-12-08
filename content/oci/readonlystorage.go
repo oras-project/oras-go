@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"strings"
+	"path"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -30,7 +30,7 @@ import (
 
 // ReadOnlyStorage is a read-only CAS based on file system with the OCI-Image
 // layout.
-// Reference: https://github.com/opencontainers/image-spec/blob/master/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md
 type ReadOnlyStorage struct {
 	fsys fs.FS
 }
@@ -64,20 +64,14 @@ func (s *ReadOnlyStorage) Fetch(_ context.Context, target ocispec.Descriptor) (i
 func (s *ReadOnlyStorage) Exists(_ context.Context, target ocispec.Descriptor) (bool, error) {
 	path, err := blobPath(target.Digest)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrInvalidDigest)
 	}
 
-	fp, err := s.fsys.Open(path)
+	_, err = fs.Stat(s.fsys, path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
 		}
-		return false, err
-	}
-	defer fp.Close()
-
-	_, err = fp.Stat()
-	if err != nil {
 		return false, err
 	}
 
@@ -89,11 +83,6 @@ func blobPath(dgst digest.Digest) (string, error) {
 	if err := dgst.Validate(); err != nil {
 		return "", fmt.Errorf("cannot calculate blob path from invalid digest %s: %v", dgst.String(), err)
 	}
-
-	// NOTE: DirFS does not support opening paths with Windows separators
-	return strings.Join([]string{
-		"blobs",
-		dgst.Algorithm().String(),
-		dgst.Encoded()},
-		"/"), nil
+	// NOTE: Some FSs (e.g. DirFS) do not support opening paths with Windows separators
+	return path.Join("blobs", dgst.Algorithm().String(), dgst.Encoded()), nil
 }

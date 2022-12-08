@@ -14,7 +14,7 @@ limitations under the License.
 */
 
 // Package oci provides access to an OCI content store.
-// Reference: https://github.com/opencontainers/image-spec/blob/main/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md
 package oci
 
 import (
@@ -33,7 +33,7 @@ import (
 
 // ReadOnlyStore implements `oras.ReadonlyTarget`, and represents a read-only
 // content store based on file system with the OCI-Image layout.
-// Reference: https://github.com/opencontainers/image-spec/blob/master/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md
 type ReadOnlyStore struct {
 	fsys     fs.FS
 	storage  content.ReadOnlyStorage

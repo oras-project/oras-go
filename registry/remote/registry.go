@@ -78,7 +78,7 @@ func (r *Registry) client() Client {
 // Ping can be used to check authentication when an auth client is configured.
 // References:
 // - https://docs.docker.com/registry/spec/api/#base
-// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#api
+// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#api
 func (r *Registry) Ping(ctx context.Context) error {
 	url := buildRegistryBaseURL(r.PlainHTTP, r.Reference)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
