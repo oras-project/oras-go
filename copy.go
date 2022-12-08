@@ -26,6 +26,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
+	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/internal/status"
@@ -216,6 +217,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		if err != nil {
 			return err
 		}
+		successors = removeForeignLayers(successors)
 
 		// handle leaf nodes
 		if len(successors) == 0 {
@@ -401,4 +403,18 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 	}
 
 	return nil
+}
+
+// removeForeignLayers in-place removes all foreign layers in the given slice.
+func removeForeignLayers(descs []ocispec.Descriptor) []ocispec.Descriptor {
+	var j int
+	for i, desc := range descs {
+		if !descriptor.IsForeignLayer(desc) {
+			if i != j {
+				descs[j] = desc
+			}
+			j++
+		}
+	}
+	return descs[:j]
 }
