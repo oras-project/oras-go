@@ -436,7 +436,7 @@ func TestReadOnlyStore_TarFS(t *testing.T) {
 		t.Fatal("New() error =", err)
 	}
 
-	// test data in testdata/hello-world/tar
+	// test data in testdata/hello-world.tar
 	wantDesc := ocispec.Descriptor{
 		MediaType: docker.MediaTypeManifestList,
 		Size:      2561,

@@ -26,7 +26,7 @@ import (
 )
 
 /**
-test.tar contains:
+testdata/test.tar contains:
 	foobar
 	foobar_link
 	foobar_symlink
