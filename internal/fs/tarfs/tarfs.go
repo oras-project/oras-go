@@ -32,22 +32,75 @@ const blockSize int64 = 512
 
 // TarFS represents a file system (an fs.FS) based on a tarball.
 type TarFS struct {
-	// path is the path to the tarball.
-	path string
-	// entries is the map of entry names to their positions.
-	entries map[string]int64
+	path    string
+	entries map[string]*entry
+}
+
+// entry represents an entry in a tarball.
+type entry struct {
+	header *tar.Header
+	pos    int64
 }
 
 // New returns a file system (an fs.FS) for a tarball located at path.
 func New(path string) (*TarFS, error) {
 	tarfs := &TarFS{
 		path:    path,
-		entries: make(map[string]int64),
+		entries: make(map[string]*entry),
 	}
 	if err := tarfs.indexEntries(); err != nil {
 		return nil, err
 	}
 	return tarfs, nil
+}
+
+// Open opens the named file.
+// When Open returns an error, it should be of type *PathError
+// with the Op field set to "open", the Path field set to name,
+// and the Err field describing the problem.
+//
+// Open should reject attempts to open names that do not satisfy
+// ValidPath(name), returning a *PathError with Err set to
+// ErrInvalid or ErrNotExist.
+func (tfs *TarFS) Open(name string) (fs.File, error) {
+	entry, err := tfs.getEntry(name)
+	if err != nil {
+		return nil, err
+	}
+	tarball, err := os.Open(tfs.path)
+	if err != nil {
+		return nil, err
+	}
+	defer tarball.Close()
+
+	if _, err := tarball.Seek(entry.pos, io.SeekStart); err != nil {
+		return nil, err
+	}
+	tr := tar.NewReader(tarball)
+	_, err = tr.Next()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := io.ReadAll(tr)
+	if err != nil {
+		return nil, err
+	}
+	f := &entryFile{
+		header: entry.header,
+		r:      bytes.NewReader(data),
+	}
+	return f, nil
+}
+
+// Stat returns a FileInfo describing the file.
+// If there is an error, it should be of type *PathError.
+func (tfs *TarFS) Stat(name string) (fs.FileInfo, error) {
+	entry, err := tfs.getEntry(name)
+	if err != nil {
+		return nil, err
+	}
+	return entry.header.FileInfo(), nil
 }
 
 // indexEntries index entries in the tarball.
@@ -71,77 +124,49 @@ func (tfs *TarFS) indexEntries() error {
 		if err != nil {
 			return err
 		}
-		tfs.entries[header.Name] = pos - blockSize
+		tfs.entries[header.Name] = &entry{
+			header: header,
+			pos:    pos - blockSize,
+		}
 	}
 
 	return nil
 }
 
-// Open opens the named file.
-// When Open returns an error, it should be of type *PathError
-// with the Op field set to "open", the Path field set to name,
-// and the Err field describing the problem.
-//
-// Open should reject attempts to open names that do not satisfy
-// ValidPath(name), returning a *PathError with Err set to
-// ErrInvalid or ErrNotExist.
-func (tfs *TarFS) Open(name string) (fs.File, error) {
+// getEntry returns the named entry.
+func (tfs *TarFS) getEntry(name string) (*entry, error) {
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Path: name, Err: fs.ErrInvalid}
 	}
-	pos, ok := tfs.entries[name]
+	entry, ok := tfs.entries[name]
 	if !ok {
 		return nil, &fs.PathError{Path: name, Err: fs.ErrNotExist}
 	}
-
-	tarball, err := os.Open(tfs.path)
-	if err != nil {
-		return nil, err
-	}
-	defer tarball.Close()
-
-	if _, err := tarball.Seek(pos, io.SeekStart); err != nil {
-		return nil, err
-	}
-	tr := tar.NewReader(tarball)
-	header, err := tr.Next()
-	if err != nil {
-		return nil, err
-	}
-	if header.Typeflag != tar.TypeReg {
+	if entry.header.Typeflag != tar.TypeReg {
 		// support regular files only
-		return nil, fmt.Errorf("failed to open %s: type flag %c is not supported: %w",
-			name, header.Typeflag, errdef.ErrUnsupported)
-	}
-
-	data, err := io.ReadAll(tr)
-	if err != nil {
-		return nil, err
-	}
-	entry := &entry{
-		header: header,
-		r:      bytes.NewReader(data),
+		return nil, fmt.Errorf("%s: type flag %c is not supported: %w",
+			name, entry.header.Typeflag, errdef.ErrUnsupported)
 	}
 	return entry, nil
 }
 
-// entry represents an entry in a tarball.
-type entry struct {
+// entryFile represents an entryFile in a tarball and implements `fs.File`.
+type entryFile struct {
 	header *tar.Header
 	r      io.Reader
 }
 
 // Stat returns a fs.FileInfo describing e.
-func (e *entry) Stat() (fs.FileInfo, error) {
+func (e *entryFile) Stat() (fs.FileInfo, error) {
 	return e.header.FileInfo(), nil
 }
 
 // Read reads the content of e.
-func (e *entry) Read(b []byte) (int, error) {
+func (e *entryFile) Read(b []byte) (int, error) {
 	return e.r.Read(b)
 }
 
 // Close closes e.
-func (e *entry) Close() error {
+func (e *entryFile) Close() error {
 	return nil
 }
