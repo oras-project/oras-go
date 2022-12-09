@@ -217,6 +217,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		if err != nil {
 			return err
 		}
+		successors = removeForeignLayers(successors)
 
 		// handle leaf nodes
 		if len(successors) == 0 {
@@ -259,9 +260,6 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
-		if descriptor.IsForeignLayer(desc) && errors.Is(err, errdef.ErrNotFound) {
-			return fmt.Errorf("the artifact with foreign layer %s is not supported: %w", desc.Digest, err)
-		}
 		return err
 	}
 	defer rc.Close()
@@ -405,4 +403,18 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 	}
 
 	return nil
+}
+
+// removeForeignLayers in-place removes all foreign layers in the given slice.
+func removeForeignLayers(descs []ocispec.Descriptor) []ocispec.Descriptor {
+	var j int
+	for i, desc := range descs {
+		if !descriptor.IsForeignLayer(desc) {
+			if i != j {
+				descs[j] = desc
+			}
+			j++
+		}
+	}
+	return descs[:j]
 }
