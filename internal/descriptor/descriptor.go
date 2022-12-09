@@ -59,3 +59,17 @@ func IsForeignLayer(desc ocispec.Descriptor) bool {
 		return false
 	}
 }
+
+// IsManifest checks if a descriptor describes a manifest.
+func IsManifest(desc ocispec.Descriptor) bool {
+	switch desc.MediaType {
+	case docker.MediaTypeManifest,
+		docker.MediaTypeManifestList,
+		ocispec.MediaTypeImageManifest,
+		ocispec.MediaTypeImageIndex,
+		ocispec.MediaTypeArtifactManifest:
+		return true
+	default:
+		return false
+	}
+}

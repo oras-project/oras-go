@@ -20,6 +20,7 @@ package oci
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -30,6 +31,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/resolver"
 )
@@ -99,8 +101,13 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 	if err := s.storage.Push(ctx, expected, reader); err != nil {
 		return err
 	}
-
-	return s.graph.Index(ctx, s.storage, expected)
+	if err := s.graph.Index(ctx, s.storage, expected); err != nil {
+		return err
+	}
+	if descriptor.IsManifest(expected) {
+		return s.tag(ctx, expected, expected.Digest.String())
+	}
+	return nil
 }
 
 // Exists returns true if the described content exists.
@@ -129,11 +136,14 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		desc.Annotations = map[string]string{}
 	}
 	desc.Annotations[ocispec.AnnotationRefName] = reference
+	return s.tag(ctx, desc, reference)
+}
 
+// tag tags a descriptor with a reference string.
+func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	if err := s.resolver.Tag(ctx, desc, reference); err != nil {
 		return err
 	}
-
 	if s.AutoSaveIndex {
 		return s.SaveIndex()
 	}
@@ -240,22 +250,56 @@ func validateReference(ref string) error {
 }
 
 // processIndex processes index.
-func processIndex(ctx context.Context, index ocispec.Index, fetcher content.Fetcher, resolver content.Tagger, graph *graph.Memory) error {
+func processIndex(ctx context.Context, index ocispec.Index, fetcher content.Fetcher, resolver content.TagResolver, graph *graph.Memory) error {
+	var tagged []ocispec.Descriptor
+	// for _, desc := range index.Manifests {
+	// 	if err := resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
+	// 		return err
+	// 	}
+	// 	if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
+	// 		if err := resolver.Tag(ctx, desc, ref); err != nil {
+	// 			return err
+	// 		}
+	// 	}
+
+	// 	// TODO: index no-tag manifest first
+	// 	// traverse the whole DAG and index predecessors for all the nodes.
+	// 	if err := graph.IndexAll(ctx, fetcher, desc); err != nil {
+	// 		return err
+	// 	}
+	// }
+
 	for _, desc := range index.Manifests {
+		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
+			// save tagged descriptors for later
+			tagged = append(tagged, desc)
+			continue
+		}
+
+		// first, process descriptors that are not tagged
 		if err := resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
 			return err
 		}
-		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
-			if err := resolver.Tag(ctx, desc, ref); err != nil {
-				return err
-			}
-		}
-
-		// traverse the whole DAG and index predecessors for all the nodes.
 		if err := graph.IndexAll(ctx, fetcher, desc); err != nil {
 			return err
 		}
 	}
+	for _, desc := range tagged {
+		// TODO: avoid tagging multiple times?
+		if _, err := resolver.Resolve(ctx, desc.Digest.String()); errors.Is(err, errdef.ErrNotFound) {
+			if err := resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
+				return err
+			}
+		}
+		ref := desc.Annotations[ocispec.AnnotationRefName]
+		if err := resolver.Tag(ctx, desc, ref); err != nil {
+			return err
+		}
+		if err := graph.IndexAll(ctx, fetcher, desc); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
