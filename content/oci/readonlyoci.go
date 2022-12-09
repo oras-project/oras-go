@@ -110,10 +110,7 @@ func (s *ReadOnlyStore) validateOCILayoutFile() error {
 	if err != nil {
 		return fmt.Errorf("failed to decode OCI layout file: %w", err)
 	}
-	if layout.Version != ocispec.ImageLayoutVersion {
-		return errdef.ErrUnsupportedVersion
-	}
-	return nil
+	return validateOCILayout(*layout)
 }
 
 // loadIndex reads the index.json from s.fsys.
@@ -128,18 +125,5 @@ func (s *ReadOnlyStore) loadIndex(ctx context.Context) error {
 	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
-	for _, desc := range index.Manifests {
-		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
-			if err = s.resolver.Tag(ctx, desc, ref); err != nil {
-				return err
-			}
-		}
-
-		// traverse the whole DAG and index predecessors for all the nodes.
-		if err := s.graph.IndexAll(ctx, s.storage, desc); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return processIndex(ctx, index, s.storage, s.resolver, s.graph)
 }

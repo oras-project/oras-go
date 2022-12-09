@@ -79,11 +79,9 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	if err := ensureDir(root); err != nil {
 		return nil, err
 	}
-
 	if err := store.ensureOCILayoutFile(); err != nil {
 		return nil, err
 	}
-
 	if err := store.loadIndex(ctx); err != nil {
 		return nil, err
 	}
@@ -184,11 +182,7 @@ func (s *Store) ensureOCILayoutFile() error {
 	if err != nil {
 		return fmt.Errorf("failed to decode OCI layout file: %w", err)
 	}
-	if layout.Version != ocispec.ImageLayoutVersion {
-		return errdef.ErrUnsupportedVersion
-	}
-
-	return nil
+	return validateOCILayout(*layout)
 }
 
 // loadIndex reads the index.json from the file system.
@@ -210,21 +204,7 @@ func (s *Store) loadIndex(ctx context.Context) error {
 	if err := json.NewDecoder(indexFile).Decode(&s.index); err != nil {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
-
-	for _, desc := range s.index.Manifests {
-		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
-			if err = s.resolver.Tag(ctx, desc, ref); err != nil {
-				return err
-			}
-		}
-
-		// traverse the whole DAG and index predecessors for all the nodes.
-		if err := s.graph.IndexAll(ctx, s.storage, desc); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return processIndex(ctx, *s.index, s.storage, s.resolver, s.graph)
 }
 
 // SaveIndex writes the `index.json` file to the file system.
@@ -256,5 +236,33 @@ func validateReference(ref string) error {
 	}
 
 	// TODO: may enforce more strict validation if needed.
+	return nil
+}
+
+// processIndex processes index.
+func processIndex(ctx context.Context, index ocispec.Index, fetcher content.Fetcher, resolver content.Tagger, graph *graph.Memory) error {
+	for _, desc := range index.Manifests {
+		if err := resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
+			return err
+		}
+		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
+			if err := resolver.Tag(ctx, desc, ref); err != nil {
+				return err
+			}
+		}
+
+		// traverse the whole DAG and index predecessors for all the nodes.
+		if err := graph.IndexAll(ctx, fetcher, desc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateOCILayout validates layout.
+func validateOCILayout(layout ocispec.ImageLayout) error {
+	if layout.Version != ocispec.ImageLayoutVersion {
+		return errdef.ErrUnsupportedVersion
+	}
 	return nil
 }
