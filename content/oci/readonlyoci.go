@@ -117,12 +117,20 @@ func (s *ReadOnlyStore) validateOCILayoutFile() error {
 	}
 	defer layoutFile.Close()
 
-	var layout *ocispec.ImageLayout
+	var layout ocispec.ImageLayout
 	err = json.NewDecoder(layoutFile).Decode(&layout)
 	if err != nil {
 		return fmt.Errorf("failed to decode OCI layout file: %w", err)
 	}
-	return validateOCILayout(*layout)
+	return validateOCILayout(&layout)
+}
+
+// validateOCILayout validates layout.
+func validateOCILayout(layout *ocispec.ImageLayout) error {
+	if layout.Version != ocispec.ImageLayoutVersion {
+		return errdef.ErrUnsupportedVersion
+	}
+	return nil
 }
 
 // loadIndexFile reads index.json from s.fsys.
@@ -137,11 +145,11 @@ func (s *ReadOnlyStore) loadIndexFile(ctx context.Context) error {
 	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
-	return loadIndex(ctx, index, s.storage, s.tagResolver, s.graph)
+	return loadIndex(ctx, &index, s.storage, s.tagResolver, s.graph)
 }
 
 // loadIndex loads index into memory.
-func loadIndex(ctx context.Context, index ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.Memory) error {
+func loadIndex(ctx context.Context, index *ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.Memory) error {
 	for _, desc := range index.Manifests {
 		if err := tagger.Tag(ctx, desc, desc.Digest.String()); err != nil {
 			return err
@@ -155,14 +163,6 @@ func loadIndex(ctx context.Context, index ocispec.Index, fetcher content.Fetcher
 		if err := graph.IndexAll(ctx, fetcher, plain); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-// validateOCILayout validates layout.
-func validateOCILayout(layout ocispec.ImageLayout) error {
-	if layout.Version != ocispec.ImageLayoutVersion {
-		return errdef.ErrUnsupportedVersion
 	}
 	return nil
 }

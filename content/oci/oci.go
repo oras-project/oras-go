@@ -203,12 +203,12 @@ func (s *Store) ensureOCILayoutFile() error {
 	}
 	defer layoutFile.Close()
 
-	var layout *ocispec.ImageLayout
+	var layout ocispec.ImageLayout
 	err = json.NewDecoder(layoutFile).Decode(&layout)
 	if err != nil {
 		return fmt.Errorf("failed to decode OCI layout file: %w", err)
 	}
-	return validateOCILayout(*layout)
+	return validateOCILayout(&layout)
 }
 
 // loadIndexFile reads index.json from the file system.
@@ -227,10 +227,12 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 	}
 	defer indexFile.Close()
 
-	if err := json.NewDecoder(indexFile).Decode(&s.index); err != nil {
+	var index ocispec.Index
+	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
-	return loadIndex(ctx, *s.index, s.storage, s.tagResolver, s.graph)
+	s.index = &index
+	return loadIndex(ctx, s.index, s.storage, s.tagResolver, s.graph)
 }
 
 // SaveIndex writes the `index.json` file to the file system.
