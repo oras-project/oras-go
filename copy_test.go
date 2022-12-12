@@ -1353,7 +1353,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		}
 	}
 
-	// test customized find successors
+	// test successor descriptors not obtained from src
 	root = descs[3]
 	opts = oras.DefaultCopyGraphOptions
 	opts.FindSuccessors = func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
