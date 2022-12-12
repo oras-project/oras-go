@@ -26,6 +26,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -55,11 +56,12 @@ type Store struct {
 	AutoSaveIndex bool
 	root          string
 	indexPath     string
+	index         *ocispec.Index
+	indexLock     sync.Mutex
 
 	storage  content.Storage
 	resolver *resolver.Memory
 	graph    *graph.Memory
-	index    *ocispec.Index
 }
 
 // New creates a new OCI store with context.Background().
@@ -237,6 +239,9 @@ func (s *Store) loadIndex(ctx context.Context) error {
 // If AutoSaveIndex is set to false, it's the caller's responsibility
 // to manually call this method when needed.
 func (s *Store) SaveIndex() error {
+	s.indexLock.Lock()
+	defer s.indexLock.Unlock()
+
 	var manifests []ocispec.Descriptor
 	refMap := s.resolver.Map()
 	for ref, desc := range refMap {
