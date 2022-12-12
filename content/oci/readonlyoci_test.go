@@ -32,7 +32,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/internal/docker"
 )
@@ -153,6 +152,15 @@ func TestReadOnlyStore(t *testing.T) {
 		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
 	}
 	if want := descs[3]; !reflect.DeepEqual(gotDesc, want) {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
+	}
+
+	// test resolve blob by digest
+	gotDesc, err = s.Resolve(ctx, descs[0].Digest.String())
+	if err != nil {
+		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
+	}
+	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
@@ -330,10 +338,10 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 	// test resolving blob by digest
 	gotDesc, err = readonlyS.Resolve(ctx, descs[0].Digest.String())
 	if err != nil {
-		t.Fatal("Store: Resolve() error =", err)
+		t.Fatal("ReadOnlyStore: Resolve() error =", err)
 	}
 	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, want)
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
 	// test fetching blobs
@@ -397,10 +405,10 @@ testdata/hello-world.tar contains:
 
 	blobs/
 		sha256/
-			2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54
-			f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4
-			faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af
-			feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412
+			2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54 // image layer
+			f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4 // image manifest
+			faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af // manifest list
+			feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412 // config
 	index.json
 	manifest.json
 	oci-layout
@@ -413,44 +421,70 @@ func TestReadOnlyStore_TarFS(t *testing.T) {
 	}
 
 	// test data in testdata/hello-world.tar
-	wantDesc := ocispec.Descriptor{
-		MediaType: docker.MediaTypeManifestList,
-		Size:      2561,
-		Digest:    "sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
+	descs := []ocispec.Descriptor{
+		// desc 0: config
+		{
+			MediaType: "application/vnd.docker.container.image.v1+json",
+			Size:      1469,
+			Digest:    "sha256:feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412",
+		},
+		// desc 1: layer
+		{
+			MediaType: "application/vnd.docker.image.rootfs.diff.tar.gzip",
+			Size:      2479,
+			Digest:    "sha256:2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54",
+		},
+		// desc 2: image manifest
+		{
+			MediaType: "application/vnd.docker.distribution.manifest.v2+json",
+			Digest:    "sha256:f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4",
+			Size:      525,
+			Platform: &ocispec.Platform{
+				Architecture: "amd64",
+				OS:           "linux",
+			},
+		},
+		// desc 3: manifest list
+		{
+			MediaType: docker.MediaTypeManifestList,
+			Size:      2561,
+			Digest:    "sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
+		},
 	}
 
 	// test Resolve by tag
-	tag := "latest"
-	gotDesc, err := s.Resolve(ctx, tag)
+	for _, desc := range descs {
+		gotDesc, err := s.Resolve(ctx, desc.Digest.String())
+		if err != nil {
+			t.Fatal("ReadOnlyStore: Resolve() error =", err)
+		}
+		if want := desc; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+			t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
+		}
+	}
+	// test Resolve by tag
+	gotDesc, err := s.Resolve(ctx, "latest")
 	if err != nil {
-		t.Fatal("ReadOnlyStore.Resolve() error =", err)
+		t.Fatal("ReadOnlyStore: Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, wantDesc) {
-		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, wantDesc)
-	}
-
-	// test Resolve by digest
-	gotDesc, err = s.Resolve(ctx, "sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af")
-	if err != nil {
-		t.Fatal("ReadOnlyStore.Resolve() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, wantDesc) {
-		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, wantDesc)
+	if want := descs[3]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
 	// test Predecessors
-	gotSuccessors, err := content.Successors(ctx, s, gotDesc)
-	if err != nil {
-		t.Fatal("failed to get successors:", err)
+	wantPredecessors := [][]ocispec.Descriptor{
+		{descs[2]}, // desc 0
+		{descs[2]}, // desc 1
+		{descs[3]}, // desc 2
+		{},         // desc 3
 	}
-	wantPredecessors := []ocispec.Descriptor{gotDesc}
-	for i, successor := range gotSuccessors {
-		gotPredecessors, err := s.Predecessors(ctx, successor)
+	for i, want := range wantPredecessors {
+		predecessors, err := s.Predecessors(ctx, descs[i])
 		if err != nil {
-			t.Fatalf("ReadOnlyStore.Predecessor(%d) error = %v", i, err)
+			t.Errorf("ReadOnlyStore.Predecessors(%d) error = %v", i, err)
 		}
-		if !reflect.DeepEqual(gotPredecessors, wantPredecessors) {
-			t.Errorf("ReadOnlyStore.Predecessor(%d) = %v, want %v", i, gotPredecessors, wantPredecessors)
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("ReadOnlyStore.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
 	}
 }

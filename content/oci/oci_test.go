@@ -72,12 +72,10 @@ func TestStoreInterface(t *testing.T) {
 }
 
 func TestStore_Success(t *testing.T) {
-	content := []byte(`{"layers":[]}`)
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}
+	blob := []byte("test")
+	blobDesc := content.NewDescriptorFromBytes("test", blob)
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
 	ref := "foobar"
 
 	tempDir := t.TempDir()
@@ -104,27 +102,45 @@ func TestStore_Success(t *testing.T) {
 		t.Errorf("layout.Version = %s, want %s", layout.Version, want)
 	}
 
-	// test push
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	// test push blob
+	err = s.Push(ctx, blobDesc, bytes.NewReader(blob))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
 	internalResolver := s.tagResolver
+	if got, want := len(internalResolver.Map()), 0; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test push manifest
+	err = s.Push(ctx, manifestDesc, bytes.NewReader(manifest))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
 	if got, want := len(internalResolver.Map()), 1; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
 
-	// test resolve by digest
-	gotDesc, err := s.Resolve(ctx, desc.Digest.String())
+	// test resolve blob by digest
+	gotDesc, err := s.Resolve(ctx, blobDesc.Digest.String())
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, desc) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	if want := blobDesc; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
+	}
+
+	// test resolve manifest by digest
+	gotDesc, err = s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
 	}
 
 	// test tag
-	err = s.Tag(ctx, desc, ref)
+	err = s.Tag(ctx, manifestDesc, ref)
 	if err != nil {
 		t.Fatal("Store.Tag() error =", err)
 	}
@@ -132,17 +148,17 @@ func TestStore_Success(t *testing.T) {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
 
-	// test resolve by digest
+	// test resolve manifest by tag
 	gotDesc, err = s.Resolve(ctx, ref)
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, desc) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
 	}
 
 	// test fetch
-	exists, err := s.Exists(ctx, desc)
+	exists, err := s.Exists(ctx, manifestDesc)
 	if err != nil {
 		t.Fatal("Store.Exists() error =", err)
 	}
@@ -150,7 +166,7 @@ func TestStore_Success(t *testing.T) {
 		t.Errorf("Store.Exists() = %v, want %v", exists, true)
 	}
 
-	rc, err := s.Fetch(ctx, desc)
+	rc, err := s.Fetch(ctx, manifestDesc)
 	if err != nil {
 		t.Fatal("Store.Fetch() error =", err)
 	}
@@ -162,8 +178,8 @@ func TestStore_Success(t *testing.T) {
 	if err != nil {
 		t.Error("Store.Fetch().Close() error =", err)
 	}
-	if !bytes.Equal(got, content) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, content)
+	if !bytes.Equal(got, manifest) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, manifest)
 	}
 }
 
