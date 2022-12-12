@@ -219,8 +219,8 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		}
 		successors = removeForeignLayers(successors)
 
-		// handle leaf nodes
 		if len(successors) == 0 {
+			// handle leaf nodes
 			exists, err = proxy.Cache.Exists(ctx, desc)
 			if err != nil {
 				return err
@@ -250,7 +250,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		if err := region.Start(); err != nil {
 			return err
 		}
-		return copyNode(ctx, proxy.Cache, dst, desc, opts)
+		return copyNode(ctx, proxy, dst, desc, opts)
 	}
 
 	return syncutil.Go(ctx, limiter, fn, root)

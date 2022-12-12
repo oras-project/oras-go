@@ -303,7 +303,7 @@ func TestCopyGraph_FullCopy(t *testing.T) {
 		}
 	}
 
-	// test copy
+	// test copy graph
 	srcTracker := &storageTracker{Storage: src}
 	dstTracker := &storageTracker{Storage: dst}
 	root := descs[len(descs)-1]
@@ -1351,6 +1351,19 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		if want := blobs[i]; !bytes.Equal(got, want) {
 			t.Fatalf("content[%d] = %v, want %v", i, got, want)
 		}
+	}
+
+	// test customized find successors
+	root = descs[3]
+	opts = oras.DefaultCopyGraphOptions
+	opts.FindSuccessors = func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+		if content.Equal(desc, root) {
+			return descs[1:3], nil
+		}
+		return content.Successors(ctx, fetcher, desc)
+	}
+	if err := oras.CopyGraph(ctx, src, cas.NewMemory(), root, opts); err != nil {
+		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, false)
 	}
 
 	// test partial copy
