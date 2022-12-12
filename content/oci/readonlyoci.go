@@ -87,7 +87,15 @@ func (s *ReadOnlyStore) Resolve(ctx context.Context, reference string) (ocispec.
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
 
-	return s.resolver.Resolve(ctx, reference)
+	desc, err := s.resolver.Resolve(ctx, reference)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return ocispec.Descriptor{
+		MediaType: desc.MediaType,
+		Size:      desc.Size,
+		Digest:    desc.Digest,
+	}, nil
 }
 
 // Predecessors returns the nodes directly pointing to the current node.

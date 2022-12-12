@@ -20,7 +20,6 @@ package oci
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -136,7 +135,17 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		desc.Annotations = map[string]string{}
 	}
 	desc.Annotations[ocispec.AnnotationRefName] = reference
-	return s.tag(ctx, desc, reference)
+	if err := s.resolver.Tag(ctx, desc, reference); err != nil {
+		return err
+	}
+	// renew tag
+	if err := s.resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
+		return err
+	}
+	if s.AutoSaveIndex {
+		return s.SaveIndex()
+	}
+	return nil
 }
 
 // tag tags a descriptor with a reference string.
@@ -156,7 +165,15 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
 
-	return s.resolver.Resolve(ctx, reference)
+	desc, err := s.resolver.Resolve(ctx, reference)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return ocispec.Descriptor{
+		MediaType: desc.MediaType,
+		Size:      desc.Size,
+		Digest:    desc.Digest,
+	}, nil
 }
 
 // Predecessors returns the nodes directly pointing to the current node.
@@ -226,7 +243,13 @@ func (s *Store) SaveIndex() error {
 	// first need to update the index.
 	var manifests []ocispec.Descriptor
 	refMap := s.resolver.Map()
-	for _, desc := range refMap {
+	for ref, desc := range refMap {
+		if ref != desc.Digest.String() {
+			if tag := desc.Annotations[ocispec.AnnotationRefName]; tag != "" {
+				// skip
+				continue
+			}
+		}
 		manifests = append(manifests, desc)
 	}
 
@@ -251,55 +274,24 @@ func validateReference(ref string) error {
 
 // processIndex processes index.
 func processIndex(ctx context.Context, index ocispec.Index, fetcher content.Fetcher, resolver content.TagResolver, graph *graph.Memory) error {
-	var tagged []ocispec.Descriptor
-	// for _, desc := range index.Manifests {
-	// 	if err := resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
-	// 		return err
-	// 	}
-	// 	if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
-	// 		if err := resolver.Tag(ctx, desc, ref); err != nil {
-	// 			return err
-	// 		}
-	// 	}
-
-	// 	// TODO: index no-tag manifest first
-	// 	// traverse the whole DAG and index predecessors for all the nodes.
-	// 	if err := graph.IndexAll(ctx, fetcher, desc); err != nil {
-	// 		return err
-	// 	}
-	// }
-
 	for _, desc := range index.Manifests {
-		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
-			// save tagged descriptors for later
-			tagged = append(tagged, desc)
-			continue
-		}
-
-		// first, process descriptors that are not tagged
 		if err := resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
 			return err
 		}
-		if err := graph.IndexAll(ctx, fetcher, desc); err != nil {
-			return err
-		}
-	}
-	for _, desc := range tagged {
-		// TODO: avoid tagging multiple times?
-		if _, err := resolver.Resolve(ctx, desc.Digest.String()); errors.Is(err, errdef.ErrNotFound) {
-			if err := resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
+		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
+			if err := resolver.Tag(ctx, desc, ref); err != nil {
 				return err
 			}
 		}
-		ref := desc.Annotations[ocispec.AnnotationRefName]
-		if err := resolver.Tag(ctx, desc, ref); err != nil {
-			return err
+		raw := ocispec.Descriptor{
+			MediaType: desc.MediaType,
+			Size:      desc.Size,
+			Digest:    desc.Digest,
 		}
-		if err := graph.IndexAll(ctx, fetcher, desc); err != nil {
+		if err := graph.IndexAll(ctx, fetcher, raw); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 

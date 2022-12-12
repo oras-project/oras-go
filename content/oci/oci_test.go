@@ -79,10 +79,6 @@ func TestStore_Success(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 	ref := "foobar"
-	descWithRef := desc
-	descWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ref,
-	}
 
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
@@ -141,8 +137,8 @@ func TestStore_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
 
 	// test fetch
@@ -319,10 +315,6 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 	ref := "foobar"
-	descWithRef := desc
-	descWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ref,
-	}
 
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
@@ -383,8 +375,8 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
 
 	// test index file
@@ -399,7 +391,7 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 		t.Fatal("Store.SaveIndex() error =", err)
 	}
 	// test index file again
-	if got, want := len(s.index.Manifests), 2; got != want {
+	if got, want := len(s.index.Manifests), 1; got != want {
 		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 	if _, err := os.Stat(s.indexPath); err != nil {
@@ -414,16 +406,6 @@ func TestStore_RepeatTag(t *testing.T) {
 		t.Fatal("New() error =", err)
 	}
 	ctx := context.Background()
-
-	generate := func(manifest []byte, mediaType string, ref string) (ocispec.Descriptor, ocispec.Descriptor) {
-		desc := content.NewDescriptorFromBytes(mediaType, manifest)
-		descWithRef := desc
-		descWithRef.Annotations = map[string]string{
-			ocispec.AnnotationRefName: ref,
-		}
-
-		return desc, descWithRef
-	}
 	ref := "foobar"
 
 	// get internal resolver
@@ -431,7 +413,7 @@ func TestStore_RepeatTag(t *testing.T) {
 
 	// first tag a manifest
 	manifest := []byte(`{"layers":[]}`)
-	desc, descWithRef := generate(manifest, ocispec.MediaTypeImageManifest, ref)
+	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
 	err = s.Push(ctx, desc, bytes.NewReader(manifest))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
@@ -460,13 +442,13 @@ func TestStore_RepeatTag(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
 
 	// tag another manifest
 	manifest = []byte(`{"layers":[], "annotations":{}}`)
-	desc, descWithRef = generate(manifest, ocispec.MediaTypeImageManifest, ref)
+	desc = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
 	err = s.Push(ctx, desc, bytes.NewReader(manifest))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
@@ -495,13 +477,13 @@ func TestStore_RepeatTag(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
 
 	// tag a blob
 	blob := []byte("foobar")
-	desc, descWithRef = generate(blob, "test", ref)
+	desc = content.NewDescriptorFromBytes("test", blob)
 	err = s.Push(ctx, desc, bytes.NewReader(blob))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
@@ -514,21 +496,24 @@ func TestStore_RepeatTag(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Tag() error =", err)
 	}
-	if got, want := len(internalResolver.Map()), 3; got != want {
+	if got, want := len(internalResolver.Map()), 4; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
 
-	_, err = s.Resolve(ctx, desc.Digest.String())
-	if want := errdef.ErrNotFound; !errors.Is(err, want) {
-		t.Errorf("Store.Resolve() error = %v, wantErr %v", err, want)
+	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
 
 	gotDesc, err = s.Resolve(ctx, ref)
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
 }
 
@@ -743,10 +728,6 @@ func TestStore_ExistingStore(t *testing.T) {
 	// tag index root
 	indexRoot := descs[10]
 	tag := "latest"
-	indexRootWithRef := indexRoot
-	indexRootWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: tag,
-	}
 	if err := s.Tag(ctx, indexRoot, tag); err != nil {
 		t.Fatal("Tag() error =", err)
 	}
@@ -762,8 +743,8 @@ func TestStore_ExistingStore(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store: Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, indexRootWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, indexRootWithRef)
+	if !reflect.DeepEqual(gotDesc, indexRoot) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, indexRoot)
 	}
 
 	// test resolving index root by digest
@@ -924,16 +905,12 @@ func TestCopy_MemoryToOCI_FullCopy(t *testing.T) {
 	}
 
 	// verify tag
-	rootWithRef := root
-	rootWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ref,
-	}
 	gotDesc, err = dst.Resolve(ctx, ref)
 	if err != nil {
 		t.Fatal("dst.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, rootWithRef) {
-		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, rootWithRef)
+	if !reflect.DeepEqual(gotDesc, root) {
+		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
 	}
 }
 

@@ -86,8 +86,6 @@ func TestReadOnlyStore(t *testing.T) {
 	generateManifest(descs[0], descs[1])                       // Blob 2
 	generateArtifactManifest(descs[2])                         // Blob 3
 	subjectTag := "subject"
-	subjectWithRef := descs[2]
-	subjectWithRef.Annotations = map[string]string{ocispec.AnnotationRefName: subjectTag}
 
 	layout := ocispec.ImageLayout{
 		Version: ocispec.ImageLayoutVersion,
@@ -101,7 +99,12 @@ func TestReadOnlyStore(t *testing.T) {
 			SchemaVersion: 2, // historical value
 		},
 		Manifests: []ocispec.Descriptor{
-			subjectWithRef,
+			{
+				MediaType:   descs[2].MediaType,
+				Size:        descs[2].Size,
+				Digest:      descs[2].Digest,
+				Annotations: map[string]string{ocispec.AnnotationRefName: subjectTag},
+			},
 			descs[3],
 		},
 	}
@@ -131,7 +134,7 @@ func TestReadOnlyStore(t *testing.T) {
 	if err != nil {
 		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
 	}
-	if want := subjectWithRef; !reflect.DeepEqual(gotDesc, want) {
+	if want := descs[2]; !reflect.DeepEqual(gotDesc, want) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
@@ -140,7 +143,7 @@ func TestReadOnlyStore(t *testing.T) {
 	if err != nil {
 		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
 	}
-	if want := subjectWithRef; !reflect.DeepEqual(gotDesc, want) {
+	if want := descs[2]; !reflect.DeepEqual(gotDesc, want) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
@@ -286,10 +289,6 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 	// tag index root
 	indexRoot := descs[10]
 	tag := "latest"
-	indexRootWithRef := indexRoot
-	indexRootWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: tag,
-	}
 	if err := s.Tag(ctx, indexRoot, tag); err != nil {
 		t.Fatal("Tag() error =", err)
 	}
@@ -305,8 +304,8 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 	if err != nil {
 		t.Fatal("ReadOnlyStore: Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, indexRootWithRef) {
-		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, indexRootWithRef)
+	if !reflect.DeepEqual(gotDesc, indexRoot) {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, indexRoot)
 	}
 
 	// test resolving index root by digest
@@ -409,10 +408,6 @@ func TestReadOnlyStore_TarFS(t *testing.T) {
 		MediaType: docker.MediaTypeManifestList,
 		Size:      2561,
 		Digest:    "sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
-		Annotations: map[string]string{
-			"io.containerd.image.name": "docker.io/library/hello-world:latest",
-			ocispec.AnnotationRefName:  "latest",
-		},
 	}
 
 	// test Resolve by tag
@@ -520,7 +515,6 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 	generateArtifactManifest(descs[2])                         // Blob 3
 	tag := "foobar"
 	root := descs[3]
-	root.Annotations = map[string]string{ocispec.AnnotationRefName: tag}
 
 	layout := ocispec.ImageLayout{
 		Version: ocispec.ImageLayoutVersion,
