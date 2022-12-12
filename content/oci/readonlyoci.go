@@ -177,9 +177,13 @@ func resolveBlob(fsys fs.FS, dgst string) (ocispec.Descriptor, error) {
 		return ocispec.Descriptor{}, err
 	}
 	fi, err := fs.Stat(fsys, path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return ocispec.Descriptor{}, errdef.ErrNotFound
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		}
+		return ocispec.Descriptor{}, err
 	}
+
 	return ocispec.Descriptor{
 		MediaType: descriptor.DefaultMediaType,
 		Size:      fi.Size(),
