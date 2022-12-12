@@ -138,16 +138,18 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		desc.Annotations = map[string]string{}
 	}
 	desc.Annotations[ocispec.AnnotationRefName] = reference
-	// renew the descriptor for the digest reference
-	if err := s.tagResolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
-		return err
-	}
-	// tag by the given reference
 	return s.tag(ctx, desc, reference)
 }
 
 // tag tags a descriptor with a reference string.
 func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
+	dgst := desc.Digest.String()
+	if reference != dgst {
+		// mark desc for deduplication in SaveIndex()
+		if err := s.tagResolver.Tag(ctx, desc, dgst); err != nil {
+			return err
+		}
+	}
 	if err := s.tagResolver.Tag(ctx, desc, reference); err != nil {
 		return err
 	}
@@ -248,7 +250,7 @@ func (s *Store) SaveIndex() error {
 	refMap := s.tagResolver.Map()
 	for ref, desc := range refMap {
 		if ref == desc.Digest.String() && desc.Annotations[ocispec.AnnotationRefName] != "" {
-			// skip saving desc if ref is a digest, and desc has a tag
+			// skip saving desc if ref is a digest and desc is tagged
 			continue
 		}
 		manifests = append(manifests, desc)
