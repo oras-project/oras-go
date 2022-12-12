@@ -77,7 +77,8 @@ func IsManifest(desc ocispec.Descriptor) bool {
 	}
 }
 
-// Plain returns a descriptor that contains only MediaType, Digest and Size.
+// Plain returns a plain descriptor that contains only MediaType, Digest and
+// Size.
 func Plain(desc ocispec.Descriptor) ocispec.Descriptor {
 	return ocispec.Descriptor{
 		MediaType: desc.MediaType,

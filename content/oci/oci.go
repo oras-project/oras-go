@@ -59,9 +59,9 @@ type Store struct {
 	index         *ocispec.Index
 	indexLock     sync.Mutex
 
-	storage  content.Storage
-	resolver *resolver.Memory
-	graph    *graph.Memory
+	storage     content.Storage
+	tagResolver *resolver.Memory
+	graph       *graph.Memory
 }
 
 // New creates a new OCI store with context.Background().
@@ -76,7 +76,7 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 		root:          root,
 		indexPath:     filepath.Join(root, ociImageIndexFile),
 		storage:       NewStorage(root),
-		resolver:      resolver.NewMemory(),
+		tagResolver:   resolver.NewMemory(),
 		graph:         graph.NewMemory(),
 	}
 
@@ -86,7 +86,7 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	if err := store.ensureOCILayoutFile(); err != nil {
 		return nil, err
 	}
-	if err := store.loadIndex(ctx); err != nil {
+	if err := store.loadIndexFile(ctx); err != nil {
 		return nil, err
 	}
 
@@ -139,7 +139,7 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 	}
 	desc.Annotations[ocispec.AnnotationRefName] = reference
 	// renew the descriptor for the digest reference
-	if err := s.resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
+	if err := s.tagResolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
 		return err
 	}
 	// tag by the given reference
@@ -148,7 +148,7 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 
 // tag tags a descriptor with a reference string.
 func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	if err := s.resolver.Tag(ctx, desc, reference); err != nil {
+	if err := s.tagResolver.Tag(ctx, desc, reference); err != nil {
 		return err
 	}
 	if s.AutoSaveIndex {
@@ -164,7 +164,7 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 	}
 
 	// attempt resolving manifest
-	desc, err := s.resolver.Resolve(ctx, reference)
+	desc, err := s.tagResolver.Resolve(ctx, reference)
 	if err != nil {
 		if errors.Is(err, errdef.ErrNotFound) {
 			// attempt resolving blob
@@ -211,8 +211,8 @@ func (s *Store) ensureOCILayoutFile() error {
 	return validateOCILayout(*layout)
 }
 
-// loadIndex reads the index.json from the file system.
-func (s *Store) loadIndex(ctx context.Context) error {
+// loadIndexFile reads index.json from the file system.
+func (s *Store) loadIndexFile(ctx context.Context) error {
 	indexFile, err := os.Open(s.indexPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -230,7 +230,7 @@ func (s *Store) loadIndex(ctx context.Context) error {
 	if err := json.NewDecoder(indexFile).Decode(&s.index); err != nil {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
-	return processIndex(ctx, *s.index, s.storage, s.resolver, s.graph)
+	return loadIndex(ctx, *s.index, s.storage, s.tagResolver, s.graph)
 }
 
 // SaveIndex writes the `index.json` file to the file system.
@@ -243,7 +243,7 @@ func (s *Store) SaveIndex() error {
 	defer s.indexLock.Unlock()
 
 	var manifests []ocispec.Descriptor
-	refMap := s.resolver.Map()
+	refMap := s.tagResolver.Map()
 	for ref, desc := range refMap {
 		if ref == desc.Digest.String() && desc.Annotations[ocispec.AnnotationRefName] != "" {
 			// skip saving desc if ref is a digest, and desc has a tag

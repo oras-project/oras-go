@@ -39,25 +39,25 @@ import (
 // content store based on file system with the OCI-Image layout.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md
 type ReadOnlyStore struct {
-	fsys     fs.FS
-	storage  content.ReadOnlyStorage
-	resolver *resolver.Memory
-	graph    *graph.Memory
+	fsys        fs.FS
+	storage     content.ReadOnlyStorage
+	tagResolver *resolver.Memory
+	graph       *graph.Memory
 }
 
 // NewFromFS creates a new read-only OCI store from fsys.
 func NewFromFS(ctx context.Context, fsys fs.FS) (*ReadOnlyStore, error) {
 	store := &ReadOnlyStore{
-		fsys:     fsys,
-		storage:  NewStorageFromFS(fsys),
-		resolver: resolver.NewMemory(),
-		graph:    graph.NewMemory(),
+		fsys:        fsys,
+		storage:     NewStorageFromFS(fsys),
+		tagResolver: resolver.NewMemory(),
+		graph:       graph.NewMemory(),
 	}
 
 	if err := store.validateOCILayoutFile(); err != nil {
 		return nil, err
 	}
-	if err := store.loadIndex(ctx); err != nil {
+	if err := store.loadIndexFile(ctx); err != nil {
 		return nil, err
 	}
 
@@ -91,7 +91,7 @@ func (s *ReadOnlyStore) Resolve(ctx context.Context, reference string) (ocispec.
 	}
 
 	// attempt resolving manifest
-	desc, err := s.resolver.Resolve(ctx, reference)
+	desc, err := s.tagResolver.Resolve(ctx, reference)
 	if err != nil {
 		if errors.Is(err, errdef.ErrNotFound) {
 			// attempt resolving blob
@@ -125,8 +125,8 @@ func (s *ReadOnlyStore) validateOCILayoutFile() error {
 	return validateOCILayout(*layout)
 }
 
-// loadIndex reads the index.json from s.fsys.
-func (s *ReadOnlyStore) loadIndex(ctx context.Context) error {
+// loadIndexFile reads index.json from s.fsys.
+func (s *ReadOnlyStore) loadIndexFile(ctx context.Context) error {
 	indexFile, err := s.fsys.Open(ociImageIndexFile)
 	if err != nil {
 		return fmt.Errorf("failed to open index file: %w", err)
@@ -137,11 +137,11 @@ func (s *ReadOnlyStore) loadIndex(ctx context.Context) error {
 	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
-	return processIndex(ctx, index, s.storage, s.resolver, s.graph)
+	return loadIndex(ctx, index, s.storage, s.tagResolver, s.graph)
 }
 
-// processIndex processes index.
-func processIndex(ctx context.Context, index ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.Memory) error {
+// loadIndex loads index into memory.
+func loadIndex(ctx context.Context, index ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.Memory) error {
 	for _, desc := range index.Manifests {
 		if err := tagger.Tag(ctx, desc, desc.Digest.String()); err != nil {
 			return err

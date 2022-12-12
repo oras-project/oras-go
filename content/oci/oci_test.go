@@ -109,7 +109,7 @@ func TestStore_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
-	internalResolver := s.resolver
+	internalResolver := s.tagResolver
 	if got, want := len(internalResolver.Map()), 1; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
@@ -347,7 +347,7 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
-	internalResolver := s.resolver
+	internalResolver := s.tagResolver
 	if got, want := len(internalResolver.Map()), 1; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
@@ -409,7 +409,7 @@ func TestStore_RepeatTag(t *testing.T) {
 	ref := "foobar"
 
 	// get internal resolver
-	internalResolver := s.resolver
+	internalResolver := s.tagResolver
 
 	// first tag a manifest
 	manifest := []byte(`{"layers":[]}`)
