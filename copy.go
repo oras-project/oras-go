@@ -219,38 +219,36 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		}
 		successors = removeForeignLayers(successors)
 
-		// handle leaf nodes
-		if len(successors) == 0 {
-			exists, err = proxy.Cache.Exists(ctx, desc)
-			if err != nil {
+		if len(successors) != 0 {
+			// for non-leaf nodes, process successors and wait for them to complete
+			region.End()
+			if err := syncutil.Go(ctx, limiter, fn, successors...); err != nil {
 				return err
 			}
-			if exists {
-				return copyNode(ctx, proxy.Cache, dst, desc, opts)
+			for _, node := range successors {
+				done, committed := tracker.TryCommit(node)
+				if committed {
+					return fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
+				}
+				select {
+				case <-done:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
-			return copyNode(ctx, src, dst, desc, opts)
+			if err := region.Start(); err != nil {
+				return err
+			}
 		}
 
-		// for non-leaf nodes, process successors and wait for them to complete
-		region.End()
-		if err := syncutil.Go(ctx, limiter, fn, successors...); err != nil {
+		exists, err = proxy.Cache.Exists(ctx, desc)
+		if err != nil {
 			return err
 		}
-		for _, node := range successors {
-			done, committed := tracker.TryCommit(node)
-			if committed {
-				return fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
-			}
-			select {
-			case <-done:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+		if exists {
+			return copyNode(ctx, proxy.Cache, dst, desc, opts)
 		}
-		if err := region.Start(); err != nil {
-			return err
-		}
-		return copyNode(ctx, proxy.Cache, dst, desc, opts)
+		return copyNode(ctx, src, dst, desc, opts)
 	}
 
 	return syncutil.Go(ctx, limiter, fn, root)
