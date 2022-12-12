@@ -121,7 +121,7 @@ func TestStore_Success(t *testing.T) {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
 
-	// test resolve blob by digest
+	// test resolving blob by digest
 	gotDesc, err := s.Resolve(ctx, blobDesc.Digest.String())
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
@@ -130,7 +130,7 @@ func TestStore_Success(t *testing.T) {
 		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
 	}
 
-	// test resolve manifest by digest
+	// test resolving manifest by digest
 	gotDesc, err = s.Resolve(ctx, manifestDesc.Digest.String())
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
@@ -148,7 +148,7 @@ func TestStore_Success(t *testing.T) {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
 
-	// test resolve manifest by tag
+	// test resolving manifest by tag
 	gotDesc, err = s.Resolve(ctx, ref)
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
@@ -368,7 +368,7 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
 
-	// test resolve by digest
+	// test resolving by digest
 	gotDesc, err := s.Resolve(ctx, desc.Digest.String())
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
@@ -386,7 +386,7 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
 
-	// test resolve by digest
+	// test resolving by digest
 	gotDesc, err = s.Resolve(ctx, ref)
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)

@@ -128,7 +128,7 @@ func TestReadOnlyStore(t *testing.T) {
 		t.Fatal("NewFromFS() error =", err)
 	}
 
-	// test resolve subject by digest
+	// test resolving subject by digest
 	gotDesc, err := s.Resolve(ctx, descs[2].Digest.String())
 	if err != nil {
 		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
@@ -137,7 +137,7 @@ func TestReadOnlyStore(t *testing.T) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
-	// test resolve subject by tag
+	// test resolving subject by tag
 	gotDesc, err = s.Resolve(ctx, subjectTag)
 	if err != nil {
 		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
@@ -146,7 +146,7 @@ func TestReadOnlyStore(t *testing.T) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
-	// test resolve artifact by digest
+	// test resolving artifact by digest
 	gotDesc, err = s.Resolve(ctx, descs[3].Digest.String())
 	if err != nil {
 		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
@@ -155,7 +155,7 @@ func TestReadOnlyStore(t *testing.T) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
-	// test resolve blob by digest
+	// test resolving blob by digest
 	gotDesc, err = s.Resolve(ctx, descs[0].Digest.String())
 	if err != nil {
 		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
@@ -452,7 +452,7 @@ func TestReadOnlyStore_TarFS(t *testing.T) {
 		},
 	}
 
-	// test Resolve by tag
+	// test resolving by tag
 	for _, desc := range descs {
 		gotDesc, err := s.Resolve(ctx, desc.Digest.String())
 		if err != nil {
@@ -462,7 +462,7 @@ func TestReadOnlyStore_TarFS(t *testing.T) {
 			t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 		}
 	}
-	// test Resolve by tag
+	// test resolving by tag
 	gotDesc, err := s.Resolve(ctx, "latest")
 	if err != nil {
 		t.Fatal("ReadOnlyStore: Resolve() error =", err)
