@@ -101,7 +101,6 @@ func TestReadOnlyStore(t *testing.T) {
 			SchemaVersion: 2, // historical value
 		},
 		Manifests: []ocispec.Descriptor{
-			descs[2],
 			subjectWithRef,
 			descs[3],
 		},
@@ -132,7 +131,7 @@ func TestReadOnlyStore(t *testing.T) {
 	if err != nil {
 		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
 	}
-	if want := descs[2]; !reflect.DeepEqual(gotDesc, want) {
+	if want := subjectWithRef; !reflect.DeepEqual(gotDesc, want) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
