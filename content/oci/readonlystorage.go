@@ -92,7 +92,8 @@ func (s *ReadOnlyStorage) Exists(_ context.Context, target ocispec.Descriptor) (
 // blobPath calculates blob path from the given digest.
 func blobPath(dgst digest.Digest) (string, error) {
 	if err := dgst.Validate(); err != nil {
-		return "", fmt.Errorf("cannot calculate blob path from invalid digest %s: %v", dgst.String(), err)
+		return "", fmt.Errorf("cannot calculate blob path from invalid digest %s: %w: %v",
+			dgst.String(), errdef.ErrInvalidDigest, err)
 	}
 	return path.Join("blobs", dgst.Algorithm().String(), dgst.Encoded()), nil
 }

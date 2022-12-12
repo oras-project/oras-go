@@ -32,7 +32,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/internal/docker"
 )
@@ -86,11 +85,6 @@ func TestReadOnlyStore(t *testing.T) {
 	generateManifest(descs[0], descs[1])                       // Blob 2
 	generateArtifactManifest(descs[2])                         // Blob 3
 	subjectTag := "subject"
-	subjectWithRef := descs[2]
-	subjectWithRef.Annotations = map[string]string{ocispec.AnnotationRefName: subjectTag}
-	artifactTag := "foobar"
-	artifactWithRef := descs[3]
-	artifactWithRef.Annotations = map[string]string{ocispec.AnnotationRefName: artifactTag}
 
 	layout := ocispec.ImageLayout{
 		Version: ocispec.ImageLayoutVersion,
@@ -105,21 +99,12 @@ func TestReadOnlyStore(t *testing.T) {
 		},
 		Manifests: []ocispec.Descriptor{
 			{
-				MediaType: descs[2].MediaType,
-				Digest:    descs[2].Digest,
-				Size:      descs[2].Size,
-				Annotations: map[string]string{
-					ocispec.AnnotationRefName: subjectTag,
-				},
+				MediaType:   descs[2].MediaType,
+				Size:        descs[2].Size,
+				Digest:      descs[2].Digest,
+				Annotations: map[string]string{ocispec.AnnotationRefName: subjectTag},
 			},
-			{
-				MediaType: descs[3].MediaType,
-				Digest:    descs[3].Digest,
-				Size:      descs[3].Size,
-				Annotations: map[string]string{
-					ocispec.AnnotationRefName: artifactTag,
-				},
-			},
+			descs[3],
 		},
 	}
 	indexJSON, err := json.Marshal(index)
@@ -143,12 +128,39 @@ func TestReadOnlyStore(t *testing.T) {
 		t.Fatal("NewFromFS() error =", err)
 	}
 
-	// test resolve subject tag
-	gotDesc, err := s.Resolve(ctx, subjectTag)
+	// test resolving subject by digest
+	gotDesc, err := s.Resolve(ctx, descs[2].Digest.String())
 	if err != nil {
 		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
 	}
-	if want := subjectWithRef; !reflect.DeepEqual(gotDesc, want) {
+	if want := descs[2]; !reflect.DeepEqual(gotDesc, want) {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
+	}
+
+	// test resolving subject by tag
+	gotDesc, err = s.Resolve(ctx, subjectTag)
+	if err != nil {
+		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
+	}
+	if want := descs[2]; !reflect.DeepEqual(gotDesc, want) {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
+	}
+
+	// test resolving artifact by digest
+	gotDesc, err = s.Resolve(ctx, descs[3].Digest.String())
+	if err != nil {
+		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
+	}
+	if want := descs[3]; !reflect.DeepEqual(gotDesc, want) {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
+	}
+
+	// test resolving blob by digest
+	gotDesc, err = s.Resolve(ctx, descs[0].Digest.String())
+	if err != nil {
+		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
+	}
+	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
@@ -182,10 +194,10 @@ func TestReadOnlyStore(t *testing.T) {
 
 	// test predecessors
 	wants := [][]ocispec.Descriptor{
-		{subjectWithRef},  // blob 0
-		{subjectWithRef},  // blob 1
-		{artifactWithRef}, // blob 2,
-		{},                // blob 3
+		{descs[2]}, // blob 0
+		{descs[2]}, // blob 1
+		{descs[3]}, // blob 2,
+		{},         // blob 3
 	}
 	for i, want := range wants {
 		predecessors, err := s.Predecessors(ctx, descs[i])
@@ -238,7 +250,6 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 		}
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
-
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
 		var manifest ocispec.Artifact
 		manifest.Subject = &subject
@@ -283,40 +294,11 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// test artifact root node
-	artifactRootDesc := descs[12]
-	// tag artifact manifest by digest
-	dgstRef := "@" + artifactRootDesc.Digest.String()
-	artifactRootDescWithRef := artifactRootDesc
-	artifactRootDescWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: dgstRef,
-	}
-	if err := s.Tag(ctx, artifactRootDesc, dgstRef); err != nil {
-		t.Fatal("ReadOnlyStore.Tag(artifactRootDesc) error =", err)
-	}
-
-	// OCI root node
-	ociRootRef := "root"
-	ociRootIndex := ocispec.Index{
-		Manifests: []ocispec.Descriptor{
-			descs[7],  // can reach descs[0:6] and descs[7]
-			descs[14], // can reach descs[0:10], descs[13] and descs[14]
-		},
-	}
-	ociRootIndexJSON, err := json.Marshal(ociRootIndex)
-	if err != nil {
-		t.Fatal("json.Marshal() error =", err)
-	}
-	ociRootIndexDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageIndex,
-		Digest:    digest.FromBytes(ociRootIndexJSON),
-		Size:      int64(len(ociRootIndexJSON)),
-	}
-	if err := s.Push(ctx, ociRootIndexDesc, bytes.NewReader(ociRootIndexJSON)); err != nil {
-		t.Fatal("ReadOnlyStore.Push(ociRootIndex) error =", err)
-	}
-	if err := s.Tag(ctx, ociRootIndexDesc, ociRootRef); err != nil {
-		t.Fatal("ReadOnlyStore.Tag(ociRootIndex) error =", err)
+	// tag index root
+	indexRoot := descs[10]
+	tag := "latest"
+	if err := s.Tag(ctx, indexRoot, tag); err != nil {
+		t.Fatal("Tag() error =", err)
 	}
 
 	// test read-only store
@@ -325,52 +307,41 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 		t.Fatal("New() error =", err)
 	}
 
-	// test resolving artifact manifest
-	gotDesc, err := readonlyS.Resolve(ctx, dgstRef)
+	// test resolving index root by tag
+	gotDesc, err := readonlyS.Resolve(ctx, tag)
 	if err != nil {
-		t.Fatal("AnotherStore: Resolve() error =", err)
+		t.Fatal("ReadOnlyStore: Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, artifactRootDescWithRef) {
-		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, artifactRootDescWithRef)
+	if !reflect.DeepEqual(gotDesc, indexRoot) {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, indexRoot)
 	}
 
-	// verify OCI root index
-	gotDesc, err = readonlyS.Resolve(ctx, ociRootRef)
+	// test resolving index root by digest
+	gotDesc, err = readonlyS.Resolve(ctx, indexRoot.Digest.String())
 	if err != nil {
-		t.Fatal("AnotherStore: Resolve() error =", err)
+		t.Fatal("ReadOnlyStore: Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexRoot) {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, indexRoot)
 	}
 
-	rootIndexDescWithRef := ociRootIndexDesc
-	rootIndexDescWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ociRootRef,
+	// test resolving artifact manifest by digest
+	artifactRootDesc := descs[12]
+	gotDesc, err = readonlyS.Resolve(ctx, artifactRootDesc.Digest.String())
+	if err != nil {
+		t.Fatal("ReadOnlyStore: Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, rootIndexDescWithRef) {
-		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, rootIndexDescWithRef)
+	if !reflect.DeepEqual(gotDesc, artifactRootDesc) {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, artifactRootDesc)
 	}
 
-	// test fetching OCI root index
-	exists, err := readonlyS.Exists(ctx, rootIndexDescWithRef)
+	// test resolving blob by digest
+	gotDesc, err = readonlyS.Resolve(ctx, descs[0].Digest.String())
 	if err != nil {
-		t.Fatal("ReadOnlyStore.Exists() error =", err)
+		t.Fatal("ReadOnlyStore: Resolve() error =", err)
 	}
-	if !exists {
-		t.Errorf("ReadOnlyStore.Exists() = %v, want %v", exists, true)
-	}
-
-	rc, err := readonlyS.Fetch(ctx, rootIndexDescWithRef)
-	if err != nil {
-		t.Fatal("ReadOnlyStore.Fetch() error =", err)
-	}
-	got, err := io.ReadAll(rc)
-	if err != nil {
-		t.Fatal("ReadOnlyStore.Fetch().Read() error =", err)
-	}
-	err = rc.Close()
-	if err != nil {
-		t.Error("ReadOnlyStore.Fetch().Close() error =", err)
-	}
-	if !bytes.Equal(got, ociRootIndexJSON) {
-		t.Errorf("ReadOnlyStore.Fetch() = %v, want %v", got, ociRootIndexJSON)
+	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
 	// test fetching blobs
@@ -402,21 +373,21 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 
 	// verify predecessors
 	wants := [][]ocispec.Descriptor{
-		descs[4:7],                          // Blob 0
-		{descs[4], descs[6]},                // Blob 1
-		{descs[4], descs[6]},                // Blob 2
-		{descs[5], descs[6]},                // Blob 3
-		{descs[7]},                          // Blob 4
-		{descs[7]},                          // Blob 5
-		{descs[8], artifactRootDescWithRef}, // Blob 6
-		{descs[10], rootIndexDescWithRef},   // Blob 7
-		{descs[10]},                         // Blob 8
-		{descs[10]},                         // Blob 9
-		{descs[14]},                         // Blob 10
-		{artifactRootDescWithRef},           // Blob 11
-		nil,                                 // Blob 12, no predecessors
-		{descs[14]},                         // Blob 13
-		{rootIndexDescWithRef},              // Blob 14
+		descs[4:7],            // Blob 0
+		{descs[4], descs[6]},  // Blob 1
+		{descs[4], descs[6]},  // Blob 2
+		{descs[5], descs[6]},  // Blob 3
+		{descs[7]},            // Blob 4
+		{descs[7]},            // Blob 5
+		{descs[8], descs[12]}, // Blob 6
+		{descs[10]},           // Blob 7
+		{descs[10]},           // Blob 8
+		{descs[10]},           // Blob 9
+		{descs[14]},           // Blob 10
+		{descs[12]},           // Blob 11
+		nil,                   // Blob 12, no predecessors
+		{descs[14]},           // Blob 13
+		nil,                   // Blob 14, no predecessors
 	}
 	for i, want := range wants {
 		predecessors, err := readonlyS.Predecessors(ctx, descs[i])
@@ -434,10 +405,10 @@ testdata/hello-world.tar contains:
 
 	blobs/
 		sha256/
-			2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54
-			f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4
-			faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af
-			feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412
+			2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54 // image layer
+			f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4 // image manifest
+			faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af // manifest list
+			feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412 // config
 	index.json
 	manifest.json
 	oci-layout
@@ -450,39 +421,70 @@ func TestReadOnlyStore_TarFS(t *testing.T) {
 	}
 
 	// test data in testdata/hello-world.tar
-	wantDesc := ocispec.Descriptor{
-		MediaType: docker.MediaTypeManifestList,
-		Size:      2561,
-		Digest:    "sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
-		Annotations: map[string]string{
-			"io.containerd.image.name": "docker.io/library/hello-world:latest",
-			ocispec.AnnotationRefName:  "latest",
+	descs := []ocispec.Descriptor{
+		// desc 0: config
+		{
+			MediaType: "application/vnd.docker.container.image.v1+json",
+			Size:      1469,
+			Digest:    "sha256:feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412",
+		},
+		// desc 1: layer
+		{
+			MediaType: "application/vnd.docker.image.rootfs.diff.tar.gzip",
+			Size:      2479,
+			Digest:    "sha256:2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54",
+		},
+		// desc 2: image manifest
+		{
+			MediaType: "application/vnd.docker.distribution.manifest.v2+json",
+			Digest:    "sha256:f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4",
+			Size:      525,
+			Platform: &ocispec.Platform{
+				Architecture: "amd64",
+				OS:           "linux",
+			},
+		},
+		// desc 3: manifest list
+		{
+			MediaType: docker.MediaTypeManifestList,
+			Size:      2561,
+			Digest:    "sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
 		},
 	}
 
-	// test Resolve
-	tag := "latest"
-	gotDesc, err := s.Resolve(ctx, tag)
-	if err != nil {
-		t.Fatal("ReadOnlyStore.Resolve() error =", err)
+	// test resolving by tag
+	for _, desc := range descs {
+		gotDesc, err := s.Resolve(ctx, desc.Digest.String())
+		if err != nil {
+			t.Fatal("ReadOnlyStore: Resolve() error =", err)
+		}
+		if want := desc; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+			t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
+		}
 	}
-	if !reflect.DeepEqual(gotDesc, wantDesc) {
-		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, wantDesc)
+	// test resolving by tag
+	gotDesc, err := s.Resolve(ctx, "latest")
+	if err != nil {
+		t.Fatal("ReadOnlyStore: Resolve() error =", err)
+	}
+	if want := descs[3]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
 	}
 
 	// test Predecessors
-	gotSuccessors, err := content.Successors(ctx, s, gotDesc)
-	if err != nil {
-		t.Fatal("failed to get successors:", err)
+	wantPredecessors := [][]ocispec.Descriptor{
+		{descs[2]}, // desc 0
+		{descs[2]}, // desc 1
+		{descs[3]}, // desc 2
+		{},         // desc 3
 	}
-	wantPredecessors := []ocispec.Descriptor{gotDesc}
-	for i, successor := range gotSuccessors {
-		gotPredecessors, err := s.Predecessors(ctx, successor)
+	for i, want := range wantPredecessors {
+		predecessors, err := s.Predecessors(ctx, descs[i])
 		if err != nil {
-			t.Fatalf("ReadOnlyStore.Predecessor(%d) error = %v", i, err)
+			t.Errorf("ReadOnlyStore.Predecessors(%d) error = %v", i, err)
 		}
-		if !reflect.DeepEqual(gotPredecessors, wantPredecessors) {
-			t.Errorf("ReadOnlyStore.Predecessor(%d) = %v, want %v", i, gotPredecessors, wantPredecessors)
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("ReadOnlyStore.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
 	}
 }
@@ -556,7 +558,6 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 	generateArtifactManifest(descs[2])                         // Blob 3
 	tag := "foobar"
 	root := descs[3]
-	root.Annotations = map[string]string{ocispec.AnnotationRefName: tag}
 
 	layout := ocispec.ImageLayout{
 		Version: ocispec.ImageLayoutVersion,

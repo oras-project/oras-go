@@ -20,13 +20,16 @@ package oci
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/fs/tarfs"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/resolver"
@@ -36,25 +39,25 @@ import (
 // content store based on file system with the OCI-Image layout.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md
 type ReadOnlyStore struct {
-	fsys     fs.FS
-	storage  content.ReadOnlyStorage
-	resolver *resolver.Memory
-	graph    *graph.Memory
+	fsys        fs.FS
+	storage     content.ReadOnlyStorage
+	tagResolver *resolver.Memory
+	graph       *graph.Memory
 }
 
 // NewFromFS creates a new read-only OCI store from fsys.
 func NewFromFS(ctx context.Context, fsys fs.FS) (*ReadOnlyStore, error) {
 	store := &ReadOnlyStore{
-		fsys:     fsys,
-		storage:  NewStorageFromFS(fsys),
-		resolver: resolver.NewMemory(),
-		graph:    graph.NewMemory(),
+		fsys:        fsys,
+		storage:     NewStorageFromFS(fsys),
+		tagResolver: resolver.NewMemory(),
+		graph:       graph.NewMemory(),
 	}
 
 	if err := store.validateOCILayoutFile(); err != nil {
 		return nil, err
 	}
-	if err := store.loadIndex(ctx); err != nil {
+	if err := store.loadIndexFile(ctx); err != nil {
 		return nil, err
 	}
 
@@ -87,7 +90,16 @@ func (s *ReadOnlyStore) Resolve(ctx context.Context, reference string) (ocispec.
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
 
-	return s.resolver.Resolve(ctx, reference)
+	// attempt resolving manifest
+	desc, err := s.tagResolver.Resolve(ctx, reference)
+	if err != nil {
+		if errors.Is(err, errdef.ErrNotFound) {
+			// attempt resolving blob
+			return resolveBlob(s.fsys, reference)
+		}
+		return ocispec.Descriptor{}, err
+	}
+	return descriptor.Plain(desc), nil
 }
 
 // Predecessors returns the nodes directly pointing to the current node.
@@ -105,19 +117,24 @@ func (s *ReadOnlyStore) validateOCILayoutFile() error {
 	}
 	defer layoutFile.Close()
 
-	var layout *ocispec.ImageLayout
+	var layout ocispec.ImageLayout
 	err = json.NewDecoder(layoutFile).Decode(&layout)
 	if err != nil {
 		return fmt.Errorf("failed to decode OCI layout file: %w", err)
 	}
+	return validateOCILayout(&layout)
+}
+
+// validateOCILayout validates layout.
+func validateOCILayout(layout *ocispec.ImageLayout) error {
 	if layout.Version != ocispec.ImageLayoutVersion {
 		return errdef.ErrUnsupportedVersion
 	}
 	return nil
 }
 
-// loadIndex reads the index.json from s.fsys.
-func (s *ReadOnlyStore) loadIndex(ctx context.Context) error {
+// loadIndexFile reads index.json from s.fsys.
+func (s *ReadOnlyStore) loadIndexFile(ctx context.Context) error {
 	indexFile, err := s.fsys.Open(ociImageIndexFile)
 	if err != nil {
 		return fmt.Errorf("failed to open index file: %w", err)
@@ -128,18 +145,48 @@ func (s *ReadOnlyStore) loadIndex(ctx context.Context) error {
 	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
+	return loadIndex(ctx, &index, s.storage, s.tagResolver, s.graph)
+}
+
+// loadIndex loads index into memory.
+func loadIndex(ctx context.Context, index *ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.Memory) error {
 	for _, desc := range index.Manifests {
+		if err := tagger.Tag(ctx, desc, desc.Digest.String()); err != nil {
+			return err
+		}
 		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
-			if err = s.resolver.Tag(ctx, desc, ref); err != nil {
+			if err := tagger.Tag(ctx, desc, ref); err != nil {
 				return err
 			}
 		}
-
-		// traverse the whole DAG and index predecessors for all the nodes.
-		if err := s.graph.IndexAll(ctx, s.storage, desc); err != nil {
+		plain := descriptor.Plain(desc)
+		if err := graph.IndexAll(ctx, fetcher, plain); err != nil {
 			return err
 		}
 	}
-
 	return nil
+}
+
+// resolveBlob returns a descriptor describing the blob identified by dgst.
+func resolveBlob(fsys fs.FS, dgst string) (ocispec.Descriptor, error) {
+	path, err := blobPath(digest.Digest(dgst))
+	if err != nil {
+		if errors.Is(err, errdef.ErrInvalidDigest) {
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		}
+		return ocispec.Descriptor{}, err
+	}
+	fi, err := fs.Stat(fsys, path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		}
+		return ocispec.Descriptor{}, err
+	}
+
+	return ocispec.Descriptor{
+		MediaType: descriptor.DefaultMediaType,
+		Size:      fi.Size(),
+		Digest:    digest.Digest(dgst),
+	}, nil
 }
