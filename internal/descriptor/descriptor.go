@@ -21,6 +21,9 @@ import (
 	"oras.land/oras-go/v2/internal/docker"
 )
 
+// DefaultMediaType is the media type used when no media type is specified.
+const DefaultMediaType string = "application/octet-stream"
+
 // Descriptor contains the minimun information to describe the disposition of
 // targeted content.
 // Since it only has strings and integers, Descriptor is a comparable struct.
@@ -71,5 +74,14 @@ func IsManifest(desc ocispec.Descriptor) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// Plain returns a descriptor that contains only MediaType, Digest and Size.
+func Plain(desc ocispec.Descriptor) ocispec.Descriptor {
+	return ocispec.Descriptor{
+		MediaType: desc.MediaType,
+		Digest:    desc.Digest,
+		Size:      desc.Size,
 	}
 }

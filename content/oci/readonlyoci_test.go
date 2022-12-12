@@ -327,6 +327,15 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, artifactRootDesc)
 	}
 
+	// test resolving blob by digest
+	gotDesc, err = readonlyS.Resolve(ctx, descs[0].Digest.String())
+	if err != nil {
+		t.Fatal("Store: Resolve() error =", err)
+	}
+	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, want)
+	}
+
 	// test fetching blobs
 	for i := range blobs {
 		eg.Go(func(i int) func() error {

@@ -766,6 +766,15 @@ func TestStore_ExistingStore(t *testing.T) {
 		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, artifactRootDesc)
 	}
 
+	// test resolving blob by digest
+	gotDesc, err = anotherS.Resolve(ctx, descs[0].Digest.String())
+	if err != nil {
+		t.Fatal("Store: Resolve() error =", err)
+	}
+	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, want)
+	}
+
 	// test fetching OCI root index
 	exists, err := anotherS.Exists(ctx, indexRoot)
 	if err != nil {

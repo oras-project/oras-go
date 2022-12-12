@@ -20,6 +20,7 @@ package oci
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -104,6 +105,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 		return err
 	}
 	if descriptor.IsManifest(expected) {
+		// tag by digest
 		return s.tag(ctx, expected, expected.Digest.String())
 	}
 	return nil
@@ -115,8 +117,7 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 }
 
 // Tag tags a descriptor with a reference string.
-// A reference should be either a valid tag (e.g. "latest"),
-// or a digest matching the descriptor (e.g. "@sha256:abc123").
+// reference should be a valid tag (e.g. "latest").
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md#indexjson-file
 func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	if err := validateReference(reference); err != nil {
@@ -135,17 +136,12 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		desc.Annotations = map[string]string{}
 	}
 	desc.Annotations[ocispec.AnnotationRefName] = reference
-	if err := s.resolver.Tag(ctx, desc, reference); err != nil {
-		return err
-	}
-	// renew tag
+	// renew the descriptor for the digest reference
 	if err := s.resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
 		return err
 	}
-	if s.AutoSaveIndex {
-		return s.SaveIndex()
-	}
-	return nil
+	// tag by the given reference
+	return s.tag(ctx, desc, reference)
 }
 
 // tag tags a descriptor with a reference string.
@@ -165,15 +161,16 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
 
+	// attempt resolving manifest
 	desc, err := s.resolver.Resolve(ctx, reference)
 	if err != nil {
+		if errors.Is(err, errdef.ErrNotFound) {
+			// attempt resolving blob
+			return resolveBlob(os.DirFS(s.root), reference)
+		}
 		return ocispec.Descriptor{}, err
 	}
-	return ocispec.Descriptor{
-		MediaType: desc.MediaType,
-		Size:      desc.Size,
-		Digest:    desc.Digest,
-	}, nil
+	return descriptor.Plain(desc), nil
 }
 
 // Predecessors returns the nodes directly pointing to the current node.
@@ -240,15 +237,12 @@ func (s *Store) loadIndex(ctx context.Context) error {
 // If AutoSaveIndex is set to false, it's the caller's responsibility
 // to manually call this method when needed.
 func (s *Store) SaveIndex() error {
-	// first need to update the index.
 	var manifests []ocispec.Descriptor
 	refMap := s.resolver.Map()
 	for ref, desc := range refMap {
-		if ref != desc.Digest.String() {
-			if tag := desc.Annotations[ocispec.AnnotationRefName]; tag != "" {
-				// skip
-				continue
-			}
+		if ref == desc.Digest.String() && desc.Annotations[ocispec.AnnotationRefName] != "" {
+			// skip saving desc if ref is a digest, and desc has a tag
+			continue
 		}
 		manifests = append(manifests, desc)
 	}
@@ -269,36 +263,5 @@ func validateReference(ref string) error {
 	}
 
 	// TODO: may enforce more strict validation if needed.
-	return nil
-}
-
-// processIndex processes index.
-func processIndex(ctx context.Context, index ocispec.Index, fetcher content.Fetcher, resolver content.TagResolver, graph *graph.Memory) error {
-	for _, desc := range index.Manifests {
-		if err := resolver.Tag(ctx, desc, desc.Digest.String()); err != nil {
-			return err
-		}
-		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
-			if err := resolver.Tag(ctx, desc, ref); err != nil {
-				return err
-			}
-		}
-		raw := ocispec.Descriptor{
-			MediaType: desc.MediaType,
-			Size:      desc.Size,
-			Digest:    desc.Digest,
-		}
-		if err := graph.IndexAll(ctx, fetcher, raw); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateOCILayout validates layout.
-func validateOCILayout(layout ocispec.ImageLayout) error {
-	if layout.Version != ocispec.ImageLayoutVersion {
-		return errdef.ErrUnsupportedVersion
-	}
 	return nil
 }

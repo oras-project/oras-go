@@ -21,6 +21,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/internal/descriptor"
 )
 
 func TestGenerateDescriptor(t *testing.T) {
@@ -56,7 +57,7 @@ func TestGenerateDescriptor(t *testing.T) {
 			name: "missing media type",
 			args: args{contentBar, ""},
 			want: ocispec.Descriptor{
-				MediaType: defaultMediaType,
+				MediaType: descriptor.DefaultMediaType,
 				Digest:    digest.FromBytes(contentBar),
 				Size:      int64(len(contentBar))},
 		},
