@@ -176,7 +176,7 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 				return desc, nil
 			}
 		}
-		return ocispec.Descriptor{}, fmt.Errorf("failed to resolve %s in %s: %w", reference, s.root, errdef.ErrNotFound)
+		return ocispec.Descriptor{}, fmt.Errorf("failed to resolve %s in %s: %w", reference, s.root, err)
 	}
 	return descriptor.Plain(desc), nil
 }
