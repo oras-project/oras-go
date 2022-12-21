@@ -17,6 +17,7 @@ package resolver
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -37,7 +38,7 @@ func NewMemory() *Memory {
 func (m *Memory) Resolve(_ context.Context, reference string) (ocispec.Descriptor, error) {
 	desc, ok := m.index.Load(reference)
 	if !ok {
-		return ocispec.Descriptor{}, errdef.ErrNotFound
+		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", reference, errdef.ErrNotFound)
 	}
 	return desc.(ocispec.Descriptor), nil
 }
