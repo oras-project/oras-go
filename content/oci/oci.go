@@ -171,12 +171,11 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 		if errors.Is(err, errdef.ErrNotFound) {
 			// attempt resolving blob
 			desc, err := resolveBlob(os.DirFS(s.root), reference)
-			if errors.Is(err, errdef.ErrNotFound) {
-				return ocispec.Descriptor{}, fmt.Errorf("Failed to resolve %s: %w", reference, errdef.ErrNotFound)
+			if err == nil {
+				return desc, err
 			}
-			return desc, nil
 		}
-		return ocispec.Descriptor{}, err
+		return ocispec.Descriptor{}, fmt.Errorf("Failed to resolve %s: %w", reference, errdef.ErrNotFound)
 	}
 	return descriptor.Plain(desc), nil
 }
