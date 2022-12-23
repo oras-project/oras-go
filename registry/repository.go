@@ -40,6 +40,7 @@ type Repository interface {
 	ReferenceFetcher
 	ReferencePusher
 	ReferrerFinder
+	TagFinder
 
 	// Blobs provides access to the blob CAS only, which contains config blobs,
 	// layers, and other generic blobs.
@@ -47,23 +48,6 @@ type Repository interface {
 
 	// Manifests provides access to the manifest CAS only.
 	Manifests() ManifestStore
-
-	// Tags lists the tags available in the repository.
-	// Since the returned tag list may be paginated by the underlying
-	// implementation, a function should be passed in to process the paginated
-	// tag list.
-	// `last` argument is the `last` parameter when invoking the tags API.
-	// If `last` is NOT empty, the entries in the response start after the
-	// tag specified by `last`. Otherwise, the response starts from the top
-	// of the Tags list.
-	// Note: When implemented by a remote registry, the tags API is called.
-	// However, not all registries supports pagination or conforms the
-	// specification.
-	// References:
-	// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#content-discovery
-	// - https://docs.docker.com/registry/spec/api/#tags
-	// See also `Tags()` in this package.
-	Tags(ctx context.Context, last string, fn func(tags []string) error) error
 }
 
 // BlobStore is a CAS with the ability to stat and delete its content.
@@ -100,8 +84,28 @@ type ReferrerFinder interface {
 	Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error
 }
 
+// TagFinder discovers tags by the tag service.
+type TagFinder interface {
+	// Tags lists the tags available in the repository.
+	// Since the returned tag list may be paginated by the underlying
+	// implementation, a function should be passed in to process the paginated
+	// tag list.
+	// `last` argument is the `last` parameter when invoking the tags API.
+	// If `last` is NOT empty, the entries in the response start after the
+	// tag specified by `last`. Otherwise, the response starts from the top
+	// of the Tags list.
+	// Note: When implemented by a remote registry, the tags API is called.
+	// However, not all registries supports pagination or conforms the
+	// specification.
+	// References:
+	// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#content-discovery
+	// - https://docs.docker.com/registry/spec/api/#tags
+	// See also `Tags()` in this package.
+	Tags(ctx context.Context, last string, fn func(tags []string) error) error
+}
+
 // Tags lists the tags available in the repository.
-func Tags(ctx context.Context, repo Repository) ([]string, error) {
+func Tags(ctx context.Context, repo TagFinder) ([]string, error) {
 	var res []string
 	if err := repo.Tags(ctx, "", func(tags []string) error {
 		res = append(res, tags...)
