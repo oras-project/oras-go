@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -537,7 +536,7 @@ func TestStore_BadIndex(t *testing.T) {
 	tempDir := t.TempDir()
 	content := []byte("whatever")
 	path := filepath.Join(tempDir, ociImageIndexFile)
-	ioutil.WriteFile(path, content, 0666)
+	os.WriteFile(path, content, 0666)
 
 	_, err := New(tempDir)
 	if err == nil {

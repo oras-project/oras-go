@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -201,7 +200,7 @@ func (s *Store) ensureOCILayoutFile() error {
 			return fmt.Errorf("failed to marshal OCI layout file: %w", err)
 		}
 
-		return ioutil.WriteFile(layoutFilePath, layoutJSON, 0666)
+		return os.WriteFile(layoutFilePath, layoutJSON, 0666)
 	}
 	defer layoutFile.Close()
 
