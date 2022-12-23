@@ -183,6 +183,17 @@ func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]oc
 	return s.graph.Predecessors(ctx, node)
 }
 
+// Tags lists the tags presented in the `index.json` file of the OCI layout,
+// returned in ascending order.
+// If `last` is NOT empty, the entries in the response start after the tag
+// specified by `last`. Otherwise, the response starts from the top of the tags
+// list.
+//
+// See also `Tags()` in the package `registry`.
+func (s *Store) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
+	return listTags(ctx, s.tagResolver, last, fn)
+}
+
 // ensureOCILayoutFile ensures the `oci-layout` file.
 func (s *Store) ensureOCILayoutFile() error {
 	layoutFilePath := filepath.Join(s.root, ocispec.ImageLayoutFile)

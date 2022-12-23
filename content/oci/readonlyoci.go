@@ -112,27 +112,13 @@ func (s *ReadOnlyStore) Predecessors(ctx context.Context, node ocispec.Descripto
 
 // Tags lists the tags presented in the `index.json` file of the OCI layout,
 // returned in ascending order.
-// If `last` is NOT empty, the entries in the response start after the
-// tag specified by `last`. Otherwise, the response starts from the top
-// of the Tags list.
+// If `last` is NOT empty, the entries in the response start after the tag
+// specified by `last`. Otherwise, the response starts from the top of the tags
+// list.
 //
 // See also `Tags()` in the package `registry`.
 func (s *ReadOnlyStore) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
-	var tags []string
-
-	tagMap := s.tagResolver.Map()
-	for tag, desc := range tagMap {
-		if tag == desc.Digest.String() {
-			continue
-		}
-		if last != "" && tag <= last {
-			continue
-		}
-		tags = append(tags, tag)
-	}
-	sort.Strings(tags)
-
-	return fn(tags)
+	return listTags(ctx, s.tagResolver, last, fn)
 }
 
 // validateOCILayoutFile validates the `oci-layout` file.
@@ -215,4 +201,28 @@ func resolveBlob(fsys fs.FS, dgst string) (ocispec.Descriptor, error) {
 		Size:      fi.Size(),
 		Digest:    digest.Digest(dgst),
 	}, nil
+}
+
+// listTags returns the tags in ascending order.
+// If `last` is NOT empty, the entries in the response start after the tag
+// specified by `last`. Otherwise, the response starts from the top of the tags
+// list.
+//
+// See also `Tags()` in the package `registry`.
+func listTags(ctx context.Context, tagResolver *resolver.Memory, last string, fn func(tags []string) error) error {
+	var tags []string
+
+	tagMap := tagResolver.Map()
+	for tag, desc := range tagMap {
+		if tag == desc.Digest.String() {
+			continue
+		}
+		if last != "" && tag <= last {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+
+	return fn(tags)
 }
