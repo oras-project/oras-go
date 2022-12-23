@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"sort"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -107,6 +108,31 @@ func (s *ReadOnlyStore) Resolve(ctx context.Context, reference string) (ocispec.
 // store.
 func (s *ReadOnlyStore) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	return s.graph.Predecessors(ctx, node)
+}
+
+// Tags lists the tags presented in the `index.json` file of the OCI layout,
+// returned in ascending order.
+// If `last` is NOT empty, the entries in the response start after the
+// tag specified by `last`. Otherwise, the response starts from the top
+// of the Tags list.
+//
+// See also `Tags()` in the package `registry`.
+func (s *ReadOnlyStore) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
+	var tags []string
+
+	tagMap := s.tagResolver.Map()
+	for tag, desc := range tagMap {
+		if tag == desc.Digest.String() {
+			continue
+		}
+		if last != "" && tag <= last {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+
+	return fn(tags)
 }
 
 // validateOCILayoutFile validates the `oci-layout` file.

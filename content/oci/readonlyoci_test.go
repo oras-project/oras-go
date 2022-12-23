@@ -19,10 +19,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -34,12 +36,16 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/registry"
 )
 
 func TestReadonlyStoreInterface(t *testing.T) {
 	var store interface{} = &ReadOnlyStore{}
 	if _, ok := store.(oras.ReadOnlyGraphTarget); !ok {
 		t.Error("&Store{} does not conform oras.ReadOnlyGraphTarget")
+	}
+	if _, ok := store.(registry.TagFinder); !ok {
+		t.Error("&Store{} does not conform registry.TagFinder")
 	}
 }
 
@@ -131,7 +137,7 @@ func TestReadOnlyStore(t *testing.T) {
 	// test resolving subject by digest
 	gotDesc, err := s.Resolve(ctx, descs[2].Digest.String())
 	if err != nil {
-		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
+		t.Error("ReadOnlyStore.Resolve() error =", err)
 	}
 	if want := descs[2]; !reflect.DeepEqual(gotDesc, want) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
@@ -140,7 +146,7 @@ func TestReadOnlyStore(t *testing.T) {
 	// test resolving subject by tag
 	gotDesc, err = s.Resolve(ctx, subjectTag)
 	if err != nil {
-		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
+		t.Error("ReadOnlyStore.Resolve() error =", err)
 	}
 	if want := descs[2]; !reflect.DeepEqual(gotDesc, want) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
@@ -149,7 +155,7 @@ func TestReadOnlyStore(t *testing.T) {
 	// test resolving artifact by digest
 	gotDesc, err = s.Resolve(ctx, descs[3].Digest.String())
 	if err != nil {
-		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
+		t.Error("ReadOnlyStore.Resolve() error =", err)
 	}
 	if want := descs[3]; !reflect.DeepEqual(gotDesc, want) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
@@ -158,7 +164,7 @@ func TestReadOnlyStore(t *testing.T) {
 	// test resolving blob by digest
 	gotDesc, err = s.Resolve(ctx, descs[0].Digest.String())
 	if err != nil {
-		t.Error("ReadOnlyReadOnlyStore.Resolve() error =", err)
+		t.Error("ReadOnlyStore.Resolve() error =", err)
 	}
 	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
@@ -629,5 +635,130 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotDesc, root) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
+	}
+}
+
+func TestReadOnlyStore_Tags(t *testing.T) {
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Config:    config,
+			Layers:    layers,
+		}
+		// add annotation to make each manifest unique
+		manifest.Annotations = map[string]string{
+			"blob_index": strconv.Itoa(len(blobs)),
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(manifest.MediaType, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foobar"))  // Blob 1
+	generateManifest(descs[0], descs[1])                       // Blob 2
+	generateManifest(descs[0], descs[1])                       // Blob 3
+	generateManifest(descs[0], descs[1])                       // Blob 4
+	generateManifest(descs[0], descs[1])                       // Blob 5
+	generateManifest(descs[0], descs[1])                       // Blob 6
+
+	layout := ocispec.ImageLayout{
+		Version: ocispec.ImageLayoutVersion,
+	}
+	layoutJSON, err := json.Marshal(layout)
+	if err != nil {
+		t.Fatalf("failed to marshal OCI layout: %v", err)
+	}
+
+	index := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value
+		},
+	}
+	for _, desc := range descs[2:] {
+		index.Manifests = append(index.Manifests, ocispec.Descriptor{
+			MediaType: desc.MediaType,
+			Size:      desc.Size,
+			Digest:    desc.Digest,
+		})
+	}
+	index.Manifests[1].Annotations = map[string]string{ocispec.AnnotationRefName: "v2"}
+	index.Manifests[2].Annotations = map[string]string{ocispec.AnnotationRefName: "v3"}
+	index.Manifests[3].Annotations = map[string]string{ocispec.AnnotationRefName: "v1"}
+	index.Manifests[4].Annotations = map[string]string{ocispec.AnnotationRefName: "v4"}
+
+	indexJSON, err := json.Marshal(index)
+	if err != nil {
+		t.Fatalf("failed to marshal index: %v", err)
+	}
+
+	// build fs
+	fsys := fstest.MapFS{}
+	for i, desc := range descs {
+		path := strings.Join([]string{"blobs", desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
+		fsys[path] = &fstest.MapFile{Data: blobs[i]}
+	}
+	fsys[ocispec.ImageLayoutFile] = &fstest.MapFile{Data: layoutJSON}
+	fsys[ociImageIndexFile] = &fstest.MapFile{Data: indexJSON}
+
+	// test read-only store
+	ctx := context.Background()
+	s, err := NewFromFS(ctx, fsys)
+	if err != nil {
+		t.Fatal("NewFromFS() error =", err)
+	}
+
+	// test tags
+	tests := []struct {
+		name string
+		last string
+		want []string
+	}{
+		{
+			name: "list all tags",
+			want: []string{"v1", "v2", "v3", "v4"},
+		},
+		{
+			name: "list from middle",
+			last: "v2",
+			want: []string{"v3", "v4"},
+		},
+		{
+			name: "list from end",
+			last: "v4",
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := s.Tags(ctx, tt.last, func(got []string) error {
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("ReadOnlyStore.Tags() = %v, want %v", got, tt.want)
+				}
+				return nil
+			}); err != nil {
+				t.Errorf("ReadOnlyStore.Tags() error = %v", err)
+			}
+		})
+	}
+
+	wantErr := errors.New("expected error")
+	if err := s.Tags(ctx, "", func(got []string) error {
+		return wantErr
+	}); err != wantErr {
+		t.Errorf("ReadOnlyStore.Tags() error = %v, wantErr %v", err, wantErr)
 	}
 }
