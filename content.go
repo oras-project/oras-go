@@ -67,10 +67,10 @@ type TagNOptions struct {
 }
 
 // TagN tags the descriptor identified by srcReference with dstReferences.
-func TagN(ctx context.Context, target Target, srcReference string, dstReferences []string, opts TagNOptions) error {
+func TagN(ctx context.Context, target Target, srcReference string, dstReferences []string, opts TagNOptions) (ocispec.Descriptor, error) {
 	switch len(dstReferences) {
 	case 0:
-		return fmt.Errorf("dstReferences cannot be empty: %w", errdef.ErrMissingReference)
+		return ocispec.Descriptor{}, fmt.Errorf("dstReferences cannot be empty: %w", errdef.ErrMissingReference)
 	case 1:
 		return Tag(ctx, target, srcReference, dstReferences[0])
 	}
@@ -89,7 +89,7 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 			// add scope hints to minimize the number of auth requests
 			ref, err := repo.ParseReference(srcReference)
 			if err != nil {
-				return err
+				return ocispec.Descriptor{}, err
 			}
 			ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
 		}
@@ -99,23 +99,26 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 		})
 		if err != nil {
 			if errors.Is(err, errdef.ErrSizeExceedsLimit) {
-				return fmt.Errorf(
+				err = fmt.Errorf(
 					"content size %v exceeds MaxMetadataBytes %v: %w",
 					desc.Size,
 					opts.MaxMetadataBytes,
 					errdef.ErrSizeExceedsLimit)
 			}
-			return err
+			return ocispec.Descriptor{}, err
 		}
 
-		return tagBytesN(ctx, target, desc, contentBytes, dstReferences, TagBytesNOptions{
+		if err := tagBytesN(ctx, target, desc, contentBytes, dstReferences, TagBytesNOptions{
 			Concurrency: opts.Concurrency,
-		})
+		}); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		return desc, nil
 	}
 
 	desc, err := target.Resolve(ctx, srcReference)
 	if err != nil {
-		return err
+		return ocispec.Descriptor{}, err
 	}
 	eg, egCtx := syncutil.LimitGroup(ctx, opts.Concurrency)
 	for _, dstRef := range dstReferences {
@@ -129,11 +132,14 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 		}(dstRef))
 	}
 
-	return eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return desc, nil
 }
 
 // Tag tags the descriptor identified by src with dst.
-func Tag(ctx context.Context, target Target, src, dst string) error {
+func Tag(ctx context.Context, target Target, src, dst string) (ocispec.Descriptor, error) {
 	refFetcher, okFetch := target.(registry.ReferenceFetcher)
 	refPusher, okPush := target.(registry.ReferencePusher)
 	if okFetch && okPush {
@@ -141,23 +147,29 @@ func Tag(ctx context.Context, target Target, src, dst string) error {
 			// add scope hints to minimize the number of auth requests
 			ref, err := repo.ParseReference(src)
 			if err != nil {
-				return err
+				return ocispec.Descriptor{}, err
 			}
 			ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
 		}
 		desc, rc, err := refFetcher.FetchReference(ctx, src)
 		if err != nil {
-			return err
+			return ocispec.Descriptor{}, err
 		}
 		defer rc.Close()
-		return refPusher.PushReference(ctx, desc, rc, dst)
+		if err := refPusher.PushReference(ctx, desc, rc, dst); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		return desc, nil
 	}
 
 	desc, err := target.Resolve(ctx, src)
 	if err != nil {
-		return err
+		return ocispec.Descriptor{}, err
 	}
-	return target.Tag(ctx, desc, dst)
+	if err := target.Tag(ctx, desc, dst); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return desc, nil
 }
 
 // DefaultResolveOptions provides the default ResolveOptions.
