@@ -82,9 +82,9 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 		opts.MaxMetadataBytes = defaultTagNMaxMetadataBytes
 	}
 
-	refFetcher, okFetch := target.(registry.ReferenceFetcher)
-	refPusher, okPush := target.(registry.ReferencePusher)
-	if okFetch && okPush {
+	_, isRefFetcher := target.(registry.ReferenceFetcher)
+	_, isRefPusher := target.(registry.ReferencePusher)
+	if isRefFetcher && isRefPusher {
 		if repo, ok := target.(interfaces.ReferenceParser); ok {
 			// add scope hints to minimize the number of auth requests
 			ref, err := repo.ParseReference(srcReference)
@@ -94,43 +94,23 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 			ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
 		}
 
-		desc, contentBytes, err := func() (ocispec.Descriptor, []byte, error) {
-			desc, rc, err := refFetcher.FetchReference(ctx, srcReference)
-			if err != nil {
-				return ocispec.Descriptor{}, nil, err
-			}
-			defer rc.Close()
-
-			if desc.Size > opts.MaxMetadataBytes {
-				return ocispec.Descriptor{}, nil, fmt.Errorf(
+		desc, contentBytes, err := FetchBytes(ctx, target, srcReference, FetchBytesOptions{
+			MaxBytes: opts.MaxMetadataBytes,
+		})
+		if err != nil {
+			if errors.Is(err, errdef.ErrSizeExceedsLimit) {
+				return fmt.Errorf(
 					"content size %v exceeds MaxMetadataBytes %v: %w",
 					desc.Size,
 					opts.MaxMetadataBytes,
 					errdef.ErrSizeExceedsLimit)
 			}
-			contentBytes, err := content.ReadAll(rc, desc)
-			if err != nil {
-				return ocispec.Descriptor{}, nil, err
-			}
-			return desc, contentBytes, nil
-		}()
-		if err != nil {
 			return err
 		}
 
-		eg, egCtx := syncutil.LimitGroup(ctx, opts.Concurrency)
-		for _, dstRef := range dstReferences {
-			eg.Go(func(dst string) func() error {
-				return func() error {
-					r := bytes.NewReader(contentBytes)
-					if err := refPusher.PushReference(egCtx, desc, r, dst); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-						return fmt.Errorf("failed to tag %s as %s: %w", srcReference, dst, err)
-					}
-					return nil
-				}
-			}(dstRef))
-		}
-		return eg.Wait()
+		return tagBytesN(ctx, target, desc, contentBytes, dstReferences, TagBytesNOptions{
+			Concurrency: opts.Concurrency,
+		})
 	}
 
 	desc, err := target.Resolve(ctx, srcReference)
@@ -369,6 +349,16 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultTagConcurrency
 	}
+
+	if err := tagBytesN(ctx, target, desc, contentBytes, references, opts); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return desc, nil
+}
+
+// tagBytesN pushes the contentBytes using the given desc, and tag it with the
+// given references.
+func tagBytesN(ctx context.Context, target Target, desc ocispec.Descriptor, contentBytes []byte, references []string, opts TagBytesNOptions) error {
 	eg, egCtx := syncutil.LimitGroup(ctx, opts.Concurrency)
 	if refPusher, ok := target.(registry.ReferencePusher); ok {
 		for _, reference := range references {
@@ -385,7 +375,7 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 	} else {
 		r := bytes.NewReader(contentBytes)
 		if err := target.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to push content: %w", err)
+			return fmt.Errorf("failed to push content: %w", err)
 		}
 		for _, reference := range references {
 			eg.Go(func(ref string) func() error {
@@ -399,10 +389,7 @@ func TagBytesN(ctx context.Context, target Target, mediaType string, contentByte
 		}
 	}
 
-	if err := eg.Wait(); err != nil {
-		return ocispec.Descriptor{}, err
-	}
-	return desc, nil
+	return eg.Wait()
 }
 
 // TagBytes describes the contentBytes using the given mediaType, pushes it,
