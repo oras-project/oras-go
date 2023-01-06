@@ -1379,7 +1379,7 @@ func TestCopyGraph_OCIToMemory_PartialCopy(t *testing.T) {
 	}
 }
 
-func TestCopyGraph_Tags(t *testing.T) {
+func TestStore_Tags(t *testing.T) {
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
@@ -1464,11 +1464,11 @@ func TestCopyGraph_Tags(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := s.Tags(ctx, tt.last, func(got []string) error {
 				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("ReadOnlyStore.Tags() = %v, want %v", got, tt.want)
+					t.Errorf("Store.Tags() = %v, want %v", got, tt.want)
 				}
 				return nil
 			}); err != nil {
-				t.Errorf("ReadOnlyStore.Tags() error = %v", err)
+				t.Errorf("Store.Tags() error = %v", err)
 			}
 		})
 	}
@@ -1477,7 +1477,7 @@ func TestCopyGraph_Tags(t *testing.T) {
 	if err := s.Tags(ctx, "", func(got []string) error {
 		return wantErr
 	}); err != wantErr {
-		t.Errorf("ReadOnlyStore.Tags() error = %v, wantErr %v", err, wantErr)
+		t.Errorf("Store.Tags() error = %v, wantErr %v", err, wantErr)
 	}
 }
 

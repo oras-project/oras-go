@@ -42,10 +42,10 @@ import (
 func TestReadonlyStoreInterface(t *testing.T) {
 	var store interface{} = &ReadOnlyStore{}
 	if _, ok := store.(oras.ReadOnlyGraphTarget); !ok {
-		t.Error("&Store{} does not conform oras.ReadOnlyGraphTarget")
+		t.Error("&ReadOnlyStore{} does not conform oras.ReadOnlyGraphTarget")
 	}
 	if _, ok := store.(registry.TagFinder); !ok {
-		t.Error("&Store{} does not conform registry.TagFinder")
+		t.Error("&ReadOnlyStore{} does not conform registry.TagFinder")
 	}
 }
 
