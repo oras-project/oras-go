@@ -776,12 +776,12 @@ func Example_tagReference() {
 	// tag a manifest referenced by the exampleDigest below
 	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
 	tag := "latest"
-	err = oras.Tag(ctx, repo, exampleDigest, tag)
+	desc, err := oras.Tag(ctx, repo, exampleDigest, tag)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Succeed")
+	fmt.Println("Tagged", desc.Digest, "as", tag)
 
 	// Output:
-	// Succeed
+	// Tagged sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7 as latest
 }
