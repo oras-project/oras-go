@@ -22,10 +22,14 @@ import (
 	"regexp"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/internal/status"
+	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -92,19 +96,46 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 // ExtendedCopyGraph copies the directed acyclic graph (DAG) that are reachable
 // from the given node from the source GraphStorage to the destination Storage.
 func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
-	roots, err := findRoots(ctx, src, node, opts)
+	rootMap, err := findRoots(ctx, src, node, opts)
 	if err != nil {
 		return err
 	}
-
-	// copy the sub-DAGs rooted by the root nodes
-	for _, root := range roots {
-		if err := CopyGraph(ctx, src, dst, root, opts.CopyGraphOptions); err != nil {
-			return err
-		}
+	roots := make([]ocispec.Descriptor, 0, len(rootMap))
+	for _, root := range rootMap {
+		roots = append(roots, root)
 	}
 
-	return nil
+	// use caching proxy on non-leaf nodes
+	if opts.MaxMetadataBytes <= 0 {
+		opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
+	}
+	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
+
+	// if Concurrency is not set or invalid, use the default concurrency
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultConcurrency
+	}
+	limiter := semaphore.NewWeighted(int64(opts.Concurrency))
+
+	// track content status
+	tracker := status.NewTracker()
+
+	// copy the sub-DAGs rooted by the root nodes
+	copyOpts := copyGraphOptions{
+		CopyGraphOptions: opts.CopyGraphOptions,
+		src:              src,
+		dst:              dst,
+		proxy:            proxy,
+		limiter:          limiter,
+		tracker:          tracker,
+	}
+	return syncutil.Go(ctx, copyOpts.limiter, func(ctx context.Context, region *syncutil.LimitedRegion, root ocispec.Descriptor) error {
+		region.End()
+		if err := copyGraphWithOptions(ctx, root, copyOpts); err != nil {
+			return err
+		}
+		return region.Start()
+	}, roots...)
 }
 
 // findRoots finds the root nodes reachable from the given node through a
