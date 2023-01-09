@@ -44,8 +44,8 @@ func TestReadonlyStoreInterface(t *testing.T) {
 	if _, ok := store.(oras.ReadOnlyGraphTarget); !ok {
 		t.Error("&ReadOnlyStore{} does not conform oras.ReadOnlyGraphTarget")
 	}
-	if _, ok := store.(registry.TagFinder); !ok {
-		t.Error("&ReadOnlyStore{} does not conform registry.TagFinder")
+	if _, ok := store.(registry.TagLister); !ok {
+		t.Error("&ReadOnlyStore{} does not conform registry.TagLister")
 	}
 }
 

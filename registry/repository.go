@@ -39,8 +39,8 @@ type Repository interface {
 	content.TagResolver
 	ReferenceFetcher
 	ReferencePusher
-	ReferrerFinder
-	TagFinder
+	ReferrerLister
+	TagLister
 
 	// Blobs provides access to the blob CAS only, which contains config blobs,
 	// layers, and other generic blobs.
@@ -78,14 +78,14 @@ type ReferenceFetcher interface {
 	FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
 }
 
-// ReferrerFinder provides the Referrers API.
+// ReferrerLister provides the Referrers API.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
-type ReferrerFinder interface {
+type ReferrerLister interface {
 	Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error
 }
 
-// TagFinder discovers tags by the tag service.
-type TagFinder interface {
+// TagLister lists tags by the tag service.
+type TagLister interface {
 	// Tags lists the tags available in the repository.
 	// Since the returned tag list may be paginated by the underlying
 	// implementation, a function should be passed in to process the paginated
@@ -105,7 +105,7 @@ type TagFinder interface {
 }
 
 // Tags lists the tags available in the repository.
-func Tags(ctx context.Context, repo TagFinder) ([]string, error) {
+func Tags(ctx context.Context, repo TagLister) ([]string, error) {
 	var res []string
 	if err := repo.Tags(ctx, "", func(tags []string) error {
 		res = append(res, tags...)

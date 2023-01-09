@@ -70,8 +70,8 @@ func TestStoreInterface(t *testing.T) {
 	if _, ok := store.(oras.GraphTarget); !ok {
 		t.Error("&Store{} does not conform oras.Target")
 	}
-	if _, ok := store.(registry.TagFinder); !ok {
-		t.Error("&Store{} does not conform registry.TagFinder")
+	if _, ok := store.(registry.TagLister); !ok {
+		t.Error("&Store{} does not conform registry.TagLister")
 	}
 }
 
