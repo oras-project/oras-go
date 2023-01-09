@@ -96,13 +96,9 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 // ExtendedCopyGraph copies the directed acyclic graph (DAG) that are reachable
 // from the given node from the source GraphStorage to the destination Storage.
 func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
-	rootMap, err := findRoots(ctx, src, node, opts)
+	roots, err := findRoots(ctx, src, node, opts)
 	if err != nil {
 		return err
-	}
-	roots := make([]ocispec.Descriptor, 0, len(rootMap))
-	for _, root := range rootMap {
-		roots = append(roots, root)
 	}
 
 	// use caching proxy on non-leaf nodes
@@ -140,12 +136,12 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 
 // findRoots finds the root nodes reachable from the given node through a
 // depth-first search.
-func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
+func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) ([]ocispec.Descriptor, error) {
 	visited := make(map[descriptor.Descriptor]bool)
-	roots := make(map[descriptor.Descriptor]ocispec.Descriptor)
+	rootMap := make(map[descriptor.Descriptor]ocispec.Descriptor)
 	addRoot := func(key descriptor.Descriptor, val ocispec.Descriptor) {
-		if _, exists := roots[key]; !exists {
-			roots[key] = val
+		if _, exists := rootMap[key]; !exists {
+			rootMap[key] = val
 		}
 	}
 
@@ -201,6 +197,11 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 				stack.Push(copyutil.NodeInfo{Node: predecessor, Depth: current.Depth + 1})
 			}
 		}
+	}
+
+	roots := make([]ocispec.Descriptor, 0, len(rootMap))
+	for _, root := range rootMap {
+		roots = append(roots, root)
 	}
 	return roots, nil
 }
