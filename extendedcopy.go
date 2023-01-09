@@ -192,8 +192,8 @@ func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp
 		var predecessors []ocispec.Descriptor
 		var err error
 		if fp == nil {
-			if rf, ok := src.(registry.ReferrerFinder); ok {
-				// if src is a ReferrerFinder, use Referrers() for possible memory saving
+			if rf, ok := src.(registry.ReferrerLister); ok {
+				// if src is a ReferrerLister, use Referrers() for possible memory saving
 				if err := rf.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
 					// for each page of the results, filter the referrers
 					for _, r := range referrers {
@@ -281,8 +281,8 @@ func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {
 		var predecessors []ocispec.Descriptor
 		var err error
 		if fp == nil {
-			if rf, ok := src.(registry.ReferrerFinder); ok {
-				// if src is a ReferrerFinder, use Referrers() for possible memory saving
+			if rf, ok := src.(registry.ReferrerLister); ok {
+				// if src is a ReferrerLister, use Referrers() for possible memory saving
 				if err := rf.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
 					// for each page of the results, filter the referrers
 					for _, r := range referrers {

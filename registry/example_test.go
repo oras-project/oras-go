@@ -31,19 +31,33 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 )
 
-var host string
-
 const _ = ExampleUnplayable
+
+const exampleRepositoryName = "example"
+
+var host string
 
 func TestMain(m *testing.M) {
 	// Setup a local HTTPS registry
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		result := struct {
-			Repositories []string `json:"repositories"`
-		}{
-			Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
+		p := r.URL.Path
+		m := r.Method
+		switch {
+		case p == "/v2/_catalog" && m == "GET":
+			result := struct {
+				Repositories []string `json:"repositories"`
+			}{
+				Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
+			}
+			json.NewEncoder(w).Encode(result)
+		case p == fmt.Sprintf("/v2/%s/tags/list", exampleRepositoryName) && m == "GET":
+			result := struct {
+				Tags []string `json:"tags"`
+			}{
+				Tags: []string{"tag1", "tag2"},
+			}
+			json.NewEncoder(w).Encode(result)
 		}
-		json.NewEncoder(w).Encode(result)
 	}))
 	defer ts.Close()
 	u, err := url.Parse(ts.URL)
@@ -56,7 +70,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// ExampleRepositories gives example snippets for listing respositories in the registry without pagination.
+// ExampleRepositories gives example snippets for listing repositories in the registry without pagination.
 func ExampleRepositories() {
 	reg, err := remote.NewRegistry(host)
 	if err != nil {
@@ -75,4 +89,24 @@ func ExampleRepositories() {
 	// public/repo1
 	// public/repo2
 	// internal/repo3
+}
+
+// ExampleTags gives example snippets for listing tags in the repository without pagination.
+func ExampleTags() {
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
+	if err != nil {
+		panic(err) // Handle error
+	}
+
+	ctx := context.Background()
+	tags, err := registry.Tags(ctx, repo)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	for _, tag := range tags {
+		fmt.Println(tag)
+	}
+	// Output:
+	// tag1
+	// tag2
 }

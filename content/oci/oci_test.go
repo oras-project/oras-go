@@ -23,10 +23,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -39,6 +39,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
+	"oras.land/oras-go/v2/registry"
 )
 
 // storageTracker tracks storage API counts.
@@ -68,6 +69,9 @@ func TestStoreInterface(t *testing.T) {
 	var store interface{} = &Store{}
 	if _, ok := store.(oras.GraphTarget); !ok {
 		t.Error("&Store{} does not conform oras.Target")
+	}
+	if _, ok := store.(registry.TagLister); !ok {
+		t.Error("&Store{} does not conform registry.TagLister")
 	}
 }
 
@@ -537,7 +541,7 @@ func TestStore_BadIndex(t *testing.T) {
 	tempDir := t.TempDir()
 	content := []byte("whatever")
 	path := filepath.Join(tempDir, ociImageIndexFile)
-	ioutil.WriteFile(path, content, 0666)
+	os.WriteFile(path, content, 0666)
 
 	_, err := New(tempDir)
 	if err == nil {
@@ -1372,6 +1376,108 @@ func TestCopyGraph_OCIToMemory_PartialCopy(t *testing.T) {
 	}
 	if got, want := dstTracker.exists, int64(5); got != want {
 		t.Errorf("count(dst.Exists()) = %v, want %v", got, want)
+	}
+}
+
+func TestStore_Tags(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		// add annotation to make each manifest unique
+		manifest.Annotations = map[string]string{
+			"blob_index": strconv.Itoa(len(blobs)),
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	tagManifest := func(desc ocispec.Descriptor, ref string) {
+		if err := s.Tag(ctx, desc, ref); err != nil {
+			t.Fatal("Store.Tag() error =", err)
+		}
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foobar"))  // Blob 1
+	generateManifest(descs[0], descs[1])                       // Blob 2
+	generateManifest(descs[0], descs[1])                       // Blob 3
+	generateManifest(descs[0], descs[1])                       // Blob 4
+	generateManifest(descs[0], descs[1])                       // Blob 5
+	generateManifest(descs[0], descs[1])                       // Blob 6
+
+	for i := range blobs {
+		err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content: %d: %v", i, err)
+		}
+	}
+
+	tagManifest(descs[3], "v2")
+	tagManifest(descs[4], "v3")
+	tagManifest(descs[5], "v1")
+	tagManifest(descs[6], "v4")
+
+	// test tags
+	tests := []struct {
+		name string
+		last string
+		want []string
+	}{
+		{
+			name: "list all tags",
+			want: []string{"v1", "v2", "v3", "v4"},
+		},
+		{
+			name: "list from middle",
+			last: "v2",
+			want: []string{"v3", "v4"},
+		},
+		{
+			name: "list from end",
+			last: "v4",
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := s.Tags(ctx, tt.last, func(got []string) error {
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("Store.Tags() = %v, want %v", got, tt.want)
+				}
+				return nil
+			}); err != nil {
+				t.Errorf("Store.Tags() error = %v", err)
+			}
+		})
+	}
+
+	wantErr := errors.New("expected error")
+	if err := s.Tags(ctx, "", func(got []string) error {
+		return wantErr
+	}); err != wantErr {
+		t.Errorf("Store.Tags() error = %v, wantErr %v", err, wantErr)
 	}
 }
 

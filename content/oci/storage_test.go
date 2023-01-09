@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -215,7 +214,7 @@ func TestStorage_Fetch_ExistingBlobs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
 		t.Fatal("error calling Mkdir(), error =", err)
 	}
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
