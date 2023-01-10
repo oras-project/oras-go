@@ -154,14 +154,8 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 		return ocispec.Descriptor{}, err
 	}
 
-	if err := copyGraph(ctx, root, copyGraphOptions{
-		CopyGraphOptions: opts.CopyGraphOptions,
-		src:              src,
-		dst:              dst,
-		proxy:            proxy,
-		limiter:          semaphore.NewWeighted(int64(opts.Concurrency)),
-		tracker:          status.NewTracker(),
-	}); err != nil {
+	if err := copyGraph(ctx, root, src, dst,
+		proxy, semaphore.NewWeighted(int64(opts.Concurrency)), status.NewTracker(), opts.CopyGraphOptions); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
@@ -180,29 +174,13 @@ func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
 	}
 	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
-	return copyGraph(ctx, root, copyGraphOptions{
-		CopyGraphOptions: opts,
-		src:              src,
-		dst:              dst,
-		proxy:            proxy,
-		limiter:          semaphore.NewWeighted(int64(opts.Concurrency)),
-		tracker:          status.NewTracker(),
-	})
-}
-
-// copyGraphOptions contains options for copyGraph.
-type copyGraphOptions struct {
-	CopyGraphOptions
-	src     content.ReadOnlyStorage
-	dst     content.Storage
-	proxy   *cas.Proxy
-	limiter *semaphore.Weighted
-	tracker *status.Tracker
+	return copyGraph(ctx, root, src, dst, proxy, semaphore.NewWeighted(int64(opts.Concurrency)), status.NewTracker(), opts)
 }
 
 // copyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
-// the destination CAS with specified caching.
-func copyGraph(ctx context.Context, root ocispec.Descriptor, opts copyGraphOptions) error {
+// the destination CAS with specified caching, concurrency limiter and tracker.
+func copyGraph(ctx context.Context, root ocispec.Descriptor, src content.ReadOnlyStorage, dst content.Storage,
+	proxy *cas.Proxy, limiter *semaphore.Weighted, tracker *status.Tracker, opts CopyGraphOptions) error {
 	// if FindSuccessors is not provided, use the default one
 	if opts.FindSuccessors == nil {
 		opts.FindSuccessors = content.Successors
@@ -212,7 +190,7 @@ func copyGraph(ctx context.Context, root ocispec.Descriptor, opts copyGraphOptio
 	var fn syncutil.GoFunc[ocispec.Descriptor]
 	fn = func(ctx context.Context, region *syncutil.LimitedRegion, desc ocispec.Descriptor) (err error) {
 		// skip the descriptor if other go routine is working on it
-		done, committed := opts.tracker.TryCommit(desc)
+		done, committed := tracker.TryCommit(desc)
 		if !committed {
 			return nil
 		}
@@ -224,7 +202,7 @@ func copyGraph(ctx context.Context, root ocispec.Descriptor, opts copyGraphOptio
 		}()
 
 		// skip if a rooted sub-DAG exists
-		exists, err := opts.dst.Exists(ctx, desc)
+		exists, err := dst.Exists(ctx, desc)
 		if err != nil {
 			return err
 		}
@@ -238,7 +216,7 @@ func copyGraph(ctx context.Context, root ocispec.Descriptor, opts copyGraphOptio
 		}
 
 		// find successors while non-leaf nodes will be fetched and cached
-		successors, err := opts.FindSuccessors(ctx, opts.proxy, desc)
+		successors, err := opts.FindSuccessors(ctx, proxy, desc)
 		if err != nil {
 			return err
 		}
@@ -247,11 +225,11 @@ func copyGraph(ctx context.Context, root ocispec.Descriptor, opts copyGraphOptio
 		if len(successors) != 0 {
 			// for non-leaf nodes, process successors and wait for them to complete
 			region.End()
-			if err := syncutil.Go(ctx, opts.limiter, fn, successors...); err != nil {
+			if err := syncutil.Go(ctx, limiter, fn, successors...); err != nil {
 				return err
 			}
 			for _, node := range successors {
-				done, committed := opts.tracker.TryCommit(node)
+				done, committed := tracker.TryCommit(node)
 				if committed {
 					return fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
 				}
@@ -266,17 +244,17 @@ func copyGraph(ctx context.Context, root ocispec.Descriptor, opts copyGraphOptio
 			}
 		}
 
-		exists, err = opts.proxy.Cache.Exists(ctx, desc)
+		exists, err = proxy.Cache.Exists(ctx, desc)
 		if err != nil {
 			return err
 		}
 		if exists {
-			return copyNode(ctx, opts.proxy.Cache, opts.dst, desc, opts.CopyGraphOptions)
+			return copyNode(ctx, proxy.Cache, dst, desc, opts)
 		}
-		return copyNode(ctx, opts.src, opts.dst, desc, opts.CopyGraphOptions)
+		return copyNode(ctx, src, dst, desc, opts)
 	}
 
-	return syncutil.Go(ctx, opts.limiter, fn, root)
+	return syncutil.Go(ctx, limiter, fn, root)
 }
 
 // doCopyNode copies a single content from the source CAS to the destination CAS.
