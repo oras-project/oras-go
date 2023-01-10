@@ -115,7 +115,6 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 
 	// track content status
 	tracker := status.NewTracker()
-
 	// copy the sub-DAGs rooted by the root nodes
 	copyOpts := copyGraphOptions{
 		CopyGraphOptions: opts.CopyGraphOptions,
@@ -126,6 +125,9 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 		tracker:          tracker,
 	}
 	return syncutil.Go(ctx, copyOpts.limiter, func(ctx context.Context, region *syncutil.LimitedRegion, root ocispec.Descriptor) error {
+		// As a root can be a predecessor of other roots, release the limit here
+		// for dispatching, to avoid dead locks where successors roots are
+		// handled after predecessor nodes.
 		region.End()
 		if err := copyGraphWithOptions(ctx, root, copyOpts); err != nil {
 			return err
