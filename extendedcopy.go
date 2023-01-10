@@ -129,7 +129,7 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 		// for dispatching, to avoid dead locks where successors roots are
 		// handled after predecessor nodes.
 		region.End()
-		if err := copyGraphWithOptions(ctx, root, copyOpts); err != nil {
+		if err := copyGraph(ctx, root, copyOpts); err != nil {
 			return err
 		}
 		return region.Start()
