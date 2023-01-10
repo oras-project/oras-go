@@ -154,7 +154,7 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 		return ocispec.Descriptor{}, err
 	}
 
-	if err := copyGraph(ctx, root, src, dst,
+	if err := copyGraph(ctx, src, dst, root,
 		proxy, semaphore.NewWeighted(int64(opts.Concurrency)), status.NewTracker(), opts.CopyGraphOptions); err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -174,12 +174,12 @@ func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
 	}
 	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
-	return copyGraph(ctx, root, src, dst, proxy, semaphore.NewWeighted(int64(opts.Concurrency)), status.NewTracker(), opts)
+	return copyGraph(ctx, src, dst, root, proxy, semaphore.NewWeighted(int64(opts.Concurrency)), status.NewTracker(), opts)
 }
 
 // copyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
 // the destination CAS with specified caching, concurrency limiter and tracker.
-func copyGraph(ctx context.Context, root ocispec.Descriptor, src content.ReadOnlyStorage, dst content.Storage,
+func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, root ocispec.Descriptor,
 	proxy *cas.Proxy, limiter *semaphore.Weighted, tracker *status.Tracker, opts CopyGraphOptions) error {
 	// if FindSuccessors is not provided, use the default one
 	if opts.FindSuccessors == nil {
