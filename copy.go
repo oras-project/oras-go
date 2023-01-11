@@ -127,10 +127,6 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 		dstRef = srcRef
 	}
 
-	// if Concurrency is not set or invalid, use the default concurrency
-	if opts.Concurrency <= 0 {
-		opts.Concurrency = defaultConcurrency
-	}
 	// use caching proxy on non-leaf nodes
 	if opts.MaxMetadataBytes <= 0 {
 		opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
@@ -154,8 +150,7 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 		return ocispec.Descriptor{}, err
 	}
 
-	if err := copyGraph(ctx, src, dst, root,
-		proxy, semaphore.NewWeighted(int64(opts.Concurrency)), status.NewTracker(), opts.CopyGraphOptions); err != nil {
+	if err := copyGraph(ctx, src, dst, root, proxy, nil, nil, opts.CopyGraphOptions); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
@@ -165,22 +160,31 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 // CopyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
 // the destination CAS.
 func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, root ocispec.Descriptor, opts CopyGraphOptions) error {
-	// if Concurrency is not set or invalid, use the default concurrency
-	if opts.Concurrency <= 0 {
-		opts.Concurrency = defaultConcurrency
-	}
-	// use caching proxy on non-leaf nodes
-	if opts.MaxMetadataBytes <= 0 {
-		opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
-	}
-	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
-	return copyGraph(ctx, src, dst, root, proxy, semaphore.NewWeighted(int64(opts.Concurrency)), status.NewTracker(), opts)
+	return copyGraph(ctx, src, dst, root, nil, nil, nil, opts)
 }
 
 // copyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
 // the destination CAS with specified caching, concurrency limiter and tracker.
 func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, root ocispec.Descriptor,
 	proxy *cas.Proxy, limiter *semaphore.Weighted, tracker *status.Tracker, opts CopyGraphOptions) error {
+	if proxy == nil {
+		// use caching proxy on non-leaf nodes
+		if opts.MaxMetadataBytes <= 0 {
+			opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
+		}
+		proxy = cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
+	}
+	if limiter == nil {
+		// if Concurrency is not set or invalid, use the default concurrency
+		if opts.Concurrency <= 0 {
+			opts.Concurrency = defaultConcurrency
+		}
+		limiter = semaphore.NewWeighted(int64(opts.Concurrency))
+	}
+	if tracker == nil {
+		// track content status
+		tracker = status.NewTracker()
+	}
 	// if FindSuccessors is not provided, use the default one
 	if opts.FindSuccessors == nil {
 		opts.FindSuccessors = content.Successors
