@@ -22,10 +22,14 @@ import (
 	"regexp"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/internal/status"
+	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -97,24 +101,40 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 		return err
 	}
 
+	// if Concurrency is not set or invalid, use the default concurrency
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultConcurrency
+	}
+	limiter := semaphore.NewWeighted(int64(opts.Concurrency))
+	// use caching proxy on non-leaf nodes
+	if opts.MaxMetadataBytes <= 0 {
+		opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
+	}
+	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
+	// track content status
+	tracker := status.NewTracker()
+
 	// copy the sub-DAGs rooted by the root nodes
-	for _, root := range roots {
-		if err := CopyGraph(ctx, src, dst, root, opts.CopyGraphOptions); err != nil {
+	return syncutil.Go(ctx, limiter, func(ctx context.Context, region *syncutil.LimitedRegion, root ocispec.Descriptor) error {
+		// As a root can be a predecessor of other roots, release the limit here
+		// for dispatching, to avoid dead locks where predecessor roots are
+		// handled first and are waiting for its successors to complete.
+		region.End()
+		if err := copyGraph(ctx, src, dst, root, proxy, limiter, tracker, opts.CopyGraphOptions); err != nil {
 			return err
 		}
-	}
-
-	return nil
+		return region.Start()
+	}, roots...)
 }
 
 // findRoots finds the root nodes reachable from the given node through a
 // depth-first search.
-func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) (map[descriptor.Descriptor]ocispec.Descriptor, error) {
+func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) ([]ocispec.Descriptor, error) {
 	visited := make(map[descriptor.Descriptor]bool)
-	roots := make(map[descriptor.Descriptor]ocispec.Descriptor)
+	rootMap := make(map[descriptor.Descriptor]ocispec.Descriptor)
 	addRoot := func(key descriptor.Descriptor, val ocispec.Descriptor) {
-		if _, exists := roots[key]; !exists {
-			roots[key] = val
+		if _, exists := rootMap[key]; !exists {
+			rootMap[key] = val
 		}
 	}
 
@@ -170,6 +190,11 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 				stack.Push(copyutil.NodeInfo{Node: predecessor, Depth: current.Depth + 1})
 			}
 		}
+	}
+
+	roots := make([]ocispec.Descriptor, 0, len(rootMap))
+	for _, root := range rootMap {
+		roots = append(roots, root)
 	}
 	return roots, nil
 }
