@@ -28,10 +28,12 @@ import (
 	"strings"
 
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
+	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
 // DefaultClient is the default auth-decorated client.
 var DefaultClient = &Client{
+	Client: retry.DefaultClient,
 	Header: http.Header{
 		"User-Agent": {"oras-go"},
 	},
