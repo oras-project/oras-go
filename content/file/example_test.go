@@ -58,7 +58,7 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-// ExampleVerifyReader gives an example of adding a single file and packing a
+// Example_packFile gives an example of adding a single file and packing a
 // manifest referencing it.
 func Example_packFile() {
 	store := file.New(workingDir)
