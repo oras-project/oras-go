@@ -214,7 +214,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	host = u.Host
-	http.DefaultClient = ts.Client()
+	http.DefaultTransport = ts.Client().Transport
 
 	os.Exit(m.Run())
 }

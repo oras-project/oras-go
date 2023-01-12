@@ -182,7 +182,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	remoteHost = u.Host
-	http.DefaultClient = httpsServer.Client()
+	http.DefaultTransport = httpsServer.Client().Transport
 
 	os.Exit(m.Run())
 }
