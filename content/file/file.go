@@ -28,7 +28,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
@@ -422,25 +421,6 @@ func (s *Store) Add(_ context.Context, name, mediaType, path string) (ocispec.De
 	// update the name status as existed
 	status.exists = true
 	return desc, nil
-}
-
-// generates a manifest for the pack, and store the manifest in the file store.
-// If succeeded, returns a descriptor of the manifest.
-func (s *Store) PackFiles(ctx context.Context, names []string) (ocispec.Descriptor, error) {
-	if s.isClosedSet() {
-		return ocispec.Descriptor{}, ErrStoreClosed
-	}
-
-	var layers []ocispec.Descriptor
-	for _, name := range names {
-		desc, err := s.Add(ctx, name, "", "")
-		if err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to add %s: %w", name, err)
-		}
-		layers = append(layers, desc)
-	}
-
-	return oras.Pack(ctx, s, "", layers, oras.PackOptions{})
 }
 
 // saveFile saves content matching the descriptor to the given file.
