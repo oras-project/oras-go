@@ -302,11 +302,6 @@ func TestStore_Close(t *testing.T) {
 	if _, err := s.Predecessors(ctx, desc); !errors.Is(err, ErrStoreClosed) {
 		t.Errorf("Store.Predecessors() = %v, want %v", err, ErrStoreClosed)
 	}
-
-	// test PackFiles after close
-	if _, err := s.PackFiles(ctx, []string{}); !errors.Is(err, ErrStoreClosed) {
-		t.Errorf("Store.PackFiles() = %v, want %v", err, ErrStoreClosed)
-	}
 }
 
 func TestStore_File_Push(t *testing.T) {
@@ -990,78 +985,6 @@ func TestStore_File_Add_SameContent(t *testing.T) {
 	}
 	if !bytes.Equal(got_2, content) {
 		t.Errorf("Store.Fetch() = %v, want %v", got_2, content)
-	}
-}
-
-func TestStore_PackFiles(t *testing.T) {
-	var names []string
-
-	content_1 := []byte("hello world")
-	name_1 := "test_1.txt"
-	names = append(names, name_1)
-	desc_1 := ocispec.Descriptor{
-		MediaType: defaultBlobMediaType,
-		Digest:    digest.FromBytes(content_1),
-		Size:      int64(len(content_1)),
-		Annotations: map[string]string{
-			ocispec.AnnotationTitle: name_1,
-		},
-	}
-
-	content_2 := []byte("goodbye world")
-	name_2 := "test_2.txt"
-	names = append(names, name_2)
-	desc_2 := ocispec.Descriptor{
-		MediaType: defaultBlobMediaType,
-		Digest:    digest.FromBytes(content_2),
-		Size:      int64(len(content_2)),
-		Annotations: map[string]string{
-			ocispec.AnnotationTitle: name_2,
-		},
-	}
-
-	tempDir := t.TempDir()
-	if err := ioutil.WriteFile(filepath.Join(tempDir, name_1), content_1, 0444); err != nil {
-		t.Fatal("error calling WriteFile(), error =", err)
-	}
-
-	if err := ioutil.WriteFile(filepath.Join(tempDir, name_2), content_2, 0444); err != nil {
-		t.Fatal("error calling WriteFile(), error =", err)
-	}
-
-	s := New(tempDir)
-	defer s.Close()
-	ctx := context.Background()
-
-	// test pack
-	manifestDesc, err := s.PackFiles(ctx, names)
-	if err != nil {
-		t.Fatal("Store.Pack() error =", err)
-	}
-
-	// test exists
-	exists, err := s.Exists(ctx, desc_1)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-
-	exists, err = s.Exists(ctx, desc_2)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-
-	exists, err = s.Exists(ctx, manifestDesc)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
 	}
 }
 
