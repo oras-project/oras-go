@@ -13,6 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package file_test includes all the testable examples for the file package.
 package file_test
 
 import (
@@ -28,7 +29,7 @@ import (
 	"oras.land/oras-go/v2/content/file"
 )
 
-var workingDir string
+var workingDir string // the working directory for the examples
 
 func TestMain(m *testing.M) {
 	// prepare test directory
@@ -66,33 +67,29 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-// Example_packFile gives an example of adding files and packing a manifest
-// referencing them.
+// Example_packFiles gives an example of adding files and generating a manifest
+// referencing the files.
 func Example_packFiles() {
 	store := file.New(workingDir)
 	defer store.Close()
 	ctx := context.Background()
 
-	// 1. Add a file into the file store
+	// 1. Add files into the file store
 	mediaType := "example/file"
-	name1 := "foo.txt"
-	fileDescriptor1, err := store.Add(ctx, name1, mediaType, "")
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("file1 descriptor:", fileDescriptor1)
+	fileNames := []string{"foo.txt", "bar.txt"}
+	fileDescriptors := make([]ocispec.Descriptor, 0, len(fileNames))
+	for _, name := range fileNames {
+		fileDescriptor, err := store.Add(ctx, name, mediaType, "")
+		if err != nil {
+			panic(err)
+		}
+		fileDescriptors = append(fileDescriptors, fileDescriptor)
 
-	// 2. Add another file into the file store
-	name2 := "bar.txt"
-	fileDescriptor2, err := store.Add(ctx, name2, mediaType, "")
-	if err != nil {
-		panic(err)
+		fmt.Printf("file descriptor for %s: %v\n", name, fileDescriptor)
 	}
-	fmt.Println("file2 descriptor:", fileDescriptor2)
 
-	// 3. Generate a manifest referencing the files
+	// 2. Generate a manifest referencing the files
 	artifactType := "example/test"
-	fileDescriptors := []ocispec.Descriptor{fileDescriptor1, fileDescriptor2}
 	manifestDescriptor, err := oras.Pack(ctx, store, artifactType, fileDescriptors, oras.PackOptions{})
 	if err != nil {
 		panic(err)
@@ -100,7 +97,7 @@ func Example_packFiles() {
 	fmt.Println("manifest media type:", manifestDescriptor.MediaType)
 
 	// Output:
-	// file1 descriptor: {example/file sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae 3 [] map[org.opencontainers.image.title:foo.txt] [] <nil> }
-	// file2 descriptor: {example/file sha256:fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9 3 [] map[org.opencontainers.image.title:bar.txt] [] <nil> }
+	// file descriptor for foo.txt: {example/file sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae 3 [] map[org.opencontainers.image.title:foo.txt] [] <nil> }
+	// file descriptor for bar.txt: {example/file sha256:fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9 3 [] map[org.opencontainers.image.title:bar.txt] [] <nil> }
 	// manifest media type: application/vnd.oci.artifact.manifest.v1+json
 }
