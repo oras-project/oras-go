@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -94,7 +93,7 @@ func TestStore_Success(t *testing.T) {
 	}
 
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, blob, 0444); err != nil {
+	if err := os.WriteFile(path, blob, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -362,7 +361,7 @@ func TestStore_Dir_Push(t *testing.T) {
 
 	content := []byte("hello world")
 	fileName := "test.txt"
-	if err := ioutil.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
+	if err := os.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -615,7 +614,7 @@ func TestStore_File_Add(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -668,7 +667,7 @@ func TestStore_Dir_Add(t *testing.T) {
 	}
 
 	content := []byte("hello world")
-	if err := ioutil.WriteFile(filepath.Join(dirPath, "test.txt"), content, 0444); err != nil {
+	if err := os.WriteFile(filepath.Join(dirPath, "test.txt"), content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -737,7 +736,7 @@ func TestStore_File_SameContent_DuplicateName(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -806,7 +805,7 @@ func TestStore_File_DifferentContent_DuplicateName(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path_1 := filepath.Join(tempDir, name_1)
-	if err := ioutil.WriteFile(path_1, content_1, 0444); err != nil {
+	if err := os.WriteFile(path_1, content_1, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -851,7 +850,7 @@ func TestStore_File_DifferentContent_DuplicateName(t *testing.T) {
 
 	// test add duplicate name
 	path_2 := filepath.Join(tempDir, name_2)
-	if err := ioutil.WriteFile(path_2, content_2, 0444); err != nil {
+	if err := os.WriteFile(path_2, content_2, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -867,7 +866,7 @@ func TestStore_File_Add_MissingName(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -908,11 +907,11 @@ func TestStore_File_Add_SameContent(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path_1 := filepath.Join(tempDir, name_1)
-	if err := ioutil.WriteFile(path_1, content, 0444); err != nil {
+	if err := os.WriteFile(path_1, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 	path_2 := filepath.Join(tempDir, name_2)
-	if err := ioutil.WriteFile(path_2, content, 0444); err != nil {
+	if err := os.WriteFile(path_2, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -1499,7 +1498,7 @@ func TestStore_File_Push_Overwrite(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, old_content, 0666); err != nil {
+	if err := os.WriteFile(path, old_content, 0666); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -1555,7 +1554,7 @@ func TestStore_File_Push_DisableOverwrite(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -1654,7 +1653,7 @@ func TestStore_Dir_Push_DisallowPathTraversal(t *testing.T) {
 
 	content := []byte("hello world")
 	fileName := "test.txt"
-	if err := ioutil.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
+	if err := os.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
