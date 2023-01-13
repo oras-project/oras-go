@@ -11,7 +11,7 @@ The ORAS Go library follows [Semantic Versioning](https://semver.org/), where br
 
 [![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=v1)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Av1)
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go)](https://goreportcard.com/report/oras.land/oras-go)
-[![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://pkg.go.dev/oras.land/oras-go)
+[![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go.svg)](https://pkg.go.dev/oras.land/oras-go)
 
 As there are various stable projects depending on the ORAS Go library, the
 [`v1`](https://github.com/oras-project/oras-go/tree/v1) branch
@@ -26,26 +26,24 @@ to use releases with major version `1`.
 [![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=main)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Amain)
 [![codecov](https://codecov.io/gh/oras-project/oras-go/branch/main/graph/badge.svg)](https://codecov.io/gh/oras-project/oras-go)
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go/v2)](https://goreportcard.com/report/oras.land/oras-go/v2)
-[![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://pkg.go.dev/oras.land/oras-go/v2@main)
+[![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go/v2.svg)](https://pkg.go.dev/oras.land/oras-go/v2)
 
 In contrast to the `v1` branch, the
 [`main`](https://github.com/oras-project/oras-go/tree/main) branch
-is where all new feature development will occur. Since ORAS is a
-primary staging ground for the
-[ORAS Artifacts Specification](https://github.com/oras-project/artifacts-spec),
-changes are expected to occur regularly to meet new requirements.
+is where all new feature development will occur.
 Any backward-incompatible changes will follow our [versioning policy](#versioning) and be reserved for the next major version of the library (`2`), which users may opt into.
 
 Examples for common use cases can be found below:
 
-- [Copy examples](https://pkg.go.dev/oras.land/oras-go/v2@main#pkg-examples)
-- [Registry interaction examples](https://pkg.go.dev/oras.land/oras-go/v2@main/registry#pkg-examples)
-- [Repository interaction examples](https://pkg.go.dev/oras.land/oras-go/v2@main/registry/remote#pkg-examples)
-- [Authentication examples](https://pkg.go.dev/oras.land/oras-go/v2@main/registry/remote/auth#pkg-examples)
+- [Copy examples](https://pkg.go.dev/oras.land/oras-go/v2#pkg-examples)
+- [Registry interaction examples](https://pkg.go.dev/oras.land/oras-go/v2/registry#pkg-examples)
+- [Repository interaction examples](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#pkg-examples)
+- [Authentication examples](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#pkg-examples)
 
 If you are seeking new features over stability, you should use the
 `main` branch (or a specific commit hash) when including the ORAS
 Go library in your project's `go.mod`.
+The Go Reference for the `main` branch is available [here](https://pkg.go.dev/oras.land/oras-go/v2@main).
 
 To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md).
 
