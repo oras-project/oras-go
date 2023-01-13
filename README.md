@@ -30,10 +30,7 @@ to use releases with major version `1`.
 
 In contrast to the `v1` branch, the
 [`main`](https://github.com/oras-project/oras-go/tree/main) branch
-is where all new feature development will occur. Since ORAS is a
-primary staging ground for the
-[ORAS Artifacts Specification](https://github.com/oras-project/artifacts-spec),
-changes are expected to occur regularly to meet new requirements.
+is where all new feature development will occur.
 Any backward-incompatible changes will follow our [versioning policy](#versioning) and be reserved for the next major version of the library (`2`), which users may opt into.
 
 Examples for common use cases can be found below:
