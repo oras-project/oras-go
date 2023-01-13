@@ -101,6 +101,10 @@ type Store struct {
 	// manifest and config file, while leaving only named layer files.
 	// Default value: false.
 	IgnoreNoName bool
+	// IgnorePathsFromAnnotationTitle removes full path from org.opencontainers.image.title
+	// and keeps only file name which is downloaded in workingDir.
+	// Default value: false
+	IgnorePathsFromAnnotationTitle bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -605,6 +609,9 @@ func (s *Store) resolveWritePath(name string) (string, error) {
 		if strings.HasPrefix(rel, "../") || rel == ".." {
 			return "", ErrPathTraversalDisallowed
 		}
+	}
+	if s.IgnorePathsFromAnnotationTitle {
+		path = filepath.Base(name)
 	}
 	if s.DisableOverwrite {
 		if _, err := os.Stat(path); err == nil {
