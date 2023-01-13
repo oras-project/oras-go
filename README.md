@@ -26,7 +26,7 @@ to use releases with major version `1`.
 [![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=main)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Amain)
 [![codecov](https://codecov.io/gh/oras-project/oras-go/branch/main/graph/badge.svg)](https://codecov.io/gh/oras-project/oras-go)
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go/v2)](https://goreportcard.com/report/oras.land/oras-go/v2)
-[![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://pkg.go.dev/oras.land/oras-go/v2@main)
+[![GoDoc](https://godoc.org/github.com/oras.land?status.svg)](https://pkg.go.dev/oras.land/oras-go/v2)
 
 In contrast to the `v1` branch, the
 [`main`](https://github.com/oras-project/oras-go/tree/main) branch
@@ -38,10 +38,10 @@ Any backward-incompatible changes will follow our [versioning policy](#versionin
 
 Examples for common use cases can be found below:
 
-- [Copy examples](https://pkg.go.dev/oras.land/oras-go/v2@main#pkg-examples)
-- [Registry interaction examples](https://pkg.go.dev/oras.land/oras-go/v2@main/registry#pkg-examples)
-- [Repository interaction examples](https://pkg.go.dev/oras.land/oras-go/v2@main/registry/remote#pkg-examples)
-- [Authentication examples](https://pkg.go.dev/oras.land/oras-go/v2@main/registry/remote/auth#pkg-examples)
+- [Copy examples](https://pkg.go.dev/oras.land/oras-go/v2#pkg-examples)
+- [Registry interaction examples](https://pkg.go.dev/oras.land/oras-go/v2/registry#pkg-examples)
+- [Repository interaction examples](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#pkg-examples)
+- [Authentication examples](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#pkg-examples)
 
 If you are seeking new features over stability, you should use the
 `main` branch (or a specific commit hash) when including the ORAS
