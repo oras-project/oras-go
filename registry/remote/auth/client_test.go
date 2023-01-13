@@ -1842,8 +1842,6 @@ func TestClient_Do_Anonymous_Pull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	// override the DefaultClient client to avoid retries
-	DefaultClient.Client = &http.Client{}
 	resp, err := DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Client.Do() error = %v", err)

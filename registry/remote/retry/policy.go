@@ -16,10 +16,10 @@ limitations under the License.
 package retry
 
 import (
-	"context"
-	"fmt"
+	"hash/maphash"
 	"math"
 	"math/rand"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -39,25 +39,22 @@ var DefaultPolicy Policy = &GenericPolicy{
 }
 
 // DefaultPredicate is a predicate that retries on 5xx errors, 429 Too Many
-// Requests, 401 Unauthorized and 408 Request Timeout.
-var DefaultPredicate Predicate = func(ctx context.Context, resp *http.Response, err error) (bool, error) {
-	if ctx.Err() != nil {
-		return false, ctx.Err()
-	}
-
+// Requests, 408 Request Timeout and on network dial timeout.
+var DefaultPredicate Predicate = func(resp *http.Response, err error) (bool, error) {
 	if err != nil {
+		// retry on Dial timeout
+		if err, ok := err.(net.Error); ok && err.Timeout() {
+			return true, nil
+		}
 		return false, err
 	}
 
-	switch resp.StatusCode {
-	case http.StatusUnauthorized:
-		return true, nil
-	case http.StatusRequestTimeout, http.StatusTooManyRequests:
+	if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests {
 		return true, nil
 	}
 
 	if resp.StatusCode == 0 || resp.StatusCode >= 500 {
-		return true, fmt.Errorf("unexpected HTTP status %s", resp.Status)
+		return true, nil
 	}
 
 	return false, nil
@@ -70,11 +67,17 @@ var DefaultBackoff Backoff = ExponentialBackoff(250*time.Millisecond, 2, 0.1)
 // Policy is a retry policy.
 type Policy interface {
 	// Retry returns the duration to wait before retrying the request.
-	Retry(ctx context.Context, attempt int, resp *http.Response, err error) (time.Duration, error)
+	// It returns a negative value if the request should not be retried.
+	// The attempt is used to:
+	//  - calculate the backoff duration, the default backoff is an exponential backoff.
+	//  - determine if the request should be retried.
+	// The attempt starts at 0 and should be less than MaxRetry for the request to
+	// be retried.
+	Retry(attempt int, resp *http.Response, err error) (time.Duration, error)
 }
 
 // Predicate is a function that returns true if the request should be retried.
-type Predicate func(ctx context.Context, resp *http.Response, err error) (bool, error)
+type Predicate func(resp *http.Response, err error) (bool, error)
 
 // Backoff is a function that returns the duration to wait before retrying the
 // request. The attempt, is the next attempt number. The response is the
@@ -84,26 +87,29 @@ type Backoff func(attempt int, resp *http.Response) time.Duration
 // ExponentialBackoff returns a Backoff that uses an exponential backoff with
 // jitter. The backoff is calculated as:
 //
-//	backoff * factor ^ attempt + rand.Int63n(jitter * backoff)
+//	temp = backoff * factor ^ attempt
+//	interval = temp * (1 - jitter) + rand.Int63n(2 * jitter * temp)
 //
 // The HTTP response is checked for a Retry-After header. If it is present, the
-// value is used as the backoff duration and jitter is applied.
-func ExponentialBackoff(backoff time.Duration, factor int, jitter float64) Backoff {
+// value is used as the backoff duration.
+func ExponentialBackoff(backoff time.Duration, factor, jitter float64) Backoff {
 	return func(attempt int, resp *http.Response) time.Duration {
-		// Seed random number generator with nanoseconds
-		rand := rand.New(rand.NewSource(int64(time.Now().Nanosecond())))
+		var h maphash.Hash
+		h.SetSeed(maphash.MakeSeed())
+		rand := rand.New(rand.NewSource(int64(h.Sum64())))
+
 		// check Retry-After
 		if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
 			if v := resp.Header.Get(headerRetryAfter); v != "" {
 				if retryAfter, _ := strconv.ParseInt(v, 10, 64); retryAfter > 0 {
-					return time.Duration(retryAfter + rand.Int63n(int64(jitter*float64(backoff))))
+					return time.Duration(retryAfter) * time.Second
 				}
 			}
 		}
 
 		// do exponential backoff with jitter
-		b := time.Duration(float64(backoff) * math.Pow(float64(factor), float64(attempt)))
-		return b + time.Duration(rand.Int63n(int64(jitter*float64(backoff))))
+		temp := float64(backoff) * math.Pow(factor, float64(attempt))
+		return time.Duration(temp*(1-jitter)) + time.Duration(rand.Int63n(int64(2*jitter*temp)))
 	}
 }
 
@@ -128,12 +134,14 @@ type GenericPolicy struct {
 
 // Retry returns the duration to wait before retrying the request.
 // It returns -1 if the request should not be retried.
-func (p *GenericPolicy) Retry(ctx context.Context, attempt int, resp *http.Response, err error) (time.Duration, error) {
+func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time.Duration, error) {
 	if attempt >= p.MaxRetry {
-		return -1, err
+		return -1, nil
 	}
-	if ok, err := p.Retryable(ctx, resp, err); !ok {
+	if ok, err := p.Retryable(resp, err); err != nil {
 		return -1, err
+	} else if !ok {
+		return -1, nil
 	}
 	backoff := p.Backoff(attempt, resp)
 	if backoff < p.MinWait {

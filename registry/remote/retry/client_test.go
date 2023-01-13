@@ -35,11 +35,6 @@ func Test_Client(t *testing.T) {
 			attempts: 1, retryAfter: false, StatusCode: http.StatusOK, expectedErr: false,
 		},
 		{
-			name: "successful request with 1 retry caused by 401",
-			// 1 request + 1 retry = 2 attempts
-			attempts: 2, retryAfter: false, StatusCode: http.StatusUnauthorized, expectedErr: false,
-		},
-		{
 			name: "successful request with 1 retry caused by rate limit",
 			// 1 request + 1 retry = 2 attempts
 			attempts: 2, retryAfter: true, StatusCode: http.StatusTooManyRequests, expectedErr: false,

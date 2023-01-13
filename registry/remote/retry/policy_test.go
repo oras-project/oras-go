@@ -27,27 +27,27 @@ func Test_ExponentialBackoff(t *testing.T) {
 		expectedBackoff time.Duration
 	}{
 		{
-			name:    "attempt 0 should have a backoff of 0,25s",
+			name:    "attempt 0 should have a backoff of 0,25s ± 10%",
 			attempt: 0, expectedBackoff: 250 * time.Millisecond,
 		},
 		{
-			name:    "attempt 1 should have a backoff of 0,5s",
+			name:    "attempt 1 should have a backoff of 0,5s ± 10%",
 			attempt: 1, expectedBackoff: 500 * time.Millisecond,
 		},
 		{
-			name:    "attempt 2 should have a backoff of 1s",
+			name:    "attempt 2 should have a backoff of 1s ± 10%",
 			attempt: 2, expectedBackoff: 1 * time.Second,
 		},
 		{
-			name:    "attempt 3 should have a backoff of 2s",
+			name:    "attempt 3 should have a backoff of 2s ± 10%",
 			attempt: 3, expectedBackoff: 2 * time.Second,
 		},
 		{
-			name:    "attempt 4 should have a backoff of 4s",
+			name:    "attempt 4 should have a backoff of 4s ± 10%",
 			attempt: 4, expectedBackoff: 4 * time.Second,
 		},
 		{
-			name:    "attempt 5 should have a backoff of 8s",
+			name:    "attempt 5 should have a backoff of 8s ± 10%",
 			attempt: 5, expectedBackoff: 8 * time.Second,
 		},
 	}
@@ -55,8 +55,9 @@ func Test_ExponentialBackoff(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			b := DefaultBackoff(tc.attempt, nil)
-			if !(b > tc.expectedBackoff && b <= time.Duration(float64(tc.expectedBackoff)+float64(250*time.Millisecond)*0.1)) {
-				t.Errorf("expected backoff to be %s + jitter, got %s", tc.expectedBackoff, b)
+			base := float64(tc.expectedBackoff)
+			if !(b >= time.Duration(base*0.9) && b <= time.Duration(base+base*0.1)) {
+				t.Errorf("expected backoff to be %s + jitter, got %s", time.Duration(base), b)
 			}
 		})
 	}

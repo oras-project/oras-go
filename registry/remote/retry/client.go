@@ -16,23 +16,21 @@ limitations under the License.
 package retry
 
 import (
-	"bytes"
-	"io"
 	"net/http"
 	"time"
 )
 
-// // DefaultClient is a client with the default retry policy
+// DefaultClient is a client with the default retry policy.
 var DefaultClient = NewClient()
 
-// NewClient creates an HTTP client with the default retry policy
+// NewClient creates an HTTP client with the default retry policy.
 func NewClient() *http.Client {
 	return &http.Client{
 		Transport: NewTransport(nil),
 	}
 }
 
-// Transport is an HTTP transport with retry policy
+// Transport is an HTTP transport with retry policy.
 type Transport struct {
 	// Base is the underlying HTTP transport to use.
 	// If nil, http.DefaultTransport is used for round trips.
@@ -43,36 +41,51 @@ type Transport struct {
 	Policy func() Policy
 }
 
-// NewTransport creates an HTTP Transport with the default retry policy
+// NewTransport creates an HTTP Transport with the default retry policy.
 func NewTransport(base http.RoundTripper) *Transport {
 	return &Transport{
 		Base: base,
 	}
 }
 
-// RoundTrip executes a single HTTP transaction, returning a Response for the provided Request.
-// It relies on the configured Policy to determine if the request should be retried and to backoff.
+// RoundTrip executes a single HTTP transaction, returning a Response for the
+// provided Request.
+// It relies on the configured Policy to determine if the request should be
+// retried and to backoff.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	policy := t.policy()
 	attempt := 0
 	for {
 		resp, respErr := t.roundTrip(req)
-		duration, err := policy.Retry(ctx, attempt, resp, respErr)
+		duration, err := policy.Retry(attempt, resp, respErr)
+		if err != nil {
+			if respErr == nil {
+				resp.Body.Close()
+			}
+			return nil, err
+		}
 		if duration < 0 {
-			return resp, err
+			return resp, respErr
 		}
 
-		// rewind the body if necessary
+		// rewind the body if possible
 		if req.Body != nil {
-			var buf bytes.Buffer
-			if _, err = buf.ReadFrom(resp.Body); err != nil {
-				return resp, err
+			if req.GetBody == nil {
+				// body can't be rewound, so we can't retry
+				return resp, respErr
 			}
-			if err = resp.Body.Close(); err != nil {
-				return resp, err
+			body, err := req.GetBody()
+			if err != nil {
+				// failed to rewind the body, so we can't retry
+				return resp, respErr
 			}
-			req.Body = io.NopCloser(&buf)
+			req.Body = body
+		}
+
+		// close the response body if needed
+		if respErr == nil {
+			resp.Body.Close()
 		}
 
 		timer := time.NewTimer(duration)
