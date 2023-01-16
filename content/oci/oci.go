@@ -70,16 +70,25 @@ func New(root string) (*Store, error) {
 
 // NewWithContext creates a new OCI store.
 func NewWithContext(ctx context.Context, root string) (*Store, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", root, err)
+	}
+	storage, err := NewStorage(rootAbs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create storage: %w", err)
+	}
+
 	store := &Store{
 		AutoSaveIndex: true,
-		root:          root,
-		indexPath:     filepath.Join(root, ociImageIndexFile),
-		storage:       NewStorage(root),
+		root:          rootAbs,
+		indexPath:     filepath.Join(rootAbs, ociImageIndexFile),
+		storage:       storage,
 		tagResolver:   resolver.NewMemory(),
 		graph:         graph.NewMemory(),
 	}
 
-	if err := ensureDir(root); err != nil {
+	if err := ensureDir(rootAbs); err != nil {
 		return nil, err
 	}
 	if err := store.ensureOCILayoutFile(); err != nil {

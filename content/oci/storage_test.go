@@ -41,11 +41,14 @@ func TestStorage_Success(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewStorage(tempDir)
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("Storage.New() error =", err)
+	}
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Storage.Push() error =", err)
 	}
@@ -85,7 +88,10 @@ func TestStorage_NotFound(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewStorage(tempDir)
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("Storage.New() error =", err)
+	}
 	ctx := context.Background()
 
 	exists, err := s.Exists(ctx, desc)
@@ -111,10 +117,13 @@ func TestStorage_AlreadyExists(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewStorage(tempDir)
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("Storage.New() error =", err)
+	}
 	ctx := context.Background()
 
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Storage.Push() error =", err)
 	}
@@ -134,10 +143,13 @@ func TestStorage_BadPush(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewStorage(tempDir)
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("Storage.New() error =", err)
+	}
 	ctx := context.Background()
 
-	err := s.Push(ctx, desc, strings.NewReader("foobar"))
+	err = s.Push(ctx, desc, strings.NewReader("foobar"))
 	if err == nil {
 		t.Errorf("Storage.Push() error = %v, wantErr %v", err, true)
 	}
@@ -152,7 +164,10 @@ func TestStorage_Push_Concurrent(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewStorage(tempDir)
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("Storage.New() error =", err)
+	}
 	ctx := context.Background()
 
 	concurrency := 64
@@ -218,7 +233,10 @@ func TestStorage_Fetch_ExistingBlobs(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := NewStorage(tempDir)
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("Storage.New() error =", err)
+	}
 	ctx := context.Background()
 
 	exists, err := s.Exists(ctx, desc)
@@ -255,7 +273,10 @@ func TestStorage_Fetch_Concurrent(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewStorage(tempDir)
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("Storage.New() error =", err)
+	}
 	ctx := context.Background()
 
 	if err := s.Push(ctx, desc, bytes.NewReader(content)); err != nil {
