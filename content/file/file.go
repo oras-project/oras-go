@@ -143,7 +143,7 @@ func NewWithFallbackLimit(workingDir string, limit int64) (*Store, error) {
 func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) (*Store, error) {
 	workingDirAbs, err := filepath.Abs(workingDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", workingDir, err)
 	}
 
 	return &Store{
