@@ -124,7 +124,7 @@ type nameStatus struct {
 // as the fallback storage for contents without names.
 // When pushing content without names, the size of content being pushed
 // cannot exceed the default size limit: 4 MiB.
-func New(workingDir string) *Store {
+func New(workingDir string) (*Store, error) {
 	return NewWithFallbackLimit(workingDir, defaultFallbackPushSizeLimit)
 }
 
@@ -132,7 +132,7 @@ func New(workingDir string) *Store {
 // limited memory CAS as the fallback storage for contents without names.
 // When pushing content without names, the size of content being pushed
 // cannot exceed the size limit specified by the `limit` parameter.
-func NewWithFallbackLimit(workingDir string, limit int64) *Store {
+func NewWithFallbackLimit(workingDir string, limit int64) (*Store, error) {
 	m := cas.NewMemory()
 	ls := content.LimitStorage(m, limit)
 	return NewWithFallbackStorage(workingDir, ls)
@@ -140,13 +140,18 @@ func NewWithFallbackLimit(workingDir string, limit int64) *Store {
 
 // NewWithFallbackStorage creates a file store,
 // using the provided fallback storage for contents without names.
-func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) *Store {
+func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) (*Store, error) {
+	workingDirAbs, err := filepath.Abs(workingDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", workingDir, err)
+	}
+
 	return &Store{
-		workingDir:      workingDir,
+		workingDir:      workingDirAbs,
 		fallbackStorage: fallbackStorage,
 		resolver:        resolver.NewMemory(),
 		graph:           graph.NewMemory(),
-	}
+	}, nil
 }
 
 // Close closes the file store and cleans up all the temporary files used by it.
@@ -223,7 +228,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 
 	if !s.ForceCAS {
 		if err := s.restoreDuplicates(ctx, expected); err != nil {
-			return fmt.Errorf("Failed to restore duplicated file: %w", err)
+			return fmt.Errorf("failed to restore duplicated file: %w", err)
 		}
 	}
 

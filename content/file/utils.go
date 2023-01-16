@@ -196,25 +196,31 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 
 // ensureBasePath ensures the target path is in the base path,
 // returning its relative path to the base path.
-func ensureBasePath(root, base, target string) (string, error) {
+// target can be either an absolute path or a relative path.
+func ensureBasePath(baseAbs, baseRel, target string) (string, error) {
+	base := baseRel
+	if filepath.IsAbs(target) {
+		// ensure base and target are consistent
+		base = baseAbs
+	}
 	path, err := filepath.Rel(base, target)
 	if err != nil {
 		return "", err
 	}
 	cleanPath := filepath.ToSlash(filepath.Clean(path))
 	if cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
-		return "", fmt.Errorf("%q is outside of %q", target, base)
+		return "", fmt.Errorf("%q is outside of %q", target, baseRel)
 	}
 
 	// No symbolic link allowed in the relative path
 	dir := filepath.Dir(path)
 	for dir != "." {
-		if info, err := os.Lstat(filepath.Join(root, dir)); err != nil {
+		if info, err := os.Lstat(filepath.Join(baseAbs, dir)); err != nil {
 			if !os.IsNotExist(err) {
 				return "", err
 			}
 		} else if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("no symbolic link allowed between %q and %q", base, target)
+			return "", fmt.Errorf("no symbolic link allowed between %q and %q", baseRel, target)
 		}
 		dir = filepath.Dir(dir)
 	}
@@ -224,12 +230,14 @@ func ensureBasePath(root, base, target string) (string, error) {
 
 // ensureLinkPath ensures the target path pointed by the link is in the base
 // path. It returns target path if validated.
-func ensureLinkPath(root, base, link, target string) (string, error) {
+func ensureLinkPath(baseAbs, baseRel, link, target string) (string, error) {
+	// resolve link
 	path := target
 	if !filepath.IsAbs(target) {
 		path = filepath.Join(filepath.Dir(link), target)
 	}
-	if _, err := ensureBasePath(root, base, path); err != nil {
+	// ensure path is under baseAbs or baseRel
+	if _, err := ensureBasePath(baseAbs, baseRel, path); err != nil {
 		return "", err
 	}
 	return target, nil
