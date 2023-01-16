@@ -70,7 +70,10 @@ func TestMain(m *testing.M) {
 // Example_packFiles gives an example of adding files and generating a manifest
 // referencing the files.
 func Example_packFiles() {
-	store := file.New(workingDir)
+	store, err := file.New(workingDir)
+	if err != nil {
+		panic(err)
+	}
 	defer store.Close()
 	ctx := context.Background()
 
