@@ -1090,7 +1090,10 @@ func TestCopy_WithTargetPlatformOptions(t *testing.T) {
 func TestCopy_RestoreDuplicates(t *testing.T) {
 	src := memory.New()
 	temp := t.TempDir()
-	dst := file.New(temp)
+	dst, err := file.New(temp)
+	if err != nil {
+		t.Fatal("file.New() error =", err)
+	}
 	defer dst.Close()
 
 	// generate test content
@@ -1144,7 +1147,7 @@ func TestCopy_RestoreDuplicates(t *testing.T) {
 
 	root := descs[3]
 	ref := "latest"
-	err := src.Tag(ctx, root, ref)
+	err = src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)
 	}
@@ -1182,7 +1185,10 @@ func TestCopy_RestoreDuplicates(t *testing.T) {
 func TestCopy_DiscardDuplicates(t *testing.T) {
 	src := memory.New()
 	temp := t.TempDir()
-	dst := file.New(temp)
+	dst, err := file.New(temp)
+	if err != nil {
+		t.Fatal("file.New() error =", err)
+	}
 	dst.ForceCAS = true
 	defer dst.Close()
 
@@ -1237,7 +1243,7 @@ func TestCopy_DiscardDuplicates(t *testing.T) {
 
 	root := descs[3]
 	ref := "latest"
-	err := src.Tag(ctx, root, ref)
+	err = src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)
 	}

@@ -51,7 +51,10 @@ func TestStore_Dir_ExtractSymlink(t *testing.T) {
 		t.Fatal("error calling Symlink(), error =", err)
 	}
 
-	src := New(tempDir)
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer src.Close()
 	ctx := context.Background()
 
@@ -85,7 +88,10 @@ func TestStore_Dir_ExtractSymlink(t *testing.T) {
 
 	// copy to another file store created from an absolute root, to trigger extracting directory
 	tempDir = t.TempDir()
-	dstAbs := New(tempDir)
+	dstAbs, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer dstAbs.Close()
 	if err := oras.CopyGraph(ctx, src, dstAbs, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
 		t.Fatal("oras.CopyGraph() error =", err)
@@ -113,14 +119,17 @@ func TestStore_Dir_ExtractSymlink(t *testing.T) {
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatal("error calling Chdir(), error=", err)
 	}
-	dstRel := New(".")
+	dstRel, err := New(".")
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer dstRel.Close()
 	if err := oras.CopyGraph(ctx, src, dstRel, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
 		t.Fatal("oras.CopyGraph() error =", err)
 	}
 
 	// compare content
-	rc, err = dstAbs.Fetch(ctx, desc)
+	rc, err = dstRel.Fetch(ctx, desc)
 	if err != nil {
 		t.Fatal("Store.Fetch() error =", err)
 	}
@@ -159,7 +168,10 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 		t.Fatal("error calling Symlink(), error =", err)
 	}
 
-	src := New(tempDir)
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer src.Close()
 	ctx := context.Background()
 
@@ -195,14 +207,17 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 	if err := os.RemoveAll(dirPath); err != nil {
 		t.Fatal("error calling RemoveAll(), error =", err)
 	}
-	dst := New(tempDir)
-	defer dst.Close()
-	if err := oras.CopyGraph(ctx, src, dst, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+	dstAbs, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dstAbs.Close()
+	if err := oras.CopyGraph(ctx, src, dstAbs, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
 		t.Fatal("oras.CopyGraph() error =", err)
 	}
 
 	// compare content
-	rc, err := dst.Fetch(ctx, desc)
+	rc, err := dstAbs.Fetch(ctx, desc)
 	if err != nil {
 		t.Fatal("Store.Fetch() error =", err)
 	}
@@ -218,5 +233,35 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
 	}
 
-	// TODO: test relative root after https://github.com/oras-project/oras-go/issues/404 gets resolved
+	// remove the original testing directory and create a new store using a relative path
+	if err := os.RemoveAll(dirPath); err != nil {
+		t.Fatal("error calling RemoveAll(), error =", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	dstRel, err := New(".")
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dstRel.Close()
+	if err := oras.CopyGraph(ctx, src, dstRel, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+	// compare content
+	rc, err = dstRel.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, gotgz) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
+	}
 }

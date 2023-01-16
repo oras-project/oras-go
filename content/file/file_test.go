@@ -76,7 +76,10 @@ func TestStoreInterface(t *testing.T) {
 
 func TestStore_Success(t *testing.T) {
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -223,11 +226,14 @@ func TestStore_Close(t *testing.T) {
 	ref := "foobar"
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -314,12 +320,15 @@ func TestStore_File_Push(t *testing.T) {
 		},
 	}
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -365,7 +374,10 @@ func TestStore_Dir_Push(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -394,7 +406,10 @@ func TestStore_Dir_Push(t *testing.T) {
 
 	anotherTempDir := t.TempDir()
 	// test with another file store instance to mock push gz
-	anotherS := New(anotherTempDir)
+	anotherS, err := New(anotherTempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer anotherS.Close()
 
 	// test push
@@ -470,12 +485,15 @@ func TestStore_Push_NoName(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -516,12 +534,15 @@ func TestStore_Push_NoName_ExceedLimit(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewWithFallbackLimit(tempDir, 1)
+	s, err := NewWithFallbackLimit(tempDir, 1)
+	if err != nil {
+		t.Fatal("Store.NewWithFallbackLimit() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(blob))
+	err = s.Push(ctx, desc, bytes.NewReader(blob))
 	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
 		t.Errorf("Store.Push() error = %v, want %v", err, errdef.ErrSizeExceedsLimit)
 	}
@@ -536,12 +557,15 @@ func TestStore_Push_NoName_SizeNotMatch(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewWithFallbackLimit(tempDir, 1)
+	s, err := NewWithFallbackLimit(tempDir, 1)
+	if err != nil {
+		t.Fatal("Store.NewWithFallbackLimit() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(blob))
+	err = s.Push(ctx, desc, bytes.NewReader(blob))
 	if err == nil {
 		t.Errorf("Store.Push() error = nil, want: error")
 	}
@@ -559,7 +583,10 @@ func TestStore_File_NotFound(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -589,11 +616,14 @@ func TestStore_File_ContentBadPush(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
-	err := s.Push(ctx, desc, strings.NewReader("foobar"))
+	err = s.Push(ctx, desc, strings.NewReader("foobar"))
 	if err == nil {
 		t.Errorf("Store.Push() error = %v, wantErr %v", err, true)
 	}
@@ -618,7 +648,10 @@ func TestStore_File_Add(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -671,7 +704,10 @@ func TestStore_Dir_Add(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -740,7 +776,10 @@ func TestStore_File_SameContent_DuplicateName(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -809,7 +848,10 @@ func TestStore_File_DifferentContent_DuplicateName(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -870,12 +912,15 @@ func TestStore_File_Add_MissingName(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test add with empty name
-	_, err := s.Add(ctx, "", mediaType, path)
+	_, err = s.Add(ctx, "", mediaType, path)
 	if !errors.Is(err, ErrMissingName) {
 		t.Errorf("Store.Add() error = %v, want %v", err, ErrMissingName)
 	}
@@ -915,7 +960,10 @@ func TestStore_File_Add_SameContent(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1012,7 +1060,10 @@ func TestStore_File_Push_SameContent(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1098,12 +1149,15 @@ func TestStore_File_Push_DuplicateName(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc_1, bytes.NewReader(content_1))
+	err = s.Push(ctx, desc_1, bytes.NewReader(content_1))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -1181,7 +1235,10 @@ func TestStore_File_Push_ForceCAS(t *testing.T) {
 		Size:      int64(len(manifestJSON)),
 	}
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	s.ForceCAS = true
 	defer s.Close()
 	ctx := context.Background()
@@ -1245,7 +1302,10 @@ func TestStore_File_Push_RestoreDuplicates(t *testing.T) {
 		Size:      int64(len(manifestJSON)),
 	}
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1315,7 +1375,10 @@ func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
 		Size:      int64(len(manifestJSON)),
 	}
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1346,7 +1409,10 @@ func TestStore_File_Fetch_SameDigest_NoName(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1434,7 +1500,10 @@ func TestStore_File_Fetch_SameDigest_DifferentName(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1502,12 +1571,15 @@ func TestStore_File_Push_Overwrite(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(new_content))
+	err = s.Push(ctx, desc, bytes.NewReader(new_content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -1558,12 +1630,15 @@ func TestStore_File_Push_DisableOverwrite(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	s.DisableOverwrite = true
 
 	ctx := context.Background()
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if !errors.Is(err, ErrOverwriteDisallowed) {
 		t.Errorf("Store.Push() error = %v, want %v", err, ErrOverwriteDisallowed)
 	}
@@ -1591,7 +1666,10 @@ func TestStore_File_Push_IgnoreNoName(t *testing.T) {
 		Size:      int64(len(manifestJSON)),
 	}
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	s.IgnoreNoName = true
 
@@ -1633,11 +1711,14 @@ func TestStore_File_Push_DisallowPathTraversal(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 
 	ctx := context.Background()
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if !errors.Is(err, ErrPathTraversalDisallowed) {
 		t.Errorf("Store.Push() error = %v, want %v", err, ErrPathTraversalDisallowed)
 	}
@@ -1657,7 +1738,10 @@ func TestStore_Dir_Push_DisallowPathTraversal(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1686,7 +1770,10 @@ func TestStore_Dir_Push_DisallowPathTraversal(t *testing.T) {
 
 	anotherTempDir := t.TempDir()
 	// test with another file store instance to mock push gz
-	anotherS := New(anotherTempDir)
+	anotherS, err := New(anotherTempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer anotherS.Close()
 
 	// test push
@@ -1714,7 +1801,10 @@ func TestStore_File_Push_PathTraversal(t *testing.T) {
 		t.Fatal("error creating temp dir, error =", err)
 	}
 
-	s := New(subTempDir)
+	s, err := New(subTempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	s.AllowPathTraversalOnWrite = true
 
@@ -1764,7 +1854,10 @@ func TestStore_File_Push_Concurrent(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1825,7 +1918,10 @@ func TestStore_File_Fetch_Concurrent(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1868,11 +1964,14 @@ func TestStore_TagNotFound(t *testing.T) {
 	ref := "foobar"
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
-	_, err := s.Resolve(ctx, ref)
+	_, err = s.Resolve(ctx, ref)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Store.Resolve() error = %v, want %v", err, errdef.ErrNotFound)
 	}
@@ -1888,11 +1987,14 @@ func TestStore_TagUnknownContent(t *testing.T) {
 	ref := "foobar"
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
-	err := s.Tag(ctx, desc, ref)
+	err = s.Tag(ctx, desc, ref)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Store.Resolve() error = %v, want %v", err, errdef.ErrNotFound)
 	}
@@ -1900,7 +2002,10 @@ func TestStore_TagUnknownContent(t *testing.T) {
 
 func TestStore_RepeatTag(t *testing.T) {
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1921,7 +2026,7 @@ func TestStore_RepeatTag(t *testing.T) {
 	// initial tag
 	content := []byte("hello world")
 	desc := generate(content)
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -1984,7 +2089,10 @@ func TestStore_RepeatTag(t *testing.T) {
 
 func TestStore_Predecessors(t *testing.T) {
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -2100,7 +2208,10 @@ func TestCopy_File_MemoryToFile_FullCopy(t *testing.T) {
 	src := memory.New()
 
 	tempDir := t.TempDir()
-	dst := New(tempDir)
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer dst.Close()
 
 	// generate test content
@@ -2145,7 +2256,7 @@ func TestCopy_File_MemoryToFile_FullCopy(t *testing.T) {
 
 	root := descs[3]
 	ref := "foobar"
-	err := src.Tag(ctx, root, ref)
+	err = src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)
 	}
@@ -2184,7 +2295,10 @@ func TestCopyGraph_MemoryToFile_FullCopy(t *testing.T) {
 	src := memory.New()
 
 	tempDir := t.TempDir()
-	dst := New(tempDir)
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer dst.Close()
 
 	// generate test content
@@ -2289,7 +2403,10 @@ func TestCopyGraph_MemoryToFile_PartialCopy(t *testing.T) {
 	src := memory.New()
 
 	tempDir := t.TempDir()
-	dst := New(tempDir)
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer dst.Close()
 
 	// generate test content
@@ -2404,7 +2521,10 @@ func TestCopyGraph_MemoryToFile_PartialCopy(t *testing.T) {
 
 func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
 	tempDir := t.TempDir()
-	src := New(tempDir)
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer src.Close()
 
 	dst := memory.New()
@@ -2451,7 +2571,7 @@ func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
 
 	root := descs[3]
 	ref := "foobar"
-	err := src.Tag(ctx, root, ref)
+	err = src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)
 	}
@@ -2488,7 +2608,10 @@ func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
 
 func TestCopyGraph_FileToMemory_FullCopy(t *testing.T) {
 	tempDir := t.TempDir()
-	src := New(tempDir)
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer src.Close()
 
 	dst := memory.New()
@@ -2593,7 +2716,10 @@ func TestCopyGraph_FileToMemory_FullCopy(t *testing.T) {
 
 func TestCopyGraph_FileToMemory_PartialCopy(t *testing.T) {
 	tempDir := t.TempDir()
-	src := New(tempDir)
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer src.Close()
 
 	dst := memory.New()
