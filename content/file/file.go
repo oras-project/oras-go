@@ -223,7 +223,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 
 	if !s.ForceCAS {
 		if err := s.restoreDuplicates(ctx, expected); err != nil {
-			return fmt.Errorf("Failed to restore duplicated file: %w", err)
+			return fmt.Errorf("failed to restore duplicated file: %w", err)
 		}
 	}
 

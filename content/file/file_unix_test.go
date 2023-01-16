@@ -83,7 +83,7 @@ func TestStore_Dir_ExtractSymlink(t *testing.T) {
 		t.Fatal("oras.Pack() error =", err)
 	}
 
-	// copy to another file store, to trigger extracting directory
+	// copy to another file store created from an absolute root, to trigger extracting directory
 	tempDir = t.TempDir()
 	dstAbs := New(tempDir)
 	defer dstAbs.Close()
@@ -108,7 +108,7 @@ func TestStore_Dir_ExtractSymlink(t *testing.T) {
 		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
 	}
 
-	// copy to another file store created from a relative path, to trigger extracting directory
+	// copy to another file store created from a relative root, to trigger extracting directory
 	tempDir = t.TempDir()
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatal("error calling Chdir(), error=", err)
@@ -191,7 +191,7 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 		t.Fatal("oras.Pack() error =", err)
 	}
 
-	// remove the original testing directory and create a new store using an absolute path
+	// remove the original testing directory and create a new store using an absolute root
 	if err := os.RemoveAll(dirPath); err != nil {
 		t.Fatal("error calling RemoveAll(), error =", err)
 	}
@@ -218,33 +218,5 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
 	}
 
-	// // remove the original testing directory and create a new store using a relative path
-	// if err := os.RemoveAll(dirPath); err != nil {
-	// 	t.Fatal("error calling RemoveAll(), error =", err)
-	// }
-	// if err := os.Chdir(tempDir); err != nil {
-	// 	t.Fatal("error calling Chdir(), error=", err)
-	// }
-	// dstRel := New(".")
-	// defer dstRel.Close()
-	// if err := oras.CopyGraph(ctx, src, dstRel, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
-	// 	t.Fatal("oras.CopyGraph() error =", err)
-	// }
-
-	// // compare content
-	// rc, err = dst.Fetch(ctx, desc)
-	// if err != nil {
-	// 	t.Fatal("Store.Fetch() error =", err)
-	// }
-	// got, err = io.ReadAll(rc)
-	// if err != nil {
-	// 	t.Fatal("Store.Fetch().Read() error =", err)
-	// }
-	// err = rc.Close()
-	// if err != nil {
-	// 	t.Error("Store.Fetch().Close() error =", err)
-	// }
-	// if !bytes.Equal(got, gotgz) {
-	// 	t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
-	// }
+	// TODO: test relative root after https://github.com/oras-project/oras-go/issues/404 gets resolved
 }
