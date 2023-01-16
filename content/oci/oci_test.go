@@ -187,6 +187,132 @@ func TestStore_Success(t *testing.T) {
 	}
 }
 
+func TestStore_RelativeRoot_Success(t *testing.T) {
+	blob := []byte("test")
+	blobDesc := content.NewDescriptorFromBytes("test", blob)
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+	ref := "foobar"
+
+	tempDir := t.TempDir()
+	currDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal("error calling Getwd(), error=", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	s, err := New(".")
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	if want := tempDir; s.root != want {
+		t.Errorf("Store.root = %s, want %s", s.root, want)
+	}
+	// cd back to allow the temp directory to be removed
+	if err := os.Chdir(currDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	ctx := context.Background()
+
+	// validate layout
+	layoutFilePath := filepath.Join(tempDir, ocispec.ImageLayoutFile)
+	layoutFile, err := os.Open(layoutFilePath)
+	if err != nil {
+		t.Errorf("error opening layout file, error = %v", err)
+	}
+	defer layoutFile.Close()
+
+	var layout *ocispec.ImageLayout
+	err = json.NewDecoder(layoutFile).Decode(&layout)
+	if err != nil {
+		t.Fatal("error decoding layout, error =", err)
+	}
+	if want := ocispec.ImageLayoutVersion; layout.Version != want {
+		t.Errorf("layout.Version = %s, want %s", layout.Version, want)
+	}
+
+	// test push blob
+	err = s.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	internalResolver := s.tagResolver
+	if got, want := len(internalResolver.Map()), 0; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test push manifest
+	err = s.Push(ctx, manifestDesc, bytes.NewReader(manifest))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test resolving blob by digest
+	gotDesc, err := s.Resolve(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if want := blobDesc; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
+	}
+
+	// test resolving manifest by digest
+	gotDesc, err = s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test tag
+	err = s.Tag(ctx, manifestDesc, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 2; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test resolving manifest by tag
+	gotDesc, err = s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test fetch
+	exists, err := s.Exists(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, manifest) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, manifest)
+	}
+}
+
 func TestStore_NotExistingRoot(t *testing.T) {
 	tempDir := t.TempDir()
 	root := filepath.Join(tempDir, "rootDir")

@@ -60,8 +60,8 @@ func NewStorage(root string) (*Storage, error) {
 
 	return &Storage{
 		ReadOnlyStorage: NewStorageFromFS(os.DirFS(rootAbs)),
-		root:            root,
-		ingestRoot:      filepath.Join(root, "ingest"),
+		root:            rootAbs,
+		ingestRoot:      filepath.Join(rootAbs, "ingest"),
 	}, nil
 }
 

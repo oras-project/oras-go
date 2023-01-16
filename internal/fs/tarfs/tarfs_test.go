@@ -20,6 +20,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"path/filepath"
 	"testing"
 
 	"oras.land/oras-go/v2/errdef"
@@ -42,10 +43,19 @@ func TestTarFS_Open_Success(t *testing.T) {
 		"dir/hello":        []byte("hello"),
 		"dir/subdir/world": []byte("world"),
 	}
-	tfs, err := New("testdata/test.tar")
+	tarPath := "testdata/test.tar"
+	tfs, err := New(tarPath)
 	if err != nil {
 		t.Fatalf("New() error = %v, wantErr %v", err, nil)
 	}
+	tarPathAbs, err := filepath.Abs(tarPath)
+	if err != nil {
+		t.Fatal("error calling filepath.Abs(), error =", err)
+	}
+	if tfs.path != tarPathAbs {
+		t.Fatalf("TarFS.path = %s, want %s", tfs.path, tarPathAbs)
+	}
+
 	for name, data := range testFiles {
 		f, err := tfs.Open(name)
 		if err != nil {
