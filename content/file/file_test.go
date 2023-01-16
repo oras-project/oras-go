@@ -213,6 +213,10 @@ func TestStore_Success(t *testing.T) {
 
 func TestStore_RelativeRoot_Success(t *testing.T) {
 	tempDir := t.TempDir()
+	currDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal("error calling Getwd(), error=", err)
+	}
 	if err := os.Chdir(tempDir); err != nil {
 		t.Fatal("error calling Chdir(), error=", err)
 	}
@@ -224,8 +228,8 @@ func TestStore_RelativeRoot_Success(t *testing.T) {
 	if want := tempDir; s.workingDir != want {
 		t.Errorf("Store.workingDir = %s, want %s", s.workingDir, want)
 	}
-	// cd out to allow the temp directory to be removed
-	if err := os.Chdir("../../"); err != nil {
+	// cd back to allow the temp directory to be removed
+	if err := os.Chdir(currDir); err != nil {
 		t.Fatal("error calling Chdir(), error=", err)
 	}
 	ctx := context.Background()
