@@ -19,7 +19,6 @@ package file_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,14 +47,14 @@ func TestMain(m *testing.M) {
 	content := []byte("foo")
 	filename := "foo.txt"
 	path := filepath.Join(workingDir, filename)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		panic(err)
 	}
 	// prepare test file 2
 	content = []byte("bar")
 	filename = "bar.txt"
 	path = filepath.Join(workingDir, filename)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		panic(err)
 	}
 
