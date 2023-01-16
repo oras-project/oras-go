@@ -30,7 +30,7 @@ import (
 )
 
 // Related issue: https://github.com/oras-project/oras-go/issues/402
-func TestStore_Dir_ExtractSymlink(t *testing.T) {
+func TestStore_Dir_ExtractSymlinkRel(t *testing.T) {
 	// prepare test content
 	tempDir := t.TempDir()
 	dirName := "testdir"
@@ -264,55 +264,15 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 	if !bytes.Equal(got, gotgz) {
 		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
 	}
-}
 
-func TestStore_Dir_ExtractSymlinkAbs_Outside(t *testing.T) {
-	// prepare test content
-	tempDir := t.TempDir()
-	dirName := "testdir"
-	dirPath := filepath.Join(tempDir, dirName)
-	if err := os.MkdirAll(dirPath, 0777); err != nil {
-		t.Fatal("error calling Mkdir(), error =", err)
-	}
-
-	content := []byte("hello world")
-	fileName := "test.txt"
-	filePath := filepath.Join(dirPath, fileName)
-	if err := os.WriteFile(filePath, content, 0444); err != nil {
-		t.Fatal("error calling WriteFile(), error =", err)
-	}
-	// create symlink to an absolute path
-	symlink := filepath.Join(dirPath, "test_symlink")
-	if err := os.Symlink(filePath, symlink); err != nil {
-		t.Fatal("error calling Symlink(), error =", err)
-	}
-
-	src, err := New(tempDir)
-	if err != nil {
-		t.Fatal("Store.New() error =", err)
-	}
-	defer src.Close()
-	ctx := context.Background()
-
-	// add dir
-	desc, err := src.Add(ctx, dirName, "", dirPath)
-	if err != nil {
-		t.Fatal("Store.Add() error =", err)
-	}
-	// pack a manifest
-	manifestDesc, err := oras.Pack(ctx, src, "dir", []ocispec.Descriptor{desc}, oras.PackOptions{})
-	if err != nil {
-		t.Fatal("oras.Pack() error =", err)
-	}
-
-	// copy to another file store created from an absolute root, to trigger extracting directory
+	// copy to another file store created from an outside root, to trigger extracting directory
 	tempDir = t.TempDir()
-	dst, err := New(tempDir)
+	dstOutside, err := New(tempDir)
 	if err != nil {
 		t.Fatal("Store.New() error =", err)
 	}
-	defer dst.Close()
-	if err := oras.CopyGraph(ctx, src, dst, manifestDesc, oras.DefaultCopyGraphOptions); err == nil {
+	defer dstOutside.Close()
+	if err := oras.CopyGraph(ctx, src, dstOutside, manifestDesc, oras.DefaultCopyGraphOptions); err == nil {
 		t.Error("oras.CopyGraph() error = nil, wantErr ", true)
 	}
 }
