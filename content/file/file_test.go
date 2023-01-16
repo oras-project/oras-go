@@ -211,6 +211,153 @@ func TestStore_Success(t *testing.T) {
 	}
 }
 
+func TestStore_RelativeRoot_Success(t *testing.T) {
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	s, err := New(".")
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+	if want := tempDir; s.workingDir != want {
+		t.Errorf("Store.workingDir = %s, want %s", s.workingDir, want)
+	}
+	// cd out to allow the temp directory to be removed
+	if err := os.Chdir("../../"); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	ctx := context.Background()
+
+	blob := []byte("hello world")
+	name := "test.txt"
+	mediaType := "test"
+	desc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name,
+		},
+	}
+
+	path := filepath.Join(tempDir, name)
+	if err := os.WriteFile(path, blob, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	// test blob add
+	gotDesc, err := s.Add(ctx, name, mediaType, path)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	if descriptor.FromOCI(gotDesc) != descriptor.FromOCI(desc) {
+		t.Fatal("got descriptor mismatch")
+	}
+
+	// test blob exists
+	exists, err := s.Exists(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	// test blob fetch
+	rc, err := s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, blob) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, blob)
+	}
+
+	// test push config
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: "config",
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "config.blob",
+		},
+	}
+	if err := s.Push(ctx, configDesc, bytes.NewReader(config)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// test push manifest
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers: []ocispec.Descriptor{
+			gotDesc,
+		},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// test tag
+	ref := "foobar"
+	if err := s.Tag(ctx, manifestDesc, ref); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// test resolve
+	gotManifestDesc, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotManifestDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotManifestDesc, manifestDesc)
+	}
+
+	// test fetch
+	exists, err = s.Exists(ctx, gotManifestDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	mrc, err := s.Fetch(ctx, gotManifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(mrc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = mrc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, manifestJSON) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, manifestJSON)
+	}
+}
+
 func TestStore_Close(t *testing.T) {
 	content := []byte("hello world")
 	name := "test.txt"
