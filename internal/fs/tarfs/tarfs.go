@@ -22,6 +22,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 
 	"oras.land/oras-go/v2/errdef"
 )
@@ -43,8 +44,12 @@ type entry struct {
 
 // New returns a file system (an fs.FS) for a tar archive located at path.
 func New(path string) (*TarFS, error) {
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", path, err)
+	}
 	tarfs := &TarFS{
-		path:    path,
+		path:    pathAbs,
 		entries: make(map[string]*entry),
 	}
 	if err := tarfs.indexEntries(); err != nil {

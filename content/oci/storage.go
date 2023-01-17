@@ -52,12 +52,17 @@ type Storage struct {
 }
 
 // NewStorage creates a new CAS based on file system with the OCI-Image layout.
-func NewStorage(root string) *Storage {
-	return &Storage{
-		ReadOnlyStorage: NewStorageFromFS(os.DirFS(root)),
-		root:            root,
-		ingestRoot:      filepath.Join(root, "ingest"),
+func NewStorage(root string) (*Storage, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
 	}
+
+	return &Storage{
+		ReadOnlyStorage: NewStorageFromFS(os.DirFS(rootAbs)),
+		root:            rootAbs,
+		ingestRoot:      filepath.Join(rootAbs, "ingest"),
+	}, nil
 }
 
 // Push pushes the content, matching the expected descriptor.
