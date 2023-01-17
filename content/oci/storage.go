@@ -55,7 +55,7 @@ type Storage struct {
 func NewStorage(root string) (*Storage, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", root, err)
 	}
 
 	return &Storage{
