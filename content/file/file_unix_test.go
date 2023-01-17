@@ -20,7 +20,6 @@ package file
 import (
 	"bytes"
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,8 +45,9 @@ func TestStore_Dir_ExtractSymlinkRel(t *testing.T) {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 	// create symlink to a relative path
-	symlink := filepath.Join(dirPath, "test_symlink")
-	if err := os.Symlink(fileName, symlink); err != nil {
+	symlinkName := "test_symlink"
+	symlinkPath := filepath.Join(dirPath, symlinkName)
+	if err := os.Symlink(fileName, symlinkPath); err != nil {
 		t.Fatal("error calling Symlink(), error =", err)
 	}
 
@@ -63,23 +63,6 @@ func TestStore_Dir_ExtractSymlinkRel(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Add() error =", err)
 	}
-	val, ok := src.digestToPath.Load(desc.Digest)
-	if !ok {
-		t.Fatal("failed to find internal gz")
-	}
-	tmpPath := val.(string)
-	zrc, err := os.Open(tmpPath)
-	if err != nil {
-		t.Fatal("failed to open internal gz, error =", err)
-	}
-	gotgz, err := io.ReadAll(zrc)
-	if err != nil {
-		t.Fatal("failed to read internal gz, error =", err)
-	}
-	if err := zrc.Close(); err != nil {
-		t.Error("failed to close internal gz, error =", err)
-	}
-
 	// pack a manifest
 	manifestDesc, err := oras.Pack(ctx, src, "dir", []ocispec.Descriptor{desc}, oras.PackOptions{})
 	if err != nil {
@@ -97,21 +80,21 @@ func TestStore_Dir_ExtractSymlinkRel(t *testing.T) {
 		t.Fatal("oras.CopyGraph() error =", err)
 	}
 
-	// compare content
-	rc, err := dstAbs.Fetch(ctx, desc)
+	// verify extracted symlink
+	extractedSymlink := filepath.Join(tempDir, dirName, symlinkName)
+	symlinkDst, err := os.Readlink(extractedSymlink)
 	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
+		t.Fatal("failed to get symlink destination, error =", err)
 	}
-	got, err := io.ReadAll(rc)
+	if want := fileName; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err := os.ReadFile(extractedSymlink)
 	if err != nil {
-		t.Fatal("Store.Fetch().Read() error =", err)
+		t.Fatal("failed to read symlink file, error =", err)
 	}
-	err = rc.Close()
-	if err != nil {
-		t.Error("Store.Fetch().Close() error =", err)
-	}
-	if !bytes.Equal(got, gotgz) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
 	}
 
 	// copy to another file store created from a relative root, to trigger extracting directory
@@ -128,21 +111,21 @@ func TestStore_Dir_ExtractSymlinkRel(t *testing.T) {
 		t.Fatal("oras.CopyGraph() error =", err)
 	}
 
-	// compare content
-	rc, err = dstRel.Fetch(ctx, desc)
+	// verify extracted symlink
+	extractedSymlink = filepath.Join(tempDir, dirName, symlinkName)
+	symlinkDst, err = os.Readlink(extractedSymlink)
 	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
+		t.Fatal("failed to get symlink destination, error =", err)
 	}
-	got, err = io.ReadAll(rc)
+	if want := fileName; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err = os.ReadFile(extractedSymlink)
 	if err != nil {
-		t.Fatal("Store.Fetch().Read() error =", err)
+		t.Fatal("failed to read symlink file, error =", err)
 	}
-	err = rc.Close()
-	if err != nil {
-		t.Error("Store.Fetch().Close() error =", err)
-	}
-	if !bytes.Equal(got, gotgz) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
 	}
 }
 
@@ -180,7 +163,6 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Add() error =", err)
 	}
-
 	// pack a manifest
 	manifestDesc, err := oras.Pack(ctx, src, "dir", []ocispec.Descriptor{desc}, oras.PackOptions{})
 	if err != nil {
@@ -200,20 +182,20 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 		t.Fatal("oras.CopyGraph() error =", err)
 	}
 
-	// verify symlink
-	symlinkFile, err := os.Open(symlink)
+	// verify extracted symlink
+	symlinkDst, err := os.Readlink(symlink)
 	if err != nil {
-		t.Fatal("failed to open symlink file, error =", err)
+		t.Fatal("failed to get symlink destination, error =", err)
 	}
-	symlinkContent, err := io.ReadAll(symlinkFile)
+	if want := filePath; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err := os.ReadFile(symlink)
 	if err != nil {
 		t.Fatal("failed to read symlink file, error =", err)
 	}
-	if err := symlinkFile.Close(); err != nil {
-		t.Fatal("failed to open symlink file, error =", err)
-	}
-	if !bytes.Equal(symlinkContent, content) {
-		t.Errorf("symlink content = %v, want %v", symlinkContent, content)
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
 	}
 
 	// remove the original testing directory and create a new store using a relative path
@@ -231,22 +213,22 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 	if err := oras.CopyGraph(ctx, src, dstRel, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
 		t.Fatal("oras.CopyGraph() error =", err)
 	}
-	// compare content
-	// rc, err = dstRel.Fetch(ctx, desc)
-	// if err != nil {
-	// 	t.Fatal("Store.Fetch() error =", err)
-	// }
-	// got, err = io.ReadAll(rc)
-	// if err != nil {
-	// 	t.Fatal("Store.Fetch().Read() error =", err)
-	// }
-	// err = rc.Close()
-	// if err != nil {
-	// 	t.Error("Store.Fetch().Close() error =", err)
-	// }
-	// if !bytes.Equal(got, gotgz) {
-	// 	t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
-	// }
+
+	// verify extracted symlink
+	symlinkDst, err = os.Readlink(symlink)
+	if err != nil {
+		t.Fatal("failed to get symlink destination, error =", err)
+	}
+	if want := filePath; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err = os.ReadFile(symlink)
+	if err != nil {
+		t.Fatal("failed to read symlink file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
+	}
 
 	// copy to another file store created from an outside root, to trigger extracting directory
 	tempDir = t.TempDir()
