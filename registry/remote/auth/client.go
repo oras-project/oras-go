@@ -28,10 +28,12 @@ import (
 	"strings"
 
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
+	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
 // DefaultClient is the default auth-decorated client.
 var DefaultClient = &Client{
+	Client: retry.DefaultClient,
 	Header: http.Header{
 		"User-Agent": {"oras-go"},
 	},
@@ -68,6 +70,11 @@ type Client struct {
 	// Client is the underlying HTTP client used to access the remote
 	// server.
 	// If nil, http.DefaultClient is used.
+	// It is possible to use the default retry client from the package
+	// `oras.land/oras-go/v2/registry/remote/retry`. That client is already available
+	// in the DefaultClient.
+	// It is also possible to use a custom client. For example, github.com/hashicorp/go-retryablehttp
+	// is a popular HTTP client that supports retries.
 	Client *http.Client
 
 	// Header contains the custom headers to be added to each request.
