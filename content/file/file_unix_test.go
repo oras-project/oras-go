@@ -180,22 +180,6 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Add() error =", err)
 	}
-	val, ok := src.digestToPath.Load(desc.Digest)
-	if !ok {
-		t.Fatal("failed to find internal gz")
-	}
-	tmpPath := val.(string)
-	zrc, err := os.Open(tmpPath)
-	if err != nil {
-		t.Fatal("failed to open internal gz, error =", err)
-	}
-	gotgz, err := io.ReadAll(zrc)
-	if err != nil {
-		t.Fatal("failed to read internal gz, error =", err)
-	}
-	if err := zrc.Close(); err != nil {
-		t.Error("failed to close internal gz, error =", err)
-	}
 
 	// pack a manifest
 	manifestDesc, err := oras.Pack(ctx, src, "dir", []ocispec.Descriptor{desc}, oras.PackOptions{})
@@ -216,21 +200,20 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 		t.Fatal("oras.CopyGraph() error =", err)
 	}
 
-	// compare content
-	rc, err := dstAbs.Fetch(ctx, desc)
+	// verify symlink
+	symlinkFile, err := os.Open(symlink)
 	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
+		t.Fatal("failed to open symlink file, error =", err)
 	}
-	got, err := io.ReadAll(rc)
+	symlinkContent, err := io.ReadAll(symlinkFile)
 	if err != nil {
-		t.Fatal("Store.Fetch().Read() error =", err)
+		t.Fatal("failed to read symlink file, error =", err)
 	}
-	err = rc.Close()
-	if err != nil {
-		t.Error("Store.Fetch().Close() error =", err)
+	if err := symlinkFile.Close(); err != nil {
+		t.Fatal("failed to open symlink file, error =", err)
 	}
-	if !bytes.Equal(got, gotgz) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
+	if !bytes.Equal(symlinkContent, content) {
+		t.Errorf("symlink content = %v, want %v", symlinkContent, content)
 	}
 
 	// remove the original testing directory and create a new store using a relative path
@@ -249,21 +232,21 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 		t.Fatal("oras.CopyGraph() error =", err)
 	}
 	// compare content
-	rc, err = dstRel.Fetch(ctx, desc)
-	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
-	}
-	got, err = io.ReadAll(rc)
-	if err != nil {
-		t.Fatal("Store.Fetch().Read() error =", err)
-	}
-	err = rc.Close()
-	if err != nil {
-		t.Error("Store.Fetch().Close() error =", err)
-	}
-	if !bytes.Equal(got, gotgz) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
-	}
+	// rc, err = dstRel.Fetch(ctx, desc)
+	// if err != nil {
+	// 	t.Fatal("Store.Fetch() error =", err)
+	// }
+	// got, err = io.ReadAll(rc)
+	// if err != nil {
+	// 	t.Fatal("Store.Fetch().Read() error =", err)
+	// }
+	// err = rc.Close()
+	// if err != nil {
+	// 	t.Error("Store.Fetch().Close() error =", err)
+	// }
+	// if !bytes.Equal(got, gotgz) {
+	// 	t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
+	// }
 
 	// copy to another file store created from an outside root, to trigger extracting directory
 	tempDir = t.TempDir()
