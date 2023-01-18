@@ -44,7 +44,7 @@ const (
 // Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
 var ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
 
-// PackOptions contains parameters for oras.Pack.
+// PackOptions contains parameters for [oras.Pack].
 type PackOptions struct {
 	// Subject is the subject of the manifest.
 	Subject *ocispec.Descriptor
@@ -70,6 +70,7 @@ type PackOptions struct {
 
 // Pack packs the given blobs, generates a manifest for the pack,
 // and pushes it to a content storage.
+//
 // When opts.PackImageManifest is true, artifactType will be used as the
 // the config descriptor mediaType of the image manifest.
 // If succeeded, returns a descriptor of the manifest.

@@ -47,11 +47,11 @@ const ociImageIndexFile = "index.json"
 type Store struct {
 	// AutoSaveIndex controls if the OCI store will automatically save the index
 	// file on each Tag() call.
-	// If AutoSaveIndex is set to true, the OCI store will automatically call
-	// this method on each Tag() call.
-	// If AutoSaveIndex is set to false, it's the caller's responsibility
-	// to manually call SaveIndex() when needed.
-	// Default value: true.
+	//   - If AutoSaveIndex is set to true, the OCI store will automatically call
+	//     this method on each Tag() call.
+	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
+	//     to manually call SaveIndex() when needed.
+	//   - Default value: true.
 	AutoSaveIndex bool
 	root          string
 	indexPath     string
@@ -257,10 +257,10 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 }
 
 // SaveIndex writes the `index.json` file to the file system.
-// If AutoSaveIndex is set to true (default value),
-// the OCI store will automatically call this method on each Tag() call.
-// If AutoSaveIndex is set to false, it's the caller's responsibility
-// to manually call this method when needed.
+//   - If AutoSaveIndex is set to true (default value),
+//     the OCI store will automatically call this method on each Tag() call.
+//   - If AutoSaveIndex is set to false, it's the caller's responsibility
+//     to manually call this method when needed.
 func (s *Store) SaveIndex() error {
 	s.indexLock.Lock()
 	defer s.indexLock.Unlock()

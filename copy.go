@@ -45,7 +45,7 @@ var DefaultCopyOptions CopyOptions = CopyOptions{
 	CopyGraphOptions: DefaultCopyGraphOptions,
 }
 
-// CopyOptions contains parameters for oras.Copy.
+// CopyOptions contains parameters for [oras.Copy].
 type CopyOptions struct {
 	CopyGraphOptions
 	// MapRoot maps the resolved root node to a desired root node for copy.
@@ -58,12 +58,12 @@ type CopyOptions struct {
 // WithTargetPlatform configures opts.MapRoot to select the manifest whose
 // platform matches the given platform. When MapRoot is provided, the platform
 // selection will be applied on the mapped root node.
-// - If the given platform is nil, no platform selection will be applied.
-// - If the root node is a manifest, it will remain the same if platform
-// matches, otherwise ErrNotFound will be returned.
-// - If the root node is a manifest list, it will be mapped to the first
-// matching manifest if exists, otherwise ErrNotFound will be returned.
-// - Otherwise ErrUnsupported will be returned.
+//   - If the given platform is nil, no platform selection will be applied.
+//   - If the root node is a manifest, it will remain the same if platform
+//     matches, otherwise ErrNotFound will be returned.
+//   - If the root node is a manifest list, it will be mapped to the first
+//     matching manifest if exists, otherwise ErrNotFound will be returned.
+//   - Otherwise ErrUnsupported will be returned.
 func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
 	if p == nil {
 		return
@@ -86,7 +86,7 @@ const defaultCopyMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
 // DefaultCopyGraphOptions provides the default CopyGraphOptions.
 var DefaultCopyGraphOptions CopyGraphOptions
 
-// CopyGraphOptions contains parameters for oras.CopyGraph.
+// CopyGraphOptions contains parameters for [oras.CopyGraph].
 type CopyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent copy tasks.
 	// If less than or equal to 0, a default (currently 3) is used.
@@ -115,6 +115,7 @@ type CopyGraphOptions struct {
 // in the source Target to the destination Target.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
+//
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {

@@ -113,7 +113,7 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 	}
 
 	// create a temp file with the file name format "blobDigest_randomString"
-	// in the ingest direcotry.
+	// in the ingest directory.
 	// Go ensures that multiple programs or goroutines calling CreateTemp
 	// simultaneously will not choose the same file.
 	fp, err := os.CreateTemp(s.ingestRoot, expected.Digest.Encoded()+"_*")
