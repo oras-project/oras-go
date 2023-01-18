@@ -54,7 +54,7 @@ const (
 // DefaultTagNOptions provides the default TagNOptions.
 var DefaultTagNOptions TagNOptions
 
-// TagNOptions contains parameters for oras.TagN.
+// TagNOptions contains parameters for [oras.TagN].
 type TagNOptions struct {
 	// Concurrency limits the maximum number of concurrent tag tasks.
 	// If less than or equal to 0, a default (currently 5) is used.
@@ -175,7 +175,7 @@ func Tag(ctx context.Context, target Target, src, dst string) (ocispec.Descripto
 // DefaultResolveOptions provides the default ResolveOptions.
 var DefaultResolveOptions ResolveOptions
 
-// ResolveOptions contains parameters for oras.Resolve.
+// ResolveOptions contains parameters for [oras.Resolve].
 type ResolveOptions struct {
 	// TargetPlatform ensures the resolved content matches the target platform
 	// if the node is a manifest, or selects the first resolved content that
@@ -246,7 +246,7 @@ func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, refer
 // DefaultFetchOptions provides the default FetchOptions.
 var DefaultFetchOptions FetchOptions
 
-// FetchOptions contains parameters for oras.Fetch.
+// FetchOptions contains parameters for [oras.Fetch].
 type FetchOptions struct {
 	// ResolveOptions contains parameters for resolving reference.
 	ResolveOptions
@@ -291,7 +291,7 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 // DefaultFetchBytesOptions provides the default FetchBytesOptions.
 var DefaultFetchBytesOptions FetchBytesOptions
 
-// FetchBytesOptions contains parameters for oras.FetchBytes.
+// FetchBytesOptions contains parameters for [oras.FetchBytes].
 type FetchBytesOptions struct {
 	// FetchOptions contains parameters for fetching content.
 	FetchOptions
@@ -342,7 +342,7 @@ func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, con
 // DefaultTagBytesNOptions provides the default TagBytesNOptions.
 var DefaultTagBytesNOptions TagBytesNOptions
 
-// TagBytesNOptions contains parameters for oras.TagBytesN.
+// TagBytesNOptions contains parameters for [oras.TagBytesN].
 type TagBytesNOptions struct {
 	// Concurrency limits the maximum number of concurrent tag tasks.
 	// If less than or equal to 0, a default (currently 5) is used.

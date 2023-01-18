@@ -153,6 +153,7 @@ func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (
 
 // SetReferrersCapability indicates the Referrers API capability of the remote
 // repository. true: capable; false: not capable.
+//
 // SetReferrersCapability is valid only when it is called for the first time.
 // SetReferrersCapability returns ErrReferrersCapabilityAlreadySet if the
 // Referrers API capability has been already set.
@@ -258,6 +259,7 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 // ParseReference resolves a tag or a digest reference to a fully qualified
 // reference from a base reference r.Reference.
 // Tag, digest, or fully qualified references are accepted as input.
+//
 // If reference is a fully qualified reference, then ParseReference parses it
 // and returns the parsed reference. If the parsed reference does not share
 // the same base reference with the Repository r, ParseReference returns a
@@ -302,9 +304,10 @@ func (r *Repository) ParseReference(reference string) (registry.Reference, error
 // If `last` is NOT empty, the entries in the response start after the
 // tag specified by `last`. Otherwise, the response starts from the top
 // of the Tags list.
+//
 // References:
-// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#content-discovery
-// - https://docs.docker.com/registry/spec/api/#tags
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#content-discovery
+//   - https://docs.docker.com/registry/spec/api/#tags
 func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
 	ctx = registryutil.WithScopeHint(ctx, r.Reference, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
@@ -376,9 +379,11 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 
 // Referrers lists the descriptors of image or artifact manifests directly
 // referencing the given manifest descriptor.
+//
 // fn is called for each page of the referrers result.
 // If artifactType is not empty, only referrers of the same artifact type are
 // fed to fn.
+//
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
 func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
 	state := r.loadReferrersState()

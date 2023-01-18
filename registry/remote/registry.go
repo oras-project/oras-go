@@ -76,9 +76,10 @@ func (r *Registry) client() Client {
 // Ping checks whether or not the registry implement Docker Registry API V2 or
 // OCI Distribution Specification.
 // Ping can be used to check authentication when an auth client is configured.
+//
 // References:
-// - https://docs.docker.com/registry/spec/api/#base
-// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#api
+//   - https://docs.docker.com/registry/spec/api/#base
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#api
 func (r *Registry) Ping(ctx context.Context) error {
 	url := buildRegistryBaseURL(r.PlainHTTP, r.Reference)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -104,9 +105,11 @@ func (r *Registry) Ping(ctx context.Context) error {
 
 // Repositories lists the name of repositories available in the registry.
 // See also `RepositoryListPageSize`.
+//
 // If `last` is NOT empty, the entries in the response start after the
 // repo specified by `last`. Otherwise, the response starts from the top
 // of the Repositories list.
+//
 // Reference: https://docs.docker.com/registry/spec/api/#catalog
 func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos []string) error) error {
 	ctx = auth.AppendScopes(ctx, auth.ScopeRegistryCatalog)

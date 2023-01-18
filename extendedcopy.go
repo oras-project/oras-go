@@ -38,7 +38,7 @@ var DefaultExtendedCopyOptions ExtendedCopyOptions = ExtendedCopyOptions{
 	ExtendedCopyGraphOptions: DefaultExtendedCopyGraphOptions,
 }
 
-// ExtendedCopyOptions contains parameters for oras.ExtendedCopy.
+// ExtendedCopyOptions contains parameters for [oras.ExtendedCopy].
 type ExtendedCopyOptions struct {
 	ExtendedCopyGraphOptions
 }
@@ -48,7 +48,7 @@ var DefaultExtendedCopyGraphOptions ExtendedCopyGraphOptions = ExtendedCopyGraph
 	CopyGraphOptions: DefaultCopyGraphOptions,
 }
 
-// ExtendedCopyGraphOptions contains parameters for oras.ExtendedCopyGraph.
+// ExtendedCopyGraphOptions contains parameters for [oras.ExtendedCopyGraph].
 type ExtendedCopyGraphOptions struct {
 	CopyGraphOptions
 	// Depth limits the maximum depth of the directed acyclic graph (DAG) that
@@ -65,6 +65,7 @@ type ExtendedCopyGraphOptions struct {
 // the given tagged node from the source GraphTarget to the destination Target.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
+//
 // Returns the descriptor of the tagged node on successful copy.
 func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, dst Target, dstRef string, opts ExtendedCopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
@@ -200,10 +201,13 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 }
 
 // FilterAnnotation configures opts.FindPredecessors to filter the predecessors
-// whose annotation matches a given regex pattern. A predecessor is kept
+// whose annotation matches a given regex pattern.
+//
+// A predecessor is kept
 // if key is in its annotations and the annotation value matches regex.
 // If regex is nil, predecessors whose annotations contain key will be kept,
 // no matter of the annotation value.
+//
 // For performance consideration, when using both FilterArtifactType and
 // FilterAnnotation, it's recommended to call FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterAnnotation(key string, regex *regexp.Regexp) {
@@ -288,9 +292,11 @@ func fetchAnnotations(ctx context.Context, src content.ReadOnlyGraphStorage, des
 }
 
 // FilterArtifactType configures opts.FindPredecessors to filter the
-// predecessors whose artifact type matches a given regex pattern. A predecessor
-// is kept if its artifact type matches regex. If regex is nil, all
-// predecessors will be kept.
+// predecessors whose artifact type matches a given regex pattern.
+//
+// A predecessor is kept if its artifact type matches regex.
+// If regex is nil, all predecessors will be kept.
+//
 // For performance consideration, when using both FilterArtifactType and
 // FilterAnnotation, it's recommended to call FilterArtifactType first.
 func (opts *ExtendedCopyGraphOptions) FilterArtifactType(regex *regexp.Regexp) {

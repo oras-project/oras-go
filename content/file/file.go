@@ -62,14 +62,17 @@ const (
 )
 
 // Store represents a file system based store, which implements `oras.Target`.
+//
 // In the file store, the contents described by names are location-addressed
 // by file paths. Meanwhile, the file paths are mapped to a virtual CAS
 // where all metadata are stored in the memory.
+//
 // The contents that are not described by names are stored in a fallback storage,
 // which is a limited memory CAS by default.
 // As all the metadata are stored in the memory, the file store
 // cannot be restored from the file system.
-// After use, the file store needs to be closed by calling the `Close()` function.
+//
+// After use, the file store needs to be closed by calling the [Store.Close] function.
 // The file store cannot be used after being closed.
 type Store struct {
 	// TarReproducible controls if the tarballs generated
