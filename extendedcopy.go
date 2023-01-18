@@ -203,8 +203,8 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 // FilterAnnotation configures opts.FindPredecessors to filter the predecessors
 // whose annotation matches a given regex pattern.
 //
-// A predecessor is kept
-// if key is in its annotations and the annotation value matches regex.
+// A predecessor is kept if key is in its annotations and the annotation value
+// matches regex.
 // If regex is nil, predecessors whose annotations contain key will be kept,
 // no matter of the annotation value.
 //
