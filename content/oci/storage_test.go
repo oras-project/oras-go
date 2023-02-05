@@ -87,7 +87,10 @@ func TestStorage_RelativeRoot_Success(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal("error calling filepath.EvalSymlinks(), error =", err)
+	}
 	currDir, err := os.Getwd()
 	if err != nil {
 		t.Fatal("error calling Getwd(), error=", err)

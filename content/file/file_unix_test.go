@@ -132,7 +132,10 @@ func TestStore_Dir_ExtractSymlinkRel(t *testing.T) {
 // Related issue: https://github.com/oras-project/oras-go/issues/402
 func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 	// prepare test content
-	tempDir := t.TempDir()
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal("error calling filepath.EvalSymlinks(), error =", err)
+	}
 	dirName := "testdir"
 	dirPath := filepath.Join(tempDir, dirName)
 	if err := os.MkdirAll(dirPath, 0777); err != nil {
