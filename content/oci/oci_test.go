@@ -106,6 +106,23 @@ func TestStore_Success(t *testing.T) {
 		t.Errorf("layout.Version = %s, want %s", layout.Version, want)
 	}
 
+	// validate index.json
+	indexFilePath := filepath.Join(tempDir, ociImageIndexFile)
+	indexFile, err := os.Open(indexFilePath)
+	if err != nil {
+		t.Errorf("error opening layout file, error = %v", err)
+	}
+	defer indexFile.Close()
+
+	var index *ocispec.Index
+	err = json.NewDecoder(indexFile).Decode(&index)
+	if err != nil {
+		t.Fatal("error decoding index.json, error =", err)
+	}
+	if want := 2; index.SchemaVersion != want {
+		t.Errorf("index.SchemaVersion = %v, want %v", index.SchemaVersion, want)
+	}
+
 	// test push blob
 	err = s.Push(ctx, blobDesc, bytes.NewReader(blob))
 	if err != nil {
@@ -340,6 +357,23 @@ func TestStore_NotExistingRoot(t *testing.T) {
 	if want := ocispec.ImageLayoutVersion; layout.Version != want {
 		t.Errorf("layout.Version = %s, want %s", layout.Version, want)
 	}
+
+	// validate index.json
+	indexFilePath := filepath.Join(root, ociImageIndexFile)
+	indexFile, err := os.Open(indexFilePath)
+	if err != nil {
+		t.Errorf("error opening layout file, error = %v", err)
+	}
+	defer indexFile.Close()
+
+	var index *ocispec.Index
+	err = json.NewDecoder(indexFile).Decode(&index)
+	if err != nil {
+		t.Fatal("error decoding index.json, error =", err)
+	}
+	if want := 2; index.SchemaVersion != want {
+		t.Errorf("index.SchemaVersion = %v, want %v", index.SchemaVersion, want)
+	}
 }
 
 func TestStore_ContentNotFound(t *testing.T) {
@@ -532,10 +566,6 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 	if got, want := len(s.index.Manifests), 0; got != want {
 		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
-	if _, err := os.Stat(s.indexPath); err == nil {
-		t.Errorf("error: %s exists", s.indexPath)
-	}
-
 	if err := s.SaveIndex(); err != nil {
 		t.Fatal("Store.SaveIndex() error =", err)
 	}
@@ -670,6 +700,18 @@ func TestStore_BadIndex(t *testing.T) {
 	tempDir := t.TempDir()
 	content := []byte("whatever")
 	path := filepath.Join(tempDir, ociImageIndexFile)
+	os.WriteFile(path, content, 0666)
+
+	_, err := New(tempDir)
+	if err == nil {
+		t.Errorf("New() error = nil, want: error")
+	}
+}
+
+func TestStore_BadLayout(t *testing.T) {
+	tempDir := t.TempDir()
+	content := []byte("whatever")
+	path := filepath.Join(tempDir, ocispec.ImageLayoutFile)
 	os.WriteFile(path, content, 0666)
 
 	_, err := New(tempDir)
