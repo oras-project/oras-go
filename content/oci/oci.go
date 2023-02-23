@@ -277,7 +277,6 @@ func (s *Store) SaveIndex() error {
 		}
 		manifests = append(manifests, desc)
 	}
-
 	s.index.Manifests = manifests
 	return s.writeIndexFile()
 }
