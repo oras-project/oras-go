@@ -712,6 +712,47 @@ func TestStore_RepeatTag(t *testing.T) {
 	if !reflect.DeepEqual(gotDesc, desc) {
 		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
+
+	// tag another blob
+	blob = []byte("barfoo")
+	desc = content.NewDescriptorFromBytes("test", blob)
+	err = s.Push(ctx, desc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 4; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 3; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 5; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 4; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
+
+	gotDesc, err = s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
 }
 
 // Related bug: https://github.com/oras-project/oras-go/issues/461
@@ -727,10 +768,10 @@ func TestStore_TagByDigest(t *testing.T) {
 	internalResolver := s.tagResolver
 
 	manifest := []byte(`{"layers":[]}`)
-	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
 
-	// push first
-	err = s.Push(ctx, desc, bytes.NewReader(manifest))
+	// push a manifest
+	err = s.Push(ctx, manifestDesc, bytes.NewReader(manifest))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -740,9 +781,16 @@ func TestStore_TagByDigest(t *testing.T) {
 	if got, want := len(s.index.Manifests), 1; got != want {
 		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
+	gotDesc, err := s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
 
-	// tag by digest
-	err = s.Tag(ctx, desc, desc.Digest.String())
+	// tag manifest by digest
+	err = s.Tag(ctx, manifestDesc, manifestDesc.Digest.String())
 	if err != nil {
 		t.Fatal("Store.Tag() error =", err)
 	}
@@ -751,6 +799,53 @@ func TestStore_TagByDigest(t *testing.T) {
 	}
 	if got, want := len(s.index.Manifests), 1; got != want {
 		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err = s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// push a blob
+	blob := []byte("foobar")
+	blobDesc := content.NewDescriptorFromBytes("test", blob)
+	err = s.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err = s.Resolve(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if gotDesc.Digest != blobDesc.Digest || gotDesc.Size != blobDesc.Size {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
+	}
+
+	// tag blob by digest
+	err = s.Tag(ctx, blobDesc, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 2; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err = s.Resolve(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, blobDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
 	}
 }
 
