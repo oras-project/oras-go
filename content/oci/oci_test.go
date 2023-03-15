@@ -598,7 +598,10 @@ func TestStore_RepeatTag(t *testing.T) {
 		t.Fatal("Store.Push() error =", err)
 	}
 	if got, want := len(internalResolver.Map()), 1; got != want {
-		t.Errorf("resolver.Map() = %v, want %v", got, want)
+		t.Errorf("len(resolver.Map()) = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	err = s.Tag(ctx, desc, ref)
@@ -607,6 +610,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	}
 	if got, want := len(internalResolver.Map()), 2; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	gotDesc, err := s.Resolve(ctx, desc.Digest.String())
@@ -635,6 +641,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	if got, want := len(internalResolver.Map()), 3; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
 
 	err = s.Tag(ctx, desc, ref)
 	if err != nil {
@@ -642,6 +651,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	}
 	if got, want := len(internalResolver.Map()), 3; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
@@ -670,6 +682,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	if got, want := len(internalResolver.Map()), 3; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
 
 	err = s.Tag(ctx, desc, ref)
 	if err != nil {
@@ -677,6 +692,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	}
 	if got, want := len(internalResolver.Map()), 4; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 3; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
