@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
@@ -265,7 +266,7 @@ func (s *Store) SaveIndex() error {
 	defer s.indexLock.Unlock()
 
 	var manifests []ocispec.Descriptor
-	tagged := make(map[descriptor.Descriptor]struct{})
+	tagged := make(map[digest.Digest]struct{})
 
 	refMap := s.tagResolver.Map()
 	// first add tagged descriptors
@@ -276,20 +277,17 @@ func (s *Store) SaveIndex() error {
 			}
 			desc.Annotations[ocispec.AnnotationRefName] = ref
 			manifests = append(manifests, desc)
-
-			// mark descriptor as tagged for deduplication
-			key := descriptor.FromOCI(desc)
-			tagged[key] = struct{}{}
+			// mark digest as tagged for deduplication
+			tagged[desc.Digest] = struct{}{}
 		}
 	}
 	// then add untagged descriptors
 	for ref, desc := range refMap {
 		if ref == desc.Digest.String() {
-			key := descriptor.FromOCI(desc)
-			if _, ok := tagged[key]; !ok {
+			if _, ok := tagged[desc.Digest]; !ok {
 				// add descriptors that are not associated with any tag
 				manifests = append(manifests, desc)
-				tagged[key] = struct{}{}
+				tagged[desc.Digest] = struct{}{}
 			}
 		}
 	}
