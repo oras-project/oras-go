@@ -696,6 +696,46 @@ func TestStore_RepeatTag(t *testing.T) {
 	}
 }
 
+// Related bug: https://github.com/oras-project/oras-go/issues/461
+func TestStore_TagByDigest(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// get internal resolver
+	internalResolver := s.tagResolver
+
+	manifest := []byte(`{"layers":[]}`)
+	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+
+	// push first
+	err = s.Push(ctx, desc, bytes.NewReader(manifest))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("len(resolver.Map()) = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	// tag by digest
+	err = s.Tag(ctx, desc, desc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("len(resolver.Map()) = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+}
+
 func TestStore_BadIndex(t *testing.T) {
 	tempDir := t.TempDir()
 	content := []byte("whatever")
@@ -1029,7 +1069,6 @@ func TestStore_ExistingStore(t *testing.T) {
 			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
 	}
-
 }
 
 func TestCopy_MemoryToOCI_FullCopy(t *testing.T) {

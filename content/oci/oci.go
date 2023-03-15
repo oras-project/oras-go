@@ -142,10 +142,13 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		return fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrNotFound)
 	}
 
-	if desc.Annotations == nil {
-		desc.Annotations = map[string]string{}
+	if reference != desc.Digest.String() {
+		// add ref name annotation only when reference is not a digest
+		if desc.Annotations == nil {
+			desc.Annotations = map[string]string{}
+		}
+		desc.Annotations[ocispec.AnnotationRefName] = reference
 	}
-	desc.Annotations[ocispec.AnnotationRefName] = reference
 	return s.tag(ctx, desc, reference)
 }
 
@@ -157,6 +160,12 @@ func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		if err := s.tagResolver.Tag(ctx, desc, dgst); err != nil {
 			return err
 		}
+
+		// untag the last manifest tagged by reference
+		lastTagged, err := s.tagResolver.Resolve(ctx, reference)
+		if err == nil {
+			s.untag(ctx, lastTagged)
+		}
 	}
 	if err := s.tagResolver.Tag(ctx, desc, reference); err != nil {
 		return err
@@ -165,6 +174,11 @@ func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		return s.SaveIndex()
 	}
 	return nil
+}
+
+func (s *Store) untag(ctx context.Context, desc ocispec.Descriptor) error {
+	delete(desc.Annotations, ocispec.AnnotationRefName)
+	return s.tagResolver.Tag(ctx, desc, desc.Digest.String())
 }
 
 // Resolve resolves a reference to a descriptor.
