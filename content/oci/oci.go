@@ -142,13 +142,6 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		return fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrNotFound)
 	}
 
-	if reference != desc.Digest.String() {
-		// add ref name annotation only when reference is not a digest
-		if desc.Annotations == nil {
-			desc.Annotations = map[string]string{}
-		}
-		desc.Annotations[ocispec.AnnotationRefName] = reference
-	}
 	return s.tag(ctx, desc, reference)
 }
 
@@ -160,12 +153,6 @@ func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		if err := s.tagResolver.Tag(ctx, desc, dgst); err != nil {
 			return err
 		}
-
-		// untag the last manifest tagged by reference
-		lastTagged, err := s.tagResolver.Resolve(ctx, reference)
-		if err == nil {
-			s.untag(ctx, lastTagged)
-		}
 	}
 	if err := s.tagResolver.Tag(ctx, desc, reference); err != nil {
 		return err
@@ -174,11 +161,6 @@ func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		return s.SaveIndex()
 	}
 	return nil
-}
-
-func (s *Store) untag(ctx context.Context, desc ocispec.Descriptor) error {
-	delete(desc.Annotations, ocispec.AnnotationRefName)
-	return s.tagResolver.Tag(ctx, desc, desc.Digest.String())
 }
 
 // Resolve resolves a reference to a descriptor.
@@ -283,14 +265,35 @@ func (s *Store) SaveIndex() error {
 	defer s.indexLock.Unlock()
 
 	var manifests []ocispec.Descriptor
+	tagged := make(map[descriptor.Descriptor]struct{})
+
 	refMap := s.tagResolver.Map()
+	// first add tagged descriptors
 	for ref, desc := range refMap {
-		if ref == desc.Digest.String() && desc.Annotations[ocispec.AnnotationRefName] != "" {
-			// skip saving desc if ref is a digest and desc is tagged
-			continue
+		if ref != desc.Digest.String() {
+			if desc.Annotations == nil {
+				desc.Annotations = make(map[string]string)
+			}
+			desc.Annotations[ocispec.AnnotationRefName] = ref
+			manifests = append(manifests, desc)
+
+			// mark descriptor as tagged for deduplication
+			key := descriptor.FromOCI(desc)
+			tagged[key] = struct{}{}
 		}
-		manifests = append(manifests, desc)
 	}
+	// then add untagged descriptors
+	for ref, desc := range refMap {
+		if ref == desc.Digest.String() {
+			key := descriptor.FromOCI(desc)
+			if _, ok := tagged[key]; !ok {
+				// add descriptors that are not associated with any tag
+				manifests = append(manifests, desc)
+				tagged[key] = struct{}{}
+			}
+		}
+	}
+
 	s.index.Manifests = manifests
 	return s.writeIndexFile()
 }
