@@ -1075,6 +1075,11 @@ func TestStore_ExistingStore(t *testing.T) {
 	if err := s.Tag(ctx, indexRoot, tag); err != nil {
 		t.Fatal("Tag() error =", err)
 	}
+	// tag index root by digest
+	// related bug: https://github.com/oras-project/oras-go/issues/461
+	if err := s.Tag(ctx, indexRoot, indexRoot.Digest.String()); err != nil {
+		t.Fatal("Tag() error =", err)
+	}
 
 	// test with another OCI store instance to mock loading from an existing store
 	anotherS, err := New(tempDir)

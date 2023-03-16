@@ -151,7 +151,7 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	dgst := desc.Digest.String()
 	if reference != dgst {
-		// mark desc for deduplication in SaveIndex()
+		// also tag desc by its digest
 		if err := s.tagResolver.Tag(ctx, desc, dgst); err != nil {
 			return err
 		}
@@ -268,31 +268,30 @@ func (s *Store) SaveIndex() error {
 
 	var manifests []ocispec.Descriptor
 	tagged := make(containers.Set[digest.Digest])
-
 	refMap := s.tagResolver.Map()
-	// 1. Add descriptors identified by tags
+
+	// 1. Add descriptors that are associated with tags
 	// Note: One descriptor can be associated with multiple tags.
 	for ref, desc := range refMap {
 		if ref != desc.Digest.String() {
 			// copy the original annotation map
-			annotations := make(map[string]string, len(desc.Annotations))
+			annotations := make(map[string]string, len(desc.Annotations)+1)
 			for k, v := range desc.Annotations {
 				annotations[k] = v
 			}
 			annotations[ocispec.AnnotationRefName] = ref
 			desc.Annotations = annotations
 			manifests = append(manifests, desc)
-			// mark digest as tagged for deduplication in step 2
+			// mark the digest as tagged for deduplication in step 2
 			tagged.Add(desc.Digest)
 		}
 	}
-	// 2. Add descriptors identified only by digests
+	// 2. Add descriptors that are not associated with any tag
 	for ref, desc := range refMap {
 		if ref == desc.Digest.String() {
+			// skip tagged ones since they have been added in step 1
 			if !tagged.Contains(desc.Digest) {
-				// add descriptors that are not associated with any tag
 				manifests = append(manifests, desc)
-				tagged.Add(desc.Digest)
 			}
 		}
 	}
