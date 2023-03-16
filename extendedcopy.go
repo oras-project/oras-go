@@ -25,7 +25,7 @@ import (
 	"golang.org/x/sync/semaphore"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/containers"
+	"oras.land/oras-go/v2/internal/container/set"
 	"oras.land/oras-go/v2/internal/copyutil"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/docker"
@@ -132,7 +132,7 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 // findRoots finds the root nodes reachable from the given node through a
 // depth-first search.
 func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) ([]ocispec.Descriptor, error) {
-	visited := make(containers.Set[descriptor.Descriptor])
+	visited := set.New[descriptor.Descriptor]()
 	rootMap := make(map[descriptor.Descriptor]ocispec.Descriptor)
 	addRoot := func(key descriptor.Descriptor, val ocispec.Descriptor) {
 		if _, exists := rootMap[key]; !exists {

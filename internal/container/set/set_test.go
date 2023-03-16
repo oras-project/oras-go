@@ -13,12 +13,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package containers
+package set
 
 import "testing"
 
 func TestSet(t *testing.T) {
-	set := make(Set[string])
+	set := New[string]()
 	// test checking a non-existing key
 	key1 := "foo"
 	if got, want := set.Contains(key1), false; got != want {

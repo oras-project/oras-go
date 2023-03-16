@@ -32,7 +32,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/containers"
+	"oras.land/oras-go/v2/internal/container/set"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/resolver"
@@ -267,7 +267,7 @@ func (s *Store) SaveIndex() error {
 	defer s.indexLock.Unlock()
 
 	var manifests []ocispec.Descriptor
-	tagged := make(containers.Set[digest.Digest])
+	tagged := set.New[digest.Digest]()
 	refMap := s.tagResolver.Map()
 
 	// 1. Add descriptors that are associated with tags
