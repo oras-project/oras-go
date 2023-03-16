@@ -15,12 +15,15 @@ limitations under the License.
 
 package containers
 
+// Set represents a set data structure.
 type Set[T comparable] map[T]struct{}
 
+// Add adds key into the set s.
 func (s Set[T]) Add(key T) {
 	s[key] = struct{}{}
 }
 
+// Contains returns true if the set s contains key.
 func (s Set[T]) Contains(key T) bool {
 	_, ok := s[key]
 	return ok
