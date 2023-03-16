@@ -32,6 +32,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/containers"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/resolver"
@@ -266,29 +267,32 @@ func (s *Store) SaveIndex() error {
 	defer s.indexLock.Unlock()
 
 	var manifests []ocispec.Descriptor
-	tagged := make(map[digest.Digest]struct{})
+	tagged := make(containers.Set[digest.Digest])
 
 	refMap := s.tagResolver.Map()
 	// 1. Add descriptors identified by tags
+	// Note: One descriptor can be associated with multiple tags.
 	for ref, desc := range refMap {
 		if ref != desc.Digest.String() {
-			// Note: One descriptor can be associated with multiple tags
-			if desc.Annotations == nil {
-				desc.Annotations = make(map[string]string)
+			// copy the original annotation map
+			annotations := make(map[string]string, len(desc.Annotations))
+			for k, v := range desc.Annotations {
+				annotations[k] = v
 			}
-			desc.Annotations[ocispec.AnnotationRefName] = ref
+			annotations[ocispec.AnnotationRefName] = ref
+			desc.Annotations = annotations
 			manifests = append(manifests, desc)
-			// Mark digest as tagged for deduplication for step 2
-			tagged[desc.Digest] = struct{}{}
+			// mark digest as tagged for deduplication in step 2
+			tagged.Add(desc.Digest)
 		}
 	}
-	// 2. Add descriptors identified by digests
+	// 2. Add descriptors identified only by digests
 	for ref, desc := range refMap {
 		if ref == desc.Digest.String() {
-			if _, ok := tagged[desc.Digest]; !ok {
-				// Add descriptors that are not associated with any tag
+			if !tagged.Contains(desc.Digest) {
+				// add descriptors that are not associated with any tag
 				manifests = append(manifests, desc)
-				tagged[desc.Digest] = struct{}{}
+				tagged.Add(desc.Digest)
 			}
 		}
 	}
