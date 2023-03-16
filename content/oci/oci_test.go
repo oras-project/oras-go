@@ -1118,7 +1118,7 @@ func TestStore_ExistingStore(t *testing.T) {
 	// test resolving blob by digest
 	gotDesc, err = anotherS.Resolve(ctx, descs[0].Digest.String())
 	if err != nil {
-		t.Fatal("Store: Resolve() error =", err)
+		t.Fatal("Store.Resolve() error =", err)
 	}
 	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
 		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, want)
@@ -1186,6 +1186,94 @@ func TestStore_ExistingStore(t *testing.T) {
 		if !equalDescriptorSet(predecessors, want) {
 			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
+	}
+}
+
+func Test_ExistingStore_Retag(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	manifest_1 := []byte(`{"layers":[]}`)
+	manifestDesc_1 := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest_1)
+	manifestDesc_1.Annotations = map[string]string{"key1": "val1"}
+
+	// push a manifest
+	err = s.Push(ctx, manifestDesc_1, bytes.NewReader(manifest_1))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	// tag manifest by digest
+	err = s.Tag(ctx, manifestDesc_1, manifestDesc_1.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	// tag manifest by tag
+	ref := "foobar"
+	err = s.Tag(ctx, manifestDesc_1, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// verify index
+	want := []ocispec.Descriptor{
+		{
+			MediaType: manifestDesc_1.MediaType,
+			Digest:    manifestDesc_1.Digest,
+			Size:      manifestDesc_1.Size,
+			Annotations: map[string]string{
+				"key1":                    "val1",
+				ocispec.AnnotationRefName: ref,
+			},
+		},
+	}
+	if got := s.index.Manifests; !equalDescriptorSet(got, want) {
+		t.Errorf("index.Manifests = %v, want %v", got, want)
+	}
+
+	// test with another OCI store instance to mock loading from an existing store
+	anotherS, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	manifest_2 := []byte(`{"layers":[], "annotations":{}}`)
+	manifestDesc_2 := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest_2)
+	manifestDesc_2.Annotations = map[string]string{"key2": "val2"}
+
+	err = anotherS.Push(ctx, manifestDesc_2, bytes.NewReader(manifest_2))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	err = anotherS.Tag(ctx, manifestDesc_2, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// verify index
+	want = []ocispec.Descriptor{
+		{
+			MediaType: manifestDesc_1.MediaType,
+			Digest:    manifestDesc_1.Digest,
+			Size:      manifestDesc_1.Size,
+			Annotations: map[string]string{
+				"key1": "val1",
+			},
+		},
+		{
+			MediaType: manifestDesc_2.MediaType,
+			Digest:    manifestDesc_2.Digest,
+			Size:      manifestDesc_2.Size,
+			Annotations: map[string]string{
+				"key2":                    "val2",
+				ocispec.AnnotationRefName: ref,
+			},
+		},
+	}
+	if got := anotherS.index.Manifests; !equalDescriptorSet(got, want) {
+		t.Errorf("index.Manifests = %v, want %v", got, want)
 	}
 }
 

@@ -762,3 +762,68 @@ func TestReadOnlyStore_Tags(t *testing.T) {
 		t.Errorf("ReadOnlyStore.Tags() error = %v, wantErr %v", err, wantErr)
 	}
 }
+
+func Test_stripAnnotationRefName(t *testing.T) {
+	tests := []struct {
+		name string
+		desc ocispec.Descriptor
+		want ocispec.Descriptor
+	}{
+		{
+			name: "No annotation",
+			desc: ocispec.Descriptor{},
+			want: ocispec.Descriptor{},
+		},
+		{
+			name: "Nil annotation",
+			desc: ocispec.Descriptor{Annotations: nil},
+			want: ocispec.Descriptor{},
+		},
+		{
+			name: "Empty annotation",
+			desc: ocispec.Descriptor{Annotations: map[string]string{}},
+			want: ocispec.Descriptor{Annotations: map[string]string{}},
+		},
+		{
+			name: "No RefName",
+			desc: ocispec.Descriptor{Annotations: map[string]string{"foo": "bar"}},
+			want: ocispec.Descriptor{Annotations: map[string]string{"foo": "bar"}},
+		},
+		{
+			name: "Empty RefName",
+			desc: ocispec.Descriptor{Annotations: map[string]string{
+				"foo":                     "bar",
+				ocispec.AnnotationRefName: "",
+			}},
+			want: ocispec.Descriptor{Annotations: map[string]string{"foo": "bar"}},
+		},
+		{
+			name: "RefName only",
+			desc: ocispec.Descriptor{Annotations: map[string]string{ocispec.AnnotationRefName: "foobar"}},
+			want: ocispec.Descriptor{},
+		},
+		{
+			name: "Multiple annotations with RefName",
+			desc: ocispec.Descriptor{Annotations: map[string]string{
+				"foo":                     "bar",
+				ocispec.AnnotationRefName: "foobar",
+			}},
+			want: ocispec.Descriptor{Annotations: map[string]string{"foo": "bar"}},
+		},
+		{
+			name: "Multiple annotations with empty RefName",
+			desc: ocispec.Descriptor{Annotations: map[string]string{
+				"foo":                     "bar",
+				ocispec.AnnotationRefName: "",
+			}},
+			want: ocispec.Descriptor{Annotations: map[string]string{"foo": "bar"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stripAnnotationRefName(tt.desc); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("stripAnnotationRefName() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

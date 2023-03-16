@@ -291,7 +291,7 @@ func (s *Store) SaveIndex() error {
 		if ref == desc.Digest.String() {
 			// skip tagged ones since they have been added in step 1
 			if !tagged.Contains(desc.Digest) {
-				manifests = append(manifests, desc)
+				manifests = append(manifests, stripAnnotationRefName(desc))
 			}
 		}
 	}
