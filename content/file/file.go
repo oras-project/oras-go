@@ -78,7 +78,7 @@ type Store struct {
 	// TarReproducible controls if the tarballs generated
 	// for the added directories are reproducible.
 	// When specified, some metadata such as change time
-	// will be stripped from the files in the tarballs. Default value: false.
+	// will be removed from the files in the tarballs. Default value: false.
 	TarReproducible bool
 	// AllowPathTraversalOnWrite controls if path traversal is allowed
 	// when writing files. When specified, writing files

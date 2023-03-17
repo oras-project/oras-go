@@ -274,7 +274,6 @@ func (s *Store) SaveIndex() error {
 	// Note: One descriptor can be associated with multiple tags.
 	for ref, desc := range refMap {
 		if ref != desc.Digest.String() {
-			// copy the original annotation map
 			annotations := make(map[string]string, len(desc.Annotations)+1)
 			for k, v := range desc.Annotations {
 				annotations[k] = v
@@ -288,11 +287,9 @@ func (s *Store) SaveIndex() error {
 	}
 	// 2. Add descriptors that are not associated with any tag
 	for ref, desc := range refMap {
-		if ref == desc.Digest.String() {
+		if ref == desc.Digest.String() && !tagged.Contains(desc.Digest) {
 			// skip tagged ones since they have been added in step 1
-			if !tagged.Contains(desc.Digest) {
-				manifests = append(manifests, stripAnnotationRefName(desc))
-			}
+			manifests = append(manifests, deleteAnnotationRefName(desc))
 		}
 	}
 

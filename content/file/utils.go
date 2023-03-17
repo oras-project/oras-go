@@ -31,7 +31,7 @@ import (
 
 // tarDirectory walks the directory specified by path, and tar those files with a new
 // path prefix.
-func tarDirectory(root, prefix string, w io.Writer, stripTimes bool, buf []byte) (err error) {
+func tarDirectory(root, prefix string, w io.Writer, removeTimes bool, buf []byte) (err error) {
 	tw := tar.NewWriter(w)
 	defer func() {
 		closeErr := tw.Close()
@@ -71,7 +71,7 @@ func tarDirectory(root, prefix string, w io.Writer, stripTimes bool, buf []byte)
 		header.Uname = ""
 		header.Gname = ""
 
-		if stripTimes {
+		if removeTimes {
 			header.ModTime = time.Time{}
 			header.AccessTime = time.Time{}
 			header.ChangeTime = time.Time{}
