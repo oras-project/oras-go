@@ -598,7 +598,10 @@ func TestStore_RepeatTag(t *testing.T) {
 		t.Fatal("Store.Push() error =", err)
 	}
 	if got, want := len(internalResolver.Map()), 1; got != want {
-		t.Errorf("resolver.Map() = %v, want %v", got, want)
+		t.Errorf("len(resolver.Map()) = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	err = s.Tag(ctx, desc, ref)
@@ -607,6 +610,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	}
 	if got, want := len(internalResolver.Map()), 2; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	gotDesc, err := s.Resolve(ctx, desc.Digest.String())
@@ -635,6 +641,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	if got, want := len(internalResolver.Map()), 3; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
 
 	err = s.Tag(ctx, desc, ref)
 	if err != nil {
@@ -642,6 +651,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	}
 	if got, want := len(internalResolver.Map()), 3; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
@@ -670,6 +682,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	if got, want := len(internalResolver.Map()), 3; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
 
 	err = s.Tag(ctx, desc, ref)
 	if err != nil {
@@ -677,6 +692,9 @@ func TestStore_RepeatTag(t *testing.T) {
 	}
 	if got, want := len(internalResolver.Map()), 4; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 3; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
@@ -693,6 +711,141 @@ func TestStore_RepeatTag(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotDesc, desc) {
 		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
+
+	// tag another blob
+	blob = []byte("barfoo")
+	desc = content.NewDescriptorFromBytes("test", blob)
+	err = s.Push(ctx, desc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 4; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 3; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 5; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 4; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
+
+	gotDesc, err = s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
+}
+
+// Related bug: https://github.com/oras-project/oras-go/issues/461
+func TestStore_TagByDigest(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// get internal resolver
+	internalResolver := s.tagResolver
+
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+
+	// push a manifest
+	err = s.Push(ctx, manifestDesc, bytes.NewReader(manifest))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("len(resolver.Map()) = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err := s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// tag manifest by digest
+	err = s.Tag(ctx, manifestDesc, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("len(resolver.Map()) = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err = s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// push a blob
+	blob := []byte("foobar")
+	blobDesc := content.NewDescriptorFromBytes("test", blob)
+	err = s.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err = s.Resolve(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if gotDesc.Digest != blobDesc.Digest || gotDesc.Size != blobDesc.Size {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
+	}
+
+	// tag blob by digest
+	err = s.Tag(ctx, blobDesc, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 2; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err = s.Resolve(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, blobDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
 	}
 }
 
@@ -922,6 +1075,11 @@ func TestStore_ExistingStore(t *testing.T) {
 	if err := s.Tag(ctx, indexRoot, tag); err != nil {
 		t.Fatal("Tag() error =", err)
 	}
+	// tag index root by digest
+	// related bug: https://github.com/oras-project/oras-go/issues/461
+	if err := s.Tag(ctx, indexRoot, indexRoot.Digest.String()); err != nil {
+		t.Fatal("Tag() error =", err)
+	}
 
 	// test with another OCI store instance to mock loading from an existing store
 	anotherS, err := New(tempDir)
@@ -960,7 +1118,7 @@ func TestStore_ExistingStore(t *testing.T) {
 	// test resolving blob by digest
 	gotDesc, err = anotherS.Resolve(ctx, descs[0].Digest.String())
 	if err != nil {
-		t.Fatal("Store: Resolve() error =", err)
+		t.Fatal("Store.Resolve() error =", err)
 	}
 	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
 		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, want)
@@ -1029,7 +1187,94 @@ func TestStore_ExistingStore(t *testing.T) {
 			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
 	}
+}
 
+func Test_ExistingStore_Retag(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	manifest_1 := []byte(`{"layers":[]}`)
+	manifestDesc_1 := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest_1)
+	manifestDesc_1.Annotations = map[string]string{"key1": "val1"}
+
+	// push a manifest
+	err = s.Push(ctx, manifestDesc_1, bytes.NewReader(manifest_1))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	// tag manifest by digest
+	err = s.Tag(ctx, manifestDesc_1, manifestDesc_1.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	// tag manifest by tag
+	ref := "foobar"
+	err = s.Tag(ctx, manifestDesc_1, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// verify index
+	want := []ocispec.Descriptor{
+		{
+			MediaType: manifestDesc_1.MediaType,
+			Digest:    manifestDesc_1.Digest,
+			Size:      manifestDesc_1.Size,
+			Annotations: map[string]string{
+				"key1":                    "val1",
+				ocispec.AnnotationRefName: ref,
+			},
+		},
+	}
+	if got := s.index.Manifests; !equalDescriptorSet(got, want) {
+		t.Errorf("index.Manifests = %v, want %v", got, want)
+	}
+
+	// test with another OCI store instance to mock loading from an existing store
+	anotherS, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	manifest_2 := []byte(`{"layers":[], "annotations":{}}`)
+	manifestDesc_2 := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest_2)
+	manifestDesc_2.Annotations = map[string]string{"key2": "val2"}
+
+	err = anotherS.Push(ctx, manifestDesc_2, bytes.NewReader(manifest_2))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	err = anotherS.Tag(ctx, manifestDesc_2, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// verify index
+	want = []ocispec.Descriptor{
+		{
+			MediaType: manifestDesc_1.MediaType,
+			Digest:    manifestDesc_1.Digest,
+			Size:      manifestDesc_1.Size,
+			Annotations: map[string]string{
+				"key1": "val1",
+			},
+		},
+		{
+			MediaType: manifestDesc_2.MediaType,
+			Digest:    manifestDesc_2.Digest,
+			Size:      manifestDesc_2.Size,
+			Annotations: map[string]string{
+				"key2":                    "val2",
+				ocispec.AnnotationRefName: ref,
+			},
+		},
+	}
+	if got := anotherS.index.Manifests; !equalDescriptorSet(got, want) {
+		t.Errorf("index.Manifests = %v, want %v", got, want)
+	}
 }
 
 func TestCopy_MemoryToOCI_FullCopy(t *testing.T) {
