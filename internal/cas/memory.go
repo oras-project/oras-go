@@ -86,3 +86,13 @@ func (m *Memory) Map() map[descriptor.Descriptor][]byte {
 	})
 	return res
 }
+
+// Delete removes a target descriptor from content map.
+func (m *Memory) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	key := descriptor.FromOCI(target)
+	_, deleted := m.content.LoadAndDelete(key)
+	if !deleted {
+		return errdef.ErrNotFound
+	}
+	return nil
+}

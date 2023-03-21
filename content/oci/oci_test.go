@@ -927,6 +927,55 @@ func TestStore_TagByDigest(t *testing.T) {
 	}
 }
 
+func TestStore_Untag(t *testing.T) {
+	content := []byte("hello world")
+	ref := "hello-world:0.0.1"
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if len(s.tagResolver.Map()) == 0 {
+		t.Error("tagresolver map should not be empty")
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, string(desc.Digest))
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, desc)
+	}
+
+	err = s.Untag(ctx, resolvedDescr, ref)
+	if err != nil {
+		t.Errorf("error untagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if len(s.tagResolver.Map()) > 0 {
+		t.Error("tagresolver map should be empty")
+	}
+}
+
 func TestStore_BadIndex(t *testing.T) {
 	tempDir := t.TempDir()
 	content := []byte("whatever")
@@ -1993,4 +2042,115 @@ func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descript
 		}
 	}
 	return true
+}
+
+func TestStore_Delete(t *testing.T) {
+	content := []byte("hello world")
+	ref := "hello-world:0.0.1"
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, desc)
+	}
+
+	err = s.Delete(ctx, resolvedDescr)
+	if err != nil {
+		t.Errorf("Store.Delete() = %v, wantErr %v", err, true)
+	}
+
+	_, err = s.Resolve(ctx, ref)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("descriptor should no longer exist in store = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+}
+
+func TestStore_DeleteDescriptoMultipleRefs(t *testing.T) {
+	content := []byte("hello world")
+	ref1 := "hello-world:0.0.1"
+	ref2 := "hello-world:0.0.2"
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	s.AutoSaveIndex = true
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	if len(s.index.Manifests) != 0 {
+		t.Errorf("manifest should be empty but has %d elements", len(s.index.Manifests))
+	}
+
+	err = s.Tag(ctx, desc, ref1)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref2)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if len(s.index.Manifests) != 2 {
+		t.Errorf("manifest should have %d, but has %d", len(s.index.Manifests), 0)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, ref1)
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, desc)
+	}
+
+	err = s.Delete(ctx, resolvedDescr)
+	if err != nil {
+		t.Errorf("Store.Delete() = %v, wantErr %v", err, true)
+	}
+
+	if len(s.index.Manifests) != 0 {
+		t.Errorf("manifest should be empty after delete but has %d", len(s.index.Manifests))
+	}
+
+	_, err = s.Resolve(ctx, ref2)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("descriptor should no longer exist in store = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
 }
