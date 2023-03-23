@@ -39,6 +39,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
+	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -449,6 +450,82 @@ func TestStore_ContentBadPush(t *testing.T) {
 	err = s.Push(ctx, desc, strings.NewReader("foobar"))
 	if err == nil {
 		t.Errorf("Store.Push() error = %v, wantErr %v", err, true)
+	}
+}
+
+func TestStore_ResolveByTagReturnsFullDescriptor(t *testing.T) {
+	content := []byte("hello world")
+	ref := "hello-world:0.0.1"
+	annotations := map[string]string{"name": "Hello"}
+	desc := ocispec.Descriptor{
+		MediaType:   "test",
+		Digest:      digest.FromBytes(content),
+		Size:        int64(len(content)),
+		Annotations: annotations,
+	}
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, desc)
+	}
+}
+
+func TestStore_ResolveByDigestReturnsPlainDescriptor(t *testing.T) {
+	content := []byte("hello world")
+	ref := "hello-world:0.0.1"
+	desc := ocispec.Descriptor{
+		MediaType:   "test",
+		Digest:      digest.FromBytes(content),
+		Size:        int64(len(content)),
+		Annotations: map[string]string{"name": "Hello"},
+	}
+	plainDescriptor := descriptor.Plain(desc)
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, string(desc.Digest))
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, plainDescriptor) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, plainDescriptor)
 	}
 }
 
@@ -1092,7 +1169,7 @@ func TestStore_ExistingStore(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store: Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, indexRoot) {
+	if !content.Equal(gotDesc, indexRoot) {
 		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, indexRoot)
 	}
 

@@ -34,6 +34,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/registry"
@@ -148,8 +149,15 @@ func TestReadOnlyStore(t *testing.T) {
 	if err != nil {
 		t.Error("ReadOnlyStore.Resolve() error =", err)
 	}
-	if want := descs[2]; !reflect.DeepEqual(gotDesc, want) {
+	if want := descs[2]; !content.Equal(gotDesc, want) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
+	}
+
+	// descriptor resolved by tag should have annotations
+	if gotDesc.Annotations[ocispec.AnnotationRefName] != subjectTag {
+		t.Errorf("ReadOnlyStore.Resolve() returned descriptor without annotations %v, want %v",
+			gotDesc.Annotations,
+			map[string]string{ocispec.AnnotationRefName: subjectTag})
 	}
 
 	// test resolving artifact by digest
@@ -318,7 +326,7 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 	if err != nil {
 		t.Fatal("ReadOnlyStore: Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, indexRoot) {
+	if !content.Equal(gotDesc, indexRoot) {
 		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, indexRoot)
 	}
 
@@ -613,7 +621,7 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
 	}
-	if !reflect.DeepEqual(gotDesc, root) {
+	if !content.Equal(gotDesc, root) {
 		t.Errorf("Copy() = %v, want %v", gotDesc, root)
 	}
 
@@ -633,7 +641,7 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal("dst.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, root) {
+	if !content.Equal(gotDesc, root) {
 		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
 	}
 }
