@@ -68,6 +68,11 @@ var (
 	errNoReferrerUpdate = errors.New("no referrer update")
 )
 
+// ErrDanglingReferrerIndex is returned when failed to delete old referrer index
+// after newly updated referrer index being pushed.
+// Only returned if referrer API is unavailable.
+type ErrDanglingReferrerIndex error
+
 // buildReferrersTag builds the referrers tag for the given manifest descriptor.
 // Format: <algorithm>-<digest>
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#unavailable-referrers-api
