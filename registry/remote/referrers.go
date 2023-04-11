@@ -68,10 +68,15 @@ var (
 	errNoReferrerUpdate = errors.New("no referrer update")
 )
 
-// ErrDanglingReferrerIndex is returned when failed to delete old referrer index
+// DanglingReferrerIndexErr is returned when failed to delete old referrer index
 // after newly updated referrer index being pushed.
 // Only returned if referrer API is unavailable.
-type ErrDanglingReferrerIndex error
+type DanglingReferrerIndexErr struct{ error }
+
+// Unwrap returns the inner error of DanglingReferrerIndexErr
+func (d *DanglingReferrerIndexErr) Unwrap() error {
+	return errors.Unwrap(d.error)
+}
 
 // buildReferrersTag builds the referrers tag for the given manifest descriptor.
 // Format: <algorithm>-<digest>
