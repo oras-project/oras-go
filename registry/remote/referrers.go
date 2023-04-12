@@ -70,22 +70,27 @@ var (
 	errNoReferrerUpdate = errors.New("no referrer update")
 )
 
-// DanglingReferrerIndexError is returned when failed to delete old referrer index
+// DanglingReferrersIndexError is returned when failed to delete old referrer index
 // after newly updated referrer index being pushed.
 // Only returned if referrer API is unavailable.
-type DanglingReferrerIndexError struct {
+
+// ErrDanglingReferrersIndex is returned from an attempt to delete an old
+// referrers index fails after a newly updated referrers index has been pushed.
+// This error is only returned when the referrers API is unavailable.
+type DanglingReferrersIndexError struct {
 	InnerError   error
 	IndexDigest  digest.Digest
 	ReferrersTag string
+	Subject      ocispec.Descriptor
 }
 
 // Error returns error msg of DanglingReferrerIndexError.
-func (d *DanglingReferrerIndexError) Error() string {
+func (d *DanglingReferrersIndexError) Error() string {
 	return fmt.Sprintf("failed to delete dangling referrers index %s for referrers tag %s: %s", d.IndexDigest.String(), d.ReferrersTag, d.InnerError.Error())
 }
 
 // Unwrap returns the inner error of DanglingReferrerIndexErr.
-func (d *DanglingReferrerIndexError) Unwrap() error {
+func (d *DanglingReferrersIndexError) Unwrap() error {
 	return d.InnerError
 }
 
