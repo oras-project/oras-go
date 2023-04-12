@@ -17,10 +17,8 @@ package remote
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
-	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/descriptor"
@@ -69,30 +67,6 @@ var (
 	// is no any referrer update.
 	errNoReferrerUpdate = errors.New("no referrer update")
 )
-
-// DanglingReferrersIndexError is returned when failed to delete old referrer index
-// after newly updated referrer index being pushed.
-// Only returned if referrer API is unavailable.
-
-// ErrDanglingReferrersIndex is returned from an attempt to delete an old
-// referrers index fails after a newly updated referrers index has been pushed.
-// This error is only returned when the referrers API is unavailable.
-type DanglingReferrersIndexError struct {
-	InnerError   error
-	IndexDigest  digest.Digest
-	ReferrersTag string
-	Subject      ocispec.Descriptor
-}
-
-// Error returns error msg of DanglingReferrerIndexError.
-func (d *DanglingReferrersIndexError) Error() string {
-	return fmt.Sprintf("failed to delete dangling referrers index %s for referrers tag %s: %s", d.IndexDigest.String(), d.ReferrersTag, d.InnerError.Error())
-}
-
-// Unwrap returns the inner error of DanglingReferrerIndexErr.
-func (d *DanglingReferrersIndexError) Unwrap() error {
-	return d.InnerError
-}
 
 // buildReferrersTag builds the referrers tag for the given manifest descriptor.
 // Format: <algorithm>-<digest>

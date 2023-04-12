@@ -1271,11 +1271,10 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		// 4. delete the dangling original referrers index
 		if !skipDelete {
 			if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
-				return &DanglingReferrersIndexError{
-					InnerError:   err,
-					IndexDigest:  oldIndexDesc.Digest,
-					ReferrersTag: referrersTag,
-					Subject:      subject,
+				return &IgnorableError{
+					Op:         fmt.Sprintf("delete dangling referrers index %s for referrers tag %s", oldIndexDesc.Digest.String(), referrersTag),
+					Err:        err,
+					Descriptor: subject,
 				}
 			}
 		}
