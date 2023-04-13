@@ -74,7 +74,7 @@ const (
 	OpDeleteReferrerIndex = "DeleteReferrersIndex"
 )
 
-// ReferrersError records an error and the operation and which subject it's on
+// ReferrersError records an error and the operation and the subject descriptor.
 type ReferrersError struct {
 	// Op represents the failing operation.
 	Op string
