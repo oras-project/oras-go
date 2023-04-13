@@ -13,27 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package remote
+package errop
 
-import (
-	"fmt"
-
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+const (
+	DeleteDanglingReferrerIndex = "delete dangling referrers index"
 )
-
-// IgnorableError implements error but can be ignored on caller side.
-type IgnorableError struct {
-	Op  string
-	Err error
-	ocispec.Descriptor
-}
-
-// Error returns error msg of IgnorableError.
-func (e *IgnorableError) Error() string {
-	return fmt.Sprintf("failed to %s: %s", e.Op, e.Err.Error())
-}
-
-// Unwrap returns the inner error of IgnorableError.
-func (e *IgnorableError) Unwrap() error {
-	return e.Err
-}

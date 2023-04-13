@@ -68,6 +68,23 @@ var (
 	errNoReferrerUpdate = errors.New("no referrer update")
 )
 
+// ReferrersError records an error and the operation and which subject it's on
+type ReferrersError struct {
+	Op      string
+	Err     error
+	Subject ocispec.Descriptor
+}
+
+// Error returns error msg of IgnorableError.
+func (e *ReferrersError) Error() string {
+	return e.Err.Error()
+}
+
+// Unwrap returns the inner error of IgnorableError.
+func (e *ReferrersError) Unwrap() error {
+	return errors.Unwrap(e.Err)
+}
+
 // buildReferrersTag builds the referrers tag for the given manifest descriptor.
 // Format: <algorithm>-<digest>
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#unavailable-referrers-api
