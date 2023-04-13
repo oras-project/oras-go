@@ -43,7 +43,6 @@ import (
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/errcode"
-	"oras.land/oras-go/v2/registry/remote/errop"
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
@@ -1273,7 +1272,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		if !skipDelete {
 			if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
 				return &ReferrersError{
-					Op:      errop.DeleteDanglingReferrerIndex,
+					Op:      OpDeleteReferrerIndex,
 					Err:     fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err),
 					Subject: subject,
 				}

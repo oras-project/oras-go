@@ -68,11 +68,20 @@ var (
 	errNoReferrerUpdate = errors.New("no referrer update")
 )
 
+const (
+	// OpDeleteReferrerIndex represents the operation for deleting a
+	// referrer index.
+	OpDeleteReferrerIndex = "DeleteReferrersIndex"
+)
+
 // ReferrersError records an error and the operation and which subject it's on
 type ReferrersError struct {
-	Op      string
-	Err     error
+	// Op represents the failing operation.
+	Op string
+	// Subject is the descriptor of referrers' referrers.
 	Subject ocispec.Descriptor
+	// Err is the entity of referrers error.
+	Err error
 }
 
 // Error returns error msg of IgnorableError.
