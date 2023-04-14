@@ -827,7 +827,7 @@ func Example_pushAndIgnoreReferrersIndexError() {
 	err = repo.Push(ctx, referrerDescriptor, bytes.NewReader(referrerManifestContent))
 	if err != nil {
 		var re *remote.ReferrersError
-		if !errors.As(err, &re) || re.Op != remote.OpDeleteReferrerIndex {
+		if !errors.As(err, &re) || re.IsReferrersIndexDelete() {
 			// error for cleaning obsolete referrers index should be ignored
 			panic(err)
 		}
