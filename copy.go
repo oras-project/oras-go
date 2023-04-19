@@ -37,8 +37,8 @@ import (
 // defaultConcurrency is the default value of CopyGraphOptions.Concurrency.
 const defaultConcurrency int = 3 // This value is consistent with dockerd and containerd.
 
-// errSkipDesc signals copyNode() to stop processing a descriptor.
-var errSkipDesc = errors.New("skip descriptor")
+// ErrSkipDesc signals copyNode() to stop processing a descriptor.
+var ErrSkipDesc = errors.New("skip descriptor")
 
 // DefaultCopyOptions provides the default CopyOptions.
 var DefaultCopyOptions CopyOptions = CopyOptions{
@@ -281,7 +281,7 @@ func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.St
 func copyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
 	if opts.PreCopy != nil {
 		if err := opts.PreCopy(ctx, desc); err != nil {
-			if err == errSkipDesc {
+			if err == ErrSkipDesc {
 				return nil
 			}
 			return err
@@ -373,7 +373,7 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 				}
 			}
 			// skip the regular copy workflow
-			return errSkipDesc
+			return ErrSkipDesc
 		}
 	} else {
 		postCopy := opts.PostCopy
