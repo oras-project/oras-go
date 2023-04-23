@@ -232,7 +232,7 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrersTag) && m == http.MethodPut:
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrerIndexDigest) && m == http.MethodDelete:
-			w.WriteHeader(http.StatusForbidden)
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 
 	}))
@@ -827,7 +827,7 @@ func Example_pushAndIgnoreReferrersIndexError() {
 	err = repo.Push(ctx, referrerDescriptor, bytes.NewReader(referrerManifestContent))
 	if err != nil {
 		var re *remote.ReferrersError
-		if !errors.As(err, &re) || re.IsReferrersIndexDelete() {
+		if !errors.As(err, &re) || !re.IsReferrersIndexDelete() {
 			// ignoring error occurred during cleaning obsolete referrers index
 			panic(err)
 		}
