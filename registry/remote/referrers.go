@@ -17,13 +17,11 @@ package remote
 
 import (
 	"errors"
-	"net/http"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/descriptor"
-	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
 // zeroDigest represents a digest that consists of zeros. zeroDigest is used
@@ -99,15 +97,7 @@ func (e *ReferrersError) Unwrap() error {
 // IsIndexDelete tells if e is kind of error related to referrers
 // index deletion.
 func (e *ReferrersError) IsReferrersIndexDelete() bool {
-	if e.Op != opDeleteReferrerIndex {
-		return false
-	}
-
-	var errResp *errcode.ErrorResponse
-	if errors.As(e.Err, &errResp) {
-		return errResp.StatusCode == http.StatusMethodNotAllowed
-	}
-	return false
+	return e.Op != opDeleteReferrerIndex
 }
 
 // buildReferrersTag builds the referrers tag for the given manifest descriptor.
