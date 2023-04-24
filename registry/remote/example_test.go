@@ -828,12 +828,13 @@ func Example_pushAndIgnoreReferrersIndexError() {
 	if err != nil {
 		var re *remote.ReferrersError
 		if !errors.As(err, &re) || !re.IsReferrersIndexDelete() {
-			// ignoring error occurred during cleaning obsolete referrers index
 			panic(err)
 		}
-
+		fmt.Println("ignoring error occurred during cleaning obsolete referrers index")
 	}
 	fmt.Println("Push finished")
+
 	// Output:
+	// ignoring error occurred during cleaning obsolete referrers index
 	// Push finished
 }
