@@ -97,7 +97,7 @@ func (e *ReferrersError) Unwrap() error {
 // IsIndexDelete tells if e is kind of error related to referrers
 // index deletion.
 func (e *ReferrersError) IsReferrersIndexDelete() bool {
-	return e.Op != opDeleteReferrerIndex
+	return e.Op == opDeleteReferrerIndex
 }
 
 // buildReferrersTag builds the referrers tag for the given manifest descriptor.
