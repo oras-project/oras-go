@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,14 +39,18 @@ import (
 )
 
 const (
-	exampleRepositoryName   = "example"
-	exampleTag              = "latest"
-	exampleConfig           = "Example config content"
-	exampleLayer            = "Example layer content"
-	exampleUploadUUid       = "0bc84d80-837c-41d9-824e-1907463c53b3"
-	ManifestDigest          = "sha256:0b696106ecd0654e031f19e0a8cbd1aee4ad457d7c9cea881f07b12a930cd307"
-	ReferenceManifestDigest = "sha256:6983f495f7ee70d43e571657ae8b39ca3d3ca1b0e77270fd4fbddfb19832a1cf"
-	_                       = ExampleUnplayable
+	exampleRepositoryName                 = "example"
+	exampleTag                            = "latest"
+	exampleConfig                         = "Example config content"
+	exampleLayer                          = "Example layer content"
+	exampleUploadUUid                     = "0bc84d80-837c-41d9-824e-1907463c53b3"
+	ManifestDigest                        = "sha256:0b696106ecd0654e031f19e0a8cbd1aee4ad457d7c9cea881f07b12a930cd307"
+	ReferenceManifestDigest               = "sha256:6983f495f7ee70d43e571657ae8b39ca3d3ca1b0e77270fd4fbddfb19832a1cf"
+	referrersAPIUnavailableRepositoryName = "no-referrers-api"
+	referrerDigest                        = "sha256:21c623eb8ccd273f2702efd74a0abb455dd06a99987f413c2114fb00961ebfe7"
+	referrersTag                          = "sha256-c824a9aa7d2e3471306648c6d4baa1abbcb97ff0276181ab4722ca27127cdba0"
+	referrerIndexDigest                   = "sha256:7baac5147dd58d56fdbaad5a888fa919235a3a90cb71aaa8b56ee5d19f4cd838"
+	_                                     = ExampleUnplayable
 )
 
 var (
@@ -99,6 +104,15 @@ var (
 		ArtifactType: "example/manifest",
 		Digest:       digest.FromBytes(exampleManifestWithBlobs),
 		Size:         int64(len(exampleManifestWithBlobs))}
+	subjectDescriptor          = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, []byte(`{"layers":[]}`))
+	referrerManifestContent, _ = json.Marshal(ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Subject:   &subjectDescriptor,
+	})
+	referrerDescriptor = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, referrerManifestContent)
+	referrerIndex, _   = json.Marshal(ocispec.Index{
+		Manifests: []ocispec.Descriptor{},
+	})
 )
 
 var host string
@@ -205,6 +219,20 @@ func TestMain(m *testing.M) {
 			if m == "GET" {
 				w.Write([]byte(resultBlob))
 			}
+		case p == fmt.Sprintf("/v2/%s/referrers/%s", referrersAPIUnavailableRepositoryName, "sha256:0000000000000000000000000000000000000000000000000000000000000000"):
+			w.WriteHeader(http.StatusNotFound)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrerDigest) && m == http.MethodPut:
+			w.WriteHeader(http.StatusCreated)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrersTag) && m == http.MethodGet:
+			w.Write(referrerIndex)
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+			w.Header().Set("Content-Length", strconv.Itoa(len(referrerIndex)))
+			w.Header().Set("Docker-Content-Digest", digest.Digest(string(referrerIndex)).String())
+			w.WriteHeader(http.StatusCreated)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrersTag) && m == http.MethodPut:
+			w.WriteHeader(http.StatusCreated)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrerIndexDigest) && m == http.MethodDelete:
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 
 	}))
@@ -784,4 +812,29 @@ func Example_tagReference() {
 
 	// Output:
 	// Tagged sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7 as latest
+}
+
+// Example_pushAndIgnoreReferrersIndexError gives example snippets on how to
+// ignore referrer index deletion error during push a referrer manifest.
+func Example_pushAndIgnoreReferrersIndexError() {
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, referrersAPIUnavailableRepositoryName))
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+
+	// push a referrer manifest and ignore cleaning up error
+	err = repo.Push(ctx, referrerDescriptor, bytes.NewReader(referrerManifestContent))
+	if err != nil {
+		var re *remote.ReferrersError
+		if !errors.As(err, &re) || !re.IsReferrersIndexDelete() {
+			panic(err)
+		}
+		fmt.Println("ignoring error occurred during cleaning obsolete referrers index")
+	}
+	fmt.Println("Push finished")
+
+	// Output:
+	// ignoring error occurred during cleaning obsolete referrers index
+	// Push finished
 }
