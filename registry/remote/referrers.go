@@ -69,9 +69,9 @@ var (
 )
 
 const (
-	// opDeleteReferrerIndex represents the operation for deleting a
+	// opDeleteReferrersIndex represents the operation for deleting a
 	// referrer index.
-	opDeleteReferrerIndex = "DeleteReferrersIndex"
+	opDeleteReferrersIndex = "DeleteReferrersIndex"
 )
 
 // ReferrersError records an error and the operation and the subject descriptor.
@@ -97,7 +97,7 @@ func (e *ReferrersError) Unwrap() error {
 // IsIndexDelete tells if e is kind of error related to referrers
 // index deletion.
 func (e *ReferrersError) IsReferrersIndexDelete() bool {
-	return e.Op == opDeleteReferrerIndex
+	return e.Op == opDeleteReferrersIndex
 }
 
 // buildReferrersTag builds the referrers tag for the given manifest descriptor.

@@ -823,7 +823,7 @@ func Example_pushAndIgnoreReferrersIndexError() {
 	}
 	ctx := context.Background()
 
-	// push a referrer manifest and ignores cleaning up error
+	// pushes a referrer manifest and ignores cleaning up error
 	err = repo.Push(ctx, referrerDescriptor, bytes.NewReader(referrerManifestContent))
 	if err != nil {
 		var re *remote.ReferrersError
