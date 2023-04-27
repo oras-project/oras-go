@@ -70,7 +70,7 @@ var (
 
 const (
 	// opDeleteReferrersIndex represents the operation for deleting a
-	// referrer index.
+	// referrers index.
 	opDeleteReferrersIndex = "DeleteReferrersIndex"
 )
 
