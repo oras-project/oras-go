@@ -16,15 +16,16 @@ limitations under the License.
 package remote
 
 import (
-	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
-	"oras.land/oras-go/v2/registry"
-	"oras.land/oras-go/v2/registry/remote/auth"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/errdef"
 )
 
 // defaultMaxMetadataBytes specifies the default limit on how many response
@@ -58,16 +59,36 @@ func parseLink(resp *http.Response) (string, error) {
 }
 
 // limitReader returns a Reader that reads from r but stops with EOF after n
-// bytes. If n is zero, defaultMaxMetadataBytes is used.
+// bytes. If n is less than or equal to zero, defaultMaxMetadataBytes is used.
 func limitReader(r io.Reader, n int64) io.Reader {
-	if n == 0 {
+	if n <= 0 {
 		n = defaultMaxMetadataBytes
 	}
 	return io.LimitReader(r, n)
 }
 
-// withScopeHint adds a hinted scope to the context.
-func withScopeHint(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
-	scope := auth.ScopeRepository(ref.Repository, actions...)
-	return auth.AppendScopes(ctx, scope)
+// limitSize returns ErrSizeExceedsLimit if the size of desc exceeds the limit n.
+// If n is less than or equal to zero, defaultMaxMetadataBytes is used.
+func limitSize(desc ocispec.Descriptor, n int64) error {
+	if n <= 0 {
+		n = defaultMaxMetadataBytes
+	}
+	if desc.Size > n {
+		return fmt.Errorf(
+			"content size %v exceeds MaxMetadataBytes %v: %w",
+			desc.Size,
+			n,
+			errdef.ErrSizeExceedsLimit)
+	}
+	return nil
+}
+
+// decodeJSON safely reads the JSON content described by desc, and
+// decodes it into v.
+func decodeJSON(r io.Reader, desc ocispec.Descriptor, v any) error {
+	jsonBytes, err := content.ReadAll(r, desc)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(jsonBytes, v)
 }

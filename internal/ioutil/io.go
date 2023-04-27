@@ -16,12 +16,12 @@ limitations under the License.
 package ioutil
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"reflect"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 )
 
 // CloserFunc is the basic Close method defined in io.Closer.
@@ -32,56 +32,16 @@ func (fn CloserFunc) Close() error {
 	return fn()
 }
 
-// ReadAll safely reads the content described by the descriptor.
-// The read content is verified against the size and the digest.
-func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
-	// verify while reading
-	verifier := desc.Digest.Verifier()
-	r = io.TeeReader(r, verifier)
-	buf := make([]byte, desc.Size)
-	_, err := io.ReadFull(r, buf)
-	if err != nil {
-		return nil, fmt.Errorf("read failed: %w", err)
-	}
-	if !verifier.Verified() {
-		return nil, errors.New("digest verification failed")
-	}
-
-	if err := ensureEOF(r); err != nil {
-		return nil, err
-	}
-
-	return buf, nil
-}
-
 // CopyBuffer copies from src to dst through the provided buffer
 // until either EOF is reached on src, or an error occurs.
 // The copied content is verified against the size and the digest.
 func CopyBuffer(dst io.Writer, src io.Reader, buf []byte, desc ocispec.Descriptor) error {
 	// verify while copying
-	verifier := desc.Digest.Verifier()
-	lr := io.LimitReader(src, desc.Size)
-	mw := io.MultiWriter(verifier, dst)
-
-	if _, err := io.CopyBuffer(mw, lr, buf); err != nil {
+	vr := content.NewVerifyReader(src, desc)
+	if _, err := io.CopyBuffer(dst, vr, buf); err != nil {
 		return fmt.Errorf("copy failed: %w", err)
 	}
-
-	if !verifier.Verified() {
-		return errors.New("digest verification failed")
-	}
-
-	return ensureEOF(lr)
-}
-
-func ensureEOF(r io.Reader) error {
-	var peek [1]byte
-	_, err := io.ReadFull(r, peek[:])
-	if err != io.EOF {
-		return errors.New("trailing data")
-	}
-
-	return nil
+	return vr.Verify()
 }
 
 // nopCloserType is the type of `io.NopCloser()`.

@@ -28,7 +28,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
@@ -63,20 +62,23 @@ const (
 )
 
 // Store represents a file system based store, which implements `oras.Target`.
+//
 // In the file store, the contents described by names are location-addressed
 // by file paths. Meanwhile, the file paths are mapped to a virtual CAS
 // where all metadata are stored in the memory.
+//
 // The contents that are not described by names are stored in a fallback storage,
 // which is a limited memory CAS by default.
 // As all the metadata are stored in the memory, the file store
 // cannot be restored from the file system.
-// After use, the file store needs to be closed by calling the `Close()` function.
+//
+// After use, the file store needs to be closed by calling the [Store.Close] function.
 // The file store cannot be used after being closed.
 type Store struct {
 	// TarReproducible controls if the tarballs generated
 	// for the added directories are reproducible.
 	// When specified, some metadata such as change time
-	// will be stripped from the files in the tarballs. Default value: false.
+	// will be removed from the files in the tarballs. Default value: false.
 	TarReproducible bool
 	// AllowPathTraversalOnWrite controls if path traversal is allowed
 	// when writing files. When specified, writing files
@@ -86,6 +88,22 @@ type Store struct {
 	// When specified, saving files to existing paths will be disabled.
 	// Default value: false.
 	DisableOverwrite bool
+	// ForceCAS controls if files with same content but different names are
+	// deduped after push operations. When a DAG is copied between CAS
+	// targets, nodes are deduped by content. By default, file store restores
+	// deduped successor files after a node is copied. This may result in two
+	// files with identical content. If this is not the desired behavior,
+	// ForceCAS can be specified to enforce CAS style dedup.
+	// Default value: false.
+	ForceCAS bool
+	// IgnoreNoName controls if push operations should ignore descriptors
+	// without a name. When specified, corresponding content will be discarded.
+	// Otherwise, content will be saved to a fallback storage.
+	// A typical scenario is pulling an arbitrary artifact masqueraded as OCI
+	// image to file store. This option can be specified to discard unnamed
+	// manifest and config file, while leaving only named layer files.
+	// Default value: false.
+	IgnoreNoName bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -109,7 +127,7 @@ type nameStatus struct {
 // as the fallback storage for contents without names.
 // When pushing content without names, the size of content being pushed
 // cannot exceed the default size limit: 4 MiB.
-func New(workingDir string) *Store {
+func New(workingDir string) (*Store, error) {
 	return NewWithFallbackLimit(workingDir, defaultFallbackPushSizeLimit)
 }
 
@@ -117,7 +135,7 @@ func New(workingDir string) *Store {
 // limited memory CAS as the fallback storage for contents without names.
 // When pushing content without names, the size of content being pushed
 // cannot exceed the size limit specified by the `limit` parameter.
-func NewWithFallbackLimit(workingDir string, limit int64) *Store {
+func NewWithFallbackLimit(workingDir string, limit int64) (*Store, error) {
 	m := cas.NewMemory()
 	ls := content.LimitStorage(m, limit)
 	return NewWithFallbackStorage(workingDir, ls)
@@ -125,13 +143,18 @@ func NewWithFallbackLimit(workingDir string, limit int64) *Store {
 
 // NewWithFallbackStorage creates a file store,
 // using the provided fallback storage for contents without names.
-func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) *Store {
+func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) (*Store, error) {
+	workingDirAbs, err := filepath.Abs(workingDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", workingDir, err)
+	}
+
 	return &Store{
-		workingDir:      workingDir,
+		workingDir:      workingDirAbs,
 		fallbackStorage: fallbackStorage,
 		resolver:        resolver.NewMemory(),
 		graph:           graph.NewMemory(),
-	}
+	}, nil
 }
 
 // Close closes the file store and cleans up all the temporary files used by it.
@@ -191,26 +214,40 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 }
 
 // Push pushes the content, matching the expected descriptor.
-// If name is not specified in the descriptor,
-// the content will be pushed to the fallback storage.
+// If name is not specified in the descriptor, the content will be pushed to
+// the fallback storage by default, or will be discarded when
+// Store.IgnoreNoName is true.
 func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	if s.isClosedSet() {
 		return ErrStoreClosed
 	}
 
 	if err := s.push(ctx, expected, content); err != nil {
+		if errors.Is(err, errSkipUnnamed) {
+			return nil
+		}
 		return err
+	}
+
+	if !s.ForceCAS {
+		if err := s.restoreDuplicates(ctx, expected); err != nil {
+			return fmt.Errorf("failed to restore duplicated file: %w", err)
+		}
 	}
 
 	return s.graph.Index(ctx, s, expected)
 }
 
 // push pushes the content, matching the expected descriptor.
-// If name is not specified in the descriptor,
-// the content will be pushed to the fallback storage.
+// If name is not specified in the descriptor, the content will be pushed to
+// the fallback storage by default, or will be discarded when
+// Store.IgnoreNoName is true.
 func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	name := expected.Annotations[ocispec.AnnotationTitle]
 	if name == "" {
+		if s.IgnoreNoName {
+			return errSkipUnnamed
+		}
 		return s.fallbackStorage.Push(ctx, expected, content)
 	}
 
@@ -239,6 +276,40 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 
 	// update the name status as existed
 	status.exists = true
+	return nil
+}
+
+// restoreDuplicates restores successor files with same content but different names.
+// See Store.ForceCAS for more info.
+func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) error {
+	successors, err := content.Successors(ctx, s, desc)
+	if err != nil {
+		return err
+	}
+	for _, successor := range successors {
+		name := successor.Annotations[ocispec.AnnotationTitle]
+		if name == "" || s.nameExists(name) {
+			continue
+		}
+		if err := func() error {
+			desc := ocispec.Descriptor{
+				MediaType: successor.MediaType,
+				Digest:    successor.Digest,
+				Size:      successor.Size,
+			}
+			rc, err := s.Fetch(ctx, desc)
+			if err != nil {
+				return fmt.Errorf("%q: %s: %w", name, desc.MediaType, err)
+			}
+			defer rc.Close()
+			if err := s.push(ctx, successor, rc); err != nil {
+				return fmt.Errorf("%q: %s: %w", name, desc.MediaType, err)
+			}
+			return nil
+		}(); err != nil && !errors.Is(err, errdef.ErrNotFound) {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -358,25 +429,6 @@ func (s *Store) Add(_ context.Context, name, mediaType, path string) (ocispec.De
 	// update the name status as existed
 	status.exists = true
 	return desc, nil
-}
-
-// generates a manifest for the pack, and store the manifest in the file store.
-// If succeeded, returns a descriptor of the manifest.
-func (s *Store) PackFiles(ctx context.Context, names []string) (ocispec.Descriptor, error) {
-	if s.isClosedSet() {
-		return ocispec.Descriptor{}, ErrStoreClosed
-	}
-
-	var layers []ocispec.Descriptor
-	for _, name := range names {
-		desc, err := s.Add(ctx, name, "", "")
-		if err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to add %s: %w", name, err)
-		}
-		layers = append(layers, desc)
-	}
-
-	return oras.Pack(ctx, s, layers, oras.PackOptions{})
 }
 
 // saveFile saves content matching the descriptor to the given file.

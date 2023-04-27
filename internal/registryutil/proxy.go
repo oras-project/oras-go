@@ -29,7 +29,7 @@ import (
 
 // ReferenceStorage represents a CAS that supports registry.ReferenceFetcher.
 type ReferenceStorage interface {
-	content.Storage
+	content.ReadOnlyStorage
 	registry.ReferenceFetcher
 }
 
@@ -76,6 +76,9 @@ func (p *Proxy) FetchReference(ctx context.Context, reference string) (ocispec.D
 	go func() {
 		defer wg.Done()
 		pushErr = p.Cache.Push(ctx, target, pr)
+		if pushErr != nil {
+			pr.CloseWithError(pushErr)
+		}
 	}()
 	closer := ioutil.CloserFunc(func() error {
 		rcErr := rc.Close()

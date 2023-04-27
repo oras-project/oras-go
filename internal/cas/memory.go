@@ -23,9 +23,9 @@ import (
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	contentpkg "oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
-	"oras.land/oras-go/v2/internal/ioutil"
 )
 
 // Memory is a memory based CAS.
@@ -58,7 +58,7 @@ func (m *Memory) Push(_ context.Context, expected ocispec.Descriptor, content io
 	}
 
 	// read and try to store the content.
-	value, err := ioutil.ReadAll(content, expected)
+	value, err := contentpkg.ReadAll(content, expected)
 	if err != nil {
 		return err
 	}

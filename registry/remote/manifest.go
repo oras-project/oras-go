@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"oras.land/oras-go/v2/internal/docker"
 )
 
@@ -29,7 +28,7 @@ var defaultManifestMediaTypes = []string{
 	docker.MediaTypeManifestList,
 	ocispec.MediaTypeImageManifest,
 	ocispec.MediaTypeImageIndex,
-	artifactspec.MediaTypeArtifactManifest,
+	ocispec.MediaTypeArtifactManifest,
 }
 
 // defaultManifestAcceptHeader is the default set in the `Accept` header for

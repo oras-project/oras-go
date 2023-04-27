@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,7 +33,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
@@ -78,7 +76,10 @@ func TestStoreInterface(t *testing.T) {
 
 func TestStore_Success(t *testing.T) {
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -95,7 +96,161 @@ func TestStore_Success(t *testing.T) {
 	}
 
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, blob, 0444); err != nil {
+	if err := os.WriteFile(path, blob, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	// test blob add
+	gotDesc, err := s.Add(ctx, name, mediaType, path)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	if descriptor.FromOCI(gotDesc) != descriptor.FromOCI(desc) {
+		t.Fatal("got descriptor mismatch")
+	}
+
+	// test blob exists
+	exists, err := s.Exists(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	// test blob fetch
+	rc, err := s.Fetch(ctx, gotDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, blob) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, blob)
+	}
+
+	// test push config
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: "config",
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "config.blob",
+		},
+	}
+	if err := s.Push(ctx, configDesc, bytes.NewReader(config)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// test push manifest
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers: []ocispec.Descriptor{
+			gotDesc,
+		},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// test tag
+	ref := "foobar"
+	if err := s.Tag(ctx, manifestDesc, ref); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// test resolve
+	gotManifestDesc, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotManifestDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotManifestDesc, manifestDesc)
+	}
+
+	// test fetch
+	exists, err = s.Exists(ctx, gotManifestDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	mrc, err := s.Fetch(ctx, gotManifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(mrc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = mrc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, manifestJSON) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, manifestJSON)
+	}
+}
+
+func TestStore_RelativeRoot_Success(t *testing.T) {
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal("error calling filepath.EvalSymlinks(), error =", err)
+	}
+	currDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal("error calling Getwd(), error=", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	s, err := New(".")
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+	if want := tempDir; s.workingDir != want {
+		t.Errorf("Store.workingDir = %s, want %s", s.workingDir, want)
+	}
+	// cd back to allow the temp directory to be removed
+	if err := os.Chdir(currDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	ctx := context.Background()
+
+	blob := []byte("hello world")
+	name := "test.txt"
+	mediaType := "test"
+	desc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name,
+		},
+	}
+
+	path := filepath.Join(tempDir, name)
+	if err := os.WriteFile(path, blob, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -225,11 +380,14 @@ func TestStore_Close(t *testing.T) {
 	ref := "foobar"
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -303,11 +461,6 @@ func TestStore_Close(t *testing.T) {
 	if _, err := s.Predecessors(ctx, desc); !errors.Is(err, ErrStoreClosed) {
 		t.Errorf("Store.Predecessors() = %v, want %v", err, ErrStoreClosed)
 	}
-
-	// test PackFiles after close
-	if _, err := s.PackFiles(ctx, []string{}); !errors.Is(err, ErrStoreClosed) {
-		t.Errorf("Store.PackFiles() = %v, want %v", err, ErrStoreClosed)
-	}
 }
 
 func TestStore_File_Push(t *testing.T) {
@@ -321,12 +474,15 @@ func TestStore_File_Push(t *testing.T) {
 		},
 	}
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -368,11 +524,14 @@ func TestStore_Dir_Push(t *testing.T) {
 
 	content := []byte("hello world")
 	fileName := "test.txt"
-	if err := ioutil.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
+	if err := os.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -401,7 +560,10 @@ func TestStore_Dir_Push(t *testing.T) {
 
 	anotherTempDir := t.TempDir()
 	// test with another file store instance to mock push gz
-	anotherS := New(anotherTempDir)
+	anotherS, err := New(anotherTempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer anotherS.Close()
 
 	// test push
@@ -477,12 +639,15 @@ func TestStore_Push_NoName(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -523,14 +688,17 @@ func TestStore_Push_NoName_ExceedLimit(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewWithFallbackLimit(tempDir, 1)
+	s, err := NewWithFallbackLimit(tempDir, 1)
+	if err != nil {
+		t.Fatal("Store.NewWithFallbackLimit() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(blob))
-	if !errors.Is(err, content.ErrSizeExceedLimit) {
-		t.Errorf("Store.Push() error = %v, want %v", err, content.ErrSizeExceedLimit)
+	err = s.Push(ctx, desc, bytes.NewReader(blob))
+	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
+		t.Errorf("Store.Push() error = %v, want %v", err, errdef.ErrSizeExceedsLimit)
 	}
 }
 
@@ -543,12 +711,15 @@ func TestStore_Push_NoName_SizeNotMatch(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := NewWithFallbackLimit(tempDir, 1)
+	s, err := NewWithFallbackLimit(tempDir, 1)
+	if err != nil {
+		t.Fatal("Store.NewWithFallbackLimit() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(blob))
+	err = s.Push(ctx, desc, bytes.NewReader(blob))
 	if err == nil {
 		t.Errorf("Store.Push() error = nil, want: error")
 	}
@@ -566,7 +737,10 @@ func TestStore_File_NotFound(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -596,11 +770,14 @@ func TestStore_File_ContentBadPush(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
-	err := s.Push(ctx, desc, strings.NewReader("foobar"))
+	err = s.Push(ctx, desc, strings.NewReader("foobar"))
 	if err == nil {
 		t.Errorf("Store.Push() error = %v, wantErr %v", err, true)
 	}
@@ -621,11 +798,14 @@ func TestStore_File_Add(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -674,11 +854,14 @@ func TestStore_Dir_Add(t *testing.T) {
 	}
 
 	content := []byte("hello world")
-	if err := ioutil.WriteFile(filepath.Join(dirPath, "test.txt"), content, 0444); err != nil {
+	if err := os.WriteFile(filepath.Join(dirPath, "test.txt"), content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -743,11 +926,14 @@ func TestStore_File_SameContent_DuplicateName(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -812,11 +998,14 @@ func TestStore_File_DifferentContent_DuplicateName(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path_1 := filepath.Join(tempDir, name_1)
-	if err := ioutil.WriteFile(path_1, content_1, 0444); err != nil {
+	if err := os.WriteFile(path_1, content_1, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -857,7 +1046,7 @@ func TestStore_File_DifferentContent_DuplicateName(t *testing.T) {
 
 	// test add duplicate name
 	path_2 := filepath.Join(tempDir, name_2)
-	if err := ioutil.WriteFile(path_2, content_2, 0444); err != nil {
+	if err := os.WriteFile(path_2, content_2, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
@@ -873,16 +1062,19 @@ func TestStore_File_Add_MissingName(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test add with empty name
-	_, err := s.Add(ctx, "", mediaType, path)
+	_, err = s.Add(ctx, "", mediaType, path)
 	if !errors.Is(err, ErrMissingName) {
 		t.Errorf("Store.Add() error = %v, want %v", err, ErrMissingName)
 	}
@@ -914,15 +1106,18 @@ func TestStore_File_Add_SameContent(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path_1 := filepath.Join(tempDir, name_1)
-	if err := ioutil.WriteFile(path_1, content, 0444); err != nil {
+	if err := os.WriteFile(path_1, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 	path_2 := filepath.Join(tempDir, name_2)
-	if err := ioutil.WriteFile(path_2, content, 0444); err != nil {
+	if err := os.WriteFile(path_2, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -994,100 +1189,6 @@ func TestStore_File_Add_SameContent(t *testing.T) {
 	}
 }
 
-func TestStore_PackFiles(t *testing.T) {
-	var names []string
-
-	content_1 := []byte("hello world")
-	name_1 := "test_1.txt"
-	names = append(names, name_1)
-	desc_1 := ocispec.Descriptor{
-		MediaType: defaultBlobMediaType,
-		Digest:    digest.FromBytes(content_1),
-		Size:      int64(len(content_1)),
-		Annotations: map[string]string{
-			ocispec.AnnotationTitle: name_1,
-		},
-	}
-
-	content_2 := []byte("goodbye world")
-	name_2 := "test_2.txt"
-	names = append(names, name_2)
-	desc_2 := ocispec.Descriptor{
-		MediaType: defaultBlobMediaType,
-		Digest:    digest.FromBytes(content_2),
-		Size:      int64(len(content_2)),
-		Annotations: map[string]string{
-			ocispec.AnnotationTitle: name_2,
-		},
-	}
-
-	tempDir := t.TempDir()
-	if err := ioutil.WriteFile(filepath.Join(tempDir, name_1), content_1, 0444); err != nil {
-		t.Fatal("error calling WriteFile(), error =", err)
-	}
-
-	if err := ioutil.WriteFile(filepath.Join(tempDir, name_2), content_2, 0444); err != nil {
-		t.Fatal("error calling WriteFile(), error =", err)
-	}
-
-	s := New(tempDir)
-	defer s.Close()
-	ctx := context.Background()
-
-	// test pack
-	manifestDesc, err := s.PackFiles(ctx, names)
-	if err != nil {
-		t.Fatal("Store.Pack() error =", err)
-	}
-
-	// test exists
-	exists, err := s.Exists(ctx, desc_1)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-
-	exists, err = s.Exists(ctx, desc_2)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-
-	exists, err = s.Exists(ctx, manifestDesc)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-
-	// test fetch
-	rc, err := s.Fetch(ctx, manifestDesc)
-	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
-	}
-
-	var manifest ocispec.Manifest
-	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
-		t.Fatal("failed to decode manifest, err =", err)
-	}
-	if err = rc.Close(); err != nil {
-		t.Error("Store.Fetch().Close() error =", err)
-	}
-
-	exists, err = s.Exists(ctx, manifest.Config)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-}
-
 func TestStore_File_Push_SameContent(t *testing.T) {
 	mediaType := "test"
 	content := []byte("hello world")
@@ -1113,7 +1214,10 @@ func TestStore_File_Push_SameContent(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1199,12 +1303,15 @@ func TestStore_File_Push_DuplicateName(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc_1, bytes.NewReader(content_1))
+	err = s.Push(ctx, desc_1, bytes.NewReader(content_1))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -1242,6 +1349,199 @@ func TestStore_File_Push_DuplicateName(t *testing.T) {
 	}
 }
 
+func TestStore_File_Push_ForceCAS(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	desc1 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob1",
+		},
+	}
+	desc2 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob2",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{desc1, desc2},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	s.ForceCAS = true
+	defer s.Close()
+	ctx := context.Background()
+
+	// push blob1
+	if err := s.Push(ctx, desc1, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	// push manifest
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// verify blob2 not exists
+	exists, err := s.Exists(ctx, desc2)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if exists {
+		t.Error("Blob2 is restored")
+	}
+}
+
+func TestStore_File_Push_RestoreDuplicates(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	desc1 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob1",
+		},
+	}
+	desc2 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob2",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{desc1, desc2},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	// push blob1
+	if err := s.Push(ctx, desc1, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	// push manifest
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// verify blob2 is restored
+	exists, err := s.Exists(ctx, desc2)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Error("Blob2 is not restored")
+	}
+	rc, err := s.Fetch(ctx, desc2)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, content)
+	}
+}
+
+func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob1",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{desc},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	// push manifest before blob is fine
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Error("Store.Push(): error = ", err)
+	}
+}
+
 func TestStore_File_Fetch_SameDigest_NoName(t *testing.T) {
 	mediaType := "test"
 	content := []byte("hello world")
@@ -1263,7 +1563,10 @@ func TestStore_File_Fetch_SameDigest_NoName(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1351,7 +1654,10 @@ func TestStore_File_Fetch_SameDigest_DifferentName(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1415,16 +1721,19 @@ func TestStore_File_Push_Overwrite(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, old_content, 0666); err != nil {
+	if err := os.WriteFile(path, old_content, 0666); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
 	// test push
-	err := s.Push(ctx, desc, bytes.NewReader(new_content))
+	err = s.Push(ctx, desc, bytes.NewReader(new_content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -1471,18 +1780,75 @@ func TestStore_File_Push_DisableOverwrite(t *testing.T) {
 
 	tempDir := t.TempDir()
 	path := filepath.Join(tempDir, name)
-	if err := ioutil.WriteFile(path, content, 0444); err != nil {
+	if err := os.WriteFile(path, content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	s.DisableOverwrite = true
 
 	ctx := context.Background()
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if !errors.Is(err, ErrOverwriteDisallowed) {
 		t.Errorf("Store.Push() error = %v, want %v", err, ErrOverwriteDisallowed)
+	}
+}
+
+func TestStore_File_Push_IgnoreNoName(t *testing.T) {
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: "config",
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+	s.IgnoreNoName = true
+
+	// push an OCI manifest
+	ctx := context.Background()
+	err = s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON))
+	if err != nil {
+		t.Fatal("Store.Push() error = ", err)
+	}
+
+	// verify the manifest is not saved
+	exists, err := s.Exists(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if exists {
+		t.Errorf("Unnamed manifest is saved in file store")
+	}
+	// verify the manifest is not indexed
+	predecessors, err := s.Predecessors(ctx, configDesc)
+	if err != nil {
+		t.Fatal("Store.Predecessors() error = ", err)
+	}
+	if len(predecessors) != 0 {
+		t.Errorf("Unnamed manifest is indexed in file store")
 	}
 }
 
@@ -1499,11 +1865,14 @@ func TestStore_File_Push_DisallowPathTraversal(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 
 	ctx := context.Background()
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if !errors.Is(err, ErrPathTraversalDisallowed) {
 		t.Errorf("Store.Push() error = %v, want %v", err, ErrPathTraversalDisallowed)
 	}
@@ -1519,11 +1888,14 @@ func TestStore_Dir_Push_DisallowPathTraversal(t *testing.T) {
 
 	content := []byte("hello world")
 	fileName := "test.txt"
-	if err := ioutil.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
+	if err := os.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1552,7 +1924,10 @@ func TestStore_Dir_Push_DisallowPathTraversal(t *testing.T) {
 
 	anotherTempDir := t.TempDir()
 	// test with another file store instance to mock push gz
-	anotherS := New(anotherTempDir)
+	anotherS, err := New(anotherTempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer anotherS.Close()
 
 	// test push
@@ -1580,7 +1955,10 @@ func TestStore_File_Push_PathTraversal(t *testing.T) {
 		t.Fatal("error creating temp dir, error =", err)
 	}
 
-	s := New(subTempDir)
+	s, err := New(subTempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	s.AllowPathTraversalOnWrite = true
 
@@ -1630,7 +2008,10 @@ func TestStore_File_Push_Concurrent(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1691,7 +2072,10 @@ func TestStore_File_Fetch_Concurrent(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1734,11 +2118,14 @@ func TestStore_TagNotFound(t *testing.T) {
 	ref := "foobar"
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
-	_, err := s.Resolve(ctx, ref)
+	_, err = s.Resolve(ctx, ref)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Store.Resolve() error = %v, want %v", err, errdef.ErrNotFound)
 	}
@@ -1754,11 +2141,14 @@ func TestStore_TagUnknownContent(t *testing.T) {
 	ref := "foobar"
 
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
-	err := s.Tag(ctx, desc, ref)
+	err = s.Tag(ctx, desc, ref)
 	if !errors.Is(err, errdef.ErrNotFound) {
 		t.Errorf("Store.Resolve() error = %v, want %v", err, errdef.ErrNotFound)
 	}
@@ -1766,7 +2156,10 @@ func TestStore_TagUnknownContent(t *testing.T) {
 
 func TestStore_RepeatTag(t *testing.T) {
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1787,7 +2180,7 @@ func TestStore_RepeatTag(t *testing.T) {
 	// initial tag
 	content := []byte("hello world")
 	desc := generate(content)
-	err := s.Push(ctx, desc, bytes.NewReader(content))
+	err = s.Push(ctx, desc, bytes.NewReader(content))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
@@ -1850,7 +2243,10 @@ func TestStore_RepeatTag(t *testing.T) {
 
 func TestStore_Predecessors(t *testing.T) {
 	tempDir := t.TempDir()
-	s := New(tempDir)
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer s.Close()
 	ctx := context.Background()
 
@@ -1891,16 +2287,14 @@ func TestStore_Predecessors(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest artifactspec.Manifest
-		manifest.Subject = descriptor.OCIToArtifact(subject)
-		for _, blob := range blobs {
-			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
-		}
+		var manifest ocispec.Artifact
+		manifest.Subject = &subject
+		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
@@ -1968,7 +2362,10 @@ func TestCopy_File_MemoryToFile_FullCopy(t *testing.T) {
 	src := memory.New()
 
 	tempDir := t.TempDir()
-	dst := New(tempDir)
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer dst.Close()
 
 	// generate test content
@@ -2013,7 +2410,7 @@ func TestCopy_File_MemoryToFile_FullCopy(t *testing.T) {
 
 	root := descs[3]
 	ref := "foobar"
-	err := src.Tag(ctx, root, ref)
+	err = src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)
 	}
@@ -2052,7 +2449,10 @@ func TestCopyGraph_MemoryToFile_FullCopy(t *testing.T) {
 	src := memory.New()
 
 	tempDir := t.TempDir()
-	dst := New(tempDir)
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer dst.Close()
 
 	// generate test content
@@ -2157,7 +2557,10 @@ func TestCopyGraph_MemoryToFile_PartialCopy(t *testing.T) {
 	src := memory.New()
 
 	tempDir := t.TempDir()
-	dst := New(tempDir)
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer dst.Close()
 
 	// generate test content
@@ -2272,7 +2675,10 @@ func TestCopyGraph_MemoryToFile_PartialCopy(t *testing.T) {
 
 func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
 	tempDir := t.TempDir()
-	src := New(tempDir)
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer src.Close()
 
 	dst := memory.New()
@@ -2319,7 +2725,7 @@ func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
 
 	root := descs[3]
 	ref := "foobar"
-	err := src.Tag(ctx, root, ref)
+	err = src.Tag(ctx, root, ref)
 	if err != nil {
 		t.Fatal("fail to tag root node", err)
 	}
@@ -2356,7 +2762,10 @@ func TestCopy_File_FileToMemory_FullCopy(t *testing.T) {
 
 func TestCopyGraph_FileToMemory_FullCopy(t *testing.T) {
 	tempDir := t.TempDir()
-	src := New(tempDir)
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer src.Close()
 
 	dst := memory.New()
@@ -2461,7 +2870,10 @@ func TestCopyGraph_FileToMemory_FullCopy(t *testing.T) {
 
 func TestCopyGraph_FileToMemory_PartialCopy(t *testing.T) {
 	tempDir := t.TempDir()
-	src := New(tempDir)
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
 	defer src.Close()
 
 	dst := memory.New()

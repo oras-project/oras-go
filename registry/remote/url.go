@@ -17,6 +17,7 @@ package remote
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"oras.land/oras-go/v2/registry"
@@ -86,16 +87,21 @@ func buildRepositoryBlobUploadURL(plainHTTP bool, ref registry.Reference) string
 	return buildRepositoryBaseURL(plainHTTP, ref) + "/blobs/uploads/"
 }
 
-// buildArtifactReferrerURL builds the URL for accessing the manifest referrers
-// API.
-// Format: <scheme>://<registry>/oras/artifacts/v1/<repository>/manifests/<digest>/referrers
-// Reference: https://github.com/oras-project/artifacts-spec/blob/main/manifest-referrers-api.md
-func buildArtifactReferrerURL(plainHTTP bool, ref registry.Reference) string {
+// buildReferrersURL builds the URL for querying the Referrers API.
+// Format: <scheme>://<registry>/v2/<repository>/referrers/<digest>?artifactType=<artifactType>
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
+func buildReferrersURL(plainHTTP bool, ref registry.Reference, artifactType string) string {
+	var query string
+	if artifactType != "" {
+		v := url.Values{}
+		v.Set("artifactType", artifactType)
+		query = "?" + v.Encode()
+	}
+
 	return fmt.Sprintf(
-		"%s://%s/oras/artifacts/v1/%s/manifests/%s/referrers",
-		buildScheme(plainHTTP),
-		ref.Host(),
-		ref.Repository,
+		"%s/referrers/%s%s",
+		buildRepositoryBaseURL(plainHTTP, ref),
 		ref.Reference,
+		query,
 	)
 }

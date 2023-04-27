@@ -23,17 +23,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifactspec "github.com/oras-project/artifacts-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
@@ -41,6 +40,7 @@ import (
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/registry"
 )
 
 // storageTracker tracks storage API counts.
@@ -68,26 +68,20 @@ func (t *storageTracker) Exists(ctx context.Context, target ocispec.Descriptor) 
 
 func TestStoreInterface(t *testing.T) {
 	var store interface{} = &Store{}
-	if _, ok := store.(oras.Target); !ok {
+	if _, ok := store.(oras.GraphTarget); !ok {
 		t.Error("&Store{} does not conform oras.Target")
 	}
-	if _, ok := store.(content.PredecessorFinder); !ok {
-		t.Error("&Store{} does not conform content.PredecessorFinder")
+	if _, ok := store.(registry.TagLister); !ok {
+		t.Error("&Store{} does not conform registry.TagLister")
 	}
 }
 
 func TestStore_Success(t *testing.T) {
-	content := []byte(`{"layers":[]}`)
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}
+	blob := []byte("test")
+	blobDesc := content.NewDescriptorFromBytes("test", blob)
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
 	ref := "foobar"
-	descWithRef := desc
-	descWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ref,
-	}
 
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
@@ -109,37 +103,84 @@ func TestStore_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal("error decoding layout, error =", err)
 	}
-	if layout.Version != ocispec.ImageLayoutVersion {
-		t.Error("wrong layout version")
+	if want := ocispec.ImageLayoutVersion; layout.Version != want {
+		t.Errorf("layout.Version = %s, want %s", layout.Version, want)
 	}
 
-	// test push
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	// validate index.json
+	indexFilePath := filepath.Join(tempDir, ociImageIndexFile)
+	indexFile, err := os.Open(indexFilePath)
+	if err != nil {
+		t.Errorf("error opening layout file, error = %v", err)
+	}
+	defer indexFile.Close()
+
+	var index *ocispec.Index
+	err = json.NewDecoder(indexFile).Decode(&index)
+	if err != nil {
+		t.Fatal("error decoding index.json, error =", err)
+	}
+	if want := 2; index.SchemaVersion != want {
+		t.Errorf("index.SchemaVersion = %v, want %v", index.SchemaVersion, want)
+	}
+
+	// test push blob
+	err = s.Push(ctx, blobDesc, bytes.NewReader(blob))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
-
-	// test tag
-	err = s.Tag(ctx, desc, ref)
-	if err != nil {
-		t.Fatal("Store.Tag() error =", err)
+	internalResolver := s.tagResolver
+	if got, want := len(internalResolver.Map()), 0; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
 
-	// test resolve
-	gotDesc, err := s.Resolve(ctx, ref)
+	// test push manifest
+	err = s.Push(ctx, manifestDesc, bytes.NewReader(manifest))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test resolving blob by digest
+	gotDesc, err := s.Resolve(ctx, blobDesc.Digest.String())
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
+	if want := blobDesc; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
 	}
-	internalResolver := s.resolver
-	if got := len(internalResolver.Map()); got != 1 {
-		t.Errorf("resolver.Map() = %v, want %v", got, 1)
+
+	// test resolving manifest by digest
+	gotDesc, err = s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test tag
+	err = s.Tag(ctx, manifestDesc, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 2; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test resolving manifest by tag
+	gotDesc, err = s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
 	}
 
 	// test fetch
-	exists, err := s.Exists(ctx, desc)
+	exists, err := s.Exists(ctx, manifestDesc)
 	if err != nil {
 		t.Fatal("Store.Exists() error =", err)
 	}
@@ -147,7 +188,7 @@ func TestStore_Success(t *testing.T) {
 		t.Errorf("Store.Exists() = %v, want %v", exists, true)
 	}
 
-	rc, err := s.Fetch(ctx, desc)
+	rc, err := s.Fetch(ctx, manifestDesc)
 	if err != nil {
 		t.Fatal("Store.Fetch() error =", err)
 	}
@@ -159,31 +200,147 @@ func TestStore_Success(t *testing.T) {
 	if err != nil {
 		t.Error("Store.Fetch().Close() error =", err)
 	}
-	if !bytes.Equal(got, content) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, content)
+	if !bytes.Equal(got, manifest) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, manifest)
 	}
 }
 
-func TestStore_NotExistRoot_Success(t *testing.T) {
-	content := []byte(`{"layers":[]}`)
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}
+func TestStore_RelativeRoot_Success(t *testing.T) {
+	blob := []byte("test")
+	blobDesc := content.NewDescriptorFromBytes("test", blob)
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
 	ref := "foobar"
-	descWithRef := desc
-	descWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ref,
-	}
 
-	tempDir := t.TempDir()
-	root := filepath.Join(tempDir, "rootDir")
-	s, err := New(root)
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal("error calling filepath.EvalSymlinks(), error =", err)
+	}
+	currDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal("error calling Getwd(), error=", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	s, err := New(".")
 	if err != nil {
 		t.Fatal("New() error =", err)
 	}
+	if want := tempDir; s.root != want {
+		t.Errorf("Store.root = %s, want %s", s.root, want)
+	}
+	// cd back to allow the temp directory to be removed
+	if err := os.Chdir(currDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
 	ctx := context.Background()
+
+	// validate layout
+	layoutFilePath := filepath.Join(tempDir, ocispec.ImageLayoutFile)
+	layoutFile, err := os.Open(layoutFilePath)
+	if err != nil {
+		t.Errorf("error opening layout file, error = %v", err)
+	}
+	defer layoutFile.Close()
+
+	var layout *ocispec.ImageLayout
+	err = json.NewDecoder(layoutFile).Decode(&layout)
+	if err != nil {
+		t.Fatal("error decoding layout, error =", err)
+	}
+	if want := ocispec.ImageLayoutVersion; layout.Version != want {
+		t.Errorf("layout.Version = %s, want %s", layout.Version, want)
+	}
+
+	// test push blob
+	err = s.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	internalResolver := s.tagResolver
+	if got, want := len(internalResolver.Map()), 0; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test push manifest
+	err = s.Push(ctx, manifestDesc, bytes.NewReader(manifest))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test resolving blob by digest
+	gotDesc, err := s.Resolve(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if want := blobDesc; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
+	}
+
+	// test resolving manifest by digest
+	gotDesc, err = s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test tag
+	err = s.Tag(ctx, manifestDesc, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 2; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test resolving manifest by tag
+	gotDesc, err = s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// test fetch
+	exists, err := s.Exists(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, manifest) {
+		t.Errorf("Store.Fetch() = %v, want %v", got, manifest)
+	}
+}
+
+func TestStore_NotExistingRoot(t *testing.T) {
+	tempDir := t.TempDir()
+	root := filepath.Join(tempDir, "rootDir")
+	_, err := New(root)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
 
 	// validate layout
 	layoutFilePath := filepath.Join(root, ocispec.ImageLayoutFile)
@@ -198,125 +355,25 @@ func TestStore_NotExistRoot_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal("error decoding layout, error =", err)
 	}
-	if layout.Version != ocispec.ImageLayoutVersion {
-		t.Error("wrong layout version")
+	if want := ocispec.ImageLayoutVersion; layout.Version != want {
+		t.Errorf("layout.Version = %s, want %s", layout.Version, want)
 	}
 
-	// test push
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	// validate index.json
+	indexFilePath := filepath.Join(root, ociImageIndexFile)
+	indexFile, err := os.Open(indexFilePath)
 	if err != nil {
-		t.Fatal("Store.Push() error =", err)
+		t.Errorf("error opening layout file, error = %v", err)
 	}
+	defer indexFile.Close()
 
-	// test tag
-	err = s.Tag(ctx, desc, ref)
+	var index *ocispec.Index
+	err = json.NewDecoder(indexFile).Decode(&index)
 	if err != nil {
-		t.Fatal("Store.Tag() error =", err)
+		t.Fatal("error decoding index.json, error =", err)
 	}
-
-	// test resolve
-	gotDesc, err := s.Resolve(ctx, ref)
-	if err != nil {
-		t.Fatal("Store.Resolve() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
-	}
-	internalResolver := s.resolver
-	if got := len(internalResolver.Map()); got != 1 {
-		t.Errorf("resolver.Map() = %v, want %v", got, 1)
-	}
-
-	// test fetch
-	exists, err := s.Exists(ctx, desc)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-
-	rc, err := s.Fetch(ctx, desc)
-	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
-	}
-	got, err := io.ReadAll(rc)
-	if err != nil {
-		t.Fatal("Store.Fetch().Read() error =", err)
-	}
-	err = rc.Close()
-	if err != nil {
-		t.Error("Store.Fetch().Close() error =", err)
-	}
-	if !bytes.Equal(got, content) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, content)
-	}
-}
-
-func TestStore_TagByDigest(t *testing.T) {
-	content := []byte(`{"layers":[]}`)
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}
-	ref := "@" + desc.Digest.String()
-	descWithRef := desc
-	descWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ref,
-	}
-
-	tempDir := t.TempDir()
-	s, err := New(tempDir)
-	if err != nil {
-		t.Fatal("New() error =", err)
-	}
-	ctx := context.Background()
-
-	// test push
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if err != nil {
-		t.Fatal("Store.Push() error =", err)
-	}
-
-	// test tag
-	err = s.Tag(ctx, desc, ref)
-	if err != nil {
-		t.Fatal("Store.Tag() error =", err)
-	}
-
-	// test resolve
-	gotDesc, err := s.Resolve(ctx, ref)
-	if err != nil {
-		t.Fatal("Store.Resolve() error =", err)
-	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
-	}
-
-	// test fetch
-	exists, err := s.Exists(ctx, desc)
-	if err != nil {
-		t.Fatal("Store.Exists() error =", err)
-	}
-	if !exists {
-		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-
-	rc, err := s.Fetch(ctx, desc)
-	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
-	}
-	got, err := io.ReadAll(rc)
-	if err != nil {
-		t.Fatal("Store.Fetch().Read() error =", err)
-	}
-	err = rc.Close()
-	if err != nil {
-		t.Error("Store.Fetch().Close() error =", err)
-	}
-	if !bytes.Equal(got, content) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, content)
+	if want := 2; index.SchemaVersion != want {
+		t.Errorf("index.SchemaVersion = %v, want %v", index.SchemaVersion, want)
 	}
 }
 
@@ -396,6 +453,82 @@ func TestStore_ContentBadPush(t *testing.T) {
 	}
 }
 
+func TestStore_ResolveByTagReturnsFullDescriptor(t *testing.T) {
+	content := []byte("hello world")
+	ref := "hello-world:0.0.1"
+	annotations := map[string]string{"name": "Hello"}
+	desc := ocispec.Descriptor{
+		MediaType:   "test",
+		Digest:      digest.FromBytes(content),
+		Size:        int64(len(content)),
+		Annotations: annotations,
+	}
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, desc)
+	}
+}
+
+func TestStore_ResolveByDigestReturnsPlainDescriptor(t *testing.T) {
+	content := []byte("hello world")
+	ref := "hello-world:0.0.1"
+	desc := ocispec.Descriptor{
+		MediaType:   "test",
+		Digest:      digest.FromBytes(content),
+		Size:        int64(len(content)),
+		Annotations: map[string]string{"name": "Hello"},
+	}
+	plainDescriptor := descriptor.Plain(desc)
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, string(desc.Digest))
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, plainDescriptor) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, plainDescriptor)
+	}
+}
+
 func TestStore_TagNotFound(t *testing.T) {
 	ref := "foobar"
 
@@ -442,10 +575,6 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 	ref := "foobar"
-	descWithRef := desc
-	descWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ref,
-	}
 
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
@@ -469,8 +598,8 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal("error decoding layout, error =", err)
 	}
-	if layout.Version != ocispec.ImageLayoutVersion {
-		t.Error("wrong layout version")
+	if want := ocispec.ImageLayoutVersion; layout.Version != want {
+		t.Errorf("layout.Version = %s, want %s", layout.Version, want)
 	}
 
 	// test push
@@ -478,40 +607,48 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
 	}
+	internalResolver := s.tagResolver
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+
+	// test resolving by digest
+	gotDesc, err := s.Resolve(ctx, desc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
 
 	// test tag
 	err = s.Tag(ctx, desc, ref)
 	if err != nil {
 		t.Fatal("Store.Tag() error =", err)
 	}
+	if got, want := len(internalResolver.Map()), 2; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
 
-	// test resolve
-	gotDesc, err := s.Resolve(ctx, ref)
+	// test resolving by digest
+	gotDesc, err = s.Resolve(ctx, ref)
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
-	}
-	internalResolver := s.resolver
-	if got := len(internalResolver.Map()); got != 1 {
-		t.Errorf("resolver.Map() = %v, want %v", got, 1)
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
 
 	// test index file
-	if got := len(s.index.Manifests); got != 0 {
-		t.Errorf("len(index.Manifests) = %v, want %v", got, 0)
+	if got, want := len(s.index.Manifests), 0; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
-	if _, err := os.Stat(s.indexPath); err == nil {
-		t.Errorf("error: %s exists", s.indexPath)
-	}
-
 	if err := s.SaveIndex(); err != nil {
 		t.Fatal("Store.SaveIndex() error =", err)
 	}
 	// test index file again
-	if got := len(s.index.Manifests); got != 1 {
-		t.Errorf("len(index.Manifests) = %v, want %v", got, 1)
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 	if _, err := os.Stat(s.indexPath); err != nil {
 		t.Errorf("error: %s does not exist", s.indexPath)
@@ -525,96 +662,267 @@ func TestStore_RepeatTag(t *testing.T) {
 		t.Fatal("New() error =", err)
 	}
 	ctx := context.Background()
-
-	generate := func(content []byte, ref string) (ocispec.Descriptor, ocispec.Descriptor) {
-		desc := ocispec.Descriptor{
-			MediaType: "test",
-			Digest:    digest.FromBytes(content),
-			Size:      int64(len(content)),
-		}
-
-		descWithRef := desc
-		descWithRef.Annotations = map[string]string{
-			ocispec.AnnotationRefName: ref,
-		}
-
-		return desc, descWithRef
-	}
 	ref := "foobar"
 
 	// get internal resolver
-	internalResolver := s.resolver
+	internalResolver := s.tagResolver
 
-	// initial tag
-	content := []byte("hello world")
-	desc, descWithRef := generate(content, ref)
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	// first tag a manifest
+	manifest := []byte(`{"layers":[]}`)
+	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+	err = s.Push(ctx, desc, bytes.NewReader(manifest))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("len(resolver.Map()) = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	err = s.Tag(ctx, desc, ref)
 	if err != nil {
 		t.Fatal("Store.Tag() error =", err)
 	}
+	if got, want := len(internalResolver.Map()), 2; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
 
-	gotDesc, err := s.Resolve(ctx, ref)
+	gotDesc, err := s.Resolve(ctx, desc.Digest.String())
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
-	}
-	if got := len(internalResolver.Map()); got != 1 {
-		t.Errorf("resolver.Map() = %v, want %v", got, 1)
-	}
-
-	// repeat tag
-	content = []byte("foo")
-	desc, descWithRef = generate(content, ref)
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if err != nil {
-		t.Fatal("Store.Push() error =", err)
-	}
-
-	err = s.Tag(ctx, desc, ref)
-	if err != nil {
-		t.Fatal("Store.Tag() error =", err)
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
 
 	gotDesc, err = s.Resolve(ctx, ref)
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
-	}
-	if got := len(internalResolver.Map()); got != 1 {
-		t.Errorf("resolver.Map() = %v, want %v", got, 1)
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
 
-	// repeat tag
-	content = []byte("bar")
-	desc, descWithRef = generate(content, ref)
-	err = s.Push(ctx, desc, bytes.NewReader(content))
+	// tag another manifest
+	manifest = []byte(`{"layers":[], "annotations":{}}`)
+	desc = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+	err = s.Push(ctx, desc, bytes.NewReader(manifest))
 	if err != nil {
 		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 3; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 
 	err = s.Tag(ctx, desc, ref)
 	if err != nil {
 		t.Fatal("Store.Tag() error =", err)
 	}
+	if got, want := len(internalResolver.Map()), 3; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
 
 	gotDesc, err = s.Resolve(ctx, ref)
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, descWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, descWithRef)
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
 	}
-	if got := len(internalResolver.Map()); got != 1 {
-		t.Errorf("resolver.Map() = %v, want %v", got, 1)
+
+	// tag a blob
+	blob := []byte("foobar")
+	desc = content.NewDescriptorFromBytes("test", blob)
+	err = s.Push(ctx, desc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 3; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 4; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 3; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
+
+	gotDesc, err = s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
+
+	// tag another blob
+	blob = []byte("barfoo")
+	desc = content.NewDescriptorFromBytes("test", blob)
+	err = s.Push(ctx, desc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 4; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 3; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 5; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 4; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+
+	gotDesc, err = s.Resolve(ctx, desc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
+
+	gotDesc, err = s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, desc)
+	}
+}
+
+// Related bug: https://github.com/oras-project/oras-go/issues/461
+func TestStore_TagByDigest(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// get internal resolver
+	internalResolver := s.tagResolver
+
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+
+	// push a manifest
+	err = s.Push(ctx, manifestDesc, bytes.NewReader(manifest))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("len(resolver.Map()) = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err := s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// tag manifest by digest
+	err = s.Tag(ctx, manifestDesc, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("len(resolver.Map()) = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err = s.Resolve(ctx, manifestDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, manifestDesc)
+	}
+
+	// push a blob
+	blob := []byte("foobar")
+	blobDesc := content.NewDescriptorFromBytes("test", blob)
+	err = s.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 1; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err = s.Resolve(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if gotDesc.Digest != blobDesc.Digest || gotDesc.Size != blobDesc.Size {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
+	}
+
+	// tag blob by digest
+	err = s.Tag(ctx, blobDesc, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 2; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	gotDesc, err = s.Resolve(ctx, blobDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, blobDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, blobDesc)
 	}
 }
 
@@ -622,7 +930,19 @@ func TestStore_BadIndex(t *testing.T) {
 	tempDir := t.TempDir()
 	content := []byte("whatever")
 	path := filepath.Join(tempDir, ociImageIndexFile)
-	ioutil.WriteFile(path, content, 0666)
+	os.WriteFile(path, content, 0666)
+
+	_, err := New(tempDir)
+	if err == nil {
+		t.Errorf("New() error = nil, want: error")
+	}
+}
+
+func TestStore_BadLayout(t *testing.T) {
+	tempDir := t.TempDir()
+	content := []byte("whatever")
+	path := filepath.Join(tempDir, ocispec.ImageLayoutFile)
+	os.WriteFile(path, content, 0666)
 
 	_, err := New(tempDir)
 	if err == nil {
@@ -671,16 +991,14 @@ func TestStore_Predecessors(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest artifactspec.Manifest
-		manifest.Subject = descriptor.OCIToArtifact(subject)
-		for _, blob := range blobs {
-			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
-		}
+		var manifest ocispec.Artifact
+		manifest.Subject = &subject
+		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
@@ -785,16 +1103,14 @@ func TestStore_ExistingStore(t *testing.T) {
 	}
 
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest artifactspec.Manifest
-		manifest.Subject = descriptor.OCIToArtifact(subject)
-		for _, blob := range blobs {
-			manifest.Blobs = append(manifest.Blobs, descriptor.OCIToArtifact(blob))
-		}
+		var manifest ocispec.Artifact
+		manifest.Subject = &subject
+		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(artifactspec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
@@ -830,40 +1146,16 @@ func TestStore_ExistingStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// test artifact root node
-	artifactRootDesc := descs[12]
-	// tag artifact manifest by digest
-	dgstRef := "@" + artifactRootDesc.Digest.String()
-	artifactRootDescWithRef := artifactRootDesc
-	artifactRootDescWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: dgstRef,
+	// tag index root
+	indexRoot := descs[10]
+	tag := "latest"
+	if err := s.Tag(ctx, indexRoot, tag); err != nil {
+		t.Fatal("Tag() error =", err)
 	}
-	if err := s.Tag(ctx, artifactRootDesc, dgstRef); err != nil {
-		t.Fatal("Store.Tag(artifactRootDesc) error =", err)
-	}
-
-	// OCI root node
-	ociRootRef := "root"
-	ociRootIndex := ocispec.Index{
-		Manifests: []ocispec.Descriptor{
-			descs[7],  // can reach descs[0:6] and descs[7]
-			descs[14], // can reach descs[0:10], descs[13] and descs[14]
-		},
-	}
-	ociRootIndexJSON, err := json.Marshal(ociRootIndex)
-	if err != nil {
-		t.Fatal("json.Marshal() error =", err)
-	}
-	ociRootIndexDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageIndex,
-		Digest:    digest.FromBytes(ociRootIndexJSON),
-		Size:      int64(len(ociRootIndexJSON)),
-	}
-	if err := s.Push(ctx, ociRootIndexDesc, bytes.NewReader(ociRootIndexJSON)); err != nil {
-		t.Fatal("Store.Push(ociRootIndex) error =", err)
-	}
-	if err := s.Tag(ctx, ociRootIndexDesc, ociRootRef); err != nil {
-		t.Fatal("Store.Tag(ociRootIndex) error =", err)
+	// tag index root by digest
+	// related bug: https://github.com/oras-project/oras-go/issues/461
+	if err := s.Tag(ctx, indexRoot, indexRoot.Digest.String()); err != nil {
+		t.Fatal("Tag() error =", err)
 	}
 
 	// test with another OCI store instance to mock loading from an existing store
@@ -872,52 +1164,50 @@ func TestStore_ExistingStore(t *testing.T) {
 		t.Fatal("New() error =", err)
 	}
 
-	// test resolving artifact manifest
-	gotDesc, err := anotherS.Resolve(ctx, dgstRef)
+	// test resolving index root by tag
+	gotDesc, err := anotherS.Resolve(ctx, tag)
 	if err != nil {
-		t.Fatal("AnotherStore: Resolve() error =", err)
+		t.Fatal("Store: Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, artifactRootDescWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, artifactRootDescWithRef)
+	if !content.Equal(gotDesc, indexRoot) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, indexRoot)
 	}
 
-	// verify OCI root index
-	gotDesc, err = anotherS.Resolve(ctx, ociRootRef)
+	// test resolving index root by digest
+	gotDesc, err = anotherS.Resolve(ctx, indexRoot.Digest.String())
 	if err != nil {
-		t.Fatal("AnotherStore: Resolve() error =", err)
+		t.Fatal("Store: Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexRoot) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, indexRoot)
 	}
 
-	rootIndexDescWithRef := ociRootIndexDesc
-	rootIndexDescWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ociRootRef,
+	// test resolving artifact manifest by digest
+	artifactRootDesc := descs[12]
+	gotDesc, err = anotherS.Resolve(ctx, artifactRootDesc.Digest.String())
+	if err != nil {
+		t.Fatal("Store: Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, rootIndexDescWithRef) {
-		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, rootIndexDescWithRef)
+	if !reflect.DeepEqual(gotDesc, artifactRootDesc) {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, artifactRootDesc)
+	}
+
+	// test resolving blob by digest
+	gotDesc, err = anotherS.Resolve(ctx, descs[0].Digest.String())
+	if err != nil {
+		t.Fatal("Store.Resolve() error =", err)
+	}
+	if want := descs[0]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+		t.Errorf("Store.Resolve() = %v, want %v", gotDesc, want)
 	}
 
 	// test fetching OCI root index
-	exists, err := anotherS.Exists(ctx, rootIndexDescWithRef)
+	exists, err := anotherS.Exists(ctx, indexRoot)
 	if err != nil {
 		t.Fatal("Store.Exists() error =", err)
 	}
 	if !exists {
 		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-
-	rc, err := anotherS.Fetch(ctx, rootIndexDescWithRef)
-	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
-	}
-	got, err := io.ReadAll(rc)
-	if err != nil {
-		t.Fatal("Store.Fetch().Read() error =", err)
-	}
-	err = rc.Close()
-	if err != nil {
-		t.Error("Store.Fetch().Close() error =", err)
-	}
-	if !bytes.Equal(got, ociRootIndexJSON) {
-		t.Errorf("Store.Fetch() = %v, want %v", got, ociRootIndexJSON)
 	}
 
 	// test fetching blobs
@@ -949,21 +1239,21 @@ func TestStore_ExistingStore(t *testing.T) {
 
 	// verify predecessors
 	wants := [][]ocispec.Descriptor{
-		descs[4:7],                          // Blob 0
-		{descs[4], descs[6]},                // Blob 1
-		{descs[4], descs[6]},                // Blob 2
-		{descs[5], descs[6]},                // Blob 3
-		{descs[7]},                          // Blob 4
-		{descs[7]},                          // Blob 5
-		{descs[8], artifactRootDescWithRef}, // Blob 6
-		{descs[10], rootIndexDescWithRef},   // Blob 7
-		{descs[10]},                         // Blob 8
-		{descs[10]},                         // Blob 9
-		{descs[14]},                         // Blob 10
-		{artifactRootDescWithRef},           // Blob 11
-		nil,                                 // Blob 12, no predecessors
-		{descs[14]},                         // Blob 13
-		{rootIndexDescWithRef},              // Blob 14
+		descs[4:7],            // Blob 0
+		{descs[4], descs[6]},  // Blob 1
+		{descs[4], descs[6]},  // Blob 2
+		{descs[5], descs[6]},  // Blob 3
+		{descs[7]},            // Blob 4
+		{descs[7]},            // Blob 5
+		{descs[8], descs[12]}, // Blob 6
+		{descs[10]},           // Blob 7
+		{descs[10]},           // Blob 8
+		{descs[10]},           // Blob 9
+		{descs[14]},           // Blob 10
+		{descs[12]},           // Blob 11
+		nil,                   // Blob 12, no predecessors
+		{descs[14]},           // Blob 13
+		nil,                   // Blob 14, no predecessors
 	}
 	for i, want := range wants {
 		predecessors, err := anotherS.Predecessors(ctx, descs[i])
@@ -974,7 +1264,94 @@ func TestStore_ExistingStore(t *testing.T) {
 			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
 	}
+}
 
+func Test_ExistingStore_Retag(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	manifest_1 := []byte(`{"layers":[]}`)
+	manifestDesc_1 := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest_1)
+	manifestDesc_1.Annotations = map[string]string{"key1": "val1"}
+
+	// push a manifest
+	err = s.Push(ctx, manifestDesc_1, bytes.NewReader(manifest_1))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	// tag manifest by digest
+	err = s.Tag(ctx, manifestDesc_1, manifestDesc_1.Digest.String())
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	// tag manifest by tag
+	ref := "foobar"
+	err = s.Tag(ctx, manifestDesc_1, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// verify index
+	want := []ocispec.Descriptor{
+		{
+			MediaType: manifestDesc_1.MediaType,
+			Digest:    manifestDesc_1.Digest,
+			Size:      manifestDesc_1.Size,
+			Annotations: map[string]string{
+				"key1":                    "val1",
+				ocispec.AnnotationRefName: ref,
+			},
+		},
+	}
+	if got := s.index.Manifests; !equalDescriptorSet(got, want) {
+		t.Errorf("index.Manifests = %v, want %v", got, want)
+	}
+
+	// test with another OCI store instance to mock loading from an existing store
+	anotherS, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	manifest_2 := []byte(`{"layers":[], "annotations":{}}`)
+	manifestDesc_2 := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest_2)
+	manifestDesc_2.Annotations = map[string]string{"key2": "val2"}
+
+	err = anotherS.Push(ctx, manifestDesc_2, bytes.NewReader(manifest_2))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	err = anotherS.Tag(ctx, manifestDesc_2, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// verify index
+	want = []ocispec.Descriptor{
+		{
+			MediaType: manifestDesc_1.MediaType,
+			Digest:    manifestDesc_1.Digest,
+			Size:      manifestDesc_1.Size,
+			Annotations: map[string]string{
+				"key1": "val1",
+			},
+		},
+		{
+			MediaType: manifestDesc_2.MediaType,
+			Digest:    manifestDesc_2.Digest,
+			Size:      manifestDesc_2.Size,
+			Annotations: map[string]string{
+				"key2":                    "val2",
+				ocispec.AnnotationRefName: ref,
+			},
+		},
+	}
+	if got := anotherS.index.Manifests; !equalDescriptorSet(got, want) {
+		t.Errorf("index.Manifests = %v, want %v", got, want)
+	}
 }
 
 func TestCopy_MemoryToOCI_FullCopy(t *testing.T) {
@@ -1050,16 +1427,12 @@ func TestCopy_MemoryToOCI_FullCopy(t *testing.T) {
 	}
 
 	// verify tag
-	rootWithRef := root
-	rootWithRef.Annotations = map[string]string{
-		ocispec.AnnotationRefName: ref,
-	}
 	gotDesc, err = dst.Resolve(ctx, ref)
 	if err != nil {
 		t.Fatal("dst.Resolve() error =", err)
 	}
-	if !reflect.DeepEqual(gotDesc, rootWithRef) {
-		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, rootWithRef)
+	if !reflect.DeepEqual(gotDesc, root) {
+		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
 	}
 }
 
@@ -1496,6 +1869,108 @@ func TestCopyGraph_OCIToMemory_PartialCopy(t *testing.T) {
 	}
 	if got, want := dstTracker.exists, int64(5); got != want {
 		t.Errorf("count(dst.Exists()) = %v, want %v", got, want)
+	}
+}
+
+func TestStore_Tags(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		// add annotation to make each manifest unique
+		manifest.Annotations = map[string]string{
+			"blob_index": strconv.Itoa(len(blobs)),
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	tagManifest := func(desc ocispec.Descriptor, ref string) {
+		if err := s.Tag(ctx, desc, ref); err != nil {
+			t.Fatal("Store.Tag() error =", err)
+		}
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foobar"))  // Blob 1
+	generateManifest(descs[0], descs[1])                       // Blob 2
+	generateManifest(descs[0], descs[1])                       // Blob 3
+	generateManifest(descs[0], descs[1])                       // Blob 4
+	generateManifest(descs[0], descs[1])                       // Blob 5
+	generateManifest(descs[0], descs[1])                       // Blob 6
+
+	for i := range blobs {
+		err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content: %d: %v", i, err)
+		}
+	}
+
+	tagManifest(descs[3], "v2")
+	tagManifest(descs[4], "v3")
+	tagManifest(descs[5], "v1")
+	tagManifest(descs[6], "v4")
+
+	// test tags
+	tests := []struct {
+		name string
+		last string
+		want []string
+	}{
+		{
+			name: "list all tags",
+			want: []string{"v1", "v2", "v3", "v4"},
+		},
+		{
+			name: "list from middle",
+			last: "v2",
+			want: []string{"v3", "v4"},
+		},
+		{
+			name: "list from end",
+			last: "v4",
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := s.Tags(ctx, tt.last, func(got []string) error {
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("Store.Tags() = %v, want %v", got, tt.want)
+				}
+				return nil
+			}); err != nil {
+				t.Errorf("Store.Tags() error = %v", err)
+			}
+		})
+	}
+
+	wantErr := errors.New("expected error")
+	if err := s.Tags(ctx, "", func(got []string) error {
+		return wantErr
+	}); err != wantErr {
+		t.Errorf("Store.Tags() error = %v, wantErr %v", err, wantErr)
 	}
 }
 

@@ -14,50 +14,55 @@ limitations under the License.
 */
 
 // Package oci provides access to an OCI content store.
-// Reference: https://github.com/opencontainers/image-spec/blob/main/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md
 package oci
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/container/set"
+	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/resolver"
 )
 
 // ociImageIndexFile is the file name of the index
 // from the OCI Image Layout Specification.
-// Reference: https://github.com/opencontainers/image-spec/blob/master/image-layout.md#indexjson-file
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md#indexjson-file
 const ociImageIndexFile = "index.json"
 
 // Store implements `oras.Target`, and represents a content store
 // based on file system with the OCI-Image layout.
-// Reference: https://github.com/opencontainers/image-spec/blob/master/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md
 type Store struct {
 	// AutoSaveIndex controls if the OCI store will automatically save the index
 	// file on each Tag() call.
-	// If AutoSaveIndex is set to true, the OCI store will automatically call
-	// this method on each Tag() call.
-	// If AutoSaveIndex is set to false, it's the caller's responsibility
-	// to manually call SaveIndex() when needed.
-	// Default value: true.
+	//   - If AutoSaveIndex is set to true, the OCI store will automatically call
+	//     this method on each Tag() call.
+	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
+	//     to manually call SaveIndex() when needed.
+	//   - Default value: true.
 	AutoSaveIndex bool
 	root          string
 	indexPath     string
+	index         *ocispec.Index
+	indexLock     sync.Mutex
 
-	storage  content.Storage
-	resolver *resolver.Memory
-	graph    *graph.Memory
-	index    *ocispec.Index
+	storage     content.Storage
+	tagResolver *resolver.Memory
+	graph       *graph.Memory
 }
 
 // New creates a new OCI store with context.Background().
@@ -67,25 +72,32 @@ func New(root string) (*Store, error) {
 
 // NewWithContext creates a new OCI store.
 func NewWithContext(ctx context.Context, root string) (*Store, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", root, err)
+	}
+	storage, err := NewStorage(rootAbs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create storage: %w", err)
+	}
+
 	store := &Store{
 		AutoSaveIndex: true,
-		root:          root,
-		indexPath:     filepath.Join(root, ociImageIndexFile),
-		storage:       NewStorage(root),
-		resolver:      resolver.NewMemory(),
+		root:          rootAbs,
+		indexPath:     filepath.Join(rootAbs, ociImageIndexFile),
+		storage:       storage,
+		tagResolver:   resolver.NewMemory(),
 		graph:         graph.NewMemory(),
 	}
 
-	if err := ensureDir(root); err != nil {
+	if err := ensureDir(rootAbs); err != nil {
 		return nil, err
 	}
-
 	if err := store.ensureOCILayoutFile(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid OCI Image Layout: %w", err)
 	}
-
-	if err := store.loadIndex(ctx); err != nil {
-		return nil, err
+	if err := store.loadIndexFile(ctx); err != nil {
+		return nil, fmt.Errorf("invalid OCI Image Layout: %w", err)
 	}
 
 	return store, nil
@@ -101,8 +113,14 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 	if err := s.storage.Push(ctx, expected, reader); err != nil {
 		return err
 	}
-
-	return s.graph.Index(ctx, s.storage, expected)
+	if err := s.graph.Index(ctx, s.storage, expected); err != nil {
+		return err
+	}
+	if descriptor.IsManifest(expected) {
+		// tag by digest
+		return s.tag(ctx, expected, expected.Digest.String())
+	}
+	return nil
 }
 
 // Exists returns true if the described content exists.
@@ -111,9 +129,8 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 }
 
 // Tag tags a descriptor with a reference string.
-// A reference should be either a valid tag (e.g. "latest"),
-// or a digest matching the descriptor (e.g. "@sha256:abc123").
-// Reference: https://github.com/opencontainers/image-spec/blob/main/image-layout.md#indexjson-file
+// reference should be a valid tag (e.g. "latest").
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md#indexjson-file
 func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	if err := validateReference(reference); err != nil {
 		return err
@@ -127,28 +144,52 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		return fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrNotFound)
 	}
 
-	if desc.Annotations == nil {
-		desc.Annotations = map[string]string{}
-	}
-	desc.Annotations[ocispec.AnnotationRefName] = reference
+	return s.tag(ctx, desc, reference)
+}
 
-	if err := s.resolver.Tag(ctx, desc, reference); err != nil {
+// tag tags a descriptor with a reference string.
+func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
+	dgst := desc.Digest.String()
+	if reference != dgst {
+		// also tag desc by its digest
+		if err := s.tagResolver.Tag(ctx, desc, dgst); err != nil {
+			return err
+		}
+	}
+	if err := s.tagResolver.Tag(ctx, desc, reference); err != nil {
 		return err
 	}
-
 	if s.AutoSaveIndex {
 		return s.SaveIndex()
 	}
 	return nil
 }
 
-// Resolve resolves a reference to a descriptor.
+// Resolve resolves a reference to a descriptor. If the reference to be resolved
+// is a tag, the returned descriptor will be a full descriptor declared by
+// github.com/opencontainers/image-spec/specs-go/v1. If the reference is a
+// digest the returned descriptor will be a plain descriptor (containing only
+// the digest, media type and size).
 func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
 	if reference == "" {
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
 
-	return s.resolver.Resolve(ctx, reference)
+	// attempt resolving manifest
+	desc, err := s.tagResolver.Resolve(ctx, reference)
+	if err != nil {
+		if errors.Is(err, errdef.ErrNotFound) {
+			// attempt resolving blob
+			return resolveBlob(os.DirFS(s.root), reference)
+		}
+		return ocispec.Descriptor{}, err
+	}
+
+	if reference == desc.Digest.String() {
+		return descriptor.Plain(desc), nil
+	}
+
+	return desc, nil
 }
 
 // Predecessors returns the nodes directly pointing to the current node.
@@ -156,6 +197,17 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 // store.
 func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	return s.graph.Predecessors(ctx, node)
+}
+
+// Tags lists the tags presented in the `index.json` file of the OCI layout,
+// returned in ascending order.
+// If `last` is NOT empty, the entries in the response start after the tag
+// specified by `last`. Otherwise, the response starts from the top of the tags
+// list.
+//
+// See also `Tags()` in the package `registry`.
+func (s *Store) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
+	return listTags(ctx, s.tagResolver, last, fn)
 }
 
 // ensureOCILayoutFile ensures the `oci-layout` file.
@@ -174,82 +226,96 @@ func (s *Store) ensureOCILayoutFile() error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal OCI layout file: %w", err)
 		}
-
-		return ioutil.WriteFile(layoutFilePath, layoutJSON, 0666)
+		return os.WriteFile(layoutFilePath, layoutJSON, 0666)
 	}
 	defer layoutFile.Close()
 
-	var layout *ocispec.ImageLayout
+	var layout ocispec.ImageLayout
 	err = json.NewDecoder(layoutFile).Decode(&layout)
 	if err != nil {
 		return fmt.Errorf("failed to decode OCI layout file: %w", err)
 	}
-	if layout.Version != ocispec.ImageLayoutVersion {
-		return errdef.ErrUnsupportedVersion
-	}
-
-	return nil
+	return validateOCILayout(&layout)
 }
 
-// loadIndex reads the index.json from the file system.
-func (s *Store) loadIndex(ctx context.Context) error {
+// loadIndexFile reads index.json from the file system.
+// Create index.json if it does not exist.
+func (s *Store) loadIndexFile(ctx context.Context) error {
 	indexFile, err := os.Open(s.indexPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to open index file: %w", err)
 		}
+
+		// write index.json if it does not exist
 		s.index = &ocispec.Index{
 			Versioned: specs.Versioned{
 				SchemaVersion: 2, // historical value
 			},
+			Manifests: []ocispec.Descriptor{},
 		}
-		return nil
+		return s.writeIndexFile()
 	}
 	defer indexFile.Close()
 
-	if err := json.NewDecoder(indexFile).Decode(&s.index); err != nil {
+	var index ocispec.Index
+	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
-
-	for _, desc := range s.index.Manifests {
-		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
-			if err = s.resolver.Tag(ctx, desc, ref); err != nil {
-				return err
-			}
-		}
-
-		// traverse the whole DAG and index predecessors for all the nodes.
-		if err := s.graph.IndexAll(ctx, s.storage, desc); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	s.index = &index
+	return loadIndex(ctx, s.index, s.storage, s.tagResolver, s.graph)
 }
 
 // SaveIndex writes the `index.json` file to the file system.
-// If AutoSaveIndex is set to true (default value),
-// the OCI store will automatically call this method on each Tag() call.
-// If AutoSaveIndex is set to false, it's the caller's responsibility
-// to manually call this method when needed.
+//   - If AutoSaveIndex is set to true (default value),
+//     the OCI store will automatically call this method on each Tag() call.
+//   - If AutoSaveIndex is set to false, it's the caller's responsibility
+//     to manually call this method when needed.
 func (s *Store) SaveIndex() error {
-	// first need to update the index.
+	s.indexLock.Lock()
+	defer s.indexLock.Unlock()
+
 	var manifests []ocispec.Descriptor
-	refMap := s.resolver.Map()
-	for _, desc := range refMap {
-		manifests = append(manifests, desc)
+	tagged := set.New[digest.Digest]()
+	refMap := s.tagResolver.Map()
+
+	// 1. Add descriptors that are associated with tags
+	// Note: One descriptor can be associated with multiple tags.
+	for ref, desc := range refMap {
+		if ref != desc.Digest.String() {
+			annotations := make(map[string]string, len(desc.Annotations)+1)
+			for k, v := range desc.Annotations {
+				annotations[k] = v
+			}
+			annotations[ocispec.AnnotationRefName] = ref
+			desc.Annotations = annotations
+			manifests = append(manifests, desc)
+			// mark the digest as tagged for deduplication in step 2
+			tagged.Add(desc.Digest)
+		}
+	}
+	// 2. Add descriptors that are not associated with any tag
+	for ref, desc := range refMap {
+		if ref == desc.Digest.String() && !tagged.Contains(desc.Digest) {
+			// skip tagged ones since they have been added in step 1
+			manifests = append(manifests, deleteAnnotationRefName(desc))
+		}
 	}
 
 	s.index.Manifests = manifests
+	return s.writeIndexFile()
+}
+
+// writeIndexFile writes the `index.json` file.
+func (s *Store) writeIndexFile() error {
 	indexJSON, err := json.Marshal(s.index)
 	if err != nil {
 		return fmt.Errorf("failed to marshal index file: %w", err)
 	}
-
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
 }
 
-// validateReference validates ref against desc.
+// validateReference validates ref.
 func validateReference(ref string) error {
 	if ref == "" {
 		return errdef.ErrMissingReference

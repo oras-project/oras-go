@@ -27,92 +27,167 @@ import (
 
 // regular expressions for components.
 var (
-	// repositoryRegexp is adapted from the distribution implementation.
-	// The repository name set under OCI distribution spec is a subset of the
-	// the docker spec. For maximum compability, the docker spec is verified at
-	// the client side. Further check is left to the server side.
+	// repositoryRegexp is adapted from the distribution implementation. The
+	// repository name set under OCI distribution spec is a subset of the docker
+	// spec. For maximum compatability, the docker spec is verified client-side.
+	// Further checks are left to the server-side.
 	// References:
 	// - https://github.com/distribution/distribution/blob/v2.7.1/reference/regexp.go#L53
-	// - https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests
+	// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pulling-manifests
 	repositoryRegexp = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)*$`)
 
 	// tagRegexp checks the tag name.
 	// The docker and OCI spec have the same regular expression.
-	// Reference: https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests
+	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pulling-manifests
 	tagRegexp = regexp.MustCompile(`^[\w][\w.-]{0,127}$`)
 )
 
-// Reference references to a descriptor in the registry.
+// Reference references either a resource descriptor (where Reference.Reference
+// is a tag or a digest), or a resource repository (where Reference.Reference
+// is the empty string).
 type Reference struct {
-	// Registry is the name of the registry.
-	// It is usually the domain name of the registry optionally with a port.
+	// Registry is the name of the registry. It is usually the domain name of
+	// the registry optionally with a port.
 	Registry string
 
 	// Repository is the name of the repository.
 	Repository string
 
-	// Reference is the reference of the object in the repository.
-	// A reference can be a tag or a digest.
+	// Reference is the reference of the object in the repository. This field
+	// can take any one of the four valid forms (see ParseReference). In the
+	// case where it's the empty string, it necessarily implies valid form D,
+	// and where it is non-empty, then it is either a tag, or a digest
+	// (implying one of valid forms A, B, or C).
 	Reference string
 }
 
-// ParseReference parses a string into a artifact reference.
-// If the reference contains both the tag and the digest, the tag will be
-// dropped.
-// Digest is recognized only if the corresponding algorithm is available.
-func ParseReference(raw string) (Reference, error) {
-	parts := strings.SplitN(raw, "/", 2)
+// ParseReference parses a string (artifact) into an `artifact reference`.
+//
+// Note: An "image" is an "artifact", however, an "artifact" is not necessarily
+// an "image".
+//
+// The token `artifact` is composed of other tokens, and those in turn are
+// composed of others.  This definition recursivity requires a notation capable
+// of recursion, thus the following two forms have been adopted:
+//
+//  1. Backus–Naur Form (BNF) has been adopted to address the recursive nature
+//     of the definition.
+//  2. Token opacity is revealed via its label letter-casing.  That is, "opaque"
+//     tokens (i.e., tokens that are not final, and must therefore be further
+//     broken down into their constituents) are denoted in *lowercase*, while
+//     final tokens (i.e., leaf-node tokens that are final) are denoted in
+//     *uppercase*.
+//
+// Finally, note that a number of the opaque tokens are polymorphic in nature;
+// that is, they can take on one of numerous forms, not restricted to a single
+// defining form.
+//
+// The top-level token, `artifact`, is composed of two (opaque) tokens; namely
+// `socketaddr` and `path`:
+//
+//	<artifact> ::= <socketaddr> "/" <path>
+//
+// The former is described as follows:
+//
+//	   <socketaddr> ::= <host> | <host> ":" <PORT>
+//		     <host> ::= <ip> | <FQDN>
+//		       <ip> ::= <IPV4-ADDR> | <IPV6-ADDR>
+//
+// The latter, which is of greater interest here, is described as follows:
+//
+//	     <path> ::= <REPOSITORY> | <REPOSITORY> <reference>
+//	<reference> ::= "@" <digest> | ":" <TAG> "@" <DIGEST> | ":" <TAG>
+//	   <digest> ::= <ALGO> ":" <HASH>
+//
+// This second token--`path`--can take on exactly four forms, each of which will
+// now be illustrated:
+//
+//	<--- path --------------------------------------------> |  - Decode `path`
+//	<=== REPOSITORY ===> <--- reference ------------------> |    - Decode `reference`
+//	<=== REPOSITORY ===> @ <=================== digest ===> |      - Valid Form A
+//	<=== REPOSITORY ===> : <!!! TAG !!!> @ <=== digest ===> |      - Valid Form B (tag is dropped)
+//	<=== REPOSITORY ===> : <=== TAG ======================> |      - Valid Form C
+//	<=== REPOSITORY ======================================> |    - Valid Form D
+//
+// Note: In the case of Valid Form B, TAG is dropped without any validation or
+// further consideration.
+func ParseReference(artifact string) (Reference, error) {
+	parts := strings.SplitN(artifact, "/", 2)
 	if len(parts) == 1 {
+		// Invalid Form
 		return Reference{}, fmt.Errorf("%w: missing repository", errdef.ErrInvalidReference)
 	}
 	registry, path := parts[0], parts[1]
+
+	var isTag bool
 	var repository string
 	var reference string
 	if index := strings.Index(path, "@"); index != -1 {
-		// digest found
+		// `digest` found; Valid Form A (if not B)
+		isTag = false
 		repository = path[:index]
 		reference = path[index+1:]
 
-		// drop tag since the digest is present.
-		if index := strings.Index(repository, ":"); index != -1 {
+		if index = strings.Index(repository, ":"); index != -1 {
+			// `tag` found (and now dropped without validation) since `the
+			// `digest` already present; Valid Form B
 			repository = repository[:index]
 		}
-	} else if index := strings.Index(path, ":"); index != -1 {
-		// tag found
+	} else if index = strings.Index(path, ":"); index != -1 {
+		// `tag` found; Valid Form C
+		isTag = true
 		repository = path[:index]
 		reference = path[index+1:]
 	} else {
-		// empty reference
+		// empty `reference`; Valid Form D
 		repository = path
 	}
-	res := Reference{
+	ref := Reference{
 		Registry:   registry,
 		Repository: repository,
 		Reference:  reference,
 	}
-	if err := res.Validate(); err != nil {
+
+	if err := ref.ValidateRegistry(); err != nil {
 		return Reference{}, err
 	}
-	return res, nil
+
+	if err := ref.ValidateRepository(); err != nil {
+		return Reference{}, err
+	}
+
+	if len(ref.Reference) == 0 {
+		return ref, nil
+	}
+
+	validator := ref.ValidateReferenceAsDigest
+	if isTag {
+		validator = ref.ValidateReferenceAsTag
+	}
+	if err := validator(); err != nil {
+		return Reference{}, err
+	}
+
+	return ref, nil
 }
 
-// Validate validates the entire reference.
+// Validate the entire reference object; the registry, the repository, and the
+// reference.
 func (r Reference) Validate() error {
-	err := r.ValidateRegistry()
-	if err != nil {
+	if err := r.ValidateRegistry(); err != nil {
 		return err
 	}
-	err = r.ValidateRepository()
-	if err != nil {
+
+	if err := r.ValidateRepository(); err != nil {
 		return err
 	}
+
 	return r.ValidateReference()
 }
 
 // ValidateRegistry validates the registry.
 func (r Reference) ValidateRegistry() error {
-	uri, err := url.ParseRequestURI("dummy://" + r.Registry)
-	if err != nil || uri.Host != r.Registry {
+	if uri, err := url.ParseRequestURI("dummy://" + r.Registry); err != nil || uri.Host != r.Registry {
 		return fmt.Errorf("%w: invalid registry", errdef.ErrInvalidReference)
 	}
 	return nil
@@ -126,18 +201,34 @@ func (r Reference) ValidateRepository() error {
 	return nil
 }
 
-// ValidateReference validates the reference.
-func (r Reference) ValidateReference() error {
-	if r.Reference == "" {
-		return nil
-	}
-	if _, err := r.Digest(); err == nil {
-		return nil
-	}
+// ValidateReferenceAsTag validates the reference as a tag.
+func (r Reference) ValidateReferenceAsTag() error {
 	if !tagRegexp.MatchString(r.Reference) {
 		return fmt.Errorf("%w: invalid tag", errdef.ErrInvalidReference)
 	}
 	return nil
+}
+
+// ValidateReferenceAsDigest validates the reference as a digest.
+func (r Reference) ValidateReferenceAsDigest() error {
+	if _, err := r.Digest(); err != nil {
+		return fmt.Errorf("%w: invalid digest; %v", errdef.ErrInvalidReference, err)
+	}
+	return nil
+}
+
+// ValidateReference where the reference is first tried as an ampty string, then
+// as a digest, and if that fails, as a tag.
+func (r Reference) ValidateReference() error {
+	if len(r.Reference) == 0 {
+		return nil
+	}
+
+	if index := strings.IndexByte(r.Reference, ':'); index != -1 {
+		return r.ValidateReferenceAsDigest()
+	}
+
+	return r.ValidateReferenceAsTag()
 }
 
 // Host returns the host name of the registry.

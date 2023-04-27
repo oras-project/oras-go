@@ -24,3 +24,5 @@ var (
 	ErrOverwriteDisallowed     = errors.New("overwrite disallowed")
 	ErrStoreClosed             = errors.New("store already closed")
 )
+
+var errSkipUnnamed = errors.New("unnamed descriptor skipped")

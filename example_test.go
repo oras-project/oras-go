@@ -39,6 +39,23 @@ import (
 
 var exampleMemoryStore oras.Target
 var remoteHost string
+var (
+	exampleManifest, _ = json.Marshal(ocispec.Artifact{
+		MediaType:    ocispec.MediaTypeArtifactManifest,
+		ArtifactType: "example/content"})
+	exampleManifestDescriptor = ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeArtifactManifest,
+		Digest:    digest.Digest(digest.FromBytes(exampleManifest)),
+		Size:      int64(len(exampleManifest))}
+	exampleSignatureManifest, _ = json.Marshal(ocispec.Artifact{
+		MediaType:    ocispec.MediaTypeArtifactManifest,
+		ArtifactType: "example/signature",
+		Subject:      &exampleManifestDescriptor})
+	exampleSignatureManifestDescriptor = ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeArtifactManifest,
+		Digest:    digest.FromBytes(exampleSignatureManifest),
+		Size:      int64(len(exampleSignatureManifest))}
+)
 
 func pushBlob(ctx context.Context, mediaType string, blob []byte, target oras.Target) (desc ocispec.Descriptor, err error) {
 	desc = ocispec.Descriptor{ // Generate descriptor based on the media type and blob content
@@ -71,7 +88,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	configBlob := []byte("Hello config")
-	configDesc, err := pushBlob(ctx, ocispec.MediaTypeImageLayer, configBlob, exampleMemoryStore) // push config blob
+	configDesc, err := pushBlob(ctx, ocispec.MediaTypeImageConfig, configBlob, exampleMemoryStore) // push config blob
 	if err != nil {
 		panic(err)
 	}
@@ -99,6 +116,36 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusAccepted)
 		case strings.Contains(p, "/blobs/uploads/"+exampleUploadUUid) && m == "GET":
 			w.WriteHeader(http.StatusCreated)
+		case strings.Contains(p, "/manifests/"+string(exampleSignatureManifestDescriptor.Digest)):
+			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Docker-Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
+			w.Write(exampleSignatureManifest)
+		case strings.Contains(p, "/manifests/latest") && m == "PUT":
+			w.WriteHeader(http.StatusCreated)
+		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)),
+			strings.Contains(p, "/manifests/latest") && m == "HEAD":
+			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
+			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
+			if m == "GET" {
+				w.Write(exampleManifest)
+			}
+		case strings.Contains(p, "/v2/source/referrers/"):
+			var referrers []ocispec.Descriptor
+			if p == "/v2/source/referrers/"+exampleManifestDescriptor.Digest.String() {
+				referrers = []ocispec.Descriptor{exampleSignatureManifestDescriptor}
+			}
+			result := ocispec.Index{
+				Versioned: specs.Versioned{
+					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+				},
+				MediaType: ocispec.MediaTypeImageIndex,
+				Manifests: referrers,
+			}
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				panic(err)
+			}
 		case strings.Contains(p, "/manifests/") && (m == "HEAD" || m == "GET"):
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Docker-Content-Digest", string(manifestDesc.Digest))
@@ -135,7 +182,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	remoteHost = u.Host
-	http.DefaultClient = httpsServer.Client()
+	http.DefaultTransport = httpsServer.Client().Transport
 
 	os.Exit(m.Run())
 }
@@ -163,7 +210,7 @@ func ExampleCopy_remoteToRemote() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 func ExampleCopy_remoteToLocal() {
@@ -187,7 +234,7 @@ func ExampleCopy_remoteToLocal() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 func ExampleCopy_localToLocal() {
@@ -203,7 +250,7 @@ func ExampleCopy_localToLocal() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 func ExampleCopy_localToOciFile() {
@@ -227,7 +274,7 @@ func ExampleCopy_localToOciFile() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 func ExampleCopy_localToRemote() {
@@ -250,5 +297,59 @@ func ExampleCopy_localToRemote() {
 	fmt.Println(desc.Digest)
 
 	// Output:
-	// sha256:6f2590d54af17afaca41a6243e3c01b368117d24b32e7581a6dee1d856dd3c4b
+	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
+}
+
+// Example_copyArtifactManifestRemoteToLocal gives an example of copying
+// an artifact manifest from a remote repository to local.
+func Example_copyArtifactManifestRemoteToLocal() {
+	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
+	if err != nil {
+		panic(err)
+	}
+	dst := memory.New()
+	ctx := context.Background()
+
+	exampleDigest := "sha256:70c29a81e235dda5c2cebb8ec06eafd3cca346cbd91f15ac74cefd98681c5b3d"
+	descriptor, err := src.Resolve(ctx, exampleDigest)
+	if err != nil {
+		panic(err)
+	}
+	err = oras.CopyGraph(ctx, src, dst, descriptor, oras.DefaultCopyGraphOptions)
+	if err != nil {
+		panic(err)
+	}
+
+	// verify that the artifact manifest described by the descriptor exists in dst
+	contentExists, err := dst.Exists(ctx, descriptor)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(contentExists)
+
+	// Output:
+	// true
+}
+
+// Example_extendedCopyArtifactAndReferrersRemoteToLocal gives an example of
+// copying an artifact along with its referrers from a remote repository to local.
+func Example_extendedCopyArtifactAndReferrersRemoteToLocal() {
+	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
+	if err != nil {
+		panic(err)
+	}
+	dst := memory.New()
+	ctx := context.Background()
+
+	tagName := "latest"
+	// ExtendedCopy will copy the artifact tagged by "latest" along with all of its
+	// referrers from src to dst.
+	desc, err := oras.ExtendedCopy(ctx, src, tagName, dst, tagName, oras.DefaultExtendedCopyOptions)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(desc.Digest)
+	// Output:
+	// sha256:f396bc4d300934a39ca28ab0d5ac8a3573336d7d63c654d783a68cd1e2057662
 }
