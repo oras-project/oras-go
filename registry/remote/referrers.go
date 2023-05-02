@@ -68,6 +68,38 @@ var (
 	errNoReferrerUpdate = errors.New("no referrer update")
 )
 
+const (
+	// opDeleteReferrersIndex represents the operation for deleting a
+	// referrers index.
+	opDeleteReferrersIndex = "DeleteReferrersIndex"
+)
+
+// ReferrersError records an error and the operation and the subject descriptor.
+type ReferrersError struct {
+	// Op represents the failing operation.
+	Op string
+	// Subject is the descriptor of referenced artifact.
+	Subject ocispec.Descriptor
+	// Err is the entity of referrers error.
+	Err error
+}
+
+// Error returns error msg of IgnorableError.
+func (e *ReferrersError) Error() string {
+	return e.Err.Error()
+}
+
+// Unwrap returns the inner error of IgnorableError.
+func (e *ReferrersError) Unwrap() error {
+	return errors.Unwrap(e.Err)
+}
+
+// IsIndexDelete tells if e is kind of error related to referrers
+// index deletion.
+func (e *ReferrersError) IsReferrersIndexDelete() bool {
+	return e.Op == opDeleteReferrersIndex
+}
+
 // buildReferrersTag builds the referrers tag for the given manifest descriptor.
 // Format: <algorithm>-<digest>
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#unavailable-referrers-api
