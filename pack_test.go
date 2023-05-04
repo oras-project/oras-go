@@ -30,6 +30,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 func Test_Pack_Default(t *testing.T) {
@@ -50,7 +51,7 @@ func Test_Pack_Default(t *testing.T) {
 	}
 
 	// test blobs
-	var manifest ocispec.Artifact
+	var manifest spec.Artifact
 	rc, err := s.Fetch(ctx, manifestDesc)
 	if err != nil {
 		t.Fatal("Store.Fetch() error =", err)
@@ -66,8 +67,8 @@ func Test_Pack_Default(t *testing.T) {
 	}
 
 	// test media type
-	if got := manifest.MediaType; got != ocispec.MediaTypeArtifactManifest {
-		t.Fatalf("got media type = %s, want %s", got, ocispec.MediaTypeArtifactManifest)
+	if got := manifest.MediaType; got != spec.MediaTypeArtifactManifest {
+		t.Fatalf("got media type = %s, want %s", got, spec.MediaTypeArtifactManifest)
 	}
 
 	// test artifact type
@@ -119,8 +120,8 @@ func Test_Pack_WithOptions(t *testing.T) {
 		t.Fatal("Oras.Pack() error =", err)
 	}
 
-	expectedManifest := ocispec.Artifact{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+	expectedManifest := spec.Artifact{
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: artifactType,
 		Blobs:        blobs,
 		Subject:      opts.Subject,
@@ -160,7 +161,7 @@ func Test_Pack_NoBlob(t *testing.T) {
 		t.Fatal("Oras.Pack() error =", err)
 	}
 
-	var manifest ocispec.Artifact
+	var manifest spec.Artifact
 	rc, err := s.Fetch(ctx, manifestDesc)
 	if err != nil {
 		t.Fatal("Store.Fetch() error =", err)
@@ -188,7 +189,7 @@ func Test_Pack_NoArtifactType(t *testing.T) {
 		t.Fatal("Oras.Pack() error =", err)
 	}
 
-	var manifest ocispec.Artifact
+	var manifest spec.Artifact
 	rc, err := s.Fetch(ctx, manifestDesc)
 	if err != nil {
 		t.Fatal("Store.Fetch() error =", err)
