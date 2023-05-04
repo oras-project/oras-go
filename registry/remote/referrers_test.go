@@ -21,6 +21,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 func Test_buildReferrersTag(t *testing.T) {
@@ -69,31 +70,31 @@ func Test_isReferrersFilterApplied(t *testing.T) {
 	}{
 		{
 			name:        "single filter applied, specified filter matches",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "artifactType"},
+			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "artifactType"},
 			requested:   "artifactType",
 			want:        true,
 		},
 		{
 			name:        "single filter applied, specified filter does not match",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "foo"},
+			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "foo"},
 			requested:   "artifactType",
 			want:        false,
 		},
 		{
 			name:        "multiple filters applied, specified filter matches",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "foo,artifactType"},
+			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "foo,artifactType"},
 			requested:   "artifactType",
 			want:        true,
 		},
 		{
 			name:        "multiple filters applied, specified filter does not match",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "foo,bar"},
+			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "foo,bar"},
 			requested:   "artifactType",
 			want:        false,
 		},
 		{
 			name:        "single filter applied, specified filter empty",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: "foo"},
+			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "foo"},
 			requested:   "",
 			want:        false,
 		},
@@ -105,7 +106,7 @@ func Test_isReferrersFilterApplied(t *testing.T) {
 		},
 		{
 			name:        "empty filter applied",
-			annotations: map[string]string{ocispec.AnnotationReferrersFiltersApplied: ""},
+			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: ""},
 			requested:   "artifactType",
 			want:        false,
 		},
@@ -128,31 +129,31 @@ func Test_isReferrersFilterApplied(t *testing.T) {
 func Test_filterReferrers(t *testing.T) {
 	refs := []ocispec.Descriptor{
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         1,
 			Digest:       digest.FromString("1"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         2,
 			Digest:       digest.FromString("2"),
 			ArtifactType: "application/vnd.foo",
 		},
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         3,
 			Digest:       digest.FromString("3"),
 			ArtifactType: "application/vnd.bar",
 		},
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         4,
 			Digest:       digest.FromString("4"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         5,
 			Digest:       digest.FromString("5"),
 			ArtifactType: "application/vnd.baz",
@@ -161,13 +162,13 @@ func Test_filterReferrers(t *testing.T) {
 	got := filterReferrers(refs, "application/vnd.test")
 	want := []ocispec.Descriptor{
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         1,
 			Digest:       digest.FromString("1"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         4,
 			Digest:       digest.FromString("4"),
 			ArtifactType: "application/vnd.test",
@@ -181,19 +182,19 @@ func Test_filterReferrers(t *testing.T) {
 func Test_filterReferrers_allMatch(t *testing.T) {
 	refs := []ocispec.Descriptor{
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         1,
 			Digest:       digest.FromString("1"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         4,
 			Digest:       digest.FromString("2"),
 			ArtifactType: "application/vnd.test",
 		},
 		{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Size:         5,
 			Digest:       digest.FromString("3"),
 			ArtifactType: "application/vnd.test",

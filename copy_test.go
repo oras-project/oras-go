@@ -36,6 +36,7 @@ import (
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 // storageTracker tracks storage API counts.
@@ -1459,8 +1460,8 @@ func TestCopyGraph_WithConcurrencyLimit(t *testing.T) {
 		appendBlob(manifest.MediaType, manifestJSON)
 	}
 	generateArtifact := func(subject *ocispec.Descriptor, artifactType string, blobs ...ocispec.Descriptor) {
-		manifest := ocispec.Artifact{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:    spec.MediaTypeArtifactManifest,
 			Subject:      subject,
 			Blobs:        blobs,
 			ArtifactType: artifactType,

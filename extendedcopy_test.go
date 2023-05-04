@@ -37,6 +37,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -68,8 +69,8 @@ func TestExtendedCopy_FullCopy(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		manifest := ocispec.Artifact{
-			MediaType: ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType: spec.MediaTypeArtifactManifest,
 			Subject:   &subject,
 			Blobs:     blobs,
 		}
@@ -77,7 +78,7 @@ func TestExtendedCopy_FullCopy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
@@ -170,8 +171,8 @@ func TestExtendedCopyGraph_FullCopy(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		manifest := ocispec.Artifact{
-			MediaType: ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType: spec.MediaTypeArtifactManifest,
 			Subject:   &subject,
 			Blobs:     blobs,
 		}
@@ -179,7 +180,7 @@ func TestExtendedCopyGraph_FullCopy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config_1")) // Blob 0
@@ -377,8 +378,8 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		manifest := ocispec.Artifact{
-			MediaType: ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType: spec.MediaTypeArtifactManifest,
 			Subject:   &subject,
 			Blobs:     blobs,
 		}
@@ -386,7 +387,7 @@ func TestExtendedCopyGraph_WithDepthOption(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config_1")) // Blob 0
@@ -511,8 +512,8 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		manifest := ocispec.Artifact{
-			MediaType: ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType: spec.MediaTypeArtifactManifest,
 			Subject:   &subject,
 			Blobs:     blobs,
 		}
@@ -520,7 +521,7 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config_1")) // Blob 0
@@ -575,7 +576,7 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 			for _, p := range predecessors {
 				// filter media type
 				switch p.MediaType {
-				case ocispec.MediaTypeArtifactManifest:
+				case spec.MediaTypeArtifactManifest:
 					filtered = append(filtered, p)
 				}
 			}
@@ -617,8 +618,8 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, key string, value string) {
-		manifest := ocispec.Artifact{
-			MediaType:   ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:   spec.MediaTypeArtifactManifest,
 			Subject:     &subject,
 			Annotations: map[string]string{key: value},
 		}
@@ -626,7 +627,7 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))   // descs[0]
 	generateArtifactManifest(descs[0], "bar", "bluebrown")   // descs[1]
@@ -713,8 +714,8 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex(t *testing.T) {
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, key string, value string) {
-		manifest := ocispec.Artifact{
-			MediaType:   ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:   spec.MediaTypeArtifactManifest,
 			Subject:     &subject,
 			Annotations: map[string]string{key: value},
 		}
@@ -722,7 +723,7 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))   // descs[0]
 	generateArtifactManifest(descs[0], "bar", "bluebrown")   // descs[1]
@@ -820,8 +821,8 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex_AnnotationInDescriptor(t *t
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, key string, value string) {
-		manifest := ocispec.Artifact{
-			MediaType:   ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:   spec.MediaTypeArtifactManifest,
 			Subject:     &subject,
 			Annotations: map[string]string{key: value},
 		}
@@ -829,7 +830,7 @@ func TestExtendedCopyGraph_FilterAnnotationWithRegex_AnnotationInDescriptor(t *t
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, key, value, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, key, value, manifestJSON)
 	}
 	appendBlob(ocispec.MediaTypeImageLayer, "", "", []byte("foo")) // descs[0]
 	generateArtifactManifest(descs[0], "bar", "bluebrown")         // descs[1]
@@ -890,8 +891,8 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex_Referrers(t *testin
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, key string, value string) {
-		manifest := ocispec.Artifact{
-			MediaType:   ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:   spec.MediaTypeArtifactManifest,
 			Subject:     &subject,
 			Annotations: map[string]string{key: value},
 		}
@@ -899,7 +900,7 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex_Referrers(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, key, value, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, key, value, manifestJSON)
 	}
 	appendBlob(ocispec.MediaTypeImageLayer, "", "", []byte("foo")) // descs[0]
 	generateArtifactManifest(descs[0], "bar", "bluebrown")         // descs[1]
@@ -930,27 +931,27 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex_Referrers(t *testin
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[0])))
 			w.Write(blobs[0])
 		case strings.Contains(p, descs[1].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[1].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[1])))
 			w.Write(blobs[1])
 		case strings.Contains(p, descs[2].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[2].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[2])))
 			w.Write(blobs[2])
 		case strings.Contains(p, descs[3].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[3].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[3])))
 			w.Write(blobs[3])
 		case strings.Contains(p, descs[4].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[4].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[4])))
 			w.Write(blobs[4])
 		case strings.Contains(p, descs[5].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[5].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[5])))
 			w.Write(blobs[5])
@@ -1053,8 +1054,8 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithRegex(t *testing.T) {
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, artifactType string) {
-		manifest := ocispec.Artifact{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:    spec.MediaTypeArtifactManifest,
 			ArtifactType: artifactType,
 			Subject:      &subject,
 		}
@@ -1062,7 +1063,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithRegex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo")) // descs[0]
@@ -1135,8 +1136,8 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex(t *testing.T) {
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, artifactType string) {
-		manifest := ocispec.Artifact{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:    spec.MediaTypeArtifactManifest,
 			ArtifactType: artifactType,
 			Subject:      &subject,
 		}
@@ -1144,7 +1145,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo")) // descs[0]
 	generateArtifactManifest(descs[0], "good-bar-yellow")  // descs[1]
@@ -1230,8 +1231,8 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithRegex_ArtifactTypeInDescriptor(
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, artifactType string) {
-		manifest := ocispec.Artifact{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:    spec.MediaTypeArtifactManifest,
 			ArtifactType: artifactType,
 			Subject:      &subject,
 		}
@@ -1239,7 +1240,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithRegex_ArtifactTypeInDescriptor(
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, artifactType, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, artifactType, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageLayer, "", []byte("foo")) // descs[0]
@@ -1313,8 +1314,8 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex_Referrers(t *test
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, artifactType string) {
-		manifest := ocispec.Artifact{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:    spec.MediaTypeArtifactManifest,
 			ArtifactType: artifactType,
 			Subject:      &subject,
 		}
@@ -1322,7 +1323,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex_Referrers(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, artifactType, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, artifactType, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageLayer, "", []byte("foo")) // descs[0]
@@ -1353,27 +1354,27 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex_Referrers(t *test
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[0])))
 			w.Write(blobs[0])
 		case strings.Contains(p, descs[1].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[1].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[1])))
 			w.Write(blobs[1])
 		case strings.Contains(p, descs[2].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[2].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[2])))
 			w.Write(blobs[2])
 		case strings.Contains(p, descs[3].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[3].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[3])))
 			w.Write(blobs[3])
 		case strings.Contains(p, descs[4].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[4].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[4])))
 			w.Write(blobs[4])
 		case strings.Contains(p, descs[5].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[5].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[5])))
 			w.Write(blobs[5])
@@ -1444,8 +1445,8 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex(t *t
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, artifactType string, value string) {
-		manifest := ocispec.Artifact{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:    spec.MediaTypeArtifactManifest,
 			ArtifactType: artifactType,
 			Subject:      &subject,
 			Annotations:  map[string]string{"rank": value},
@@ -1454,7 +1455,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex(t *t
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 	generateImageManifest := func(subject, config ocispec.Descriptor, value string) {
 		manifest := ocispec.Manifest{
@@ -1550,8 +1551,8 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex_Refe
 		})
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, artifactType string, value string) {
-		manifest := ocispec.Artifact{
-			MediaType:    ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType:    spec.MediaTypeArtifactManifest,
 			ArtifactType: artifactType,
 			Subject:      &subject,
 			Annotations:  map[string]string{"rank": value},
@@ -1560,7 +1561,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex_Refe
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, artifactType, manifestJSON, value)
+		appendBlob(spec.MediaTypeArtifactManifest, artifactType, manifestJSON, value)
 	}
 	appendBlob(ocispec.MediaTypeImageLayer, "", []byte("foo"), "na") // descs[0]
 	generateArtifactManifest(descs[0], "good-bar-yellow", "1st")     // descs[1]
@@ -1594,47 +1595,47 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex_Refe
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[0])))
 			w.Write(blobs[0])
 		case strings.Contains(p, descs[1].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[1].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[1])))
 			w.Write(blobs[1])
 		case strings.Contains(p, descs[2].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[2].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[2])))
 			w.Write(blobs[2])
 		case strings.Contains(p, descs[3].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[3].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[3])))
 			w.Write(blobs[3])
 		case strings.Contains(p, descs[4].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[4].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[4])))
 			w.Write(blobs[4])
 		case strings.Contains(p, descs[5].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[5].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[5])))
 			w.Write(blobs[5])
 		case strings.Contains(p, descs[6].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[6].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[6])))
 			w.Write(blobs[6])
 		case strings.Contains(p, descs[7].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[7].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[7])))
 			w.Write(blobs[7])
 		case strings.Contains(p, descs[8].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[8].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[8])))
 			w.Write(blobs[8])
 		case strings.Contains(p, descs[9].Digest.String()):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", descs[9].Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobs[9])))
 			w.Write(blobs[9])

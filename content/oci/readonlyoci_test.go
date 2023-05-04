@@ -37,6 +37,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -75,8 +76,8 @@ func TestReadOnlyStore(t *testing.T) {
 		appendBlob(manifest.MediaType, manifestJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		manifest := ocispec.Artifact{
-			MediaType: ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType: spec.MediaTypeArtifactManifest,
 			Subject:   &subject,
 			Blobs:     blobs,
 		}
@@ -265,14 +266,14 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest ocispec.Artifact
+		var manifest spec.Artifact
 		manifest.Subject = &subject
 		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
@@ -554,8 +555,8 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 		appendBlob(manifest.MediaType, manifestJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		manifest := ocispec.Artifact{
-			MediaType: ocispec.MediaTypeArtifactManifest,
+		manifest := spec.Artifact{
+			MediaType: spec.MediaTypeArtifactManifest,
 			Subject:   &subject,
 			Blobs:     blobs,
 		}

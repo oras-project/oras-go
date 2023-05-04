@@ -34,6 +34,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/spec"
 	. "oras.land/oras-go/v2/registry/internal/doc"
 	"oras.land/oras-go/v2/registry/remote"
 )
@@ -67,21 +68,21 @@ var (
 	})
 	exampleManifestDescriptor   = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, exampleManifest)
 	exampleManifestDigest       = exampleManifestDescriptor.Digest.String()
-	exampleSignatureManifest, _ = json.Marshal(ocispec.Artifact{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+	exampleSignatureManifest, _ = json.Marshal(spec.Artifact{
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
 		Subject:      &exampleManifestDescriptor})
 	exampleSignatureManifestDescriptor = ocispec.Descriptor{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
 		Digest:       digest.FromBytes(exampleSignatureManifest),
 		Size:         int64(len(exampleSignatureManifest))}
-	exampleSBoMManifest, _ = json.Marshal(ocispec.Artifact{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+	exampleSBoMManifest, _ = json.Marshal(spec.Artifact{
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: "example/SBoM",
 		Subject:      &exampleManifestDescriptor})
 	exampleSBoMManifestDescriptor = ocispec.Descriptor{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: "example/SBoM",
 		Digest:       digest.FromBytes(exampleSBoMManifest),
 		Size:         int64(len(exampleSBoMManifest))}
@@ -94,13 +95,13 @@ var (
 		MediaType: "application/tar",
 		Digest:    digest.FromBytes([]byte(blobContent)),
 		Size:      int64(len(blobContent))}
-	exampleManifestWithBlobs, _ = json.Marshal(ocispec.Artifact{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+	exampleManifestWithBlobs, _ = json.Marshal(spec.Artifact{
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: "example/manifest",
 		Blobs:        []ocispec.Descriptor{blobDescriptor},
 		Subject:      &exampleManifestDescriptor})
 	exampleManifestWithBlobsDescriptor = ocispec.Descriptor{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: "example/manifest",
 		Digest:       digest.FromBytes(exampleManifestWithBlobs),
 		Size:         int64(len(exampleManifestWithBlobs))}
@@ -150,22 +151,22 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ReferenceManifestDigest) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSignatureManifestDescriptor.Digest) && m == "GET":
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
 			w.Write(exampleSignatureManifest)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSBoMManifestDescriptor.Digest) && m == "GET":
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleSBoMManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSBoMManifest)))
 			w.Write(exampleSBoMManifest)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestWithBlobsDescriptor.Digest) && m == "GET":
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(exampleManifestWithBlobsDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifestWithBlobs)))
 			w.Write(exampleManifestWithBlobs)
 		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, blobDescriptor.Digest) && m == "GET":
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Content-Digest", string(blobDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobContent)))
 			w.Write([]byte(blobContent))
@@ -317,8 +318,8 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	}
 
 	// 3. assemble the reference artifact manifest
-	referenceManifest := ocispec.Artifact{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+	referenceManifest := spec.Artifact{
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: "sbom/example",
 		Subject:      &manifestDescriptor,
 	}
@@ -326,7 +327,7 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	if err != nil {
 		panic(err)
 	}
-	referenceManifestDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, referenceManifestContent)
+	referenceManifestDescriptor := content.NewDescriptorFromBytes(spec.MediaTypeArtifactManifest, referenceManifestContent)
 	// 4. push the reference manifest descriptor and content
 	err = repo.Push(ctx, referenceManifestDescriptor, bytes.NewReader(referenceManifestContent))
 	if err != nil {
@@ -507,7 +508,7 @@ func ExampleRepository_fetchArtifactBlobs() {
 	fmt.Println(string(pulledContent))
 
 	// 2. Parse the pulled manifest and fetch its blobs.
-	var pulledManifest ocispec.Artifact
+	var pulledManifest spec.Artifact
 	if err := json.Unmarshal(pulledContent, &pulledManifest); err != nil {
 		panic(err)
 	}

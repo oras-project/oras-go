@@ -39,6 +39,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 // storageTracker tracks storage API counts.
@@ -2287,14 +2288,14 @@ func TestStore_Predecessors(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 	generateArtifactManifest := func(subject ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		var manifest ocispec.Artifact
+		var manifest spec.Artifact
 		manifest.Subject = &subject
 		manifest.Blobs = append(manifest.Blobs, blobs...)
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeArtifactManifest, manifestJSON)
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
 	}
 
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0

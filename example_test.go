@@ -34,25 +34,26 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/content/oci"
+	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
 var exampleMemoryStore oras.Target
 var remoteHost string
 var (
-	exampleManifest, _ = json.Marshal(ocispec.Artifact{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+	exampleManifest, _ = json.Marshal(spec.Artifact{
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: "example/content"})
 	exampleManifestDescriptor = ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeArtifactManifest,
+		MediaType: spec.MediaTypeArtifactManifest,
 		Digest:    digest.Digest(digest.FromBytes(exampleManifest)),
 		Size:      int64(len(exampleManifest))}
-	exampleSignatureManifest, _ = json.Marshal(ocispec.Artifact{
-		MediaType:    ocispec.MediaTypeArtifactManifest,
+	exampleSignatureManifest, _ = json.Marshal(spec.Artifact{
+		MediaType:    spec.MediaTypeArtifactManifest,
 		ArtifactType: "example/signature",
 		Subject:      &exampleManifestDescriptor})
 	exampleSignatureManifestDescriptor = ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeArtifactManifest,
+		MediaType: spec.MediaTypeArtifactManifest,
 		Digest:    digest.FromBytes(exampleSignatureManifest),
 		Size:      int64(len(exampleSignatureManifest))}
 )
@@ -117,7 +118,7 @@ func TestMain(m *testing.M) {
 		case strings.Contains(p, "/blobs/uploads/"+exampleUploadUUid) && m == "GET":
 			w.WriteHeader(http.StatusCreated)
 		case strings.Contains(p, "/manifests/"+string(exampleSignatureManifestDescriptor.Digest)):
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
 			w.Write(exampleSignatureManifest)
@@ -125,7 +126,7 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusCreated)
 		case strings.Contains(p, "/manifests/"+string(exampleManifestDescriptor.Digest)),
 			strings.Contains(p, "/manifests/latest") && m == "HEAD":
-			w.Header().Set("Content-Type", ocispec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
 			w.Header().Set("Docker-Content-Digest", string(exampleManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifest)))
 			if m == "GET" {
