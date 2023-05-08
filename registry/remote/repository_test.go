@@ -43,6 +43,7 @@ import (
 	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
 type testIOStruct struct {
@@ -289,6 +290,331 @@ func TestRepository_Push(t *testing.T) {
 	}
 	if !bytes.Equal(gotIndex, index) {
 		t.Errorf("Repository.Push() = %v, want %v", gotIndex, index)
+	}
+}
+
+func TestRepository_Mount(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	gotMount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.Method, "POST"; got != want {
+			t.Errorf("unexpected HTTP method; got %q want %q", got, want)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("invalid form in HTTP request: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test2/blobs/uploads/":
+			if got, want := r.Form.Get("mount"), blobDesc.Digest; digest.Digest(got) != want {
+				t.Errorf("unexpected value for 'mount' parameter; got %q want %q", got, want)
+			}
+			if got, want := r.Form.Get("from"), "test"; got != want {
+				t.Errorf("unexpected value for 'from' parameter; got %q want %q", got, want)
+			}
+			gotMount++
+			w.Header().Set(dockerContentDigestHeader, blobDesc.Digest.String())
+			w.WriteHeader(201)
+			return
+		default:
+			t.Errorf("unexpected URL for mount request %q", r.URL)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test2")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	err = repo.Mount(ctx, blobDesc, "test", nil)
+	if err != nil {
+		t.Fatalf("Repository.Push() error = %v", err)
+	}
+	if gotMount != 1 {
+		t.Errorf("did not get expected mount request")
+	}
+}
+
+func TestRepository_Mount_Fallback(t *testing.T) {
+	// This test checks the case where the server does not know
+	// about the mount query parameters, so the call falls back to
+	// the regular push flow. This test is thus very similar to TestPush,
+	// except that it doesn't push a manifest because mounts aren't
+	// documented to be supported for manifests.
+
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	var sequence string
+	var gotBlob []byte
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test2/blobs/uploads/":
+			w.Header().Set("Location", "/v2/test2/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+			sequence += "post "
+			return
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/blobs/"+blobDesc.Digest.String():
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			if _, err := w.Write(blob); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+			sequence += "get "
+			return
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test2/blobs/uploads/"+uuid:
+			if got, want := r.Header.Get("Content-Type"), "application/octet-stream"; got != want {
+				t.Errorf("unexpected content type; got %q want %q", got, want)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if got, want := r.URL.Query().Get("digest"), blobDesc.Digest.String(); got != want {
+				t.Errorf("unexpected content digest; got %q want %q", got, want)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("error reading body: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			gotBlob = data
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			sequence += "put "
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test2")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	err = repo.Mount(ctx, blobDesc, "test", nil)
+	if err != nil {
+		t.Fatalf("Repository.Push() error = %v", err)
+	}
+	if !bytes.Equal(gotBlob, blob) {
+		t.Errorf("Repository.Mount() = %v, want %v", gotBlob, blob)
+	}
+	if got, want := sequence, "post get put "; got != want {
+		t.Errorf("unexpected request sequence; got %q want %q", got, want)
+	}
+}
+
+func TestRepository_Mount_Error(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.Method, "POST"; got != want {
+			t.Errorf("unexpected HTTP method; got %q want %q", got, want)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("invalid form in HTTP request: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		switch r.URL.Path {
+		case "/v2/test/blobs/uploads/":
+			w.WriteHeader(400)
+			w.Write([]byte(`{ "errors": [ { "code": "NAME_UNKNOWN", "message": "some error" } ] }`))
+		default:
+			t.Errorf("unexpected URL for mount request %q", r.URL)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+
+	err = repo.Mount(context.Background(), blobDesc, "foo", nil)
+	if err == nil {
+		t.Fatalf("expected error but got success instead")
+	}
+	var errResp *errcode.ErrorResponse
+	if !errors.As(err, &errResp) {
+		t.Fatalf("unexpected error type %#v", err)
+	}
+	if !reflect.DeepEqual(errResp.Errors, errcode.Errors{{
+		Code:    "NAME_UNKNOWN",
+		Message: "some error",
+	}}) {
+		t.Errorf("unexpected errors %#v", errResp.Errors)
+	}
+}
+
+func TestRepository_Mount_Fallback_GetContent(t *testing.T) {
+	// This test checks the case where the server does not know
+	// about the mount query parameters, so the call falls back to
+	// the regular push flow, but using the getContent function
+	// parameter to get the content to push.
+
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	var sequence string
+	var gotBlob []byte
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test2/blobs/uploads/":
+			w.Header().Set("Location", "/v2/test2/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+			sequence += "post "
+			return
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test2/blobs/uploads/"+uuid:
+			if got, want := r.Header.Get("Content-Type"), "application/octet-stream"; got != want {
+				t.Errorf("unexpected content type; got %q want %q", got, want)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if got, want := r.URL.Query().Get("digest"), blobDesc.Digest.String(); got != want {
+				t.Errorf("unexpected content digest; got %q want %q", got, want)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("error reading body: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			gotBlob = data
+			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			sequence += "put "
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test2")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	err = repo.Mount(ctx, blobDesc, "test", func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(blob)), nil
+	})
+	if err != nil {
+		t.Fatalf("Repository.Push() error = %v", err)
+	}
+	if !bytes.Equal(gotBlob, blob) {
+		t.Errorf("Repository.Mount() = %v, want %v", gotBlob, blob)
+	}
+	if got, want := sequence, "post put "; got != want {
+		t.Errorf("unexpected request sequence; got %q want %q", got, want)
+	}
+}
+
+func TestRepository_Mount_Fallback_GetContentError(t *testing.T) {
+	// This test checks the case where the server does not know
+	// about the mount query parameters, so the call falls back to
+	// the regular push flow, but it's possible the caller wants to
+	// avoid the pull/push pattern so returns an error from getContent
+	// and checks it to find out that's happened.
+
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	var sequence string
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test2/blobs/uploads/":
+			w.Header().Set("Location", "/v2/test2/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+			sequence += "post "
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test2")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	testErr := errors.New("test error")
+	err = repo.Mount(ctx, blobDesc, "test", func() (io.ReadCloser, error) {
+		return nil, testErr
+	})
+	if err == nil {
+		t.Fatalf("expected error but found no error")
+	}
+	if !errors.Is(err, testErr) {
+		t.Fatalf("expected getContent error to be wrapped")
+	}
+	if got, want := sequence, "post "; got != want {
+		t.Errorf("unexpected request sequence; got %q want %q", got, want)
 	}
 }
 
@@ -2659,6 +2985,13 @@ func TestManifestStoreInterface(t *testing.T) {
 	var ms interface{} = &manifestStore{}
 	if _, ok := ms.(interfaces.ReferenceParser); !ok {
 		t.Error("&manifestStore{} does not conform interfaces.ReferenceParser")
+	}
+}
+
+func TestRepositoryMounterInterface(t *testing.T) {
+	var r interface{} = &Repository{}
+	if _, ok := r.(registry.Mounter); !ok {
+		t.Error("&Repository{} does not conform to registry.Mounter")
 	}
 }
 
