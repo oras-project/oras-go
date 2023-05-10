@@ -2025,7 +2025,7 @@ func TestStaticCredential(t *testing.T) {
 			},
 		},
 		{
-			name:     "Mismatch credential for regular registry",
+			name:     "Mismatched credential for regular registry",
 			registry: "registry.example.com",
 			target:   "whatever.example.com",
 			cred: Credential{
@@ -2035,7 +2035,7 @@ func TestStaticCredential(t *testing.T) {
 			want: EmptyCredential,
 		},
 		{
-			name:     "Mismatch credential for docker.io",
+			name:     "Mismatched credential for docker.io",
 			registry: "docker.io",
 			target:   "whatever.docker.io",
 			cred: Credential{
