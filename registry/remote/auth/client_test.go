@@ -1990,6 +1990,78 @@ func TestClient_Do_Scheme_Change(t *testing.T) {
 	}
 }
 
+func TestStaticCredential(t *testing.T) {
+	tests := []struct {
+		name     string
+		registry string
+		target   string
+		cred     Credential
+		want     Credential
+	}{
+		{
+			name:     "Matched credential for regular registry",
+			registry: "registry.example.com",
+			target:   "registry.example.com",
+			cred: Credential{
+				Username: "username",
+				Password: "password",
+			},
+			want: Credential{
+				Username: "username",
+				Password: "password",
+			},
+		},
+		{
+			name:     "Matched credential for docker.io",
+			registry: "docker.io",
+			target:   "registry-1.docker.io",
+			cred: Credential{
+				Username: "username",
+				Password: "password",
+			},
+			want: Credential{
+				Username: "username",
+				Password: "password",
+			},
+		},
+		{
+			name:     "Mismatched credential for regular registry",
+			registry: "registry.example.com",
+			target:   "whatever.example.com",
+			cred: Credential{
+				Username: "username",
+				Password: "password",
+			},
+			want: EmptyCredential,
+		},
+		{
+			name:     "Mismatched credential for docker.io",
+			registry: "docker.io",
+			target:   "whatever.docker.io",
+			cred: Credential{
+				Username: "username",
+				Password: "password",
+			},
+			want: EmptyCredential,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &Client{
+				Credential: StaticCredential(tt.registry, tt.cred),
+			}
+			ctx := context.Background()
+			got, err := client.Credential(ctx, tt.target)
+			if err != nil {
+				t.Fatal("Client.Credential() error =", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Client.Credential() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClient_StaticCredential_basicAuth(t *testing.T) {
 	testUsername := "username"
 	testPassword := "password"
@@ -2214,26 +2286,5 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 	var expectedError *errcode.ErrorResponse
 	if !errors.As(err, &expectedError) || expectedError.StatusCode != http.StatusUnauthorized {
 		t.Errorf("incorrect error: %v, expected %v", err, expectedError)
-	}
-}
-
-func TestClient_StaticCredential_registryMismatch(t *testing.T) {
-	testUsername := "username"
-	testPassword := "password"
-	targetAddress := "target/address"
-
-	client := &Client{
-		Credential: StaticCredential(targetAddress, Credential{
-			Username: testUsername,
-			Password: testPassword,
-		}),
-	}
-
-	cred, err := client.Credential(context.Background(), "registry/mismatched")
-	if cred != EmptyCredential {
-		t.Errorf("Credential() = %v, want = %v", cred, EmptyCredential)
-	}
-	if err != nil {
-		t.Errorf("got error = %v, expected error = %v", err, nil)
 	}
 }
