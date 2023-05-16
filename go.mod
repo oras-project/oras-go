@@ -3,7 +3,7 @@ module oras.land/oras-go
 go 1.18
 
 require (
-	github.com/containerd/containerd v1.7.0
+	github.com/containerd/containerd v1.7.1
 	github.com/distribution/distribution/v3 v3.0.0-20221208165359-362910506bc2
 	github.com/docker/cli v23.0.5+incompatible
 	github.com/docker/distribution v2.8.1+incompatible
@@ -41,7 +41,7 @@ require (
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/gomodule/redigo v1.8.2 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
@@ -70,7 +70,7 @@ require (
 	golang.org/x/text v0.9.0 // indirect
 	google.golang.org/genproto v0.0.0-20230306155012-7f2fa6fef1f4 // indirect
 	google.golang.org/grpc v1.53.0 // indirect
-	google.golang.org/protobuf v1.28.1 // indirect
+	google.golang.org/protobuf v1.29.1 // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
