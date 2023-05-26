@@ -3424,6 +3424,80 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 
+	// test push image manifest with subject without cleaning dangling referrers
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+manifestDesc.Digest.String():
+			if contentType := r.Header.Get("Content-Type"); contentType != manifestDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotManifest = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Write(indexJSON_1)
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotReferrerIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc_2.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+indexDesc_1.Digest.String():
+			manifestDeleted = true
+			// no "Docker-Content-Digest" header for manifest deletion
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err = url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	ctx = context.Background()
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrersGC = false
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	manifestDeleted = false
+	err = repo.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON))
+	if err != nil {
+		t.Fatalf("Manifests.Push() error = %v", err)
+	}
+	if !bytes.Equal(gotManifest, manifestJSON) {
+		t.Errorf("Manifests.Push() = %v, want %v", string(gotManifest), string(manifestJSON))
+	}
+	if !bytes.Equal(gotReferrerIndex, indexJSON_2) {
+		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_2))
+	}
+	if manifestDeleted {
+		t.Errorf("manifestDeleted = %v, want %v", manifestDeleted, false)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+
 	// test push image manifest with subject again, referrers list should not be changed
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

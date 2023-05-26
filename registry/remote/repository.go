@@ -102,6 +102,9 @@ type Repository struct {
 	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 
+	// ReferrersGC specifies whether to delete the dangling referrers index.
+	ReferrersGC bool
+
 	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
 
 	// referrersState represents that if the repository supports Referrers API.
@@ -126,7 +129,8 @@ func NewRepository(reference string) (*Repository, error) {
 		return nil, err
 	}
 	return &Repository{
-		Reference: ref,
+		Reference:   ref,
+		ReferrersGC: true,
 	}, nil
 }
 
@@ -1316,7 +1320,7 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
 
-	var skipDelete bool
+	skipDelete := !s.repo.ReferrersGC
 	var oldIndexDesc ocispec.Descriptor
 	var referrers []ocispec.Descriptor
 	prepare := func() error {
