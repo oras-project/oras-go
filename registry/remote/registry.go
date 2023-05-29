@@ -59,7 +59,8 @@ func NewRegistry(name string) (*Registry, error) {
 	}
 	return &Registry{
 		RepositoryOptions: RepositoryOptions{
-			Reference: ref,
+			Reference:   ref,
+			ReferrersGC: true,
 		},
 	}, nil
 }

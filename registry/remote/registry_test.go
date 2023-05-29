@@ -182,6 +182,7 @@ func TestRegistry_Repository(t *testing.T) {
 	reg.TagListPageSize = 100
 	reg.ReferrerListPageSize = 10
 	reg.MaxMetadataBytes = 8 * 1024 * 1024
+	reg.ReferrersGC = true
 
 	ctx := context.Background()
 	got, err := reg.Repository(ctx, "hello-world")
@@ -265,7 +266,7 @@ func TestRegistry_Repositories_WithLastParam(t *testing.T) {
 	}
 }
 
-//indexOf returns the index of an element within a slice
+// indexOf returns the index of an element within a slice
 func indexOf(element string, data []string) int {
 	for ind, val := range data {
 		if element == val {
