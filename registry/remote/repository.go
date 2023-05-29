@@ -106,7 +106,7 @@ type Repository struct {
 	//  - If true, the old referrers index will be deleted after the new one
 	//    is successfully uploaded.
 	//  - If false, the old referrers index is kept.
-	// By default, it is enabled.
+	// By default, it is enabled (set to true).
 	ReferrersGC bool
 
 	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
