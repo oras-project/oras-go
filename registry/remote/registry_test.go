@@ -178,7 +178,7 @@ func TestRegistry_Repository(t *testing.T) {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
 	reg.PlainHTTP = true
-	reg.NoReferrersGC = false
+	reg.SkipReferrersGC = false
 	reg.RepositoryListPageSize = 50
 	reg.TagListPageSize = 100
 	reg.ReferrerListPageSize = 10

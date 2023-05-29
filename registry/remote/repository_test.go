@@ -3476,7 +3476,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.PlainHTTP = true
-	repo.NoReferrersGC = true
+	repo.SkipReferrersGC = true
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
