@@ -153,6 +153,7 @@ func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (
 		TagListPageSize:      opts.TagListPageSize,
 		ReferrerListPageSize: opts.ReferrerListPageSize,
 		MaxMetadataBytes:     opts.MaxMetadataBytes,
+		ReferrersGC:          true,
 	}, nil
 }
 
