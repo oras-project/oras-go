@@ -106,7 +106,9 @@ type Repository struct {
 	//  - If false, the old referrers index will be deleted after the new one
 	//    is successfully uploaded.
 	//  - If true, the old referrers index is kept.
-	// By default, it is disabled (set to false).
+	// By default, it is disabled (set to false). See also:
+	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
+	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
 	SkipReferrersGC bool
 
 	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
