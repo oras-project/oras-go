@@ -102,12 +102,12 @@ type Repository struct {
 	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 
-	// ReferrersGC specifies whether to delete the dangling referrers index.
+	// NoReferrersGC specifies whether to delete the dangling referrers index.
 	//  - If true, the old referrers index will be deleted after the new one
 	//    is successfully uploaded.
 	//  - If false, the old referrers index is kept.
 	// By default, it is enabled (set to true).
-	ReferrersGC bool
+	NoReferrersGC bool
 
 	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
 
@@ -133,8 +133,7 @@ func NewRepository(reference string) (*Repository, error) {
 		return nil, err
 	}
 	return &Repository{
-		Reference:   ref,
-		ReferrersGC: true,
+		Reference: ref,
 	}, nil
 }
 
@@ -153,11 +152,11 @@ func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (
 		Client:               opts.Client,
 		Reference:            ref,
 		PlainHTTP:            opts.PlainHTTP,
+		NoReferrersGC:        opts.NoReferrersGC,
 		ManifestMediaTypes:   slices.Clone(opts.ManifestMediaTypes),
 		TagListPageSize:      opts.TagListPageSize,
 		ReferrerListPageSize: opts.ReferrerListPageSize,
 		MaxMetadataBytes:     opts.MaxMetadataBytes,
-		ReferrersGC:          opts.ReferrersGC,
 	}, nil
 }
 
@@ -1325,7 +1324,7 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
 
-	skipDelete := !s.repo.ReferrersGC
+	skipDelete := s.repo.NoReferrersGC
 	var oldIndexDesc ocispec.Descriptor
 	var referrers []ocispec.Descriptor
 	prepare := func() error {

@@ -178,11 +178,11 @@ func TestRegistry_Repository(t *testing.T) {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
 	reg.PlainHTTP = true
+	reg.NoReferrersGC = false
 	reg.RepositoryListPageSize = 50
 	reg.TagListPageSize = 100
 	reg.ReferrerListPageSize = 10
 	reg.MaxMetadataBytes = 8 * 1024 * 1024
-	reg.ReferrersGC = true
 
 	ctx := context.Background()
 	got, err := reg.Repository(ctx, "hello-world")
