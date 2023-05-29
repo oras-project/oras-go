@@ -103,9 +103,9 @@ type Repository struct {
 	MaxMetadataBytes int64
 
 	// ReferrersGC specifies whether to delete the dangling referrers index.
-	//  - If true, the old referrers index is deleted when the new one is
-	//    successfully uploaded.
-	//  - else, the referrers index is kept.
+	//  - If true, the old referrers index will be deleted after the new one
+	//    is successfully uploaded.
+	//  - If false, the old referrers index is kept.
 	// By default, it is enabled.
 	ReferrersGC bool
 
