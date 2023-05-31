@@ -178,6 +178,7 @@ func TestRegistry_Repository(t *testing.T) {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
 	reg.PlainHTTP = true
+	reg.SkipReferrersGC = true
 	reg.RepositoryListPageSize = 50
 	reg.TagListPageSize = 100
 	reg.ReferrerListPageSize = 10
@@ -265,7 +266,7 @@ func TestRegistry_Repositories_WithLastParam(t *testing.T) {
 	}
 }
 
-//indexOf returns the index of an element within a slice
+// indexOf returns the index of an element within a slice
 func indexOf(element string, data []string) int {
 	for ind, val := range data {
 		if element == val {

@@ -102,6 +102,17 @@ type Repository struct {
 	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 
+	// SkipReferrersGC specifies whether to delete the dangling referrers
+	// index when referrers tag schema is utilized.
+	//  - If false, the old referrers index will be deleted after the new one
+	//    is successfully uploaded.
+	//  - If true, the old referrers index is kept.
+	// By default, it is disabled (set to false). See also:
+	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#referrers-tag-schema
+	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
+	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
+	SkipReferrersGC bool
+
 	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
 
 	// referrersState represents that if the repository supports Referrers API.
@@ -145,6 +156,7 @@ func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (
 		Client:               opts.Client,
 		Reference:            ref,
 		PlainHTTP:            opts.PlainHTTP,
+		SkipReferrersGC:      opts.SkipReferrersGC,
 		ManifestMediaTypes:   slices.Clone(opts.ManifestMediaTypes),
 		TagListPageSize:      opts.TagListPageSize,
 		ReferrerListPageSize: opts.ReferrerListPageSize,
@@ -1316,7 +1328,7 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
 
-	var skipDelete bool
+	skipDelete := s.repo.SkipReferrersGC
 	var oldIndexDesc ocispec.Descriptor
 	var referrers []ocispec.Descriptor
 	prepare := func() error {
