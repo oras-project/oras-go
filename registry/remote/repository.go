@@ -102,13 +102,12 @@ type Repository struct {
 	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 
-	// SkipReferrersGC specifies whether to delete the dangling referrers index.
+	// SkipReferrersGC specifies whether to delete the dangling referrers
+	// index when referrers tag schema is utilized.
 	//  - If false, the old referrers index will be deleted after the new one
 	//    is successfully uploaded.
 	//  - If true, the old referrers index is kept.
-	// By default, it is disabled (set to false).
-	// This option only applicable when referrers API is not available and
-	// tag schema is utilized to manage the referrers. See also:
+	// By default, it is disabled (set to false). See also:
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#referrers-tag-schema
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
