@@ -123,7 +123,7 @@ func TestReadOnlyStore(t *testing.T) {
 	// build fs
 	fsys := fstest.MapFS{}
 	for i, desc := range descs {
-		path := strings.Join([]string{"blobs", desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
+		path := strings.Join([]string{ociBlobsDir, desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
 		fsys[path] = &fstest.MapFile{Data: blobs[i]}
 	}
 	fsys[ocispec.ImageLayoutFile] = &fstest.MapFile{Data: layoutJSON}
@@ -603,7 +603,7 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 	// build fs
 	fsys := fstest.MapFS{}
 	for i, desc := range descs {
-		path := strings.Join([]string{"blobs", desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
+		path := strings.Join([]string{ociBlobsDir, desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
 		fsys[path] = &fstest.MapFile{Data: blobs[i]}
 	}
 	fsys[ocispec.ImageLayoutFile] = &fstest.MapFile{Data: layoutJSON}
@@ -717,7 +717,7 @@ func TestReadOnlyStore_Tags(t *testing.T) {
 	// build fs
 	fsys := fstest.MapFS{}
 	for i, desc := range descs {
-		path := strings.Join([]string{"blobs", desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
+		path := strings.Join([]string{ociBlobsDir, desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
 		fsys[path] = &fstest.MapFile{Data: blobs[i]}
 	}
 	fsys[ocispec.ImageLayoutFile] = &fstest.MapFile{Data: layoutJSON}
