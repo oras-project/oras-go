@@ -83,7 +83,7 @@ func (c *Client) login(settings *iface.LoginSettings) error {
 
 	var token string
 	if (settings.CertFile != "" && settings.KeyFile != "") || settings.CAFile != "" {
-		_, token, err = c.loginWithTLS(ctx, remote, settings.CertFile, settings.KeyFile, settings.CAFile, &cred, userAgent)
+		_, token, err = c.loginWithTLS(ctx, *remote, settings.CertFile, settings.KeyFile, settings.CAFile, &cred, userAgent)
 	} else {
 		_, token, err = remote.Auth(ctx, &cred, userAgent)
 	}
