@@ -107,8 +107,8 @@ type Repository struct {
 	//    is successfully uploaded.
 	//  - If true, the old referrers index is kept.
 	// By default, it is disabled (set to false).
-	// This option only works when referrers API is not available and tag
-	// schema is used to manage the referrers. See also:
+	// This option only applicable when referrers API is not available and
+	// tag schema is utilized to manage the referrers. See also:
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#referrers-tag-schema
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
