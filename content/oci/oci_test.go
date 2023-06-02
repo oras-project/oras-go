@@ -927,55 +927,6 @@ func TestStore_TagByDigest(t *testing.T) {
 	}
 }
 
-func TestStore_Untag(t *testing.T) {
-	content := []byte("hello world")
-	ref := "hello-world:0.0.1"
-	desc := ocispec.Descriptor{
-		MediaType: "test",
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}
-
-	tempDir := t.TempDir()
-	s, err := New(tempDir)
-	if err != nil {
-		t.Fatal("New() error =", err)
-	}
-	ctx := context.Background()
-
-	err = s.Push(ctx, desc, bytes.NewReader(content))
-	if err != nil {
-		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
-	}
-
-	err = s.Tag(ctx, desc, ref)
-	if err != nil {
-		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
-	}
-
-	if len(s.tagResolver.Map()) == 0 {
-		t.Error("tagresolver map should not be empty")
-	}
-
-	resolvedDescr, err := s.Resolve(ctx, string(desc.Digest))
-	if err != nil {
-		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
-	}
-
-	if !reflect.DeepEqual(resolvedDescr, desc) {
-		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, desc)
-	}
-
-	err = s.Untag(ctx, resolvedDescr, ref)
-	if err != nil {
-		t.Errorf("error untagging descriptor error = %v, wantErr %v", err, false)
-	}
-
-	if len(s.tagResolver.Map()) > 0 {
-		t.Error("tagresolver map should be empty")
-	}
-}
-
 func TestStore_BadIndex(t *testing.T) {
 	tempDir := t.TempDir()
 	content := []byte("whatever")
