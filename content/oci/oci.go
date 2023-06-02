@@ -193,26 +193,6 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 	return desc, nil
 }
 
-// Untag removes a reference string from index.
-// reference should be a valid tag (e.g. "latest").
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md#indexjson-file
-func (s *Store) Untag(ctx context.Context, descr ocispec.Descriptor, reference string) error {
-	if err := validateReference(reference); err != nil {
-		return err
-	}
-
-	s.tagResolver.Delete((reference))
-	s.tagResolver.Delete(descr.Digest.String())
-
-	if s.AutoSaveIndex {
-		err := s.SaveIndex()
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
 
 // Delete removed a target descriptor from index and storage.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
