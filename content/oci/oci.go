@@ -102,7 +102,7 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 		return nil, fmt.Errorf("invalid OCI Image Layout: %w", err)
 	}
 	if err := store.loadIndexFile(ctx); err != nil {
-		return nil, fmt.Errorf("invalid OCI Image Layout: %w", err)
+		return nil, fmt.Errorf("invalid OCI Image Index: %w", err)
 	}
 
 	return store, nil
