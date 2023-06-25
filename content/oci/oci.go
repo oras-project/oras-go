@@ -43,6 +43,11 @@ import (
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md#indexjson-file
 const ociImageIndexFile = "index.json"
 
+// ociBlobsDir is the name of the blobs directory
+// from the OCI Image Layout Specification.
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md#content
+const ociBlobsDir = "blobs"
+
 // Store implements `oras.Target`, and represents a content store
 // based on file system with the OCI-Image layout.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/image-layout.md
@@ -90,7 +95,7 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 		graph:         graph.NewMemory(),
 	}
 
-	if err := ensureDir(rootAbs); err != nil {
+	if err := ensureDir(filepath.Join(rootAbs, ociBlobsDir)); err != nil {
 		return nil, err
 	}
 	if err := store.ensureOCILayoutFile(); err != nil {
