@@ -77,9 +77,9 @@ func Test_Pack_Default(t *testing.T) {
 	}
 
 	// test created time annotation
-	createdTime, ok := manifest.Annotations[ocispec.AnnotationArtifactCreated]
+	createdTime, ok := manifest.Annotations[spec.AnnotationArtifactCreated]
 	if !ok {
-		t.Errorf("Annotation %s = %v, want %v", ocispec.AnnotationArtifactCreated, ok, true)
+		t.Errorf("Annotation %s = %v, want %v", spec.AnnotationArtifactCreated, ok, true)
 	}
 	_, err = time.Parse(time.RFC3339, createdTime)
 	if err != nil {
@@ -98,7 +98,7 @@ func Test_Pack_WithOptions(t *testing.T) {
 
 	artifactType := "application/vnd.test"
 	annotations := map[string]string{
-		ocispec.AnnotationArtifactCreated: "2000-01-01T00:00:00Z",
+		spec.AnnotationArtifactCreated: "2000-01-01T00:00:00Z",
 	}
 	subjectManifest := []byte(`{"layers":[]}`)
 	subjectDesc := ocispec.Descriptor{
@@ -216,7 +216,7 @@ func Test_Pack_InvalidDateTimeFormat(t *testing.T) {
 	ctx := context.Background()
 	opts := PackOptions{
 		ManifestAnnotations: map[string]string{
-			ocispec.AnnotationArtifactCreated: "2000/01/01 00:00:00",
+			spec.AnnotationArtifactCreated: "2000/01/01 00:00:00",
 		},
 	}
 	artifactType := "application/vnd.test"
