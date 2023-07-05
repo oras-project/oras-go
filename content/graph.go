@@ -18,6 +18,7 @@ package content
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/internal/docker"
@@ -57,7 +58,7 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 		// OCI manifest schema can be used to marshal docker manifest
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
 		}
 		return append([]ocispec.Descriptor{manifest.Config}, manifest.Layers...), nil
 	case ocispec.MediaTypeImageManifest:
@@ -67,7 +68,7 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 		}
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
 		}
 		var nodes []ocispec.Descriptor
 		if manifest.Subject != nil {
@@ -75,18 +76,33 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 		}
 		nodes = append(nodes, manifest.Config)
 		return append(nodes, manifest.Layers...), nil
-	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
+	case docker.MediaTypeManifestList:
 		content, err := FetchAll(ctx, fetcher, node)
 		if err != nil {
 			return nil, err
 		}
 
-		// docker manifest list and oci index are equivalent for successors.
+		// OCI Index schema can be used to marshal docker manifest list
 		var index ocispec.Index
 		if err := json.Unmarshal(content, &index); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
 		}
 		return index.Manifests, nil
+	case ocispec.MediaTypeImageIndex:
+		content, err := FetchAll(ctx, fetcher, node)
+		if err != nil {
+			return nil, err
+		}
+
+		var index ocispec.Index
+		if err := json.Unmarshal(content, &index); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
+		}
+		var manifests []ocispec.Descriptor
+		if index.Subject != nil {
+			manifests = append(manifests, *index.Subject)
+		}
+		return append(manifests, index.Manifests...), nil
 	case spec.MediaTypeArtifactManifest:
 		content, err := FetchAll(ctx, fetcher, node)
 		if err != nil {
@@ -95,7 +111,7 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 
 		var manifest spec.Artifact
 		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
 		}
 		var nodes []ocispec.Descriptor
 		if manifest.Subject != nil {
