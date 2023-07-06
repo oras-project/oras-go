@@ -25,6 +25,8 @@ import (
 	"oras.land/oras-go/v2/internal/spec"
 )
 
+// TODO: import cycle
+
 // PredecessorFinder finds out the nodes directly pointing to a given node of a
 // directed acyclic graph.
 // In other words, returns the "parents" of the current descriptor.
@@ -51,73 +53,114 @@ type ReadOnlyGraphStorage interface {
 func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	switch node.MediaType {
 	case docker.MediaTypeManifest:
-		content, err := FetchAll(ctx, fetcher, node)
+		_, config, layers, err := SuccessorsParts(ctx, fetcher, node)
 		if err != nil {
 			return nil, err
+		}
+		return append([]ocispec.Descriptor{*config}, layers...), nil
+	case ocispec.MediaTypeImageManifest:
+		subject, config, layers, err := SuccessorsParts(ctx, fetcher, node)
+		if err != nil {
+			return nil, err
+		}
+		var nodes []ocispec.Descriptor
+		if subject != nil {
+			nodes = append(nodes, *subject)
+		}
+		nodes = append(nodes, *config)
+		return append(nodes, layers...), nil
+	case docker.MediaTypeManifestList:
+		_, _, manifests, err := SuccessorsParts(ctx, fetcher, node)
+		if err != nil {
+			return nil, err
+		}
+		return manifests, nil
+	case ocispec.MediaTypeImageIndex:
+		subject, _, manifests, err := SuccessorsParts(ctx, fetcher, node)
+		if err != nil {
+			return nil, err
+		}
+		var nodes []ocispec.Descriptor
+		if subject != nil {
+			nodes = append(nodes, *subject)
+		}
+		return append(nodes, manifests...), nil
+	case spec.MediaTypeArtifactManifest:
+		subject, _, blobs, err := SuccessorsParts(ctx, fetcher, node)
+		if err != nil {
+			return nil, err
+		}
+		var nodes []ocispec.Descriptor
+		if subject != nil {
+			nodes = append(nodes, *subject)
+		}
+		return append(nodes, blobs...), nil
+	}
+	return nil, nil
+}
+
+func SuccessorsParts(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) (subject, config *ocispec.Descriptor, items []ocispec.Descriptor, err error) {
+	switch desc.MediaType {
+	case docker.MediaTypeManifest:
+		content, err := FetchAll(ctx, fetcher, desc)
+		if err != nil {
+			return nil, nil, nil, err
 		}
 		// OCI manifest schema can be used to marshal docker manifest
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
+			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
 		}
-		return append([]ocispec.Descriptor{manifest.Config}, manifest.Layers...), nil
+		config = &manifest.Config
+		items = manifest.Layers
 	case ocispec.MediaTypeImageManifest:
-		content, err := FetchAll(ctx, fetcher, node)
+		content, err := FetchAll(ctx, fetcher, desc)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
+			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
 		}
-		var nodes []ocispec.Descriptor
-		if manifest.Subject != nil {
-			nodes = append(nodes, *manifest.Subject)
-		}
-		nodes = append(nodes, manifest.Config)
-		return append(nodes, manifest.Layers...), nil
+		subject = manifest.Subject
+		config = &manifest.Config
+		items = manifest.Layers
 	case docker.MediaTypeManifestList:
-		content, err := FetchAll(ctx, fetcher, node)
+		content, err := FetchAll(ctx, fetcher, desc)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 
 		// OCI Index schema can be used to marshal docker manifest list
 		var index ocispec.Index
 		if err := json.Unmarshal(content, &index); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
+			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
 		}
-		return index.Manifests, nil
+		items = index.Manifests
 	case ocispec.MediaTypeImageIndex:
-		content, err := FetchAll(ctx, fetcher, node)
+		content, err := FetchAll(ctx, fetcher, desc)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 
 		var index ocispec.Index
 		if err := json.Unmarshal(content, &index); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
+			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
 		}
-		var manifests []ocispec.Descriptor
-		if index.Subject != nil {
-			manifests = append(manifests, *index.Subject)
-		}
-		return append(manifests, index.Manifests...), nil
+		subject = index.Subject
+		items = index.Manifests
 	case spec.MediaTypeArtifactManifest:
-		content, err := FetchAll(ctx, fetcher, node)
+		content, err := FetchAll(ctx, fetcher, desc)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 
 		var manifest spec.Artifact
 		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal %s: %s: %w", node.Digest.String(), node.MediaType, err)
+			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
 		}
-		var nodes []ocispec.Descriptor
-		if manifest.Subject != nil {
-			nodes = append(nodes, *manifest.Subject)
-		}
-		return append(nodes, manifest.Blobs...), nil
+		subject = manifest.Subject
+		items = manifest.Blobs
 	}
-	return nil, nil
+	return
 }

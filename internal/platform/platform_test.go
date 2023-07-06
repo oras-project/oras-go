@@ -111,6 +111,7 @@ func TestMatch(t *testing.T) {
 	}
 }
 
+// TODO: test manifest with subject
 func TestSelectManifest(t *testing.T) {
 	storage := cas.NewMemory()
 	arc_1 := "test-arc-1"
