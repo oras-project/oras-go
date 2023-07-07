@@ -25,6 +25,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/docker"
+	"oras.land/oras-go/v2/internal/manifestutil"
 )
 
 // Match checks whether the current platform matches the target platform.
@@ -77,7 +78,7 @@ func isSubset(a, b []string) bool {
 func SelectManifest(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor, p *ocispec.Platform) (ocispec.Descriptor, error) {
 	switch root.MediaType {
 	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
-		_, _, manifests, err := content.SuccessorsParts(ctx, src, root)
+		manifests, err := manifestutil.Manifests(ctx, src, root)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -90,9 +91,13 @@ func SelectManifest(ctx context.Context, src content.ReadOnlyStorage, root ocisp
 		}
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w: no matching manifest was found in the manifest list", root.Digest, errdef.ErrNotFound)
 	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
-		_, config, _, err := content.SuccessorsParts(ctx, src, root)
+		config, err := manifestutil.Config(ctx, src, root)
 		if err != nil {
 			return ocispec.Descriptor{}, err
+		}
+		if config == nil {
+			// should not happen
+			return ocispec.Descriptor{}, fmt.Errorf("%s: %s: %w", root.Digest, root.MediaType, errdef.ErrUnsupported)
 		}
 
 		configMediaType := docker.MediaTypeConfig
