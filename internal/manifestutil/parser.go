@@ -25,6 +25,8 @@ import (
 	"oras.land/oras-go/v2/internal/docker"
 )
 
+// TODO: unit tests
+
 // Config returns the config of desc, if present.
 func Config(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) (*ocispec.Descriptor, error) {
 	switch desc.MediaType {
