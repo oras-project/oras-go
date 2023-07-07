@@ -144,9 +144,9 @@ func TestSelectManifest(t *testing.T) {
 			},
 		})
 	}
-	generateManifest := func(arc, os, variant string, subject, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+	generateManifest := func(arc, os, variant string, subject *ocispec.Descriptor, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
 		manifest := ocispec.Manifest{
-			Subject: &subject,
+			Subject: subject,
 			Config:  config,
 			Layers:  layers,
 		}
@@ -156,9 +156,9 @@ func TestSelectManifest(t *testing.T) {
 		}
 		appendManifest(arc, os, variant, ocispec.MediaTypeImageManifest, manifestJSON)
 	}
-	generateIndex := func(subject ocispec.Descriptor, manifests ...ocispec.Descriptor) {
+	generateIndex := func(subject *ocispec.Descriptor, manifests ...ocispec.Descriptor) {
 		index := ocispec.Index{
-			Subject:   &subject,
+			Subject:   subject,
 			Manifests: manifests,
 		}
 		indexJSON, err := json.Marshal(index)
@@ -175,14 +175,14 @@ func TestSelectManifest(t *testing.T) {
 "architecture":"test-arc-1",
 "os":"test-os-1",
 "variant":"v1"}`)) // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                      // Blob 2
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))                      // Blob 3
-	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1], descs[2:4]...) // Blob 4
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello1"))                   // Blob 5
-	generateManifest(arc_2, os_2, variant_1, descs[0], descs[1], descs[5])      // Blob 6
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello2"))                   // Blob 7
-	generateManifest(arc_1, os_1, variant_2, descs[0], descs[1], descs[7])      // Blob 8
-	generateIndex(descs[0], descs[4], descs[6], descs[8])                       // Blob 9
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                       // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))                       // Blob 3
+	generateManifest(arc_1, os_1, variant_1, &descs[0], descs[1], descs[2:4]...) // Blob 4
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello1"))                    // Blob 5
+	generateManifest(arc_2, os_2, variant_1, nil, descs[1], descs[5])            // Blob 6
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello2"))                    // Blob 7
+	generateManifest(arc_1, os_1, variant_2, nil, descs[1], descs[7])            // Blob 8
+	generateIndex(&descs[0], descs[4], descs[6], descs[8])                       // Blob 9
 
 	ctx := context.Background()
 	for i := range blobs {
@@ -275,9 +275,9 @@ func TestSelectManifest(t *testing.T) {
 	"architecture":"test-arc-1",
 	"os":"test-os-1",
 	"variant":"v1"}`)) // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo1"))                // Blob 2
-	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1], descs[2]) // Blob 3
-	generateIndex(descs[3])                                                // Blob 4
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo1"))                 // Blob 2
+	generateManifest(arc_1, os_1, variant_1, &descs[0], descs[1], descs[2]) // Blob 3
+	generateIndex(&descs[0], descs[3])                                      // Blob 4
 
 	ctx = context.Background()
 	for i := range blobs {
@@ -305,11 +305,11 @@ func TestSelectManifest(t *testing.T) {
 	storage = cas.NewMemory()
 	blobs = nil
 	descs = nil
-	appendBlob("test/subject", []byte("dummy subject"))                    // Blob 0
-	appendBlob(ocispec.MediaTypeImageConfig, []byte("null"))               // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo2"))                // Blob 2
-	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1], descs[2]) // Blob 3
-	generateIndex(descs[3])                                                // Blob 4
+	appendBlob("test/subject", []byte("dummy subject"))                     // Blob 0
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("null"))                // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo2"))                 // Blob 2
+	generateManifest(arc_1, os_1, variant_1, &descs[0], descs[1], descs[2]) // Blob 3
+	generateIndex(nil, descs[3])                                            // Blob 4
 
 	ctx = context.Background()
 	for i := range blobs {
@@ -336,11 +336,11 @@ func TestSelectManifest(t *testing.T) {
 	storage = cas.NewMemory()
 	blobs = nil
 	descs = nil
-	appendBlob("test/subject", []byte("dummy subject"))                    // Blob 0
-	appendBlob(ocispec.MediaTypeImageConfig, []byte(""))                   // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo3"))                // Blob 2
-	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1], descs[2]) // Blob 3
-	generateIndex(descs[3])                                                // Blob 4
+	appendBlob("test/subject", []byte("dummy subject"))               // Blob 0
+	appendBlob(ocispec.MediaTypeImageConfig, []byte(""))              // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo3"))           // Blob 2
+	generateManifest(arc_1, os_1, variant_1, nil, descs[1], descs[2]) // Blob 3
+	generateIndex(&descs[0], descs[3])                                // Blob 4
 
 	ctx = context.Background()
 	for i := range blobs {
