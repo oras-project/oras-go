@@ -39,8 +39,6 @@ import (
 	"oras.land/oras-go/v2/internal/spec"
 )
 
-// TODO: test subject
-
 // storageTracker tracks storage API counts.
 type storageTracker struct {
 	content.Storage

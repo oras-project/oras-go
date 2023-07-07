@@ -25,8 +25,6 @@ import (
 	"oras.land/oras-go/v2/internal/spec"
 )
 
-// TODO: unit tests
-
 // PredecessorFinder finds out the nodes directly pointing to a given node of a
 // directed acyclic graph.
 // In other words, returns the "parents" of the current descriptor.
