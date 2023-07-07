@@ -41,8 +41,6 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 )
 
-// TODO: test index with subject
-
 func TestExtendedCopy_FullCopy(t *testing.T) {
 	src := memory.New()
 	dst := memory.New()
