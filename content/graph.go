@@ -47,7 +47,7 @@ type ReadOnlyGraphStorage interface {
 }
 
 // Successors returns the nodes directly pointed by the current node.
-// In other words, returns the "children" of the current descriptor.
+// In other words, it returns the "children" of the current descriptor.
 func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	switch node.MediaType {
 	case docker.MediaTypeManifest:
@@ -97,6 +97,13 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 	return nil, nil
 }
 
+// SuccessorsParts returns the parts of the nodes directly pointed by the
+// current node, in following order:
+//   - Subject (If present for OCI Image Manifest and OCI Image Index)
+//   - Config (If present for OCI Image Manifest and Docker Manifest)
+//   - Layers (For OCI Image Manifest and Docker Manifest), or Blobs (For OCI
+//     Artifact Manifest), or Manifests (For OCI Image Index or Docker Manifest
+//     List)
 func SuccessorsParts(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) (subject, config *ocispec.Descriptor, items []ocispec.Descriptor, err error) {
 	switch desc.MediaType {
 	case docker.MediaTypeManifest:
