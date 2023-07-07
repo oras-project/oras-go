@@ -25,7 +25,7 @@ import (
 	"oras.land/oras-go/v2/internal/spec"
 )
 
-// TODO: import cycle
+// TODO: unit tests
 
 // PredecessorFinder finds out the nodes directly pointing to a given node of a
 // directed acyclic graph.
