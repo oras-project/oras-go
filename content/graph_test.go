@@ -76,7 +76,7 @@ func TestSuccessors_dockerManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal("Successors() error =", err)
 	}
-	if want := descs[0:4]; !equalDescriptorSet(got, want) {
+	if want := descs[0:4]; !reflect.DeepEqual(got, want) {
 		t.Errorf("Successors() = %v, want %v", got, want)
 	}
 }
@@ -131,7 +131,7 @@ func TestSuccessors_imageManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal("Successors() error =", err)
 	}
-	if want := descs[0:4]; !equalDescriptorSet(got, want) {
+	if want := descs[0:4]; !reflect.DeepEqual(got, want) {
 		t.Errorf("Successors() = %v, want %v", got, want)
 	}
 
@@ -141,7 +141,7 @@ func TestSuccessors_imageManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal("Successors() error =", err)
 	}
-	if want := descs[4:7]; !equalDescriptorSet(got, want) {
+	if want := descs[4:7]; !reflect.DeepEqual(got, want) {
 		t.Errorf("Successors() = %v, want %v", got, want)
 	}
 }
@@ -204,7 +204,7 @@ func TestSuccessors_dockerManifestList(t *testing.T) {
 	if err != nil {
 		t.Fatal("Successors() error =", err)
 	}
-	if want := descs[4:6]; !equalDescriptorSet(got, want) {
+	if want := descs[4:6]; !reflect.DeepEqual(got, want) {
 		t.Errorf("Successors() = %v, want %v", got, want)
 	}
 }
@@ -272,7 +272,7 @@ func TestSuccessors_imageIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal("Successors() error =", err)
 	}
-	if want := append([]ocispec.Descriptor{descs[8]}, descs[4:6]...); !equalDescriptorSet(got, want) {
+	if want := append([]ocispec.Descriptor{descs[8]}, descs[4:6]...); !reflect.DeepEqual(got, want) {
 		t.Errorf("Successors() = %v, want %v", got, want)
 	}
 }
@@ -324,7 +324,7 @@ func TestSuccessors_artifactManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal("Successors() error =", err)
 	}
-	if want := descs[0:3]; !equalDescriptorSet(got, want) {
+	if want := descs[0:3]; !reflect.DeepEqual(got, want) {
 		t.Errorf("Successors() = %v, want %v", got, want)
 	}
 
@@ -334,27 +334,58 @@ func TestSuccessors_artifactManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal("Successors() error =", err)
 	}
-	if want := descs[3:5]; !equalDescriptorSet(got, want) {
+	if want := descs[3:5]; !reflect.DeepEqual(got, want) {
 		t.Errorf("Successors() = %v, want %v", got, want)
 	}
 }
 
-func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
-	if len(actual) != len(expected) {
-		return false
+func TestSuccessors_otherMediaType(t *testing.T) {
+	storage := cas.NewMemory()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
 	}
-	contains := func(node ocispec.Descriptor) bool {
-		for _, candidate := range actual {
-			if reflect.DeepEqual(candidate, node) {
-				return true
-			}
+	generateManifest := func(mediaType string, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
 		}
-		return false
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(mediaType, manifestJSON)
 	}
-	for _, node := range expected {
-		if !contains(node) {
-			return false
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))   // Blob 3
+	generateManifest("whatever", descs[0], descs[1:4]...)      // Blob 4
+
+	ctx := context.Background()
+	for i := range blobs {
+		err := storage.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
 		}
 	}
-	return true
+
+	// test Successors: other media type
+	manifestDesc := descs[4]
+	got, err := content.Successors(ctx, storage, manifestDesc)
+	if err != nil {
+		t.Fatal("Successors() error =", err)
+	}
+	if got != nil {
+		t.Errorf("Successors() = %v, want nil", got)
+	}
 }

@@ -25,8 +25,6 @@ import (
 	"oras.land/oras-go/v2/internal/docker"
 )
 
-// TODO: unit tests
-
 // Config returns the config of desc, if present.
 func Config(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) (*ocispec.Descriptor, error) {
 	switch desc.MediaType {
@@ -49,12 +47,13 @@ func Config(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descripto
 // Manifest returns the manifests of desc, if present.
 func Manifests(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	switch desc.MediaType {
-	case ocispec.MediaTypeImageIndex:
+	case docker.MediaTypeManifestList, ocispec.MediaTypeImageIndex:
 		content, err := content.FetchAll(ctx, fetcher, desc)
 		if err != nil {
 			return nil, err
 		}
 
+		// OCI manifest index schema can be used to marshal docker manifest list
 		var index ocispec.Index
 		if err := json.Unmarshal(content, &index); err != nil {
 			return nil, err

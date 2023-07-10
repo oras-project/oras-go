@@ -18,7 +18,6 @@ package content
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/internal/docker"
@@ -47,7 +46,7 @@ type ReadOnlyGraphStorage interface {
 }
 
 // Successors returns the nodes directly pointed by the current node.
-// In other words, it returns the "children" of the current descriptor.
+// In other words, returns the "children" of the current descriptor.
 func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	switch node.MediaType {
 	case docker.MediaTypeManifest:
@@ -120,77 +119,4 @@ func Successors(ctx context.Context, fetcher Fetcher, node ocispec.Descriptor) (
 		return append(nodes, manifest.Blobs...), nil
 	}
 	return nil, nil
-}
-
-// SuccessorsParts returns the parts of the nodes directly pointed by the
-// current node, in following order:
-//   - Subject (If present for OCI Image Manifest and OCI Image Index)
-//   - Config (If present for OCI Image Manifest and Docker Manifest)
-//   - Layers (For OCI Image Manifest and Docker Manifest), or Blobs (For OCI
-//     Artifact Manifest), or Manifests (For OCI Image Index or Docker Manifest
-//     List)
-func SuccessorsParts(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) (subject, config *ocispec.Descriptor, items []ocispec.Descriptor, err error) {
-	switch desc.MediaType {
-	case docker.MediaTypeManifest:
-		content, err := FetchAll(ctx, fetcher, desc)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		// OCI manifest schema can be used to marshal docker manifest
-		var manifest ocispec.Manifest
-		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
-		}
-		config = &manifest.Config
-		items = manifest.Layers
-	case ocispec.MediaTypeImageManifest:
-		content, err := FetchAll(ctx, fetcher, desc)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		var manifest ocispec.Manifest
-		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
-		}
-		subject = manifest.Subject
-		config = &manifest.Config
-		items = manifest.Layers
-	case docker.MediaTypeManifestList:
-		content, err := FetchAll(ctx, fetcher, desc)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		// OCI Index schema can be used to marshal docker manifest list
-		var index ocispec.Index
-		if err := json.Unmarshal(content, &index); err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
-		}
-		items = index.Manifests
-	case ocispec.MediaTypeImageIndex:
-		content, err := FetchAll(ctx, fetcher, desc)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		var index ocispec.Index
-		if err := json.Unmarshal(content, &index); err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
-		}
-		subject = index.Subject
-		items = index.Manifests
-	case spec.MediaTypeArtifactManifest:
-		content, err := FetchAll(ctx, fetcher, desc)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		var manifest spec.Artifact
-		if err := json.Unmarshal(content, &manifest); err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to unmarshal %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
-		}
-		subject = manifest.Subject
-		items = manifest.Blobs
-	}
-	return
 }
