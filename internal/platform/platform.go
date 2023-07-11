@@ -91,13 +91,10 @@ func SelectManifest(ctx context.Context, src content.ReadOnlyStorage, root ocisp
 		}
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w: no matching manifest was found in the manifest list", root.Digest, errdef.ErrNotFound)
 	case docker.MediaTypeManifest, ocispec.MediaTypeImageManifest:
+		// config will be non-nil for docker manifest and OCI image manifest
 		config, err := manifestutil.Config(ctx, src, root)
 		if err != nil {
 			return ocispec.Descriptor{}, err
-		}
-		if config == nil {
-			// should not happen
-			return ocispec.Descriptor{}, fmt.Errorf("%s: %s: %w", root.Digest, root.MediaType, errdef.ErrUnsupported)
 		}
 
 		configMediaType := docker.MediaTypeConfig
