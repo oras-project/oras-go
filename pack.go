@@ -52,6 +52,8 @@ type PackOptions struct {
 	// ManifestAnnotations is the annotation map of the manifest.
 	ManifestAnnotations map[string]string
 
+	// TODO: introduce enum?
+	PackImageManifestRC4 bool
 	// PackImageManifest controls whether to pack an image manifest or not.
 	//   - If true, pack an image manifest; artifactType will be used as the
 	// the config descriptor mediaType of the image manifest.
@@ -76,10 +78,14 @@ type PackOptions struct {
 // the config descriptor mediaType of the image manifest.
 // If succeeded, returns a descriptor of the manifest.
 func Pack(ctx context.Context, pusher content.Pusher, artifactType string, blobs []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
-	if opts.PackImageManifest {
-		return packImage(ctx, pusher, artifactType, blobs, opts)
+	if !opts.PackImageManifest {
+		return packArtifact(ctx, pusher, artifactType, blobs, opts)
 	}
-	return packArtifact(ctx, pusher, artifactType, blobs, opts)
+
+	if opts.PackImageManifestRC4 {
+		return packImageRC4(ctx, pusher, artifactType, blobs, opts)
+	}
+	return packImage(ctx, pusher, artifactType, blobs, opts)
 }
 
 // packArtifact packs the given blobs, generates an artifact manifest for the
@@ -160,6 +166,62 @@ func packImage(ctx context.Context, pusher content.Pusher, configMediaType strin
 		Layers:      layers,
 		Subject:     opts.Subject,
 		Annotations: annotations,
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
+	}
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+	// populate ArtifactType and Annotations of the manifest into manifestDesc
+	manifestDesc.ArtifactType = manifest.Config.MediaType
+	manifestDesc.Annotations = manifest.Annotations
+
+	// push manifest
+	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
+	}
+
+	return manifestDesc, nil
+}
+
+// packImageRC4 packs the given blobs, generates an image manifest for the pack,
+// and pushes it to a content storage.
+// If succeeded, returns a descriptor of the manifest.
+func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
+	var configDesc ocispec.Descriptor
+	if opts.ConfigDescriptor != nil {
+		configDesc = *opts.ConfigDescriptor
+	} else {
+		// push config
+		// TODO: is it appropriate to use the empty desc variable?
+		if err := pusher.Push(ctx, ocispec.DescriptorEmptyJSON, bytes.NewReader(ocispec.DescriptorEmptyJSON.Data)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+		}
+		configDesc = ocispec.DescriptorEmptyJSON
+	}
+
+	annotations, err := ensureAnnotationCreated(opts.ManifestAnnotations, ocispec.AnnotationCreated)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if len(layers) == 0 {
+		// push the empty layer, in case it's not pushed
+		// TODO: is it appropriate to use the empty desc variable?
+		if err := pusher.Push(ctx, ocispec.DescriptorEmptyJSON, bytes.NewReader(ocispec.DescriptorEmptyJSON.Data)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+		}
+		layers = []ocispec.Descriptor{ocispec.DescriptorEmptyJSON}
+	}
+	manifest := ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		Config:       configDesc,
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Layers:       layers,
+		Subject:      opts.Subject,
+		ArtifactType: artifactType, // NEW
+		Annotations:  annotations,
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
