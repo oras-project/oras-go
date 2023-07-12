@@ -591,3 +591,136 @@ func Test_Pack_ImageRC4(t *testing.T) {
 		t.Errorf("got descriptor annotations = %v, want %v", manifestDesc.Annotations, want)
 	}
 }
+
+func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
+	s := memory.New()
+
+	// prepare test content
+	layers := []ocispec.Descriptor{
+		content.NewDescriptorFromBytes("test", []byte("hello world")),
+		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
+	}
+	configBytes := []byte("{}")
+	configDesc := content.NewDescriptorFromBytes("testconfig", configBytes)
+	configAnnotations := map[string]string{"foo": "bar"}
+	annotations := map[string]string{
+		ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
+	}
+	artifactType := "application/vnd.test"
+	subjectManifest := []byte(`{"layers":[]}`)
+	subjectDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(subjectManifest),
+		Size:      int64(len(subjectManifest)),
+	}
+
+	// test Pack with ConfigDescriptor
+	ctx := context.Background()
+	opts := PackOptions{
+		PackImageManifest:   true,
+		PackManifestType:    PackManifestTypeImageManifest,
+		Subject:             &subjectDesc,
+		ConfigDescriptor:    &configDesc,
+		ConfigAnnotations:   configAnnotations,
+		ManifestAnnotations: annotations,
+	}
+	manifestDesc, err := Pack(ctx, s, artifactType, layers, opts)
+	if err != nil {
+		t.Fatal("Oras.Pack() error =", err)
+	}
+
+	expectedManifest := ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType:    ocispec.MediaTypeImageManifest,
+		ArtifactType: artifactType,
+		Subject:      &subjectDesc,
+		Config:       configDesc,
+		Layers:       layers,
+		Annotations:  annotations,
+	}
+	expectedManifestBytes, err := json.Marshal(expectedManifest)
+	if err != nil {
+		t.Fatal("failed to marshal manifest:", err)
+	}
+
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, expectedManifestBytes) {
+		t.Errorf("Store.Fetch() = %v, want %v", string(got), string(expectedManifestBytes))
+	}
+
+	// verify descriptor
+	expectedManifestDesc := content.NewDescriptorFromBytes(expectedManifest.MediaType, expectedManifestBytes)
+	expectedManifestDesc.ArtifactType = expectedManifest.ArtifactType
+	expectedManifestDesc.Annotations = expectedManifest.Annotations
+	if !reflect.DeepEqual(manifestDesc, expectedManifestDesc) {
+		t.Errorf("Pack() = %v, want %v", manifestDesc, expectedManifestDesc)
+	}
+
+	// test Pack without ConfigDescriptor
+	opts = PackOptions{
+		PackImageManifest:   true,
+		PackManifestType:    PackManifestTypeImageManifest,
+		Subject:             &subjectDesc,
+		ConfigAnnotations:   configAnnotations,
+		ManifestAnnotations: annotations,
+	}
+	manifestDesc, err = Pack(ctx, s, artifactType, layers, opts)
+	if err != nil {
+		t.Fatal("Oras.Pack() error =", err)
+	}
+
+	expectedConfigDesc := ocispec.DescriptorEmptyJSON
+	expectedConfigDesc.Annotations = configAnnotations
+	expectedManifest = ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType:    ocispec.MediaTypeImageManifest,
+		ArtifactType: artifactType,
+		Subject:      &subjectDesc,
+		Config:       expectedConfigDesc,
+		Layers:       layers,
+		Annotations:  annotations,
+	}
+	expectedManifestBytes, err = json.Marshal(expectedManifest)
+	if err != nil {
+		t.Fatal("failed to marshal manifest:", err)
+	}
+
+	rc, err = s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, expectedManifestBytes) {
+		t.Errorf("Store.Fetch() = %v, want %v", string(got), string(expectedManifestBytes))
+	}
+
+	// verify descriptor
+	expectedManifestDesc = content.NewDescriptorFromBytes(expectedManifest.MediaType, expectedManifestBytes)
+	expectedManifestDesc.ArtifactType = expectedManifest.ArtifactType
+	expectedManifestDesc.Annotations = expectedManifest.Annotations
+	if !reflect.DeepEqual(manifestDesc, expectedManifestDesc) {
+		t.Errorf("Pack() = %v, want %v", manifestDesc, expectedManifestDesc)
+	}
+}
