@@ -144,10 +144,11 @@ func TestSelectManifest(t *testing.T) {
 			},
 		})
 	}
-	generateManifest := func(arc, os, variant string, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+	generateManifest := func(arc, os, variant string, subject *ocispec.Descriptor, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
 		manifest := ocispec.Manifest{
-			Config: config,
-			Layers: layers,
+			Subject: subject,
+			Config:  config,
+			Layers:  layers,
 		}
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
@@ -155,8 +156,9 @@ func TestSelectManifest(t *testing.T) {
 		}
 		appendManifest(arc, os, variant, ocispec.MediaTypeImageManifest, manifestJSON)
 	}
-	generateIndex := func(manifests ...ocispec.Descriptor) {
+	generateIndex := func(subject *ocispec.Descriptor, manifests ...ocispec.Descriptor) {
 		index := ocispec.Index{
+			Subject:   subject,
 			Manifests: manifests,
 		}
 		indexJSON, err := json.Marshal(index)
@@ -166,20 +168,21 @@ func TestSelectManifest(t *testing.T) {
 		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
 	}
 
+	appendBlob("test/subject", []byte("dummy subject")) // Blob 0
 	appendBlob(ocispec.MediaTypeImageConfig, []byte(`{"mediaType":"application/vnd.oci.image.config.v1+json",
 "created":"2022-07-29T08:13:55Z",
 "author":"test author",
 "architecture":"test-arc-1",
 "os":"test-os-1",
-"variant":"v1"}`)) // Blob 0
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))            // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))            // Blob 2
-	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1:3]...) // Blob 3
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello1"))         // Blob 4
-	generateManifest(arc_2, os_2, variant_1, descs[0], descs[4])      // Blob 5
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello2"))         // Blob 6
-	generateManifest(arc_1, os_1, variant_2, descs[0], descs[6])      // Blob 7
-	generateIndex(descs[3], descs[5], descs[7])                       // Blob 8
+"variant":"v1"}`)) // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                       // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))                       // Blob 3
+	generateManifest(arc_1, os_1, variant_1, &descs[0], descs[1], descs[2:4]...) // Blob 4
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello1"))                    // Blob 5
+	generateManifest(arc_2, os_2, variant_1, nil, descs[1], descs[5])            // Blob 6
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello2"))                    // Blob 7
+	generateManifest(arc_1, os_1, variant_2, nil, descs[1], descs[7])            // Blob 8
+	generateIndex(&descs[0], descs[4], descs[6], descs[8])                       // Blob 9
 
 	ctx := context.Background()
 	for i := range blobs {
@@ -190,12 +193,12 @@ func TestSelectManifest(t *testing.T) {
 	}
 
 	// test SelectManifest on image index, only one matching manifest found
-	root := descs[8]
+	root := descs[9]
 	targetPlatform := ocispec.Platform{
 		Architecture: arc_2,
 		OS:           os_2,
 	}
-	wantDesc := descs[5]
+	wantDesc := descs[6]
 	gotDesc, err := SelectManifest(ctx, storage, root, &targetPlatform)
 	if err != nil {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, false)
@@ -211,7 +214,7 @@ func TestSelectManifest(t *testing.T) {
 		Architecture: arc_1,
 		OS:           os_1,
 	}
-	wantDesc = descs[3]
+	wantDesc = descs[4]
 	gotDesc, err = SelectManifest(ctx, storage, root, &targetPlatform)
 	if err != nil {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, false)
@@ -221,12 +224,12 @@ func TestSelectManifest(t *testing.T) {
 	}
 
 	// test SelectManifest on manifest
-	root = descs[7]
+	root = descs[8]
 	targetPlatform = ocispec.Platform{
 		Architecture: arc_1,
 		OS:           os_1,
 	}
-	wantDesc = descs[7]
+	wantDesc = descs[8]
 	gotDesc, err = SelectManifest(ctx, storage, root, &targetPlatform)
 	if err != nil {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, false)
@@ -237,7 +240,7 @@ func TestSelectManifest(t *testing.T) {
 
 	// test SelectManifest on manifest, but there is no matching node.
 	// Should return not found error.
-	root = descs[7]
+	root = descs[8]
 	targetPlatform = ocispec.Platform{
 		Architecture: arc_1,
 		OS:           os_1,
@@ -255,24 +258,26 @@ func TestSelectManifest(t *testing.T) {
 		Architecture: arc_1,
 		OS:           os_1,
 	}
-	root = descs[1]
+	root = descs[2]
 	_, err = SelectManifest(ctx, storage, root, &targetPlatform)
 	if !errors.Is(err, errdef.ErrUnsupported) {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, errdef.ErrUnsupported)
 	}
 
 	// generate incorrect test content
+	storage = cas.NewMemory()
 	blobs = nil
 	descs = nil
+	appendBlob("test/subject", []byte("dummy subject")) // Blob 0
 	appendBlob(docker.MediaTypeConfig, []byte(`{"mediaType":"application/vnd.oci.image.config.v1+json",
-"created":"2022-07-29T08:13:55Z",
-"author":"test author 1",
-"architecture":"test-arc-1",
-"os":"test-os-1",
-"variant":"v1"}`)) // Blob 0
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo1"))      // Blob 1
-	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1]) // Blob 2
-	generateIndex(descs[2])                                      // Blob 3
+	"created":"2022-07-29T08:13:55Z",
+	"author":"test author 1",
+	"architecture":"test-arc-1",
+	"os":"test-os-1",
+	"variant":"v1"}`)) // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo1"))                 // Blob 2
+	generateManifest(arc_1, os_1, variant_1, &descs[0], descs[1], descs[2]) // Blob 3
+	generateIndex(&descs[0], descs[3])                                      // Blob 4
 
 	ctx = context.Background()
 	for i := range blobs {
@@ -285,7 +290,7 @@ func TestSelectManifest(t *testing.T) {
 	// test SelectManifest on manifest, but the manifest is
 	// invalid by having docker mediaType config in the manifest and oci
 	// mediaType in the image config. Should return error.
-	root = descs[2]
+	root = descs[3]
 	targetPlatform = ocispec.Platform{
 		Architecture: arc_1,
 		OS:           os_1,
@@ -297,12 +302,14 @@ func TestSelectManifest(t *testing.T) {
 	}
 
 	// generate test content with null config blob
+	storage = cas.NewMemory()
 	blobs = nil
 	descs = nil
-	appendBlob(ocispec.MediaTypeImageConfig, []byte("null"))     // Blob 0
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo2"))      // Blob 1
-	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1]) // Blob 2
-	generateIndex(descs[2])                                      // Blob 3
+	appendBlob("test/subject", []byte("dummy subject"))                     // Blob 0
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("null"))                // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo2"))                 // Blob 2
+	generateManifest(arc_1, os_1, variant_1, &descs[0], descs[1], descs[2]) // Blob 3
+	generateIndex(nil, descs[3])                                            // Blob 4
 
 	ctx = context.Background()
 	for i := range blobs {
@@ -314,7 +321,7 @@ func TestSelectManifest(t *testing.T) {
 
 	// test SelectManifest on manifest with null config blob,
 	// should return not found error.
-	root = descs[2]
+	root = descs[3]
 	targetPlatform = ocispec.Platform{
 		Architecture: arc_1,
 		OS:           os_1,
@@ -326,12 +333,14 @@ func TestSelectManifest(t *testing.T) {
 	}
 
 	// generate test content with empty config blob
+	storage = cas.NewMemory()
 	blobs = nil
 	descs = nil
-	appendBlob(ocispec.MediaTypeImageConfig, []byte(""))         // Blob 0
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo3"))      // Blob 1
-	generateManifest(arc_1, os_1, variant_1, descs[0], descs[1]) // Blob 2
-	generateIndex(descs[2])                                      // Blob 3
+	appendBlob("test/subject", []byte("dummy subject"))               // Blob 0
+	appendBlob(ocispec.MediaTypeImageConfig, []byte(""))              // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo3"))           // Blob 2
+	generateManifest(arc_1, os_1, variant_1, nil, descs[1], descs[2]) // Blob 3
+	generateIndex(&descs[0], descs[3])                                // Blob 4
 
 	ctx = context.Background()
 	for i := range blobs {
@@ -343,13 +352,16 @@ func TestSelectManifest(t *testing.T) {
 
 	// test SelectManifest on manifest with empty config blob
 	// should return not found error
-	root = descs[2]
+	root = descs[3]
+
 	targetPlatform = ocispec.Platform{
 		Architecture: arc_1,
 		OS:           os_1,
 	}
+
 	_, err = SelectManifest(ctx, storage, root, &targetPlatform)
 	expected = fmt.Sprintf("%s: %v: platform in manifest does not match target platform", root.Digest, errdef.ErrNotFound)
+
 	if err.Error() != expected {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, expected)
 	}
