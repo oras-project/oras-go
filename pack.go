@@ -34,50 +34,66 @@ const (
 	// MediaTypeUnknownConfig is the default mediaType used when no
 	// config media type is specified.
 	MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
+
 	// MediaTypeUnknownArtifact is the default artifactType used when no
 	// artifact type is specified.
 	MediaTypeUnknownArtifact = "application/vnd.unknown.artifact.v1"
 )
 
-type PackManifestType int
+// PackManifestType represents the manifest type used for [Pack].
+type PackManifestType = int32
 
 const (
+	// PackManifestTypeImageManifestLegacy represents the OCI Image Manifest
+	// type defined in image-spec v1.1.0-rc2.
+	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/manifest.md
 	PackManifestTypeImageManifestLegacy PackManifestType = iota
+
+	// PackManifestTypeImageManifest represents the OCI Image Manifest type
+	// defined since image-spec v1.1.0-rc4.
+	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md
 	PackManifestTypeImageManifest
 )
 
-// ErrInvalidDateTimeFormat is returned by Pack() when
+// ErrInvalidDateTimeFormat is returned by [Pack] when
 // AnnotationArtifactCreated or AnnotationCreated is provided, but its value
 // is not in RFC 3339 format.
 // Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
 var ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
 
-// PackOptions contains parameters for [oras.Pack].
+// PackOptions contains parameters for [Pack].
 type PackOptions struct {
 	// Subject is the subject of the manifest.
 	Subject *ocispec.Descriptor
+
 	// ManifestAnnotations is the annotation map of the manifest.
 	ManifestAnnotations map[string]string
 
-	PackManifestType
 	// PackImageManifest controls whether to pack an image manifest or not.
-	//   - If true, pack an image manifest; artifactType will be used as the
-	// the config descriptor mediaType of the image manifest.
-	//   - If false, pack an artifact manifest.
+	//   - If true, pack an OCI Image Manifest
+	//   - If false, pack an OCI Artifact Manifest
 	// Default: false.
 	PackImageManifest bool
+
+	// PackManifestType controls which type of manifest to pack.
+	// This option is valid only when PackImageManifest is true.
+	// Default: PackManifestTypeImageManifestLegacy.
+	PackManifestType
+
 	// ConfigDescriptor is a pointer to the descriptor of the config blob.
 	// If not nil, artifactType will be implied by the mediaType of the
 	// specified ConfigDescriptor, and ConfigAnnotations will be ignored.
 	// This option is valid only when PackImageManifest is true.
 	ConfigDescriptor *ocispec.Descriptor
+
 	// ConfigAnnotations is the annotation map of the config descriptor.
 	// This option is valid only when PackImageManifest is true
 	// and ConfigDescriptor is nil.
 	ConfigAnnotations map[string]string
 }
 
-var DefaultPackOptions = PackOptions{
+// DefaultPackOptions provides the default PackOptions.
+var DefaultPackOptions PackOptions = PackOptions{
 	PackImageManifest: true,
 	PackManifestType:  PackManifestTypeImageManifest,
 }
@@ -85,8 +101,10 @@ var DefaultPackOptions = PackOptions{
 // Pack packs the given blobs, generates a manifest for the pack,
 // and pushes it to a content storage.
 //
-// When opts.PackImageManifest is true, artifactType will be used as the
+// When opts.PackImageManifest is true and opts.PackManifestType is
+// PackManifestTypeImageManifestLegacy, artifactType will be used as the
 // the config descriptor mediaType of the image manifest.
+//
 // If succeeded, returns a descriptor of the manifest.
 func Pack(ctx context.Context, pusher content.Pusher, artifactType string, blobs []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	if !opts.PackImageManifest {
@@ -139,9 +157,10 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 	return manifestDesc, nil
 }
 
-// packImageLegacy packs the given blobs, generates an image manifest for the pack,
-// and pushes it to a content storage. artifactType will be used as the config
-// descriptor mediaType of the image manifest.
+// packImageLegacy packs the given blobs, generates an image manifest for the
+// pack, and pushes it to a content storage.
+// artifactType will be used as the config descriptor mediaType of the image
+// manifest.
 // If succeeded, returns a descriptor of the manifest.
 func packImageLegacy(ctx context.Context, pusher content.Pusher, configMediaType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	if configMediaType == "" {
@@ -202,21 +221,25 @@ func packImageLegacy(ctx context.Context, pusher content.Pusher, configMediaType
 // packImage packs the given blobs, generates an image manifest for the pack,
 // and pushes it to a content storage.
 // If succeeded, returns a descriptor of the manifest.
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md#guidelines-for-artifact-usage
 func packImage(ctx context.Context, pusher content.Pusher, artifactType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
 		configDesc = *opts.ConfigDescriptor
-		if artifactType == "" {
-			artifactType = configDesc.MediaType
-		}
 	} else {
 		// use the empty descriptor for config
-		// reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md#guidelines-for-artifact-usage
 		configDesc = ocispec.DescriptorEmptyJSON
 		configDesc.Annotations = opts.ConfigAnnotations
 		configData := ocispec.DescriptorEmptyJSON.Data
 		if err := pusher.Push(ctx, configDesc, bytes.NewReader(configData)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+		}
+	}
+	if artifactType == "" {
+		// artifactType MUST be set when config.mediaType is set to the empty value
+		artifactType = configDesc.MediaType
+		if configDesc.MediaType == ocispec.MediaTypeEmptyJSON {
+			artifactType = MediaTypeUnknownArtifact
 		}
 	}
 
@@ -226,7 +249,6 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 	}
 	if len(layers) == 0 {
 		// use the empty descriptor as the single layer
-		// reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md#guidelines-for-artifact-usage
 		layerDesc := ocispec.DescriptorEmptyJSON
 		layerData := ocispec.DescriptorEmptyJSON.Data
 		if err := pusher.Push(ctx, layerDesc, bytes.NewReader(layerData)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
@@ -235,10 +257,6 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 		layers = []ocispec.Descriptor{layerDesc}
 	}
 
-	if artifactType == "" {
-		// artifactType MUST be set when config.mediaType is set to the empty value
-		artifactType = MediaTypeUnknownArtifact
-	}
 	manifest := ocispec.Manifest{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
@@ -256,7 +274,7 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 	}
 	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
 	// populate ArtifactType and Annotations of the manifest into manifestDesc
-	manifestDesc.ArtifactType = artifactType
+	manifestDesc.ArtifactType = manifest.ArtifactType
 	manifestDesc.Annotations = manifest.Annotations
 	// push manifest
 	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
