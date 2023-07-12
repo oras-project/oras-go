@@ -30,6 +30,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/spec"
 )
 
@@ -239,8 +240,8 @@ func Test_Pack_InvalidDateTimeFormat(t *testing.T) {
 	}
 	artifactType := "application/vnd.test"
 	_, err := Pack(ctx, s, artifactType, nil, opts)
-	if err == nil || !errors.Is(err, ErrInvalidDateTimeFormat) {
-		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, ErrInvalidDateTimeFormat)
+	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, wantErr)
 	}
 }
 
@@ -510,8 +511,8 @@ func Test_Pack_ImageLegacy_InvalidDateTimeFormat(t *testing.T) {
 		},
 	}
 	_, err := Pack(ctx, s, "", nil, opts)
-	if err == nil || !errors.Is(err, ErrInvalidDateTimeFormat) {
-		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, ErrInvalidDateTimeFormat)
+	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, wantErr)
 	}
 }
 
@@ -850,8 +851,8 @@ func Test_Pack_Image_InvalidDateTimeFormat(t *testing.T) {
 		},
 	}
 	_, err := Pack(ctx, s, "", nil, opts)
-	if err == nil || !errors.Is(err, ErrInvalidDateTimeFormat) {
-		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, ErrInvalidDateTimeFormat)
+	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, wantErr)
 	}
 }
 
@@ -925,5 +926,19 @@ func Test_Pack_DefaultPackOptions(t *testing.T) {
 	// verify descriptor annotations
 	if want := manifest.Annotations; !reflect.DeepEqual(manifestDesc.Annotations, want) {
 		t.Errorf("got descriptor annotations = %v, want %v", manifestDesc.Annotations, want)
+	}
+}
+
+func Test_Pack_UnsupportedPackManifestType(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	opts := PackOptions{
+		PackImageManifest: true,
+		PackManifestType:  -1,
+	}
+	_, err := Pack(ctx, s, "", nil, opts)
+	if wantErr := errdef.ErrUnsupported; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, wantErr)
 	}
 }
