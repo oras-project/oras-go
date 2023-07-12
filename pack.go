@@ -187,17 +187,23 @@ func packImage(ctx context.Context, pusher content.Pusher, configMediaType strin
 // packImageRC4 packs the given blobs, generates an image manifest for the pack,
 // and pushes it to a content storage.
 // If succeeded, returns a descriptor of the manifest.
+// TODO: artifact type > config media type > unknown
 func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
 		configDesc = *opts.ConfigDescriptor
+		if artifactType == "" {
+			artifactType = configDesc.MediaType
+		}
 	} else {
-		// push config
-		// TODO: is it appropriate to use the empty desc variable?
-		if err := pusher.Push(ctx, ocispec.DescriptorEmptyJSON, bytes.NewReader(ocispec.DescriptorEmptyJSON.Data)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+		// use the empty descriptor for config
+		// reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md#guidelines-for-artifact-usage
+		configDesc = ocispec.DescriptorEmptyJSON
+		configDesc.Annotations = opts.ConfigAnnotations
+		configData := ocispec.DescriptorEmptyJSON.Data
+		if err := pusher.Push(ctx, configDesc, bytes.NewReader(configData)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
 		}
-		configDesc = ocispec.DescriptorEmptyJSON
 	}
 
 	annotations, err := ensureAnnotationCreated(opts.ManifestAnnotations, ocispec.AnnotationCreated)
@@ -205,12 +211,18 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 		return ocispec.Descriptor{}, err
 	}
 	if len(layers) == 0 {
-		// push the empty layer, in case it's not pushed
-		// TODO: is it appropriate to use the empty desc variable?
-		if err := pusher.Push(ctx, ocispec.DescriptorEmptyJSON, bytes.NewReader(ocispec.DescriptorEmptyJSON.Data)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+		// use the empty descriptor as the single layer
+		// reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md#guidelines-for-artifact-usage
+		layerDesc := ocispec.DescriptorEmptyJSON
+		layerData := ocispec.DescriptorEmptyJSON.Data
+		if err := pusher.Push(ctx, layerDesc, bytes.NewReader(layerData)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push empty layer: %w", err)
 		}
-		layers = []ocispec.Descriptor{ocispec.DescriptorEmptyJSON}
+		layers = []ocispec.Descriptor{layerDesc}
+	}
+
+	if artifactType == "" {
+		artifactType = MediaTypeUnknownArtifact
 	}
 	manifest := ocispec.Manifest{
 		Versioned: specs.Versioned{
@@ -220,7 +232,7 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 		MediaType:    ocispec.MediaTypeImageManifest,
 		Layers:       layers,
 		Subject:      opts.Subject,
-		ArtifactType: artifactType, // NEW
+		ArtifactType: artifactType,
 		Annotations:  annotations,
 	}
 	manifestJSON, err := json.Marshal(manifest)
@@ -229,14 +241,12 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 	}
 	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
 	// populate ArtifactType and Annotations of the manifest into manifestDesc
-	manifestDesc.ArtifactType = manifest.Config.MediaType
+	manifestDesc.ArtifactType = artifactType
 	manifestDesc.Annotations = manifest.Annotations
-
 	// push manifest
 	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
 	}
-
 	return manifestDesc, nil
 }
 
