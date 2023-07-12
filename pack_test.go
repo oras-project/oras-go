@@ -33,7 +33,7 @@ import (
 	"oras.land/oras-go/v2/internal/spec"
 )
 
-func Test_Pack_Default(t *testing.T) {
+func Test_Pack_NoOption(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -526,7 +526,7 @@ func Test_Pack_ImageRC4(t *testing.T) {
 
 	// verify Pack
 	ctx := context.Background()
-	artifactType := "application/vnd.verify"
+	artifactType := "application/vnd.test"
 	opts := PackOptions{
 		PackImageManifest: true,
 		PackManifestType:  PackManifestTypeImageManifest,
@@ -600,7 +600,7 @@ func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 		content.NewDescriptorFromBytes("test", []byte("hello world")),
 		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
 	}
-	configBytes := []byte("{}")
+	configBytes := []byte("config")
 	configDesc := content.NewDescriptorFromBytes("testconfig", configBytes)
 	configAnnotations := map[string]string{"foo": "bar"}
 	annotations := map[string]string{
@@ -669,6 +669,52 @@ func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 		t.Errorf("Pack() = %v, want %v", manifestDesc, expectedManifestDesc)
 	}
 
+	// test Pack with ConfigDescriptor, but without artifactType
+	manifestDesc, err = Pack(ctx, s, "", layers, opts)
+	if err != nil {
+		t.Fatal("Oras.Pack() error =", err)
+	}
+
+	expectedManifest = ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType:    ocispec.MediaTypeImageManifest,
+		ArtifactType: configDesc.MediaType,
+		Subject:      &subjectDesc,
+		Config:       configDesc,
+		Layers:       layers,
+		Annotations:  annotations,
+	}
+	expectedManifestBytes, err = json.Marshal(expectedManifest)
+	if err != nil {
+		t.Fatal("failed to marshal manifest:", err)
+	}
+
+	rc, err = s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	got, err = io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Store.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Store.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, expectedManifestBytes) {
+		t.Errorf("Store.Fetch() = %v, want %v", string(got), string(expectedManifestBytes))
+	}
+
+	// verify descriptor
+	expectedManifestDesc = content.NewDescriptorFromBytes(expectedManifest.MediaType, expectedManifestBytes)
+	expectedManifestDesc.ArtifactType = expectedManifest.ArtifactType
+	expectedManifestDesc.Annotations = expectedManifest.Annotations
+	if !reflect.DeepEqual(manifestDesc, expectedManifestDesc) {
+		t.Errorf("Pack() = %v, want %v", manifestDesc, expectedManifestDesc)
+	}
+
 	// test Pack without ConfigDescriptor
 	opts = PackOptions{
 		PackImageManifest:   true,
@@ -722,5 +768,162 @@ func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 	expectedManifestDesc.Annotations = expectedManifest.Annotations
 	if !reflect.DeepEqual(manifestDesc, expectedManifestDesc) {
 		t.Errorf("Pack() = %v, want %v", manifestDesc, expectedManifestDesc)
+	}
+}
+
+func Test_Pack_ImageRC4_NoArtifactType(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	opts := PackOptions{
+		PackImageManifest: true,
+		PackManifestType:  PackManifestTypeImageManifest,
+	}
+	manifestDesc, err := Pack(ctx, s, "", nil, opts)
+	if err != nil {
+		t.Fatal("Oras.Pack() error =", err)
+	}
+
+	var manifest ocispec.Manifest
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		t.Fatal("error decoding manifest, error =", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal("Store.Fetch().Close() error =", err)
+	}
+
+	// verify artifact type
+	if want := MediaTypeUnknownArtifact; manifest.ArtifactType != want {
+		t.Fatalf("got artifact type = %s, want %s", manifest.ArtifactType, want)
+	}
+	if want := MediaTypeUnknownArtifact; manifestDesc.ArtifactType != want {
+		t.Fatalf("got artifact type = %s, want %s", manifestDesc.ArtifactType, want)
+	}
+}
+
+func Test_Pack_ImageRC4_NoLayer(t *testing.T) {
+	s := memory.New()
+
+	// test Pack
+	ctx := context.Background()
+	opts := PackOptions{
+		PackImageManifest: true,
+		PackManifestType:  PackManifestTypeImageManifest,
+	}
+	manifestDesc, err := Pack(ctx, s, "", nil, opts)
+	if err != nil {
+		t.Fatal("Oras.Pack() error =", err)
+	}
+
+	var manifest ocispec.Manifest
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		t.Fatal("error decoding manifest, error =", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal("Store.Fetch().Close() error =", err)
+	}
+
+	// verify layers
+	expectedLayers := []ocispec.Descriptor{ocispec.DescriptorEmptyJSON}
+	if !reflect.DeepEqual(manifest.Layers, expectedLayers) {
+		t.Errorf("got layers = %v, want %v", manifest.Layers, expectedLayers)
+	}
+}
+
+func Test_Pack_ImageRC4_InvalidDateTimeFormat(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	opts := PackOptions{
+		PackImageManifest: true,
+		PackManifestType:  PackManifestTypeImageManifest,
+		ManifestAnnotations: map[string]string{
+			ocispec.AnnotationCreated: "2000/01/01 00:00:00",
+		},
+	}
+	_, err := Pack(ctx, s, "", nil, opts)
+	if err == nil || !errors.Is(err, ErrInvalidDateTimeFormat) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, ErrInvalidDateTimeFormat)
+	}
+}
+
+func Test_Pack_DefaultPackOptions(t *testing.T) {
+	s := memory.New()
+
+	// prepare test content
+	layers := []ocispec.Descriptor{
+		content.NewDescriptorFromBytes("test", []byte("hello world")),
+		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
+	}
+
+	// verify Pack
+	ctx := context.Background()
+	artifactType := "application/vnd.test"
+	manifestDesc, err := Pack(ctx, s, artifactType, layers, DefaultPackOptions)
+	if err != nil {
+		t.Fatal("Oras.Pack() error =", err)
+	}
+
+	// verify manifest
+	var manifest ocispec.Manifest
+	rc, err := s.Fetch(ctx, manifestDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
+		t.Fatal("error decoding manifest, error =", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal("Store.Fetch().Close() error =", err)
+	}
+
+	// verify media type
+	got := manifest.MediaType
+	if got != ocispec.MediaTypeImageManifest {
+		t.Fatalf("got media type = %s, want %s", got, ocispec.MediaTypeImageManifest)
+	}
+
+	// verify config
+	expectedConfig := ocispec.DescriptorEmptyJSON
+	if !reflect.DeepEqual(manifest.Config, expectedConfig) {
+		t.Errorf("got config = %v, want %v", manifest.Config, expectedConfig)
+	}
+
+	// verify layers
+	if !reflect.DeepEqual(manifest.Layers, layers) {
+		t.Errorf("got layers = %v, want %v", manifest.Layers, layers)
+	}
+
+	// verify created time annotation
+	createdTime, ok := manifest.Annotations[ocispec.AnnotationCreated]
+	if !ok {
+		t.Errorf("Annotation %s = %v, want %v", ocispec.AnnotationCreated, ok, true)
+	}
+	_, err = time.Parse(time.RFC3339, createdTime)
+	if err != nil {
+		t.Errorf("error parsing created time: %s, error = %v", createdTime, err)
+	}
+
+	// verify artifact type
+	if !reflect.DeepEqual(manifest.ArtifactType, artifactType) {
+		t.Errorf("got artifactType = %v, want %v", manifest.ArtifactType, artifactType)
+	}
+
+	// verify descriptor artifact type
+	if want := manifest.ArtifactType; !reflect.DeepEqual(manifestDesc.ArtifactType, want) {
+		t.Errorf("got descriptor artifactType = %v, want %v", manifestDesc.ArtifactType, want)
+	}
+
+	// verify descriptor annotations
+	if want := manifest.Annotations; !reflect.DeepEqual(manifestDesc.Annotations, want) {
+		t.Errorf("got descriptor annotations = %v, want %v", manifestDesc.Annotations, want)
 	}
 }

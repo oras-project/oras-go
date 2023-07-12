@@ -77,6 +77,11 @@ type PackOptions struct {
 	ConfigAnnotations map[string]string
 }
 
+var DefaultPackOptions = PackOptions{
+	PackImageManifest: true,
+	PackManifestType:  PackManifestTypeImageManifest,
+}
+
 // Pack packs the given blobs, generates a manifest for the pack,
 // and pushes it to a content storage.
 //
@@ -176,7 +181,6 @@ func packImageLegacy(ctx context.Context, pusher content.Pusher, configMediaType
 		Layers:      layers,
 		Subject:     opts.Subject,
 		Annotations: annotations,
-		// TODO: artifact type?
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
