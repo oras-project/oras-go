@@ -187,7 +187,6 @@ func packImage(ctx context.Context, pusher content.Pusher, configMediaType strin
 // packImageRC4 packs the given blobs, generates an image manifest for the pack,
 // and pushes it to a content storage.
 // If succeeded, returns a descriptor of the manifest.
-// TODO: artifact type > config media type > unknown
 func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
@@ -222,6 +221,7 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 	}
 
 	if artifactType == "" {
+		// artifactType MUST be set when config.mediaType is set to the empty value
 		artifactType = MediaTypeUnknownArtifact
 	}
 	manifest := ocispec.Manifest{
