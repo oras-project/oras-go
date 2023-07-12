@@ -39,6 +39,13 @@ const (
 	MediaTypeUnknownArtifact = "application/vnd.unknown.artifact.v1"
 )
 
+type PackManifestType int
+
+const (
+	PackManifestTypeImageManifestLegacy PackManifestType = iota
+	PackManifestTypeImageManifest
+)
+
 // ErrInvalidDateTimeFormat is returned by Pack() when
 // AnnotationArtifactCreated or AnnotationCreated is provided, but its value
 // is not in RFC 3339 format.
@@ -52,8 +59,7 @@ type PackOptions struct {
 	// ManifestAnnotations is the annotation map of the manifest.
 	ManifestAnnotations map[string]string
 
-	// TODO: introduce enum?
-	PackImageManifestRC4 bool
+	PackManifestType
 	// PackImageManifest controls whether to pack an image manifest or not.
 	//   - If true, pack an image manifest; artifactType will be used as the
 	// the config descriptor mediaType of the image manifest.
@@ -82,10 +88,14 @@ func Pack(ctx context.Context, pusher content.Pusher, artifactType string, blobs
 		return packArtifact(ctx, pusher, artifactType, blobs, opts)
 	}
 
-	if opts.PackImageManifestRC4 {
-		return packImageRC4(ctx, pusher, artifactType, blobs, opts)
+	switch opts.PackManifestType {
+	case PackManifestTypeImageManifestLegacy:
+		return packImageLegacy(ctx, pusher, artifactType, blobs, opts)
+	case PackManifestTypeImageManifest:
+		return packImage(ctx, pusher, artifactType, blobs, opts)
+	default:
+		return ocispec.Descriptor{}, fmt.Errorf("PackManifestType %v is unsupported: %w", opts.PackManifestType, errdef.ErrUnsupported)
 	}
-	return packImage(ctx, pusher, artifactType, blobs, opts)
 }
 
 // packArtifact packs the given blobs, generates an artifact manifest for the
@@ -124,11 +134,11 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 	return manifestDesc, nil
 }
 
-// packImage packs the given blobs, generates an image manifest for the pack,
+// packImageLegacy packs the given blobs, generates an image manifest for the pack,
 // and pushes it to a content storage. artifactType will be used as the config
 // descriptor mediaType of the image manifest.
 // If succeeded, returns a descriptor of the manifest.
-func packImage(ctx context.Context, pusher content.Pusher, configMediaType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
+func packImageLegacy(ctx context.Context, pusher content.Pusher, configMediaType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	if configMediaType == "" {
 		configMediaType = MediaTypeUnknownConfig
 	}
@@ -166,6 +176,7 @@ func packImage(ctx context.Context, pusher content.Pusher, configMediaType strin
 		Layers:      layers,
 		Subject:     opts.Subject,
 		Annotations: annotations,
+		// TODO: artifact type?
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
@@ -184,10 +195,10 @@ func packImage(ctx context.Context, pusher content.Pusher, configMediaType strin
 	return manifestDesc, nil
 }
 
-// packImageRC4 packs the given blobs, generates an image manifest for the pack,
+// packImage packs the given blobs, generates an image manifest for the pack,
 // and pushes it to a content storage.
 // If succeeded, returns a descriptor of the manifest.
-func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
+func packImage(ctx context.Context, pusher content.Pusher, artifactType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
 		configDesc = *opts.ConfigDescriptor
