@@ -244,7 +244,7 @@ func Test_Pack_InvalidDateTimeFormat(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image(t *testing.T) {
+func Test_Pack_ImageLegacy(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -311,7 +311,7 @@ func Test_Pack_Image(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image_WithOptions(t *testing.T) {
+func Test_Pack_ImageLegacy_WithOptions(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -440,7 +440,7 @@ func Test_Pack_Image_WithOptions(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image_NoArtifactType(t *testing.T) {
+func Test_Pack_ImageLegacy_NoArtifactType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
@@ -470,7 +470,7 @@ func Test_Pack_Image_NoArtifactType(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image_NoLayer(t *testing.T) {
+func Test_Pack_ImageLegacy_NoLayer(t *testing.T) {
 	s := memory.New()
 
 	// test Pack
@@ -499,7 +499,7 @@ func Test_Pack_Image_NoLayer(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image_InvalidDateTimeFormat(t *testing.T) {
+func Test_Pack_ImageLegacy_InvalidDateTimeFormat(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
@@ -515,7 +515,7 @@ func Test_Pack_Image_InvalidDateTimeFormat(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageRC4(t *testing.T) {
+func Test_Pack_Image(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -592,7 +592,7 @@ func Test_Pack_ImageRC4(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
+func Test_Pack_Image_WithOptions(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -771,7 +771,7 @@ func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageRC4_NoArtifactType(t *testing.T) {
+func Test_Pack_Image_NoArtifactType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
@@ -805,7 +805,7 @@ func Test_Pack_ImageRC4_NoArtifactType(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageRC4_NoLayer(t *testing.T) {
+func Test_Pack_Image_NoLayer(t *testing.T) {
 	s := memory.New()
 
 	// test Pack
@@ -838,7 +838,7 @@ func Test_Pack_ImageRC4_NoLayer(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageRC4_InvalidDateTimeFormat(t *testing.T) {
+func Test_Pack_Image_InvalidDateTimeFormat(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
