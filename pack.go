@@ -64,7 +64,7 @@ var (
 
 	// ErrMissingArtifactType is returned by [Pack] when artifactType is not
 	// specified and the config media type is set to
-	//  "application/vnd.oci.empty.v1+json".
+	// "application/vnd.oci.empty.v1+json" (the default config).
 	ErrMissingArtifactType = errors.New("missing artifact type")
 )
 
@@ -109,7 +109,7 @@ var DefaultPackOptions PackOptions = PackOptions{
 // and pushes it to a content storage.
 //
 //   - If opts.PackImageManifest is true and opts.PackManifestType is
-//     PackManifestTypeImageManifestLegacy (default value),
+//     PackManifestTypeImageManifestLegacy (the default value),
 //     artifactType will be used as the the config media type of the image
 //     manifest when opts.ConfigDescriptor is not specified.
 //   - If opts.PackImageManifest is true and opts.PackManifestType is
@@ -249,7 +249,7 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 	if artifactType == "" {
 		if configDesc.MediaType == ocispec.MediaTypeEmptyJSON {
 			// artifactType MUST be set when config.mediaType is set to the empty value
-			return ocispec.Descriptor{}, fmt.Errorf("artifactType must be set when the config media type is the empty value: %w", ErrMissingArtifactType)
+			return ocispec.Descriptor{}, ErrMissingArtifactType
 		}
 		artifactType = configDesc.MediaType
 	}
