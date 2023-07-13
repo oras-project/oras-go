@@ -119,12 +119,18 @@ func Test_Pack_WithOptions(t *testing.T) {
 		ArtifactType: artifactType,
 		Annotations:  annotations,
 	}
+	configBytes := []byte("{}")
+	configDesc := content.NewDescriptorFromBytes("testconfig", configBytes)
+	configAnnotations := map[string]string{"foo": "bar"}
 
 	// test Pack
 	ctx := context.Background()
 	opts := PackOptions{
 		Subject:             &subjectDesc,
 		ManifestAnnotations: annotations,
+		ConfigDescriptor:    &configDesc,                   // should not work
+		ConfigAnnotations:   configAnnotations,             // should not work
+		PackManifestType:    PackManifestTypeImageManifest, // should not work
 	}
 	manifestDesc, err := Pack(ctx, s, artifactType, blobs, opts)
 	if err != nil {
@@ -390,6 +396,7 @@ func Test_Pack_ImageLegacy_WithOptions(t *testing.T) {
 	// test Pack without ConfigDescriptor
 	opts = PackOptions{
 		PackImageManifest:   true,
+		PackManifestType:    PackManifestTypeImageManifestLegacy,
 		Subject:             &subjectDesc,
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
