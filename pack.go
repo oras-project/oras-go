@@ -55,11 +55,18 @@ const (
 	PackManifestTypeImageManifest
 )
 
-// ErrInvalidDateTimeFormat is returned by [Pack] when
-// AnnotationArtifactCreated or AnnotationCreated is provided, but its value
-// is not in RFC 3339 format.
-// Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
-var ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
+var (
+	// ErrInvalidDateTimeFormat is returned by [Pack] when
+	// AnnotationArtifactCreated or AnnotationCreated is provided, but its value
+	// is not in RFC 3339 format.
+	// Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
+	ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
+
+	// ErrMissingArtifactType is returned by [Pack] when artifactType is not
+	// specified and the config media type is set to
+	//  "application/vnd.oci.empty.v1+json".
+	ErrMissingArtifactType = errors.New("missing artifact type")
+)
 
 // PackOptions contains parameters for [Pack].
 type PackOptions struct {
@@ -101,9 +108,13 @@ var DefaultPackOptions PackOptions = PackOptions{
 // Pack packs the given blobs, generates a manifest for the pack,
 // and pushes it to a content storage.
 //
-// When opts.PackImageManifest is true and opts.PackManifestType is
-// PackManifestTypeImageManifestLegacy, artifactType will be used as the
-// the config descriptor mediaType of the image manifest.
+//   - If opts.PackImageManifest is true and opts.PackManifestType is
+//     PackManifestTypeImageManifestLegacy (default value),
+//     artifactType will be used as the the config media type of the image
+//     manifest when opts.ConfigDescriptor is not specified.
+//   - If opts.PackImageManifest is true and opts.PackManifestType is
+//     PackManifestTypeImageManifest, [ErrMissingArtifactType] will be returned
+//     when none of artifactType and opts.ConfigDescriptor is specified.
 //
 // If succeeded, returns a descriptor of the manifest.
 func Pack(ctx context.Context, pusher content.Pusher, artifactType string, blobs []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
@@ -236,11 +247,11 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 		}
 	}
 	if artifactType == "" {
-		// artifactType MUST be set when config.mediaType is set to the empty value
-		artifactType = configDesc.MediaType
 		if configDesc.MediaType == ocispec.MediaTypeEmptyJSON {
-			artifactType = MediaTypeUnknownArtifact
+			// artifactType MUST be set when config.mediaType is set to the empty value
+			return ocispec.Descriptor{}, fmt.Errorf("artifactType must be set when the config media type is the empty value: %w", ErrMissingArtifactType)
 		}
+		artifactType = configDesc.MediaType
 	}
 
 	annotations, err := ensureAnnotationCreated(opts.ManifestAnnotations, ocispec.AnnotationCreated)

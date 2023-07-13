@@ -780,29 +780,9 @@ func Test_Pack_Image_NoArtifactType(t *testing.T) {
 		PackImageManifest: true,
 		PackManifestType:  PackManifestTypeImageManifest,
 	}
-	manifestDesc, err := Pack(ctx, s, "", nil, opts)
-	if err != nil {
-		t.Fatal("Oras.Pack() error =", err)
-	}
-
-	var manifest ocispec.Manifest
-	rc, err := s.Fetch(ctx, manifestDesc)
-	if err != nil {
-		t.Fatal("Store.Fetch() error =", err)
-	}
-	if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
-		t.Fatal("error decoding manifest, error =", err)
-	}
-	if err := rc.Close(); err != nil {
-		t.Fatal("Store.Fetch().Close() error =", err)
-	}
-
-	// verify artifact type
-	if want := MediaTypeUnknownArtifact; manifest.ArtifactType != want {
-		t.Fatalf("got artifact type = %s, want %s", manifest.ArtifactType, want)
-	}
-	if want := MediaTypeUnknownArtifact; manifestDesc.ArtifactType != want {
-		t.Fatalf("got artifact type = %s, want %s", manifestDesc.ArtifactType, want)
+	_, err := Pack(ctx, s, "", nil, opts)
+	if wantErr := ErrMissingArtifactType; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, wantErr)
 	}
 }
 
@@ -815,7 +795,7 @@ func Test_Pack_Image_NoLayer(t *testing.T) {
 		PackImageManifest: true,
 		PackManifestType:  PackManifestTypeImageManifest,
 	}
-	manifestDesc, err := Pack(ctx, s, "", nil, opts)
+	manifestDesc, err := Pack(ctx, s, "test", nil, opts)
 	if err != nil {
 		t.Fatal("Oras.Pack() error =", err)
 	}
@@ -850,7 +830,7 @@ func Test_Pack_Image_InvalidDateTimeFormat(t *testing.T) {
 			ocispec.AnnotationCreated: "2000/01/01 00:00:00",
 		},
 	}
-	_, err := Pack(ctx, s, "", nil, opts)
+	_, err := Pack(ctx, s, "test", nil, opts)
 	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, wantErr)
 	}
