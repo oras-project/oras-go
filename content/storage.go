@@ -37,6 +37,12 @@ type Pusher interface {
 	Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error
 }
 
+// ExistChecker checks the existence of content.
+type ExistChecker interface {
+	// Exists returns true if the described content exists.
+	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
+}
+
 // Storage represents a content-addressable storage (CAS) where contents are
 // accessed via Descriptors.
 // The storage is designed to handle blobs of large sizes.
@@ -48,9 +54,7 @@ type Storage interface {
 // ReadOnlyStorage represents a read-only Storage.
 type ReadOnlyStorage interface {
 	Fetcher
-
-	// Exists returns true if the described content exists.
-	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
+	ExistChecker
 }
 
 // Deleter removes content.

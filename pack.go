@@ -194,8 +194,8 @@ func packImageLegacy(ctx context.Context, pusher content.Pusher, configMediaType
 		configDesc = content.NewDescriptorFromBytes(configMediaType, configBytes)
 		configDesc.Annotations = opts.ConfigAnnotations
 		// push config
-		if err := pusher.Push(ctx, configDesc, bytes.NewReader(configBytes)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+		if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {
+			return ocispec.Descriptor{}, err
 		}
 	}
 
@@ -229,7 +229,6 @@ func packImageLegacy(ctx context.Context, pusher content.Pusher, configMediaType
 	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
 	}
-
 	return manifestDesc, nil
 }
 
@@ -238,6 +237,7 @@ func packImageLegacy(ctx context.Context, pusher content.Pusher, configMediaType
 // If succeeded, returns a descriptor of the manifest.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md#guidelines-for-artifact-usage
 func packImage(ctx context.Context, pusher content.Pusher, artifactType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
+	var emptyBlobExists bool
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
 		configDesc = *opts.ConfigDescriptor
@@ -246,9 +246,11 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 		configDesc = ocispec.DescriptorEmptyJSON
 		configDesc.Annotations = opts.ConfigAnnotations
 		configData := ocispec.DescriptorEmptyJSON.Data
-		if err := pusher.Push(ctx, configDesc, bytes.NewReader(configData)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+		// push config
+		if err := pushIfNotExist(ctx, pusher, configDesc, configData); err != nil {
+			return ocispec.Descriptor{}, err
 		}
+		emptyBlobExists = true
 	}
 	if artifactType == "" {
 		if configDesc.MediaType == ocispec.MediaTypeEmptyJSON {
@@ -266,8 +268,10 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 		// use the empty descriptor as the single layer
 		layerDesc := ocispec.DescriptorEmptyJSON
 		layerData := ocispec.DescriptorEmptyJSON.Data
-		if err := pusher.Push(ctx, layerDesc, bytes.NewReader(layerData)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to push empty layer: %w", err)
+		if !emptyBlobExists {
+			if err := pushIfNotExist(ctx, pusher, layerDesc, layerData); err != nil {
+				return ocispec.Descriptor{}, err
+			}
 		}
 		layers = []ocispec.Descriptor{layerDesc}
 	}
@@ -296,6 +300,28 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
 	}
 	return manifestDesc, nil
+}
+
+// pushIfNotExist pushes data described by desc if it does not exist in the
+// target.
+func pushIfNotExist(ctx context.Context, pusher content.Pusher, desc ocispec.Descriptor, data []byte) error {
+	ec, ok := pusher.(content.ExistChecker)
+	var exists bool
+	if ok {
+		var err error
+		exists, err = ec.Exists(ctx, desc)
+		if err != nil {
+			return fmt.Errorf("failed to check existence: %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
+		}
+	}
+	if exists {
+		return nil
+	}
+
+	if err := pusher.Push(ctx, desc, bytes.NewReader(data)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+		return fmt.Errorf("failed to push: %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
+	}
+	return nil
 }
 
 // ensureAnnotationCreated ensures that annotationCreatedKey is in annotations,
