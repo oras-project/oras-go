@@ -41,12 +41,15 @@ const (
 )
 
 // PackManifestType represents the manifest type used for [Pack].
-type PackManifestType = int32
+type PackManifestType = int
 
 const (
 	// PackManifestTypeImageManifestLegacy represents the OCI Image Manifest
 	// type defined in image-spec v1.1.0-rc2.
 	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/manifest.md
+	//
+	// Deprecated: This type is deprecated and will be removed the next major
+	// version.
 	PackManifestTypeImageManifestLegacy PackManifestType = iota
 
 	// PackManifestTypeImageManifest represents the OCI Image Manifest type
@@ -85,7 +88,7 @@ type PackOptions struct {
 	// PackManifestType controls which type of manifest to pack.
 	// This option is valid only when PackImageManifest is true.
 	// Default: PackManifestTypeImageManifestLegacy.
-	PackManifestType
+	PackManifestType PackManifestType
 
 	// ConfigDescriptor is a pointer to the descriptor of the config blob.
 	// If not nil, artifactType will be implied by the mediaType of the
@@ -100,6 +103,7 @@ type PackOptions struct {
 }
 
 // DefaultPackOptions provides the default PackOptions.
+// Note that the default options are subject to change in the future.
 var DefaultPackOptions PackOptions = PackOptions{
 	PackImageManifest: true,
 	PackManifestType:  PackManifestTypeImageManifest,
@@ -109,7 +113,7 @@ var DefaultPackOptions PackOptions = PackOptions{
 // and pushes it to a content storage.
 //
 //   - If opts.PackImageManifest is true and opts.PackManifestType is
-//     PackManifestTypeImageManifestLegacy (the default value),
+//     PackManifestTypeImageManifestLegacy,
 //     artifactType will be used as the the config media type of the image
 //     manifest when opts.ConfigDescriptor is not specified.
 //   - If opts.PackImageManifest is true and opts.PackManifestType is
@@ -128,7 +132,7 @@ func Pack(ctx context.Context, pusher content.Pusher, artifactType string, blobs
 	case PackManifestTypeImageManifest:
 		return packImage(ctx, pusher, artifactType, blobs, opts)
 	default:
-		return ocispec.Descriptor{}, fmt.Errorf("PackManifestType %v is unsupported: %w", opts.PackManifestType, errdef.ErrUnsupported)
+		return ocispec.Descriptor{}, fmt.Errorf("PackManifestType(%v): %w", opts.PackManifestType, errdef.ErrUnsupported)
 	}
 }
 
