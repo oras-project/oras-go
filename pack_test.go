@@ -34,7 +34,7 @@ import (
 	"oras.land/oras-go/v2/internal/spec"
 )
 
-func Test_Pack_NoOption(t *testing.T) {
+func Test_Pack_Artifact_NoOption(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -98,7 +98,7 @@ func Test_Pack_NoOption(t *testing.T) {
 	}
 }
 
-func Test_Pack_WithOptions(t *testing.T) {
+func Test_Pack_Artifact_WithOptions(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -128,9 +128,9 @@ func Test_Pack_WithOptions(t *testing.T) {
 	opts := PackOptions{
 		Subject:             &subjectDesc,
 		ManifestAnnotations: annotations,
-		ConfigDescriptor:    &configDesc,                   // should not work
-		ConfigAnnotations:   configAnnotations,             // should not work
-		PackManifestType:    PackManifestTypeImageManifest, // should not work
+		ConfigDescriptor:    &configDesc,                     // should not work
+		ConfigAnnotations:   configAnnotations,               // should not work
+		PackManifestType:    PackManifestTypeImageV1_1_0_RC4, // should not work
 	}
 	manifestDesc, err := Pack(ctx, s, artifactType, blobs, opts)
 	if err != nil {
@@ -175,7 +175,7 @@ func Test_Pack_WithOptions(t *testing.T) {
 	}
 }
 
-func Test_Pack_NoBlob(t *testing.T) {
+func Test_Pack_Artifact_NoBlob(t *testing.T) {
 	s := memory.New()
 
 	// test Pack
@@ -205,7 +205,7 @@ func Test_Pack_NoBlob(t *testing.T) {
 	}
 }
 
-func Test_Pack_NoArtifactType(t *testing.T) {
+func Test_Pack_Artifact_NoArtifactType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
@@ -235,7 +235,7 @@ func Test_Pack_NoArtifactType(t *testing.T) {
 	}
 }
 
-func Test_Pack_InvalidDateTimeFormat(t *testing.T) {
+func Test_Pack_Artifact_InvalidDateTimeFormat(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
@@ -251,7 +251,7 @@ func Test_Pack_InvalidDateTimeFormat(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageLegacy(t *testing.T) {
+func Test_Pack_ImageRC2(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -318,7 +318,7 @@ func Test_Pack_ImageLegacy(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageLegacy_WithOptions(t *testing.T) {
+func Test_Pack_ImageRC2_WithOptions(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -396,7 +396,7 @@ func Test_Pack_ImageLegacy_WithOptions(t *testing.T) {
 	// test Pack without ConfigDescriptor
 	opts = PackOptions{
 		PackImageManifest:   true,
-		PackManifestType:    PackManifestTypeImageManifestLegacy,
+		PackManifestType:    PackManifestTypeImageV1_1_0_RC2,
 		Subject:             &subjectDesc,
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
@@ -448,7 +448,7 @@ func Test_Pack_ImageLegacy_WithOptions(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageLegacy_NoArtifactType(t *testing.T) {
+func Test_Pack_ImageRC2_NoArtifactType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
@@ -478,7 +478,7 @@ func Test_Pack_ImageLegacy_NoArtifactType(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageLegacy_NoLayer(t *testing.T) {
+func Test_Pack_ImageRC2_NoLayer(t *testing.T) {
 	s := memory.New()
 
 	// test Pack
@@ -507,7 +507,7 @@ func Test_Pack_ImageLegacy_NoLayer(t *testing.T) {
 	}
 }
 
-func Test_Pack_ImageLegacy_InvalidDateTimeFormat(t *testing.T) {
+func Test_Pack_ImageRC2_InvalidDateTimeFormat(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
@@ -523,7 +523,7 @@ func Test_Pack_ImageLegacy_InvalidDateTimeFormat(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image(t *testing.T) {
+func Test_Pack_ImageRC4(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -537,7 +537,7 @@ func Test_Pack_Image(t *testing.T) {
 	artifactType := "application/vnd.test"
 	opts := PackOptions{
 		PackImageManifest: true,
-		PackManifestType:  PackManifestTypeImageManifest,
+		PackManifestType:  PackManifestTypeImageV1_1_0_RC4,
 	}
 	manifestDesc, err := Pack(ctx, s, artifactType, layers, opts)
 	if err != nil {
@@ -600,7 +600,7 @@ func Test_Pack_Image(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image_WithOptions(t *testing.T) {
+func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -626,7 +626,7 @@ func Test_Pack_Image_WithOptions(t *testing.T) {
 	ctx := context.Background()
 	opts := PackOptions{
 		PackImageManifest:   true,
-		PackManifestType:    PackManifestTypeImageManifest,
+		PackManifestType:    PackManifestTypeImageV1_1_0_RC4,
 		Subject:             &subjectDesc,
 		ConfigDescriptor:    &configDesc,
 		ConfigAnnotations:   configAnnotations,
@@ -726,7 +726,7 @@ func Test_Pack_Image_WithOptions(t *testing.T) {
 	// test Pack without ConfigDescriptor
 	opts = PackOptions{
 		PackImageManifest:   true,
-		PackManifestType:    PackManifestTypeImageManifest,
+		PackManifestType:    PackManifestTypeImageV1_1_0_RC4,
 		Subject:             &subjectDesc,
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
@@ -779,13 +779,13 @@ func Test_Pack_Image_WithOptions(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image_NoArtifactType(t *testing.T) {
+func Test_Pack_ImageRC4_NoArtifactType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
 	opts := PackOptions{
 		PackImageManifest: true,
-		PackManifestType:  PackManifestTypeImageManifest,
+		PackManifestType:  PackManifestTypeImageV1_1_0_RC4,
 	}
 	_, err := Pack(ctx, s, "", nil, opts)
 	if wantErr := ErrMissingArtifactType; !errors.Is(err, wantErr) {
@@ -793,14 +793,14 @@ func Test_Pack_Image_NoArtifactType(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image_NoLayer(t *testing.T) {
+func Test_Pack_ImageRC4_NoLayer(t *testing.T) {
 	s := memory.New()
 
 	// test Pack
 	ctx := context.Background()
 	opts := PackOptions{
 		PackImageManifest: true,
-		PackManifestType:  PackManifestTypeImageManifest,
+		PackManifestType:  PackManifestTypeImageV1_1_0_RC4,
 	}
 	manifestDesc, err := Pack(ctx, s, "test", nil, opts)
 	if err != nil {
@@ -826,13 +826,13 @@ func Test_Pack_Image_NoLayer(t *testing.T) {
 	}
 }
 
-func Test_Pack_Image_InvalidDateTimeFormat(t *testing.T) {
+func Test_Pack_ImageRC4_InvalidDateTimeFormat(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
 	opts := PackOptions{
 		PackImageManifest: true,
-		PackManifestType:  PackManifestTypeImageManifest,
+		PackManifestType:  PackManifestTypeImageV1_1_0_RC4,
 		ManifestAnnotations: map[string]string{
 			ocispec.AnnotationCreated: "2000/01/01 00:00:00",
 		},
