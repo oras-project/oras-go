@@ -245,9 +245,9 @@ func packImage(ctx context.Context, pusher content.Pusher, artifactType string, 
 		// use the empty descriptor for config
 		configDesc = ocispec.DescriptorEmptyJSON
 		configDesc.Annotations = opts.ConfigAnnotations
-		configData := ocispec.DescriptorEmptyJSON.Data
+		configBytes := ocispec.DescriptorEmptyJSON.Data
 		// push config
-		if err := pushIfNotExist(ctx, pusher, configDesc, configData); err != nil {
+		if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {
 			return ocispec.Descriptor{}, err
 		}
 		emptyBlobExists = true
