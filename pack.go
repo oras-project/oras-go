@@ -159,27 +159,11 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 		Subject:      opts.Subject,
 		Annotations:  annotations,
 	}
-	manifestJSON, err := json.Marshal(manifest)
-	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
-	}
-	manifestDesc := content.NewDescriptorFromBytes(spec.MediaTypeArtifactManifest, manifestJSON)
-	// populate ArtifactType and Annotations of the manifest into manifestDesc
-	manifestDesc.ArtifactType = manifest.ArtifactType
-	manifestDesc.Annotations = manifest.Annotations
-
-	// push manifest
-	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
-	}
-
-	return manifestDesc, nil
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, manifest.Annotations)
 }
 
 // packImageRC2 packs the given blobs, generates an image manifest for the
 // pack, and pushes it to a content storage.
-// artifactType will be used as the config descriptor mediaType of the image
-// manifest.
 // If succeeded, returns a descriptor of the manifest.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/manifest.md
 func packImageRC2(ctx context.Context, pusher content.Pusher, configMediaType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
@@ -221,20 +205,7 @@ func packImageRC2(ctx context.Context, pusher content.Pusher, configMediaType st
 		Subject:     opts.Subject,
 		Annotations: annotations,
 	}
-	manifestJSON, err := json.Marshal(manifest)
-	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
-	}
-	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
-	// populate ArtifactType and Annotations of the manifest into manifestDesc
-	manifestDesc.ArtifactType = manifest.Config.MediaType
-	manifestDesc.Annotations = manifest.Annotations
-
-	// push manifest
-	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
-	}
-	return manifestDesc, nil
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, annotations)
 }
 
 // packImageRC4 packs the given blobs, generates an image manifest for the pack,
@@ -292,26 +263,14 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 		ArtifactType: artifactType,
 		Annotations:  annotations,
 	}
-	manifestJSON, err := json.Marshal(manifest)
-	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
-	}
-	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
-	// populate ArtifactType and Annotations of the manifest into manifestDesc
-	manifestDesc.ArtifactType = manifest.ArtifactType
-	manifestDesc.Annotations = manifest.Annotations
-	// push manifest
-	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
-	}
-	return manifestDesc, nil
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, annotations)
 }
 
 // pushIfNotExist pushes data described by desc if it does not exist in the
 // target.
 func pushIfNotExist(ctx context.Context, pusher content.Pusher, desc ocispec.Descriptor, data []byte) error {
-	ec, ok := pusher.(content.ExistenceChecker)
 	var exists bool
+	ec, ok := pusher.(content.ExistenceChecker)
 	if ok {
 		var err error
 		exists, err = ec.Exists(ctx, desc)
@@ -327,6 +286,23 @@ func pushIfNotExist(ctx context.Context, pusher content.Pusher, desc ocispec.Des
 		return fmt.Errorf("failed to push: %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
 	}
 	return nil
+}
+
+// pushManifest marshals manifest into JSON bytes and pushes it.
+func pushManifest(ctx context.Context, pusher content.Pusher, manifest any, mediaType string, artifactType string, annotations map[string]string) (ocispec.Descriptor, error) {
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
+	}
+	manifestDesc := content.NewDescriptorFromBytes(mediaType, manifestJSON)
+	// populate ArtifactType and Annotations of the manifest into manifestDesc
+	manifestDesc.ArtifactType = artifactType
+	manifestDesc.Annotations = annotations
+	// push manifest
+	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
+	}
+	return manifestDesc, nil
 }
 
 // ensureAnnotationCreated ensures that annotationCreatedKey is in annotations,
