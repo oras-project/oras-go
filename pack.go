@@ -51,8 +51,8 @@ const (
 	// defined in image-spec v1.1.0-rc2.
 	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/manifest.md
 	//
-	// Deprecated: This type is deprecated and will be removed the next major
-	// version.
+	// Deprecated: This type is deprecated and not recommended for future use.
+	// Use PackManifestTypeImageV1_1_0_RC4 instead.
 	PackManifestTypeImageV1_1_0_RC2 PackManifestType = iota
 
 	// PackManifestTypeImageV1_1_0_RC4 represents the OCI Image Manifest type
