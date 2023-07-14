@@ -31,12 +31,15 @@ import (
 )
 
 const (
-	// MediaTypeUnknownConfig is the default mediaType used when no
-	// config media type is specified.
+	// MediaTypeUnknownConfig is the default mediaType used for [Pack] when
+	// PackOptions.PackImageManifest is true and PackOptions.PackManifestType
+	// is PackManifestTypeImageV1_1_0_RC2 and PackOptions.ConfigDescriptor
+	// is not specified.
 	MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
 
-	// MediaTypeUnknownArtifact is the default artifactType used when no
-	// artifact type is specified.
+	// MediaTypeUnknownArtifact is the default artifactType used for [Pack]
+	// when PackOptions.PackImageManifest is false and artifactType is
+	// not specified.
 	MediaTypeUnknownArtifact = "application/vnd.unknown.artifact.v1"
 )
 
@@ -307,7 +310,7 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 // pushIfNotExist pushes data described by desc if it does not exist in the
 // target.
 func pushIfNotExist(ctx context.Context, pusher content.Pusher, desc ocispec.Descriptor, data []byte) error {
-	ec, ok := pusher.(content.ExistChecker)
+	ec, ok := pusher.(content.ExistenceChecker)
 	var exists bool
 	if ok {
 		var err error

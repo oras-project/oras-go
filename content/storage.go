@@ -28,19 +28,19 @@ type Fetcher interface {
 	Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error)
 }
 
+// ExistenceChecker checks the existence of content.
+type ExistenceChecker interface {
+	// Exists returns true if the described content exists.
+	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
+}
+
 // Pusher pushes content.
 type Pusher interface {
 	// Push pushes the content, matching the expected descriptor.
-	// Reader is perferred to Writer so that the suitable buffer size can be
+	// Reader is preferred to Writer so that the suitable buffer size can be
 	// chosen by the underlying implementation. Furthermore, the implementation
 	// can also do reflection on the Reader for more advanced I/O optimization.
 	Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error
-}
-
-// ExistChecker checks the existence of content.
-type ExistChecker interface {
-	// Exists returns true if the described content exists.
-	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
 }
 
 // Storage represents a content-addressable storage (CAS) where contents are
@@ -54,7 +54,7 @@ type Storage interface {
 // ReadOnlyStorage represents a read-only Storage.
 type ReadOnlyStorage interface {
 	Fetcher
-	ExistChecker
+	ExistenceChecker
 }
 
 // Deleter removes content.
