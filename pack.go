@@ -184,7 +184,7 @@ func packImageRC2(ctx context.Context, pusher content.Pusher, configMediaType st
 		configDesc.Annotations = opts.ConfigAnnotations
 		// push config
 		if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {
-			return ocispec.Descriptor{}, err
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
 		}
 	}
 
@@ -205,7 +205,7 @@ func packImageRC2(ctx context.Context, pusher content.Pusher, configMediaType st
 		Subject:     opts.Subject,
 		Annotations: annotations,
 	}
-	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, annotations)
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, manifest.Annotations)
 }
 
 // packImageRC4 packs the given blobs, generates an image manifest for the pack,
@@ -224,7 +224,7 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 		configBytes := ocispec.DescriptorEmptyJSON.Data
 		// push config
 		if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {
-			return ocispec.Descriptor{}, err
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
 		}
 		emptyBlobExists = true
 	}
@@ -246,7 +246,7 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 		layerData := ocispec.DescriptorEmptyJSON.Data
 		if !emptyBlobExists {
 			if err := pushIfNotExist(ctx, pusher, layerDesc, layerData); err != nil {
-				return ocispec.Descriptor{}, err
+				return ocispec.Descriptor{}, fmt.Errorf("failed to push layer: %w", err)
 			}
 		}
 		layers = []ocispec.Descriptor{layerDesc}
@@ -263,7 +263,7 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 		ArtifactType: artifactType,
 		Annotations:  annotations,
 	}
-	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, annotations)
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, manifest.Annotations)
 }
 
 // pushIfNotExist pushes data described by desc if it does not exist in the
