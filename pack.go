@@ -44,7 +44,7 @@ const (
 )
 
 // PackManifestType represents the manifest type used for [Pack].
-type PackManifestType = int
+type PackManifestType int
 
 const (
 	// PackManifestTypeImageV1_1_0_RC2 represents the OCI Image Manifest type
@@ -53,12 +53,12 @@ const (
 	//
 	// Deprecated: This type is deprecated and not recommended for future use.
 	// Use PackManifestTypeImageV1_1_0_RC4 instead.
-	PackManifestTypeImageV1_1_0_RC2 PackManifestType = iota
+	PackManifestTypeImageV1_1_0_RC2 PackManifestType = 0
 
 	// PackManifestTypeImageV1_1_0_RC4 represents the OCI Image Manifest type
 	// defined since image-spec v1.1.0-rc4.
 	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md
-	PackManifestTypeImageV1_1_0_RC4
+	PackManifestTypeImageV1_1_0_RC4 PackManifestType = 1
 )
 
 var (
@@ -270,10 +270,10 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 // target.
 func pushIfNotExist(ctx context.Context, pusher content.Pusher, desc ocispec.Descriptor, data []byte) error {
 	var exists bool
-	ec, ok := pusher.(content.ExistenceChecker)
+	ros, ok := pusher.(content.ReadOnlyStorage)
 	if ok {
 		var err error
-		exists, err = ec.Exists(ctx, desc)
+		exists, err = ros.Exists(ctx, desc)
 		if err != nil {
 			return fmt.Errorf("failed to check existence: %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
 		}

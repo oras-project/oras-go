@@ -28,12 +28,6 @@ type Fetcher interface {
 	Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error)
 }
 
-// ExistenceChecker checks the existence of content.
-type ExistenceChecker interface {
-	// Exists returns true if the described content exists.
-	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
-}
-
 // Pusher pushes content.
 type Pusher interface {
 	// Push pushes the content, matching the expected descriptor.
@@ -54,7 +48,9 @@ type Storage interface {
 // ReadOnlyStorage represents a read-only Storage.
 type ReadOnlyStorage interface {
 	Fetcher
-	ExistenceChecker
+
+	// Exists returns true if the described content exists.
+	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
 }
 
 // Deleter removes content.
