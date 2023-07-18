@@ -35,11 +35,17 @@ const (
 	// PackOptions.PackImageManifest is true and PackOptions.PackManifestType
 	// is PackManifestTypeImageV1_1_0_RC2 and PackOptions.ConfigDescriptor
 	// is not specified.
+	//
+	// Deprecated: This media type is deprecated and not recommended for future
+	// use.
 	MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
 
 	// MediaTypeUnknownArtifact is the default artifactType used for [Pack]
 	// when PackOptions.PackImageManifest is false and artifactType is
 	// not specified.
+	//
+	// Deprecated: This media type is deprecated and not recommended for future
+	// use.
 	MediaTypeUnknownArtifact = "application/vnd.unknown.artifact.v1"
 )
 
@@ -82,15 +88,19 @@ type PackOptions struct {
 	// ManifestAnnotations is the annotation map of the manifest.
 	ManifestAnnotations map[string]string
 
-	// PackImageManifest controls whether to pack an image manifest or not.
-	//   - If true, pack an OCI Image Manifest
-	//   - If false, pack an OCI Artifact Manifest
-	// Default: false.
+	// PackImageManifest controls whether to pack an OCI Image Manifest or not.
+	//   - If true, pack an OCI Image Manifest.
+	//   - If false, pack an OCI Artifact Manifest (deprecated).
+	//
+	// Default value: false.
+	// Recommended value: true (See DefaultPackOptions).
 	PackImageManifest bool
 
 	// PackManifestType controls which type of manifest to pack.
 	// This option is valid only when PackImageManifest is true.
-	// Default: PackManifestTypeImageV1_1_0_RC2.
+	//
+	// Default value: PackManifestTypeImageV1_1_0_RC2 (deprecated).
+	// Recommended value: PackManifestTypeImageV1_1_0_RC4 (See DefaultPackOptions).
 	PackManifestType PackManifestType
 
 	// ConfigDescriptor is a pointer to the descriptor of the config blob.
@@ -116,11 +126,11 @@ var DefaultPackOptions PackOptions = PackOptions{
 // and pushes it to a content storage.
 //
 //   - If opts.PackImageManifest is true and opts.PackManifestType is
-//     PackManifestTypeImageV1_1_0_RC2,
+//     [PackManifestTypeImageV1_1_0_RC2],
 //     artifactType will be used as the the config media type of the image
 //     manifest when opts.ConfigDescriptor is not specified.
 //   - If opts.PackImageManifest is true and opts.PackManifestType is
-//     PackManifestTypeImageV1_1_0_RC4,
+//     [PackManifestTypeImageV1_1_0_RC4],
 //     [ErrMissingArtifactType] will be returned when none of artifactType and
 //     opts.ConfigDescriptor is specified.
 //
