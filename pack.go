@@ -269,17 +269,14 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 // pushIfNotExist pushes data described by desc if it does not exist in the
 // target.
 func pushIfNotExist(ctx context.Context, pusher content.Pusher, desc ocispec.Descriptor, data []byte) error {
-	var exists bool
-	ros, ok := pusher.(content.ReadOnlyStorage)
-	if ok {
-		var err error
-		exists, err = ros.Exists(ctx, desc)
+	if ros, ok := pusher.(content.ReadOnlyStorage); ok {
+		exists, err := ros.Exists(ctx, desc)
 		if err != nil {
 			return fmt.Errorf("failed to check existence: %s: %s: %w", desc.Digest.String(), desc.MediaType, err)
 		}
-	}
-	if exists {
-		return nil
+		if exists {
+			return nil
+		}
 	}
 
 	if err := pusher.Push(ctx, desc, bytes.NewReader(data)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
