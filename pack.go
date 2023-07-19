@@ -35,17 +35,11 @@ const (
 	// PackOptions.PackImageManifest is true and PackOptions.PackManifestType
 	// is PackManifestTypeImageV1_1_0_RC2 and PackOptions.ConfigDescriptor
 	// is not specified.
-	//
-	// Deprecated: This media type is deprecated and not recommended for future
-	// use.
 	MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
 
 	// MediaTypeUnknownArtifact is the default artifactType used for [Pack]
 	// when PackOptions.PackImageManifest is false and artifactType is
 	// not specified.
-	//
-	// Deprecated: This media type is deprecated and not recommended for future
-	// use.
 	MediaTypeUnknownArtifact = "application/vnd.unknown.artifact.v1"
 )
 
