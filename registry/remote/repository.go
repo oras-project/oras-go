@@ -48,12 +48,21 @@ import (
 )
 
 const (
-	// headerdockerContentDigest - The Docker-Content-Digest header, if present
-	// on the response, returns the canonical digest of the uploaded blob.
-	// See https://docs.docker.com/registry/spec/api/#digest-header
-	// See https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pull
+	// headerdockerContentDigest is the "Docker-Content-Digest" header.
+	// If present on the response, it contains the canonical digest of the
+	// uploaded blob.
+	//
+	// References:
+	//   - https://docs.docker.com/registry/spec/api/#digest-header
+	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pull
 	headerdockerContentDigest = "Docker-Content-Digest"
 
+	// headerOCIFiltersApplied is the "OCI-Filters-Applied" header.
+	// If present on the response, it contains a comma-separated list of the
+	// applied filters.
+	//
+	// Reference:
+	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
 	headerOCIFiltersApplied = "OCI-Filters-Applied"
 )
 
@@ -501,15 +510,17 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	if err := json.NewDecoder(lr).Decode(&index); err != nil {
 		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
-	if artifactType != "" {
-		// TODO: If filtering is requested and applied, the response MUST include a header OCI-Filters-Applied: artifactType denoting that an artifactType filter was applied.
-		// TODO: annotations
-	}
 
 	referrers := index.Manifests
-	if artifactType != "" && !isReferrersFilterApplied(index.Annotations, "artifactType") {
-		// perform client side filtering if the filter is not applied on the server side
-		referrers = filterReferrers(referrers, artifactType)
+	if artifactType != "" {
+		requested := "artifactType"
+		// check both header and annotations for compatibility
+		// reference for header: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+		// reference for annotations: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
+		if !isReferrersFilterAppliedInHeader(resp, requested) && !isReferrersFilterAppliedInAnnotations(index.Annotations, requested) {
+			// perform client side filtering if the filter is not applied on the server side
+			referrers = filterReferrers(referrers, artifactType)
+		}
 	}
 	if len(referrers) > 0 {
 		if err := fn(referrers); err != nil {

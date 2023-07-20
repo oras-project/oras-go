@@ -17,6 +17,7 @@ package remote
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -110,10 +111,24 @@ func buildReferrersTag(desc ocispec.Descriptor) string {
 	return alg + "-" + encoded
 }
 
-// isReferrersFilterApplied checks annotations to see if requested is in the
-// applied filter list.
-func isReferrersFilterApplied(annotations map[string]string, requested string) bool {
+// isReferrersFilterAppliedInAnnotations checks annotations to see if requested
+// is in the applied filter list.
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
+func isReferrersFilterAppliedInAnnotations(annotations map[string]string, requested string) bool {
 	applied := annotations[spec.AnnotationReferrersFiltersApplied]
+	return isReferrersFilterApplied(applied, requested)
+}
+
+// isReferrersFilterAppliedInHeader checks headers of resp to see if requested
+// is in the applied filter list.
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+func isReferrersFilterAppliedInHeader(resp *http.Response, requested string) bool {
+	applied := resp.Header.Get(headerOCIFiltersApplied)
+	return isReferrersFilterApplied(applied, requested)
+}
+
+// isReferrersFilterApplied checks if requsted is in the applied filter list.
+func isReferrersFilterApplied(applied, requested string) bool {
 	if applied == "" || requested == "" {
 		return false
 	}
