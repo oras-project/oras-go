@@ -497,6 +497,11 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	if err := json.NewDecoder(lr).Decode(&index); err != nil {
 		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
+	if artifactType != "" {
+		// TODO: If filtering is requested and applied, the response MUST include a header OCI-Filters-Applied: artifactType denoting that an artifactType filter was applied.
+		// TODO: annotations
+	}
+
 	referrers := index.Manifests
 	if artifactType != "" && !isReferrersFilterApplied(index.Annotations, "artifactType") {
 		// perform client side filtering if the filter is not applied on the server side
