@@ -61,7 +61,7 @@ func Test_buildReferrersTag(t *testing.T) {
 	}
 }
 
-func Test_isReferrersFilterApplied(t *testing.T) {
+func Test_isAnnotationsContainReferrersFilter(t *testing.T) {
 	tests := []struct {
 		name        string
 		annotations map[string]string
