@@ -111,18 +111,18 @@ func buildReferrersTag(desc ocispec.Descriptor) string {
 	return alg + "-" + encoded
 }
 
-// isReferrersFilterAppliedInAnnotations checks annotations to see if requested
+// isAnnotationsContainReferrersFilter checks annotations to see if requested
 // is in the applied filter list.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
-func isReferrersFilterAppliedInAnnotations(annotations map[string]string, requested string) bool {
+func isAnnotationsContainReferrersFilter(annotations map[string]string, requested string) bool {
 	applied := annotations[spec.AnnotationReferrersFiltersApplied]
 	return isReferrersFilterApplied(applied, requested)
 }
 
-// isReferrersFilterAppliedInHeader checks headers of resp to see if requested
+// isHeaderContainReferrersFilter checks headers of resp to see if requested
 // is in the applied filter list.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
-func isReferrersFilterAppliedInHeader(resp *http.Response, requested string) bool {
+func isHeaderContainReferrersFilter(resp *http.Response, requested string) bool {
 	applied := resp.Header.Get(headerOCIFiltersApplied)
 	return isReferrersFilterApplied(applied, requested)
 }
