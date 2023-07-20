@@ -47,11 +47,15 @@ import (
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
-// dockerContentDigestHeader - The Docker-Content-Digest header, if present
-// on the response, returns the canonical digest of the uploaded blob.
-// See https://docs.docker.com/registry/spec/api/#digest-header
-// See https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pull
-const dockerContentDigestHeader = "Docker-Content-Digest"
+const (
+	// headerdockerContentDigest - The Docker-Content-Digest header, if present
+	// on the response, returns the canonical digest of the uploaded blob.
+	// See https://docs.docker.com/registry/spec/api/#digest-header
+	// See https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pull
+	headerdockerContentDigest = "Docker-Content-Digest"
+
+	headerOCIFiltersApplied = "OCI-Filters-Applied"
+)
 
 // Client is an interface for a HTTP client.
 type Client interface {
@@ -1425,13 +1429,13 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 
 	// 4. Validate Server Digest (if present)
 	var serverHeaderDigest digest.Digest
-	if serverHeaderDigestStr := resp.Header.Get(dockerContentDigestHeader); serverHeaderDigestStr != "" {
+	if serverHeaderDigestStr := resp.Header.Get(headerdockerContentDigest); serverHeaderDigestStr != "" {
 		if serverHeaderDigest, err = digest.Parse(serverHeaderDigestStr); err != nil {
 			return ocispec.Descriptor{}, fmt.Errorf(
 				"%s %q: invalid response header value: `%s: %s`; %w",
 				resp.Request.Method,
 				resp.Request.URL,
-				dockerContentDigestHeader,
+				headerdockerContentDigest,
 				serverHeaderDigestStr,
 				err,
 			)
@@ -1448,7 +1452,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 				// immediate fail
 				return ocispec.Descriptor{}, fmt.Errorf(
 					"HTTP %s request missing required header %q",
-					httpMethod, dockerContentDigestHeader,
+					httpMethod, headerdockerContentDigest,
 				)
 			}
 			// Otherwise, just trust the client-supplied digest
@@ -1470,7 +1474,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 		return ocispec.Descriptor{}, fmt.Errorf(
 			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
 			resp.Request.Method, resp.Request.URL,
-			dockerContentDigestHeader, contentDigest,
+			headerdockerContentDigest, contentDigest,
 			refDigest,
 		)
 	}
@@ -1502,7 +1506,7 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (d
 // OCI distribution-spec states the Docker-Content-Digest header is optional.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
 func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
-	digestStr := resp.Header.Get(dockerContentDigestHeader)
+	digestStr := resp.Header.Get(headerdockerContentDigest)
 
 	if len(digestStr) == 0 {
 		return nil
@@ -1513,7 +1517,7 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 		return fmt.Errorf(
 			"%s %q: invalid response header: `%s: %s`",
 			resp.Request.Method, resp.Request.URL,
-			dockerContentDigestHeader, digestStr,
+			headerdockerContentDigest, digestStr,
 		)
 	}
 
@@ -1521,7 +1525,7 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 		return fmt.Errorf(
 			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
 			resp.Request.Method, resp.Request.URL,
-			dockerContentDigestHeader, contentDigest,
+			headerdockerContentDigest, contentDigest,
 			expected,
 		)
 	}

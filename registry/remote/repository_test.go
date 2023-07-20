@@ -321,7 +321,7 @@ func TestRepository_Mount(t *testing.T) {
 				t.Errorf("unexpected value for 'from' parameter; got %q want %q", got, want)
 			}
 			gotMount++
-			w.Header().Set(dockerContentDigestHeader, blobDesc.Digest.String())
+			w.Header().Set(headerdockerContentDigest, blobDesc.Digest.String())
 			w.WriteHeader(201)
 			return
 		default:
@@ -2940,7 +2940,7 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 			resp := http.Response{
 				Header: http.Header{
 					"Content-Type":            []string{"application/vnd.docker.distribution.manifest.v2+json"},
-					dockerContentDigestHeader: []string{dcdIOStruct.serverCalculatedDigest.String()},
+					headerdockerContentDigest: []string{dcdIOStruct.serverCalculatedDigest.String()},
 				},
 			}
 			if method == http.MethodGet {
@@ -4953,7 +4953,7 @@ func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(
 			resp := http.Response{
 				Header: http.Header{
 					"Content-Type":            []string{"application/vnd.docker.distribution.manifest.v2+json"},
-					dockerContentDigestHeader: []string{dcdIOStruct.serverCalculatedDigest.String()},
+					headerdockerContentDigest: []string{dcdIOStruct.serverCalculatedDigest.String()},
 				},
 			}
 			if method == http.MethodGet {
