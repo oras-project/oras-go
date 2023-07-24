@@ -17,13 +17,11 @@ package remote
 
 import (
 	"errors"
-	"net/http"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/descriptor"
-	"oras.land/oras-go/v2/internal/spec"
 )
 
 // zeroDigest represents a digest that consists of zeros. zeroDigest is used
@@ -109,22 +107,6 @@ func buildReferrersTag(desc ocispec.Descriptor) string {
 	alg := desc.Digest.Algorithm().String()
 	encoded := desc.Digest.Encoded()
 	return alg + "-" + encoded
-}
-
-// isAnnotationsContainReferrersFilter checks annotations to see if requested
-// is in the applied filter list.
-// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
-func isAnnotationsContainReferrersFilter(annotations map[string]string, requested string) bool {
-	applied := annotations[spec.AnnotationReferrersFiltersApplied]
-	return isReferrersFilterApplied(applied, requested)
-}
-
-// isHeaderContainReferrersFilter checks headers of resp to see if requested
-// is in the applied filter list.
-// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
-func isHeaderContainReferrersFilter(resp *http.Response, requested string) bool {
-	applied := resp.Header.Get(headerOCIFiltersApplied)
-	return isReferrersFilterApplied(applied, requested)
 }
 
 // isReferrersFilterApplied checks if requsted is in the applied filter list.

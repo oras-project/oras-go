@@ -61,65 +61,59 @@ func Test_buildReferrersTag(t *testing.T) {
 	}
 }
 
-func Test_isAnnotationsContainReferrersFilter(t *testing.T) {
+func Test_isReferrersFilterApplied(t *testing.T) {
 	tests := []struct {
-		name        string
-		annotations map[string]string
-		requested   string
-		want        bool
+		name      string
+		applied   string
+		requested string
+		want      bool
 	}{
 		{
-			name:        "single filter applied, specified filter matches",
-			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "artifactType"},
-			requested:   "artifactType",
-			want:        true,
+			name:      "single filter applied, specified filter matches",
+			applied:   "artifactType",
+			requested: "artifactType",
+			want:      true,
 		},
 		{
-			name:        "single filter applied, specified filter does not match",
-			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "foo"},
-			requested:   "artifactType",
-			want:        false,
+			name:      "single filter applied, specified filter does not match",
+			applied:   "foo",
+			requested: "artifactType",
+			want:      false,
 		},
 		{
-			name:        "multiple filters applied, specified filter matches",
-			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "foo,artifactType"},
-			requested:   "artifactType",
-			want:        true,
+			name:      "multiple filters applied, specified filter matches",
+			applied:   "foo,artifactType",
+			requested: "artifactType",
+			want:      true,
 		},
 		{
-			name:        "multiple filters applied, specified filter does not match",
-			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "foo,bar"},
-			requested:   "artifactType",
-			want:        false,
+			name:      "multiple filters applied, specified filter does not match",
+			applied:   "foo,bar",
+			requested: "artifactType",
+			want:      false,
 		},
 		{
-			name:        "single filter applied, specified filter empty",
-			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: "foo"},
-			requested:   "",
-			want:        false,
+			name:      "single filter applied, no specified filter",
+			applied:   "foo",
+			requested: "",
+			want:      false,
 		},
 		{
-			name:        "no filter applied",
-			annotations: map[string]string{},
-			requested:   "artifactType",
-			want:        false,
+			name:      "no filter applied, specified filter does not match",
+			applied:   "",
+			requested: "artifactType",
+			want:      false,
 		},
 		{
-			name:        "empty filter applied",
-			annotations: map[string]string{spec.AnnotationReferrersFiltersApplied: ""},
-			requested:   "artifactType",
-			want:        false,
-		},
-		{
-			name:        "no filter applied, specified filter empty",
-			annotations: map[string]string{},
-			requested:   "",
-			want:        false,
+			name:      "no filter applied, no specified filter",
+			applied:   "",
+			requested: "",
+			want:      false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isAnnotationsContainReferrersFilter(tt.annotations, tt.requested); got != tt.want {
+			if got := isReferrersFilterApplied(tt.applied, tt.requested); got != tt.want {
 				t.Errorf("isReferrersFilterApplied() = %v, want %v", got, tt.want)
 			}
 		})

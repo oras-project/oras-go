@@ -514,10 +514,12 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	referrers := index.Manifests
 	if artifactType != "" {
 		requested := "artifactType"
-		// check both header and annotations for compatibility
-		// reference for header: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
-		// reference for annotations: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
-		if !isHeaderContainReferrersFilter(resp, requested) && !isAnnotationsContainReferrersFilter(index.Annotations, requested) {
+		// check both filters header and filters annotations for compatibility
+		// reference for filters header: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+		// reference for filters annotations: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
+		filtersHeader := resp.Header.Get(headerOCIFiltersApplied)
+		filtersAnnotation := index.Annotations[spec.AnnotationReferrersFiltersApplied]
+		if !isReferrersFilterApplied(filtersHeader, requested) && !isReferrersFilterApplied(filtersAnnotation, requested) {
 			// perform client side filtering if the filter is not applied on the server side
 			referrers = filterReferrers(referrers, artifactType)
 		}
