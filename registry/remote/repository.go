@@ -66,6 +66,14 @@ const (
 	headerOCIFiltersApplied = "OCI-Filters-Applied"
 )
 
+// filterTypeArtifactType is the "artifactType" filter applied on the list of
+// referrers.
+//
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
+const filterTypeArtifactType = "artifactType"
+
 // Client is an interface for a HTTP client.
 type Client interface {
 	// Do sends an HTTP request and returns an HTTP response.
@@ -513,13 +521,13 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 
 	referrers := index.Manifests
 	if artifactType != "" {
-		requested := "artifactType"
 		// check both filters header and filters annotations for compatibility
 		// reference for filters header: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
 		// reference for filters annotations: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
 		filtersHeader := resp.Header.Get(headerOCIFiltersApplied)
 		filtersAnnotation := index.Annotations[spec.AnnotationReferrersFiltersApplied]
-		if !isReferrersFilterApplied(filtersHeader, requested) && !isReferrersFilterApplied(filtersAnnotation, requested) {
+		if !isReferrersFilterApplied(filtersHeader, filterTypeArtifactType) &&
+			!isReferrersFilterApplied(filtersAnnotation, filterTypeArtifactType) {
 			// perform client side filtering if the filter is not applied on the server side
 			referrers = filterReferrers(referrers, artifactType)
 		}
