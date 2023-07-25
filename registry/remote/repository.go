@@ -1316,9 +1316,8 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 		if err := s.push(ctx, expected, bytes.NewReader(manifestJSON), reference); err != nil {
 			return err
 		}
-		// check referrers again
+		// check referrers API availability again after push
 		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
-			// skip indexing
 			return nil
 		}
 		return s.indexReferrersForPush(ctx, expected, manifestJSON)
@@ -1355,13 +1354,11 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 			return nil
 		}
 		subject = *manifest.Subject
-		// TODO: set artifact type
 		desc.ArtifactType = manifest.ArtifactType
 		if desc.ArtifactType == "" {
 			desc.ArtifactType = manifest.Config.MediaType
 		}
 		desc.Annotations = manifest.Annotations
-		// TODO: support index with subject?
 	case ocispec.MediaTypeImageIndex:
 		var manifest ocispec.Index
 		if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
