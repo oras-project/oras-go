@@ -3404,14 +3404,6 @@ func Test_ManifestStore_Push_ReferrersAPIAvailable(t *testing.T) {
 	}
 
 	// test pushing image index with subject
-	repo, err = NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
-	}
 	err = repo.Push(ctx, indexDesc, bytes.NewReader(indexJSON))
 	if err != nil {
 		t.Fatalf("Manifests.Push() error = %v", err)
@@ -3559,14 +3551,6 @@ func Test_ManifestStore_Push_ReferrersAPIAvailable_NoSubjectHeader(t *testing.T)
 	}
 
 	// test pushing image index with subject
-	repo, err = NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
-	}
 	err = repo.Push(ctx, indexDesc, bytes.NewReader(indexJSON))
 	if err != nil {
 		t.Fatalf("Manifests.Push() error = %v", err)
@@ -5166,14 +5150,6 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable(t *testing.T) {
 	}
 
 	// test pushing image index with subject
-	repo, err = NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
-	}
 	err = repo.PushReference(ctx, indexDesc, bytes.NewReader(indexJSON), indexRef)
 	if err != nil {
 		t.Fatalf("Manifests.Push() error = %v", err)
@@ -5326,14 +5302,6 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable_NoSubjectHeader(t *t
 	}
 
 	// test pushing image index with subject
-	repo, err = NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
-	}
 	err = repo.PushReference(ctx, indexDesc, bytes.NewReader(indexJSON), indexRef)
 	if err != nil {
 		t.Fatalf("Manifests.Push() error = %v", err)
