@@ -1281,14 +1281,14 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	if resp.StatusCode != http.StatusCreated {
 		return errutil.ParseErrorResponse(resp)
 	}
-	s.checkReferrersSupport(resp)
+	s.checkOCISubjectHeader(resp)
 	return verifyContentDigest(resp, expected.Digest)
 }
 
-// checkReferrersSupport checks the "OCI-Subject" header in the response and
+// checkOCISubjectHeader checks the "OCI-Subject" header in the response and
 // sets referrers capability accordingly.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
-func (s *manifestStore) checkReferrersSupport(resp *http.Response) {
+func (s *manifestStore) checkOCISubjectHeader(resp *http.Response) {
 	// Referrers capability is not set to false when the subject header is not
 	// present, as the server may still conform to an older version of the spec
 	if subjectHeader := resp.Header.Get(headerOCISubject); subjectHeader != "" {
@@ -1326,8 +1326,8 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 	}
 }
 
-// indexReferrersForPush indexes referrers for an artifact manifest or
-// an image manifest or an image index with a subject field on manifest push.
+// indexReferrersForPush indexes referrers for manifests with a subject field
+// on manifest push.
 //
 // References:
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
