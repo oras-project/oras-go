@@ -1283,6 +1283,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	return verifyContentDigest(resp, expected.Digest)
 }
 
+// TODO: special handling for index?
 func (s *manifestStore) checkReferrersSupport(resp *http.Response) {
 	if subjectHeader := resp.Header.Get(headerOCISubject); subjectHeader != "" {
 		s.repo.SetReferrersCapability(true)
@@ -1293,7 +1294,7 @@ func (s *manifestStore) checkReferrersSupport(resp *http.Response) {
 // and indexes referrers for the manifest when needed.
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
 	switch expected.MediaType {
-	// TODO: support index with subject?
+	// TODO: special handling for subject?
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
 		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
 			// referrers API is available, no client-side indexing needed
