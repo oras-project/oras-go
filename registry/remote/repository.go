@@ -47,11 +47,32 @@ import (
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 )
 
-// dockerContentDigestHeader - The Docker-Content-Digest header, if present
-// on the response, returns the canonical digest of the uploaded blob.
-// See https://docs.docker.com/registry/spec/api/#digest-header
-// See https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pull
-const dockerContentDigestHeader = "Docker-Content-Digest"
+const (
+	// headerDockerContentDigest is the "Docker-Content-Digest" header.
+	// If present on the response, it contains the canonical digest of the
+	// uploaded blob.
+	//
+	// References:
+	//   - https://docs.docker.com/registry/spec/api/#digest-header
+	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pull
+	headerDockerContentDigest = "Docker-Content-Digest"
+
+	// headerOCIFiltersApplied is the "OCI-Filters-Applied" header.
+	// If present on the response, it contains a comma-separated list of the
+	// applied filters.
+	//
+	// Reference:
+	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+	headerOCIFiltersApplied = "OCI-Filters-Applied"
+)
+
+// filterTypeArtifactType is the "artifactType" filter applied on the list of
+// referrers.
+//
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
+const filterTypeArtifactType = "artifactType"
 
 // Client is an interface for a HTTP client.
 type Client interface {
@@ -497,10 +518,19 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	if err := json.NewDecoder(lr).Decode(&index); err != nil {
 		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
+
 	referrers := index.Manifests
-	if artifactType != "" && !isReferrersFilterApplied(index.Annotations, "artifactType") {
-		// perform client side filtering if the filter is not applied on the server side
-		referrers = filterReferrers(referrers, artifactType)
+	if artifactType != "" {
+		// check both filters header and filters annotations for compatibility
+		// reference for filters header: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+		// reference for filters annotations: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
+		filtersHeader := resp.Header.Get(headerOCIFiltersApplied)
+		filtersAnnotation := index.Annotations[spec.AnnotationReferrersFiltersApplied]
+		if !isReferrersFilterApplied(filtersHeader, filterTypeArtifactType) &&
+			!isReferrersFilterApplied(filtersAnnotation, filterTypeArtifactType) {
+			// perform client side filtering if the filter is not applied on the server side
+			referrers = filterReferrers(referrers, artifactType)
+		}
 	}
 	if len(referrers) > 0 {
 		if err := fn(referrers); err != nil {
@@ -1420,13 +1450,13 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 
 	// 4. Validate Server Digest (if present)
 	var serverHeaderDigest digest.Digest
-	if serverHeaderDigestStr := resp.Header.Get(dockerContentDigestHeader); serverHeaderDigestStr != "" {
+	if serverHeaderDigestStr := resp.Header.Get(headerDockerContentDigest); serverHeaderDigestStr != "" {
 		if serverHeaderDigest, err = digest.Parse(serverHeaderDigestStr); err != nil {
 			return ocispec.Descriptor{}, fmt.Errorf(
 				"%s %q: invalid response header value: `%s: %s`; %w",
 				resp.Request.Method,
 				resp.Request.URL,
-				dockerContentDigestHeader,
+				headerDockerContentDigest,
 				serverHeaderDigestStr,
 				err,
 			)
@@ -1443,7 +1473,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 				// immediate fail
 				return ocispec.Descriptor{}, fmt.Errorf(
 					"HTTP %s request missing required header %q",
-					httpMethod, dockerContentDigestHeader,
+					httpMethod, headerDockerContentDigest,
 				)
 			}
 			// Otherwise, just trust the client-supplied digest
@@ -1465,7 +1495,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 		return ocispec.Descriptor{}, fmt.Errorf(
 			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
 			resp.Request.Method, resp.Request.URL,
-			dockerContentDigestHeader, contentDigest,
+			headerDockerContentDigest, contentDigest,
 			refDigest,
 		)
 	}
@@ -1497,7 +1527,7 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (d
 // OCI distribution-spec states the Docker-Content-Digest header is optional.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
 func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
-	digestStr := resp.Header.Get(dockerContentDigestHeader)
+	digestStr := resp.Header.Get(headerDockerContentDigest)
 
 	if len(digestStr) == 0 {
 		return nil
@@ -1508,7 +1538,7 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 		return fmt.Errorf(
 			"%s %q: invalid response header: `%s: %s`",
 			resp.Request.Method, resp.Request.URL,
-			dockerContentDigestHeader, digestStr,
+			headerDockerContentDigest, digestStr,
 		)
 	}
 
@@ -1516,7 +1546,7 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 		return fmt.Errorf(
 			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
 			resp.Request.Method, resp.Request.URL,
-			dockerContentDigestHeader, contentDigest,
+			headerDockerContentDigest, contentDigest,
 			expected,
 		)
 	}

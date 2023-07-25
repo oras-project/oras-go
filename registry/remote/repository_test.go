@@ -321,7 +321,7 @@ func TestRepository_Mount(t *testing.T) {
 				t.Errorf("unexpected value for 'from' parameter; got %q want %q", got, want)
 			}
 			gotMount++
-			w.Header().Set(dockerContentDigestHeader, blobDesc.Digest.String())
+			w.Header().Set(headerDockerContentDigest, blobDesc.Digest.String())
 			w.WriteHeader(201)
 			return
 		default:
@@ -1892,6 +1892,8 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 			},
 		},
 	}
+
+	// Test with filter annotations only
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := "/v2/test/referrers/" + manifestDesc.Digest.String()
@@ -1930,6 +1932,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 			},
 			MediaType: ocispec.MediaTypeImageIndex,
 			Manifests: referrers,
+			// set filter annotations
 			Annotations: map[string]string{
 				spec.AnnotationReferrersFiltersApplied: "artifactType",
 			},
@@ -1953,6 +1956,164 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 
 	ctx := context.Background()
 	index := 0
+	if err := repo.Referrers(ctx, manifestDesc, "application/vnd.test", func(got []ocispec.Descriptor) error {
+		if index >= len(referrerSet) {
+			t.Fatalf("out of index bound: %d", index)
+		}
+		referrers := referrerSet[index]
+		index++
+		if !reflect.DeepEqual(got, referrers) {
+			t.Errorf("Repository.Referrers() = %v, want %v", got, referrers)
+		}
+		return nil
+	}); err != nil {
+		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+	if index != len(referrerSet) {
+		t.Errorf("fn invoked %d time(s), want %d", index, len(referrerSet))
+	}
+
+	// Test with filter header only
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		queryParams, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			t.Fatal("failed to parse url query")
+		}
+		if r.Method != http.MethodGet ||
+			r.URL.Path != path ||
+			reflect.DeepEqual(queryParams["artifactType"], []string{"application%2Fvnd.test"}) {
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 2 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var referrers []ocispec.Descriptor
+		switch q.Get("test") {
+		case "foo":
+			referrers = referrerSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?n=2&test=bar>; rel="next"`, ts.URL, path))
+		case "bar":
+			referrers = referrerSet[2]
+		default:
+			referrers = referrerSet[0]
+			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
+		}
+		result := ocispec.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+			},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: referrers,
+		}
+		// set filter header
+		w.Header().Set("OCI-Filters-Applied", "artifactType")
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err = url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListPageSize = 2
+
+	ctx = context.Background()
+	index = 0
+	if err := repo.Referrers(ctx, manifestDesc, "application/vnd.test", func(got []ocispec.Descriptor) error {
+		if index >= len(referrerSet) {
+			t.Fatalf("out of index bound: %d", index)
+		}
+		referrers := referrerSet[index]
+		index++
+		if !reflect.DeepEqual(got, referrers) {
+			t.Errorf("Repository.Referrers() = %v, want %v", got, referrers)
+		}
+		return nil
+	}); err != nil {
+		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+	if index != len(referrerSet) {
+		t.Errorf("fn invoked %d time(s), want %d", index, len(referrerSet))
+	}
+
+	// Test with both filter annotation and filter header
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		queryParams, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			t.Fatal("failed to parse url query")
+		}
+		if r.Method != http.MethodGet ||
+			r.URL.Path != path ||
+			reflect.DeepEqual(queryParams["artifactType"], []string{"application%2Fvnd.test"}) {
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		n, err := strconv.Atoi(q.Get("n"))
+		if err != nil || n != 2 {
+			t.Errorf("bad page size: %s", q.Get("n"))
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var referrers []ocispec.Descriptor
+		switch q.Get("test") {
+		case "foo":
+			referrers = referrerSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?n=2&test=bar>; rel="next"`, ts.URL, path))
+		case "bar":
+			referrers = referrerSet[2]
+		default:
+			referrers = referrerSet[0]
+			w.Header().Set("Link", fmt.Sprintf(`<%s?n=2&test=foo>; rel="next"`, path))
+		}
+		result := ocispec.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+			},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: referrers,
+			// set filter annotation
+			Annotations: map[string]string{
+				spec.AnnotationReferrersFiltersApplied: "artifactType",
+			},
+		}
+		// set filter header
+		w.Header().Set("OCI-Filters-Applied", "artifactType")
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err = url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListPageSize = 2
+
+	ctx = context.Background()
+	index = 0
 	if err := repo.Referrers(ctx, manifestDesc, "application/vnd.test", func(got []ocispec.Descriptor) error {
 		if index >= len(referrerSet) {
 			t.Fatalf("out of index bound: %d", index)
@@ -2940,7 +3101,7 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 			resp := http.Response{
 				Header: http.Header{
 					"Content-Type":            []string{"application/vnd.docker.distribution.manifest.v2+json"},
-					dockerContentDigestHeader: []string{dcdIOStruct.serverCalculatedDigest.String()},
+					headerDockerContentDigest: []string{dcdIOStruct.serverCalculatedDigest.String()},
 				},
 			}
 			if method == http.MethodGet {
@@ -4953,7 +5114,7 @@ func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(
 			resp := http.Response{
 				Header: http.Header{
 					"Content-Type":            []string{"application/vnd.docker.distribution.manifest.v2+json"},
-					dockerContentDigestHeader: []string{dcdIOStruct.serverCalculatedDigest.String()},
+					headerDockerContentDigest: []string{dcdIOStruct.serverCalculatedDigest.String()},
 				},
 			}
 			if method == http.MethodGet {

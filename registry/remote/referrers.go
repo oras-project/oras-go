@@ -22,7 +22,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/internal/descriptor"
-	"oras.land/oras-go/v2/internal/spec"
 )
 
 // zeroDigest represents a digest that consists of zeros. zeroDigest is used
@@ -110,10 +109,8 @@ func buildReferrersTag(desc ocispec.Descriptor) string {
 	return alg + "-" + encoded
 }
 
-// isReferrersFilterApplied checks annotations to see if requested is in the
-// applied filter list.
-func isReferrersFilterApplied(annotations map[string]string, requested string) bool {
-	applied := annotations[spec.AnnotationReferrersFiltersApplied]
+// isReferrersFilterApplied checks if requsted is in the applied filter list.
+func isReferrersFilterApplied(applied, requested string) bool {
 	if applied == "" || requested == "" {
 		return false
 	}
