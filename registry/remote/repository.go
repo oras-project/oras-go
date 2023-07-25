@@ -1326,9 +1326,12 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 	}
 }
 
-// indexReferrersForPush indexes referrers for image or artifact manifest with
-// the subject field on manifest push.
-// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
+// indexReferrersForPush indexes referrers for an artifact manifest or
+// an image manifest or an image index with a subject field on manifest push.
+//
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
 func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	var subject ocispec.Descriptor
 	switch desc.MediaType {
@@ -1389,8 +1392,8 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 // updateReferrersIndex updates the referrers index for desc referencing subject
 // on manifest push and manifest delete.
 // References:
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#deleting-manifests
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
 
