@@ -65,6 +65,9 @@ const (
 	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
 	headerOCIFiltersApplied = "OCI-Filters-Applied"
 
+	// headerOCISubject is the "OCI-Subject" header.
+	// If present on the response, it contains the digest of the subject,
+	// indicating that Referrers API is supported by the registry.
 	headerOCISubject = "OCI-Subject"
 )
 
@@ -1278,13 +1281,16 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	if resp.StatusCode != http.StatusCreated {
 		return errutil.ParseErrorResponse(resp)
 	}
-	// TODO: before or after digest verification?
 	s.checkReferrersSupport(resp)
 	return verifyContentDigest(resp, expected.Digest)
 }
 
-// TODO: special handling for index?
+// checkReferrersSupport checks the "OCI-Subject" header in the response and
+// sets referrers capability accordingly.
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
 func (s *manifestStore) checkReferrersSupport(resp *http.Response) {
+	// Referrers capability is not set to false when the subject header is not
+	// present, as the server may still conform to an older version of the spec
 	if subjectHeader := resp.Header.Get(headerOCISubject); subjectHeader != "" {
 		s.repo.SetReferrersCapability(true)
 	}
@@ -1294,7 +1300,6 @@ func (s *manifestStore) checkReferrersSupport(resp *http.Response) {
 // and indexes referrers for the manifest when needed.
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
 	switch expected.MediaType {
-	// TODO: special handling for subject?
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
 		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
 			// referrers API is available, no client-side indexing needed
