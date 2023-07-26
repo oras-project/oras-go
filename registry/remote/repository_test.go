@@ -3682,7 +3682,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	manifestDesc := content.NewDescriptorFromBytes(manifest.MediaType, manifestJSON)
 	manifestDesc.ArtifactType = manifest.Config.MediaType
@@ -3699,7 +3699,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexJSON_2, err := json.Marshal(index_2)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_2 := content.NewDescriptorFromBytes(index_2.MediaType, indexJSON_2)
 	var manifestDeleted bool
@@ -3911,7 +3911,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexManifestJSON, err := json.Marshal(indexManifest)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexManifestDesc := content.NewDescriptorFromBytes(indexManifest.MediaType, indexManifestJSON)
 	indexManifestDesc.ArtifactType = indexManifest.ArtifactType
@@ -3929,7 +3929,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexJSON_3, err := json.Marshal(index_3)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_3 := content.NewDescriptorFromBytes(index_3.MediaType, indexJSON_3)
 	manifestDeleted = false
@@ -4293,7 +4293,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	artifactJSON, err := json.Marshal(artifact)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	artifactDesc := content.NewDescriptorFromBytes(artifact.MediaType, artifactJSON)
 
@@ -4303,7 +4303,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	manifestDesc := content.NewDescriptorFromBytes(manifest.MediaType, manifestJSON)
 
@@ -4313,7 +4313,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexManifestJSON, err := json.Marshal(indexManifest)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexManifestDesc := content.NewDescriptorFromBytes(indexManifest.MediaType, indexManifestJSON)
 
@@ -4331,7 +4331,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexJSON_1, err := json.Marshal(index_1)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_1 := content.NewDescriptorFromBytes(index_1.MediaType, indexJSON_1)
 	index_2 := ocispec.Index{
@@ -4346,7 +4346,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexJSON_2, err := json.Marshal(index_2)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_2 := content.NewDescriptorFromBytes(index_2.MediaType, indexJSON_2)
 	index_3 := ocispec.Index{
@@ -4360,7 +4360,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexJSON_3, err := json.Marshal(index_3)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_3 := content.NewDescriptorFromBytes(index_3.MediaType, indexJSON_3)
 
@@ -4591,7 +4591,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 	}
 	artifactJSON, err := json.Marshal(artifact)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	artifactDesc := content.NewDescriptorFromBytes(artifact.MediaType, artifactJSON)
 
@@ -5155,7 +5155,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable(t *testing.T) {
 	}
 	artifactJSON, err := json.Marshal(artifact)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	artifactDesc := content.NewDescriptorFromBytes(artifact.MediaType, artifactJSON)
 	artifactRef := "foo"
@@ -5166,7 +5166,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable(t *testing.T) {
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	manifestDesc := content.NewDescriptorFromBytes(manifest.MediaType, manifestJSON)
 	manifestRef := "bar"
@@ -5310,7 +5310,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable_NoSubjectHeader(t *t
 	}
 	artifactJSON, err := json.Marshal(artifact)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	artifactDesc := content.NewDescriptorFromBytes(artifact.MediaType, artifactJSON)
 	artifactRef := "foo"
@@ -5321,7 +5321,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable_NoSubjectHeader(t *t
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	manifestDesc := content.NewDescriptorFromBytes(manifest.MediaType, manifestJSON)
 	manifestRef := "bar"
@@ -5465,7 +5465,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	artifactJSON, err := json.Marshal(artifact)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	artifactDesc := content.NewDescriptorFromBytes(artifact.MediaType, artifactJSON)
 	artifactDesc.ArtifactType = artifact.ArtifactType
@@ -5484,7 +5484,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexJSON_1, err := json.Marshal(index_1)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_1 := content.NewDescriptorFromBytes(index_1.MediaType, indexJSON_1)
 	var gotManifest []byte
@@ -5565,7 +5565,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	manifestDesc := content.NewDescriptorFromBytes(manifest.MediaType, manifestJSON)
 	manifestDesc.ArtifactType = manifest.Config.MediaType
@@ -5584,7 +5584,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexJSON_2, err := json.Marshal(index_2)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_2 := content.NewDescriptorFromBytes(index_2.MediaType, indexJSON_2)
 	var manifestDeleted bool
@@ -5722,7 +5722,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexManifestJSON, err := json.Marshal(indexManifest)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexManifestDesc := content.NewDescriptorFromBytes(indexManifest.MediaType, indexManifestJSON)
 	indexManifestDesc.ArtifactType = indexManifest.ArtifactType
@@ -5741,7 +5741,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	indexJSON_3, err := json.Marshal(index_3)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_3 := content.NewDescriptorFromBytes(index_3.MediaType, indexJSON_3)
 	manifestDeleted = false
