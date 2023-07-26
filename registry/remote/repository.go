@@ -64,6 +64,11 @@ const (
 	// Reference:
 	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
 	headerOCIFiltersApplied = "OCI-Filters-Applied"
+
+	// headerOCISubject is the "OCI-Subject" header.
+	// If present on the response, it contains the digest of the subject,
+	// indicating that Referrers API is supported by the registry.
+	headerOCISubject = "OCI-Subject"
 )
 
 // filterTypeArtifactType is the "artifactType" filter applied on the list of
@@ -1276,14 +1281,26 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	if resp.StatusCode != http.StatusCreated {
 		return errutil.ParseErrorResponse(resp)
 	}
+	s.checkOCISubjectHeader(resp)
 	return verifyContentDigest(resp, expected.Digest)
+}
+
+// checkOCISubjectHeader checks the "OCI-Subject" header in the response and
+// sets referrers capability accordingly.
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
+func (s *manifestStore) checkOCISubjectHeader(resp *http.Response) {
+	// Referrers capability is not set to false when the subject header is not
+	// present, as the server may still conform to an older version of the spec
+	if subjectHeader := resp.Header.Get(headerOCISubject); subjectHeader != "" {
+		s.repo.SetReferrersCapability(true)
+	}
 }
 
 // pushWithIndexing pushes the manifest content matching the expected descriptor,
 // and indexes referrers for the manifest when needed.
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
 	switch expected.MediaType {
-	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest:
+	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
 		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
 			// referrers API is available, no client-side indexing needed
 			return s.push(ctx, expected, r, reference)
@@ -1299,15 +1316,22 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 		if err := s.push(ctx, expected, bytes.NewReader(manifestJSON), reference); err != nil {
 			return err
 		}
+		// check referrers API availability again after push
+		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+			return nil
+		}
 		return s.indexReferrersForPush(ctx, expected, manifestJSON)
 	default:
 		return s.push(ctx, expected, r, reference)
 	}
 }
 
-// indexReferrersForPush indexes referrers for image or artifact manifest with
-// the subject field on manifest push.
-// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
+// indexReferrersForPush indexes referrers for manifests with a subject field
+// on manifest push.
+//
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
 func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	var subject ocispec.Descriptor
 	switch desc.MediaType {
@@ -1333,7 +1357,22 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 			return nil
 		}
 		subject = *manifest.Subject
-		desc.ArtifactType = manifest.Config.MediaType
+		desc.ArtifactType = manifest.ArtifactType
+		if desc.ArtifactType == "" {
+			desc.ArtifactType = manifest.Config.MediaType
+		}
+		desc.Annotations = manifest.Annotations
+	case ocispec.MediaTypeImageIndex:
+		var manifest ocispec.Index
+		if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
+			return fmt.Errorf("failed to decode manifest: %s: %s: %w", desc.Digest, desc.MediaType, err)
+		}
+		if manifest.Subject == nil {
+			// no subject, no indexing needed
+			return nil
+		}
+		subject = *manifest.Subject
+		desc.ArtifactType = manifest.ArtifactType
 		desc.Annotations = manifest.Annotations
 	default:
 		return nil
@@ -1353,8 +1392,8 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 // updateReferrersIndex updates the referrers index for desc referencing subject
 // on manifest push and manifest delete.
 // References:
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#deleting-manifests
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
 
