@@ -693,29 +693,36 @@ func TestRepository_Delete(t *testing.T) {
 		Digest:    digest.FromBytes(blob),
 		Size:      int64(len(blob)),
 	}
-	blobDeleted := false
 	index := []byte(`{"manifests":[]}`)
 	indexDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageIndex,
 		Digest:    digest.FromBytes(index),
 		Size:      int64(len(index)),
 	}
-	indexDeleted := false
+
+	var blobDeleted bool
+	var indexDeleted bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		switch r.URL.Path {
-		case "/v2/test/blobs/" + blobDesc.Digest.String():
+		switch {
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/blobs/"+blobDesc.Digest.String():
 			blobDeleted = true
 			w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
 			w.WriteHeader(http.StatusAccepted)
-		case "/v2/test/manifests/" + indexDesc.Digest.String():
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
 			indexDeleted = true
 			// no "Docker-Content-Digest" header for manifest deletion
 			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			if _, err := w.Write(index); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -4109,7 +4116,7 @@ func Test_ManifestStore_Delete(t *testing.T) {
 	store := repo.Manifests()
 	ctx := context.Background()
 
-	// test delete manifest without subject
+	// test deleting manifest without subject
 	err = store.Delete(ctx, manifestDesc)
 	if err != nil {
 		t.Fatalf("Manifests.Delete() error = %v", err)
@@ -4118,7 +4125,7 @@ func Test_ManifestStore_Delete(t *testing.T) {
 		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
 	}
 
-	// test delete content that does not exist
+	// test deleting content that does not exist
 	content := []byte(`{"manifests":[]}`)
 	contentDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageIndex,
@@ -4141,20 +4148,33 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 	}
 	artifactJSON, err := json.Marshal(artifact)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	artifactDesc := content.NewDescriptorFromBytes(artifact.MediaType, artifactJSON)
+
 	manifest := ocispec.Manifest{
 		MediaType: ocispec.MediaTypeImageManifest,
 		Subject:   &subjectDesc,
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
-		t.Errorf("failed to marshal manifest: %v", err)
+		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	manifestDesc := content.NewDescriptorFromBytes(manifest.MediaType, manifestJSON)
-	manifestDeleted := false
-	artifactDeleted := false
+
+	index := ocispec.Index{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Subject:   &subjectDesc,
+	}
+	indexJSON, err := json.Marshal(index)
+	if err != nil {
+		t.Fatalf("failed to marshal manifest: %v", err)
+	}
+	indexDesc := content.NewDescriptorFromBytes(index.MediaType, indexJSON)
+
+	var manifestDeleted bool
+	var artifactDeleted bool
+	var indexDeleted bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete && r.Method != http.MethodGet {
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -4167,6 +4187,10 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 			w.WriteHeader(http.StatusAccepted)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+manifestDesc.Digest.String():
 			manifestDeleted = true
+			// no "Docker-Content-Digest" header for manifest deletion
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
+			indexDeleted = true
 			// no "Docker-Content-Digest" header for manifest deletion
 			w.WriteHeader(http.StatusAccepted)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+artifactDesc.Digest.String():
@@ -4207,7 +4231,7 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 	repo.PlainHTTP = true
 	store := repo.Manifests()
 	ctx := context.Background()
-	// test delete artifact with subject
+	// test deleting artifact with subject
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
@@ -4219,7 +4243,7 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 		t.Errorf("Manifests.Delete() = %v, want %v", artifactDeleted, true)
 	}
 
-	// test delete manifest with subject
+	// test deleting manifest with subject
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
@@ -4231,7 +4255,19 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
 	}
 
-	// test delete content that does not exist
+	// test deleting index with subject
+	if state := repo.loadReferrersState(); state != referrersStateSupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	}
+	err = store.Delete(ctx, indexDesc)
+	if err != nil {
+		t.Fatalf("Manifests.Delete() error = %v", err)
+	}
+	if !indexDeleted {
+		t.Errorf("Manifests.Delete() = %v, want %v", indexDeleted, true)
+	}
+
+	// test deleting content that does not exist
 	content := []byte("whatever")
 	contentDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
@@ -4269,7 +4305,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	manifestDesc := content.NewDescriptorFromBytes(manifest.MediaType, manifestJSON)
 
-	// test delete artifact with subject
+	// test deleting artifact with subject
 	index_1 := ocispec.Index{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
@@ -4358,7 +4394,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	store := repo.Manifests()
 	ctx := context.Background()
 
-	// test delete artifact with subject
+	// test deleting artifact with subject
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
@@ -4379,7 +4415,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 
-	// test delete manifest with subject
+	// test deleting manifest with subject
 	manifestDeleted = false
 	indexDeleted = false
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
