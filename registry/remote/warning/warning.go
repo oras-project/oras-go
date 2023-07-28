@@ -15,12 +15,34 @@ limitations under the License.
 
 package warning
 
+import "net/url"
+
 type Warning struct {
+	Value
+	URL url.URL
+}
+
+type Value struct {
 	Code  int
 	Agent string
 	Text  string
 }
 
+func new(url url.URL, header string) Warning {
+	// parse warning header
+	return Warning{
+		URL: url,
+	}
+}
+
+// TODO: how to deduplicate?
+
 type WarningHandler interface {
 	HandleWarning(warning Warning)
+}
+
+// or
+
+type WarningsHandler interface {
+	HandleWarnings(warnings []Warning)
 }
