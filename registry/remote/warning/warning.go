@@ -15,34 +15,27 @@ limitations under the License.
 
 package warning
 
-import "net/url"
+import (
+	"errors"
+	"fmt"
+)
+
+const warningFormat = "%d %s %q" //TODO: %s for text?
 
 type Warning struct {
-	Value
-	URL url.URL
-}
-
-type Value struct {
 	Code  int
 	Agent string
 	Text  string
 }
 
-func new(url url.URL, header string) Warning {
-	// parse warning header
-	return Warning{
-		URL: url,
+func parseWarningHeader(header string) (Warning, error) {
+	var warning Warning
+	n, err := fmt.Sscanf(header, warningFormat, &warning.Code, &warning.Agent, &warning.Text)
+	if err != nil {
+		return Warning{}, err
 	}
-}
-
-// TODO: how to deduplicate?
-
-type WarningHandler interface {
-	HandleWarning(warning Warning)
-}
-
-// or
-
-type WarningsHandler interface {
-	HandleWarnings(warnings []Warning)
+	if n != 3 {
+		return Warning{}, errors.New("failed to parse warning")
+	}
+	return warning, nil
 }
