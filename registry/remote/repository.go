@@ -24,6 +24,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -139,6 +140,8 @@ type Repository struct {
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#deleting-manifests
 	SkipReferrersGC bool
 
+	HandleWarning func(warning Warning)
+
 	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
 
 	// referrersState represents that if the repository supports Referrers API.
@@ -152,6 +155,12 @@ type Repository struct {
 	// referrersMergePool provides a way to manage concurrent updates to a
 	// referrers index tagged by referrers tag schema.
 	referrersMergePool syncutil.Pool[syncutil.Merge[referrerChange]]
+}
+
+type Warning struct {
+	WarningHeader
+	Reference registry.Reference
+	URL       url.URL
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -232,6 +241,37 @@ func (r *Repository) client() Client {
 		return auth.DefaultClient
 	}
 	return r.Client
+}
+
+func (r *Repository) do(req *http.Request) (*http.Response, error) {
+	if r.HandleWarning == nil {
+		return r.client().Do(req)
+	}
+
+	resp, err := r.client().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	r.handleWarningHeaders(req, resp.Header[headerWarning])
+	return resp, nil
+}
+
+func (r *Repository) handleWarningHeaders(req *http.Request, headers []string) {
+	if len(headers) == 0 {
+		return
+	}
+
+	// TODO: dedup?
+	for _, header := range headers {
+		if wh, err := parseWarningHeader(header); err == nil {
+			warning := Warning{
+				WarningHeader: wh,
+				Reference:     r.Reference,
+				URL:           *req.URL,
+			}
+			r.HandleWarning(warning)
+		}
+	}
 }
 
 // blobStore detects the blob store for the given descriptor.

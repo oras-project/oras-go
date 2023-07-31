@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/warning"
 )
 
 func TestUse(t *testing.T) {
@@ -16,15 +14,10 @@ func TestUse(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-
-	client := warning.Client{
-		Client: auth.DefaultClient,
-		HandleWarning: func(warning warning.Warning) {
-			fmt.Println(warning.Text)
-		},
-	}
-	repo.Client = &client
 	repo.PlainHTTP = true
+	repo.HandleWarning = func(w remote.Warning) {
+		fmt.Println("%s/%s: %s: %s", w.Reference.Registry, w.Reference.Repository, w.URL.Path, w.Text)
+	}
 
 	ctx := context.Background()
 	desc, err := repo.Resolve(ctx, ref)
