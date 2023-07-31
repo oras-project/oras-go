@@ -416,7 +416,7 @@ func (r *Repository) tags(ctx context.Context, last string, fn func(tags []strin
 		}
 		req.URL.RawQuery = q.Encode()
 	}
-	resp, err := r.client().Do(req)
+	resp, err := r.do(req)
 	if err != nil {
 		return "", err
 	}
@@ -533,7 +533,7 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 		req.URL.RawQuery = q.Encode()
 	}
 
-	resp, err := r.client().Do(req)
+	resp, err := r.do(req)
 	if err != nil {
 		return "", err
 	}
@@ -644,7 +644,7 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	resp, err := r.client().Do(req)
+	resp, err := r.do(req)
 	if err != nil {
 		return false, err
 	}
@@ -682,7 +682,7 @@ func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isMa
 		return err
 	}
 
-	resp, err := r.client().Do(req)
+	resp, err := r.do(req)
 	if err != nil {
 		return err
 	}
@@ -714,7 +714,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 		return nil, err
 	}
 
-	resp, err := s.repo.client().Do(req)
+	resp, err := s.repo.do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -761,7 +761,7 @@ func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo
 	if err != nil {
 		return err
 	}
-	resp, err := s.repo.client().Do(req)
+	resp, err := s.repo.do(req)
 	if err != nil {
 		return err
 	}
@@ -834,7 +834,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 		return err
 	}
 
-	resp, err := s.repo.client().Do(req)
+	resp, err := s.repo.do(req)
 	if err != nil {
 		return err
 	}
@@ -889,7 +889,7 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 	if auth := resp.Request.Header.Get("Authorization"); auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
-	resp, err = s.repo.client().Do(req)
+	resp, err = s.repo.do(req)
 	if err != nil {
 		return err
 	}
@@ -935,7 +935,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 		return ocispec.Descriptor{}, err
 	}
 
-	resp, err := s.repo.client().Do(req)
+	resp, err := s.repo.do(req)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -970,7 +970,7 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	resp, err := s.repo.client().Do(req)
+	resp, err := s.repo.do(req)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -1046,7 +1046,7 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	}
 	req.Header.Set("Accept", target.MediaType)
 
-	resp, err := s.repo.client().Do(req)
+	resp, err := s.repo.do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1172,7 +1172,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	}
 	req.Header.Set("Accept", manifestAcceptHeader(s.repo.ManifestMediaTypes))
 
-	resp, err := s.repo.client().Do(req)
+	resp, err := s.repo.do(req)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -1204,7 +1204,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	}
 	req.Header.Set("Accept", manifestAcceptHeader(s.repo.ManifestMediaTypes))
 
-	resp, err := s.repo.client().Do(req)
+	resp, err := s.repo.do(req)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -1302,7 +1302,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 			return err
 		}
 	}
-	resp, err := client.Do(req)
+	resp, err := s.repo.do(req)
 	if err != nil {
 		return err
 	}
