@@ -16,7 +16,7 @@ func TestUse(t *testing.T) {
 	}
 	repo.PlainHTTP = true
 	repo.HandleWarning = func(w remote.Warning) {
-		fmt.Println("%s/%s: %s: %s", w.Reference.Registry, w.Reference.Repository, w.URL.Path, w.Text)
+		fmt.Printf("%s/%s: %s: %s", w.Reference.Registry, w.Reference.Repository, w.RequestURL.Path, w.Text)
 	}
 
 	ctx := context.Background()

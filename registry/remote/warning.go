@@ -18,7 +18,10 @@ package remote
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
+
+	"oras.land/oras-go/v2/registry"
 )
 
 const (
@@ -37,6 +40,13 @@ type WarningHeader struct {
 	Text  string
 }
 
+type Warning struct {
+	WarningHeader
+	Reference     registry.Reference
+	RequestMethod string
+	RequestURL    url.URL
+}
+
 func parseWarningHeader(header string) (WarningHeader, error) {
 	matches := warningRegexp.FindStringSubmatch(header)
 	if len(matches) != 2 {
@@ -48,4 +58,16 @@ func parseWarningHeader(header string) (WarningHeader, error) {
 		Agent: warningAgentUnknown,
 		Text:  matches[1],
 	}, nil
+}
+
+// TODO: unit test
+func parseWarningHeaders(headers []string) []WarningHeader {
+	var result []WarningHeader
+	for _, h := range headers {
+		if wh, err := parseWarningHeader(h); err == nil {
+			// ignore warnings in unexpected formats
+			result = append(result, wh)
+		}
+	}
+	return result
 }

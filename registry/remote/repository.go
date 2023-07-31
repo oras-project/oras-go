@@ -24,7 +24,6 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -157,12 +156,6 @@ type Repository struct {
 	referrersMergePool syncutil.Pool[syncutil.Merge[referrerChange]]
 }
 
-type Warning struct {
-	WarningHeader
-	Reference registry.Reference
-	URL       url.URL
-}
-
 // NewRepository creates a client to the remote repository identified by a
 // reference.
 // Example: localhost:5000/hello-world
@@ -252,26 +245,18 @@ func (r *Repository) do(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.handleWarningHeaders(req, resp.Header[headerWarning])
-	return resp, nil
-}
 
-func (r *Repository) handleWarningHeaders(req *http.Request, headers []string) {
-	if len(headers) == 0 {
-		return
-	}
-
-	// TODO: dedup?
-	for _, header := range headers {
-		if wh, err := parseWarningHeader(header); err == nil {
-			warning := Warning{
-				WarningHeader: wh,
-				Reference:     r.Reference,
-				URL:           *req.URL,
-			}
-			r.HandleWarning(warning)
+	warningHeaders := parseWarningHeaders(resp.Header[headerWarning])
+	for _, wh := range warningHeaders {
+		warning := Warning{
+			WarningHeader: wh,
+			Reference:     r.Reference,
+			RequestMethod: req.Method,
+			RequestURL:    *req.URL,
 		}
+		r.HandleWarning(warning)
 	}
+	return resp, nil
 }
 
 // blobStore detects the blob store for the given descriptor.
