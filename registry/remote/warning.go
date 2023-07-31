@@ -18,7 +18,6 @@ package remote
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"regexp"
 
 	"oras.land/oras-go/v2/registry"
@@ -44,7 +43,7 @@ type Warning struct {
 	WarningHeader
 	Reference     registry.Reference
 	RequestMethod string
-	RequestURL    url.URL
+	RequestPath   string
 }
 
 func parseWarningHeader(header string) (WarningHeader, error) {
