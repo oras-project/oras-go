@@ -16,11 +16,19 @@ limitations under the License.
 package warning
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 )
 
-var warningRegexp = regexp.MustCompile(`^\d{3}\s.+\s+"([^"]+)"$`)
+var warningRegexp = regexp.MustCompile(`^299\s+-\s+"([^"]+)"`)
+
+var errInvalidWarningFormat = errors.New("invalid warning format")
+
+const (
+	warningCode299      = 299
+	warningAgentUnknown = "-"
+)
 
 type Warning struct {
 	Code  int
@@ -29,15 +37,14 @@ type Warning struct {
 }
 
 func parseWarningHeader(header string) (Warning, error) {
-	if matched := warningRegexp.MatchString(header); !matched {
-		return Warning{}, fmt.Errorf("invalid warning format: %s", header)
+	match := warningRegexp.FindStringSubmatch(header)
+	if len(match) != 2 {
+		return Warning{}, fmt.Errorf("%s: %w", header, errInvalidWarningFormat)
 	}
 
-	var warning Warning
-	n, err := fmt.Sscanf(header, "%d %s %q", &warning.Code, &warning.Agent, &warning.Text)
-	if err != nil || n != 3 {
-		return Warning{}, fmt.Errorf("invalid warning format: %s", header)
-	}
-
-	return warning, nil
+	return Warning{
+		Code:  warningCode299,
+		Agent: warningAgentUnknown,
+		Text:  match[1],
+	}, nil
 }
