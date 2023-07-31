@@ -21,15 +21,15 @@ import (
 	"regexp"
 )
 
-var warningRegexp = regexp.MustCompile(`^299\s+-\s+"([^"]+)"`)
-
-var errInvalidWarningFormat = errors.New("invalid warning format")
-
 const (
 	headerWarning       = "Warning"
 	warningCode299      = 299
 	warningAgentUnknown = "-"
 )
+
+var warningRegexp = regexp.MustCompile(`^299\s+-\s+"([^"]+)"$`)
+
+var errUnexpectedWarningFormat = errors.New("unexpected warning format")
 
 type WarningHeader struct {
 	Code  int
@@ -38,14 +38,14 @@ type WarningHeader struct {
 }
 
 func parseWarningHeader(header string) (WarningHeader, error) {
-	match := warningRegexp.FindStringSubmatch(header)
-	if len(match) != 2 {
-		return WarningHeader{}, fmt.Errorf("%s: %w", header, errInvalidWarningFormat)
+	matches := warningRegexp.FindStringSubmatch(header)
+	if len(matches) != 2 {
+		return WarningHeader{}, fmt.Errorf("%s: %w", header, errUnexpectedWarningFormat)
 	}
 
 	return WarningHeader{
 		Code:  warningCode299,
 		Agent: warningAgentUnknown,
-		Text:  match[1],
+		Text:  matches[1],
 	}, nil
 }
