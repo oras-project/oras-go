@@ -6919,21 +6919,21 @@ func TestRepository_do(t *testing.T) {
 
 	wantWarnings := []Warning{
 		{
-			Value: WarningValue{
+			WarningValue: WarningValue{
 				Code:  299,
 				Agent: "-",
 				Text:  "Test 1: Good warning.",
 			},
 		},
 		{
-			Value: WarningValue{
+			WarningValue: WarningValue{
 				Code:  299,
 				Agent: "-",
 				Text:  "Test 3: Good warning.",
 			},
 		},
 		{
-			Value: WarningValue{
+			WarningValue: WarningValue{
 				Code:  299,
 				Agent: "-",
 				Text:  "Test 6: Good warning.",

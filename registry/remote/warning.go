@@ -61,8 +61,8 @@ type WarningValue struct {
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#warnings
 //   - https://www.rfc-editor.org/rfc/rfc7234#section-5.5
 type Warning struct {
-	// Value is the value of the warning header.
-	Value WarningValue
+	// WarningValue is the value of the warning header.
+	WarningValue
 }
 
 // parseWarningHeader parses the warning header into WarningValue.
@@ -90,10 +90,10 @@ func parseWarningHeader(header string) (WarningValue, error) {
 // warnings using handleWarning.
 func handleWarningHeaders(headers []string, handleWarning func(Warning)) {
 	for _, h := range headers {
-		if wh, err := parseWarningHeader(h); err == nil {
+		if value, err := parseWarningHeader(h); err == nil {
 			// ignore warnings in unexpected formats
 			warning := Warning{
-				Value: wh,
+				WarningValue: value,
 			}
 			handleWarning(warning)
 		}
