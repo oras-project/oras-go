@@ -140,6 +140,7 @@ type Repository struct {
 	SkipReferrersGC bool
 
 	// HandleWarning handles the warning returned by the remote server.
+	// Callers SHOULD deduplicate warnings from multiple associated responses.
 	//
 	// References:
 	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#warnings

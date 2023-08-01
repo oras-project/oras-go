@@ -194,6 +194,7 @@ func TestMain(m *testing.M) {
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Docker-Content-Digest", exampleManifestDigest)
 			w.Header().Set("Content-Length", strconv.Itoa(len([]byte(exampleManifest))))
+			w.Header().Set("Warning", `299 - "This image is deprecated and will be removed soon."`)
 			if m == "GET" {
 				w.Write([]byte(exampleManifest))
 			}
@@ -727,6 +728,41 @@ func Example_pullByDigest() {
 	// Output:
 	// sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7
 	// 337
+	// {"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:569224ae188c06e97b9fcadaeb2358fb0fb7c4eb105d49aee2620b2719abea43","size":22},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}]}
+}
+
+func Example_handleWarning() {
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
+	if err != nil {
+		panic(err)
+	}
+	// 1. specify HandleWarning
+	repo.HandleWarning = func(warning remote.Warning) {
+		fmt.Printf("Warning from %s: %s\n", warning.Reference.Repository, warning.Value.Text)
+	}
+
+	ctx := context.Background()
+	exampleDigest := "sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7"
+	// 2. resolve the descriptor
+	descriptor, err := repo.Resolve(ctx, exampleDigest)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(descriptor.Digest)
+	fmt.Println(descriptor.Size)
+
+	// 3. fetch the content byte[] from the repository
+	pulledBlob, err := content.FetchAll(ctx, repo, descriptor)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(pulledBlob))
+
+	// Output:
+	// Warning from example: This image is deprecated and will be removed soon.
+	// sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7
+	// 337
+	// Warning from example: This image is deprecated and will be removed soon.
 	// {"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:569224ae188c06e97b9fcadaeb2358fb0fb7c4eb105d49aee2620b2719abea43","size":22},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}]}
 }
 
