@@ -41,9 +41,7 @@ type WarningHeader struct {
 
 type Warning struct {
 	WarningHeader
-	Reference     registry.Reference
-	RequestMethod string
-	RequestPath   string
+	Reference registry.Reference
 }
 
 func parseWarningHeader(header string) (WarningHeader, error) {

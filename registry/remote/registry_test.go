@@ -355,9 +355,7 @@ func TestRegistry_do(t *testing.T) {
 				Agent: "-",
 				Text:  "Test 1: Good warning.",
 			},
-			Reference:     reg.Reference,
-			RequestPath:   "/test",
-			RequestMethod: http.MethodGet,
+			Reference: reg.Reference,
 		},
 		{
 			WarningHeader: WarningHeader{
@@ -365,9 +363,7 @@ func TestRegistry_do(t *testing.T) {
 				Agent: "-",
 				Text:  "Test 3: Good warning.",
 			},
-			Reference:     reg.Reference,
-			RequestPath:   "/test",
-			RequestMethod: http.MethodGet,
+			Reference: reg.Reference,
 		},
 	}
 	if !reflect.DeepEqual(gotWarnings, wantWarnings) {

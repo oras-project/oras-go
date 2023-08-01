@@ -87,8 +87,6 @@ func (r *Registry) do(req *http.Request) (*http.Response, error) {
 		warning := Warning{
 			WarningHeader: wh,
 			Reference:     r.Reference,
-			RequestMethod: req.Method,
-			RequestPath:   req.URL.Path,
 		}
 		r.HandleWarning(warning)
 	}

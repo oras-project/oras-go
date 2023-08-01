@@ -6920,9 +6920,7 @@ func TestRepository_do(t *testing.T) {
 				Agent: "-",
 				Text:  "Test 1: Good warning.",
 			},
-			Reference:     repo.Reference,
-			RequestPath:   "/test",
-			RequestMethod: http.MethodGet,
+			Reference: repo.Reference,
 		},
 		{
 			WarningHeader: WarningHeader{
@@ -6930,9 +6928,7 @@ func TestRepository_do(t *testing.T) {
 				Agent: "-",
 				Text:  "Test 3: Good warning.",
 			},
-			Reference:     repo.Reference,
-			RequestPath:   "/test",
-			RequestMethod: http.MethodGet,
+			Reference: repo.Reference,
 		},
 	}
 	if !reflect.DeepEqual(gotWarnings, wantWarnings) {
