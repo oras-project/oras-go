@@ -359,7 +359,6 @@ func TestRegistry_do(t *testing.T) {
 				Agent: "-",
 				Text:  "Test 1: Good warning.",
 			},
-			Reference: reg.Reference,
 		},
 		{
 			Value: WarningValue{
@@ -367,7 +366,6 @@ func TestRegistry_do(t *testing.T) {
 				Agent: "-",
 				Text:  "Test 3: Good warning.",
 			},
-			Reference: reg.Reference,
 		},
 		{
 			Value: WarningValue{
@@ -375,7 +373,6 @@ func TestRegistry_do(t *testing.T) {
 				Agent: "-",
 				Text:  "Test 6: Good warning.",
 			},
-			Reference: reg.Reference,
 		},
 	}
 	if !reflect.DeepEqual(gotWarnings, wantWarnings) {

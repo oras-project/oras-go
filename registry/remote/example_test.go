@@ -738,7 +738,7 @@ func Example_handleWarning() {
 	}
 	// 1. specify HandleWarning
 	repo.HandleWarning = func(warning remote.Warning) {
-		fmt.Printf("Warning from %s: %s\n", warning.Reference.Repository, warning.Value.Text)
+		fmt.Printf("Warning from %s: %s\n", repo.Reference.Repository, warning.Value.Text)
 	}
 
 	ctx := context.Background()

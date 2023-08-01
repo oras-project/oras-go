@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"oras.land/oras-go/v2/registry"
 )
 
 const (
@@ -56,8 +54,8 @@ type WarningValue struct {
 	Text string
 }
 
-// Warning contains the value of the warning header and other information
-// related to the warning.
+// Warning contains the value of the warning header and may contain
+// other information related to the warning.
 //
 // References:
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#warnings
@@ -65,9 +63,6 @@ type WarningValue struct {
 type Warning struct {
 	// Value is the value of the warning header.
 	Value WarningValue
-	// Reference is the registry reference for which the warning is being
-	// reported.
-	Reference registry.Reference
 }
 
 // parseWarningHeader parses the warning header into WarningValue.
@@ -93,13 +88,12 @@ func parseWarningHeader(header string) (WarningValue, error) {
 
 // handleWarningHeaders parses the warning headers and handles the parsed
 // warnings using handleWarning.
-func handleWarningHeaders(headers []string, reference registry.Reference, handleWarning func(Warning)) {
+func handleWarningHeaders(headers []string, handleWarning func(Warning)) {
 	for _, h := range headers {
 		if wh, err := parseWarningHeader(h); err == nil {
 			// ignore warnings in unexpected formats
 			warning := Warning{
-				Value:     wh,
-				Reference: reference,
+				Value: wh,
 			}
 			handleWarning(warning)
 		}

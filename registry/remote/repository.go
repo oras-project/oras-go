@@ -253,7 +253,7 @@ func (r *Repository) do(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	handleWarningHeaders(resp.Header.Values(headerWarning), r.Reference, r.HandleWarning)
+	handleWarningHeaders(resp.Header.Values(headerWarning), r.HandleWarning)
 	return resp, nil
 }
 
