@@ -74,7 +74,7 @@ func (r *Registry) client() Client {
 }
 
 // do sends an HTTP request and returns an HTTP response using the HTTP client
-// returned by client().
+// returned by r.client().
 func (r *Registry) do(req *http.Request) (*http.Response, error) {
 	if r.HandleWarning == nil {
 		return r.client().Do(req)

@@ -25,13 +25,13 @@ func Test_parseWarningHeader(t *testing.T) {
 	tests := []struct {
 		name    string
 		header  string
-		want    WarningHeader
+		want    WarningValue
 		wantErr error
 	}{
 		{
 			name:   "Valid warning",
 			header: `299 - "This is a warning."`,
-			want: WarningHeader{
+			want: WarningValue{
 				Code:  299,
 				Agent: "-",
 				Text:  "This is a warning.",
@@ -40,7 +40,7 @@ func Test_parseWarningHeader(t *testing.T) {
 		{
 			name:   "Valid meaningless warning",
 			header: `299 - " "`,
-			want: WarningHeader{
+			want: WarningValue{
 				Code:  299,
 				Agent: "-",
 				Text:  " ",
@@ -49,97 +49,97 @@ func Test_parseWarningHeader(t *testing.T) {
 		{
 			name:    "Multiple spaces in warning",
 			header:  `299  -   "This is a warning."`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Leading space in warning",
 			header:  ` 299 - "This is a warning."`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Trailing space in warning",
 			header:  `299 - "This is a warning." `,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Warning with a non-299 code",
 			header:  `199 - "This is a warning."`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Warning with a non-unknown agent",
 			header:  `299 localhost:5000 "This is a warning."`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Warning with a date",
 			header:  `299 - "This is a warning." "Sat, 25 Aug 2012 23:34:45 GMT"`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Invalid format",
 			header:  `299 - "This is a warning." something strange`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Not a warning",
 			header:  `foo bar baz`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "No code",
 			header:  `- "This is a warning."`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "No agent",
 			header:  `299 "This is a warning."`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "No text",
 			header:  `299 -`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Empty text",
 			header:  `299 - ""`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Unquoted text",
 			header:  `299 - This is a warning.`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Single-quoted text",
 			header:  `299 - 'This is a warning.'`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Back-quoted text",
 			header:  "299 - `This is a warning.`",
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 		{
 			name:    "Invalid quotes",
 			header:  `299 - 'This is a warning."`,
-			want:    WarningHeader{},
+			want:    WarningValue{},
 			wantErr: errUnexpectedWarningFormat,
 		},
 	}

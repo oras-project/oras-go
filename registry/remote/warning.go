@@ -42,12 +42,12 @@ const (
 // an unexpected warning format is encountered.
 var errUnexpectedWarningFormat = errors.New("unexpected warning format")
 
-// WarningHeader represents the value of the Warning header.
+// WarningValue represents the value of the Warning header.
 //
 // References:
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#warnings
 //   - https://www.rfc-editor.org/rfc/rfc7234#section-5.5
-type WarningHeader struct {
+type WarningValue struct {
 	// Code is the warn-code.
 	Code int
 	// Agent is the warn-agent.
@@ -60,49 +60,35 @@ type WarningHeader struct {
 // related to the warning.
 type Warning struct {
 	// Value is the value of the warning header.
-	Value WarningHeader
+	Value WarningValue
 	// Reference is the registry reference for which the warning is being
 	// reported.
 	Reference registry.Reference
 }
 
-// parseWarningHeader parses the value of the warning header into WarningHeader.
-func parseWarningHeader(header string) (WarningHeader, error) {
-	if len(header) <= 8 || !strings.HasPrefix(header, `299 - "`) || !strings.HasSuffix(header, `"`) {
-		// minimum header value: `299 - " "`
-		return WarningHeader{}, fmt.Errorf("%s: %w", header, errUnexpectedWarningFormat)
-	}
-	parts := strings.SplitN(header, " ", 3)
-	if len(parts) != 3 {
-		return WarningHeader{}, fmt.Errorf("%s: %w", header, errUnexpectedWarningFormat)
+// parseWarningHeader parses the warning header into WarningValue.
+func parseWarningHeader(header string) (WarningValue, error) {
+	if len(header) < 9 || !strings.HasPrefix(header, `299 - "`) || !strings.HasSuffix(header, `"`) {
+		// minimum header value: `299 - "x"`
+		return WarningValue{}, fmt.Errorf("%s: %w", header, errUnexpectedWarningFormat)
 	}
 
-	code, agent, quotedText := parts[0], parts[1], parts[2]
-	// validate code
-	if code != strconv.Itoa(warnCode299) {
-		return WarningHeader{}, fmt.Errorf("%s: unexpected code: %w", header, errUnexpectedWarningFormat)
-	}
-	// validate agent
-	if agent != warnAgentUnknown {
-		return WarningHeader{}, fmt.Errorf("%s: unexpected agent: %w", header, errUnexpectedWarningFormat)
-	}
-	// validate text
+	// validate text only as code and agent are fixed
+	quotedText := header[6:] // behind `299 - `, quoted by "
 	text, err := strconv.Unquote(quotedText)
 	if err != nil {
-		return WarningHeader{}, fmt.Errorf("%s: unexpected text: %w: %v", header, errUnexpectedWarningFormat, err)
-	}
-	if len(text) == 0 {
-		return WarningHeader{}, fmt.Errorf("%s: empty text: %w", header, errUnexpectedWarningFormat)
+		return WarningValue{}, fmt.Errorf("%s: unexpected text: %w: %v", header, errUnexpectedWarningFormat, err)
 	}
 
-	return WarningHeader{
+	return WarningValue{
 		Code:  warnCode299,
 		Agent: warnAgentUnknown,
 		Text:  text,
 	}, nil
 }
 
-// handleWarningHeaders handle the values of warning headers.
+// handleWarningHeaders parses the warning headers and handles the parsed
+// warnings using handleWarning.
 func handleWarningHeaders(headers []string, reference registry.Reference, handleWarning func(Warning)) {
 	for _, h := range headers {
 		if wh, err := parseWarningHeader(h); err == nil {
