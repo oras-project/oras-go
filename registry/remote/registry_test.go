@@ -281,6 +281,7 @@ func TestRegistry_do(t *testing.T) {
 		w.Header().Add("Warning", `299 - "Test 3: Good warning."`)
 		w.Header().Add("Warning", `299 myregistry.example.com "Test 4: Warning with a non-unknown agent"`)
 		w.Header().Add("Warning", `299 - "Test 5: Warning with a date." "Sat, 25 Aug 2012 23:34:45 GMT"`)
+		w.Header().Add("wArnIng", `299 - "Test 6: Good warning."`)
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -293,7 +294,7 @@ func TestRegistry_do(t *testing.T) {
 	// test do() without HandleWarning
 	reg, err := NewRegistry(uri.Host)
 	if err != nil {
-		t.Fatal("NewRepository() error =", err)
+		t.Fatal("NewRegistry() error =", err)
 	}
 	req, err := http.NewRequest(http.MethodGet, testURL, nil)
 	if err != nil {
@@ -301,13 +302,13 @@ func TestRegistry_do(t *testing.T) {
 	}
 	resp, err := reg.do(req)
 	if err != nil {
-		t.Fatal("Repository.do() error =", err)
+		t.Fatal("Registry.do() error =", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Repository.do() status code = %v, want %v", resp.StatusCode, http.StatusOK)
+		t.Errorf("Registry.do() status code = %v, want %v", resp.StatusCode, http.StatusOK)
 	}
-	if got := len(resp.Header["Warning"]); got != 5 {
-		t.Errorf("Repository.do() warning header len = %v, want %v", got, 5)
+	if got := len(resp.Header["Warning"]); got != 6 {
+		t.Errorf("Registry.do() warning header len = %v, want %v", got, 6)
 	}
 	got, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -315,13 +316,13 @@ func TestRegistry_do(t *testing.T) {
 	}
 	resp.Body.Close()
 	if !bytes.Equal(got, data) {
-		t.Errorf("Repository.do() = %v, want %v", got, data)
+		t.Errorf("Registry.do() = %v, want %v", got, data)
 	}
 
 	// test do() with HandleWarning
 	reg, err = NewRegistry(uri.Host)
 	if err != nil {
-		t.Fatal("NewRepository() error =", err)
+		t.Fatal("NewRegistry() error =", err)
 	}
 	var gotWarnings []Warning
 	reg.HandleWarning = func(warning Warning) {
@@ -334,18 +335,21 @@ func TestRegistry_do(t *testing.T) {
 	}
 	resp, err = reg.do(req)
 	if err != nil {
-		t.Fatal("Repository.do() error =", err)
+		t.Fatal("Registry.do() error =", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Repository.do() status code = %v, want %v", resp.StatusCode, http.StatusOK)
+		t.Errorf("Registry.do() status code = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if got := len(resp.Header["Warning"]); got != 6 {
+		t.Errorf("Registry.do() warning header len = %v, want %v", got, 6)
 	}
 	got, err = io.ReadAll(resp.Body)
 	if err != nil {
-		t.Errorf("Repository.do() = %v, want %v", got, data)
+		t.Errorf("Registry.do() = %v, want %v", got, data)
 	}
 	resp.Body.Close()
 	if !bytes.Equal(got, data) {
-		t.Errorf("Repository.do() = %v, want %v", got, data)
+		t.Errorf("Registry.do() = %v, want %v", got, data)
 	}
 
 	wantWarnings := []Warning{
@@ -365,9 +369,17 @@ func TestRegistry_do(t *testing.T) {
 			},
 			Reference: reg.Reference,
 		},
+		{
+			WarningHeader: WarningHeader{
+				Code:  299,
+				Agent: "-",
+				Text:  "Test 6: Good warning.",
+			},
+			Reference: reg.Reference,
+		},
 	}
 	if !reflect.DeepEqual(gotWarnings, wantWarnings) {
-		t.Errorf("Repository.do() = %v, want %v", gotWarnings, wantWarnings)
+		t.Errorf("Registry.do() = %v, want %v", gotWarnings, wantWarnings)
 	}
 }
 

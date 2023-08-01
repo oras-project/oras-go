@@ -6846,6 +6846,7 @@ func TestRepository_do(t *testing.T) {
 		w.Header().Add("Warning", `299 - "Test 3: Good warning."`)
 		w.Header().Add("Warning", `299 myregistry.example.com "Test 4: Warning with a non-unknown agent"`)
 		w.Header().Add("Warning", `299 - "Test 5: Warning with a date." "Sat, 25 Aug 2012 23:34:45 GMT"`)
+		w.Header().Add("wArnIng", `299 - "Test 6: Good warning."`)
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -6871,8 +6872,8 @@ func TestRepository_do(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Repository.do() status code = %v, want %v", resp.StatusCode, http.StatusOK)
 	}
-	if got := len(resp.Header["Warning"]); got != 5 {
-		t.Errorf("Repository.do() warning header len = %v, want %v", got, 5)
+	if got := len(resp.Header["Warning"]); got != 6 {
+		t.Errorf("Repository.do() warning header len = %v, want %v", got, 6)
 	}
 	got, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -6904,6 +6905,9 @@ func TestRepository_do(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Repository.do() status code = %v, want %v", resp.StatusCode, http.StatusOK)
 	}
+	if got := len(resp.Header["Warning"]); got != 6 {
+		t.Errorf("Repository.do() warning header len = %v, want %v", got, 6)
+	}
 	got, err = io.ReadAll(resp.Body)
 	if err != nil {
 		t.Errorf("Repository.do() = %v, want %v", got, data)
@@ -6927,6 +6931,14 @@ func TestRepository_do(t *testing.T) {
 				Code:  299,
 				Agent: "-",
 				Text:  "Test 3: Good warning.",
+			},
+			Reference: repo.Reference,
+		},
+		{
+			WarningHeader: WarningHeader{
+				Code:  299,
+				Agent: "-",
+				Text:  "Test 6: Good warning.",
 			},
 			Reference: repo.Reference,
 		},
