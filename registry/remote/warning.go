@@ -78,14 +78,15 @@ func parseWarningHeader(header string) (WarningHeader, error) {
 	}, nil
 }
 
-// TODO: unit test
-func parseWarningHeaders(headers []string) []WarningHeader {
-	var result []WarningHeader
+func handleWarningHeaders(headers []string, reference registry.Reference, handleWarning func(Warning)) {
 	for _, h := range headers {
 		if wh, err := parseWarningHeader(h); err == nil {
 			// ignore warnings in unexpected formats
-			result = append(result, wh)
+			warning := Warning{
+				Value:     wh,
+				Reference: reference,
+			}
+			handleWarning(warning)
 		}
 	}
-	return result
 }

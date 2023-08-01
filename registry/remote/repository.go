@@ -245,14 +245,7 @@ func (r *Repository) do(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	warningHeaders := parseWarningHeaders(resp.Header.Values(headerWarning))
-	for _, wh := range warningHeaders {
-		warning := Warning{
-			Value:     wh,
-			Reference: r.Reference,
-		}
-		r.HandleWarning(warning)
-	}
+	handleWarningHeaders(resp.Header.Values(headerWarning), r.Reference, r.HandleWarning)
 	return resp, nil
 }
 
