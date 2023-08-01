@@ -139,6 +139,11 @@ type Repository struct {
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#deleting-manifests
 	SkipReferrersGC bool
 
+	// HandleWarning handles the warning returned by the remote server.
+	//
+	// References:
+	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#warnings
+	//   - https://www.rfc-editor.org/rfc/rfc7234#section-5.5
 	HandleWarning func(warning Warning)
 
 	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
@@ -236,6 +241,8 @@ func (r *Repository) client() Client {
 	return r.Client
 }
 
+// do sends an HTTP request and returns an HTTP response using the HTTP client
+// returned by client().
 func (r *Repository) do(req *http.Request) (*http.Response, error) {
 	if r.HandleWarning == nil {
 		return r.client().Do(req)
