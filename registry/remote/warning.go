@@ -25,24 +25,48 @@ import (
 )
 
 const (
-	headerWarning       = "Warning"
-	warningCode299      = 299
-	warningAgentUnknown = "-"
+	// headerWarning is the "Warning" header.
+	// Reference: https://www.rfc-editor.org/rfc/rfc7234#section-5.5
+	headerWarning = "Warning"
+
+	// warnCode299 is the 299 warn-code.
+	// Reference: https://www.rfc-editor.org/rfc/rfc7234#section-5.5
+	warnCode299 = 299
+
+	// warnAgentUnknown represents an unknown warn-agent.
+	// Reference: https://www.rfc-editor.org/rfc/rfc7234#section-5.5
+	warnAgentUnknown = "-"
 )
 
+// errUnexpectedWarningFormat is returned by parseWarningHeader when
+// an unexpected warning format is encountered.
 var errUnexpectedWarningFormat = errors.New("unexpected warning format")
 
+// WarningHeader represents the value of the Warning header.
+//
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#warnings
+//   - https://www.rfc-editor.org/rfc/rfc7234#section-5.5
 type WarningHeader struct {
-	Code  int
+	// Code is the warn-code.
+	Code int
+	// Agent is the warn-agent.
 	Agent string
-	Text  string
+	// Text is the warn-text.
+	Text string
 }
 
+// Warning contains the value of the warning header and other information
+// related to the warning.
 type Warning struct {
-	Value     WarningHeader
+	// Value is the value of the warning header.
+	Value WarningHeader
+	// Reference is the registry reference for which the warning is being
+	// reported.
 	Reference registry.Reference
 }
 
+// parseWarningHeader parses the value of the warning header into WarningHeader.
 func parseWarningHeader(header string) (WarningHeader, error) {
 	if len(header) <= 8 || !strings.HasPrefix(header, `299 - "`) || !strings.HasSuffix(header, `"`) {
 		// minimum header value: `299 - " "`
@@ -55,11 +79,11 @@ func parseWarningHeader(header string) (WarningHeader, error) {
 
 	code, agent, quotedText := parts[0], parts[1], parts[2]
 	// validate code
-	if code != strconv.Itoa(warningCode299) {
+	if code != strconv.Itoa(warnCode299) {
 		return WarningHeader{}, fmt.Errorf("%s: unexpected code: %w", header, errUnexpectedWarningFormat)
 	}
 	// validate agent
-	if agent != warningAgentUnknown {
+	if agent != warnAgentUnknown {
 		return WarningHeader{}, fmt.Errorf("%s: unexpected agent: %w", header, errUnexpectedWarningFormat)
 	}
 	// validate text
@@ -72,12 +96,13 @@ func parseWarningHeader(header string) (WarningHeader, error) {
 	}
 
 	return WarningHeader{
-		Code:  warningCode299,
-		Agent: warningAgentUnknown,
+		Code:  warnCode299,
+		Agent: warnAgentUnknown,
 		Text:  text,
 	}, nil
 }
 
+// handleWarningHeaders handle the values of warning headers.
 func handleWarningHeaders(headers []string, reference registry.Reference, handleWarning func(Warning)) {
 	for _, h := range headers {
 		if wh, err := parseWarningHeader(h); err == nil {
