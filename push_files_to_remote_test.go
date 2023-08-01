@@ -36,9 +36,7 @@ func pushFiles() error {
 
 	// 2. Pack the files and tag the packed manifest
 	artifactType := "example/files"
-	manifestDescriptor, err := oras.Pack(ctx, fs, artifactType, fileDescriptors, oras.PackOptions{
-		PackImageManifest: true,
-	})
+	manifestDescriptor, err := oras.Pack(ctx, fs, artifactType, fileDescriptors, oras.DefaultPackOptions)
 	if err != nil {
 		return err
 	}
