@@ -18,7 +18,8 @@ package remote
 import (
 	"errors"
 	"fmt"
-	"regexp"
+	"strconv"
+	"strings"
 
 	"oras.land/oras-go/v2/registry"
 )
@@ -29,8 +30,6 @@ const (
 	warningAgentUnknown = "-"
 )
 
-var warningRegexp = regexp.MustCompile(`^299\s+-\s+"([^"]+)"$`)
-
 var errUnexpectedWarningFormat = errors.New("unexpected warning format")
 
 type WarningHeader struct {
@@ -40,20 +39,42 @@ type WarningHeader struct {
 }
 
 type Warning struct {
-	WarningHeader
+	Value     WarningHeader
 	Reference registry.Reference
 }
 
 func parseWarningHeader(header string) (WarningHeader, error) {
-	matches := warningRegexp.FindStringSubmatch(header)
-	if len(matches) != 2 {
+	if len(header) <= 8 || !strings.HasPrefix(header, `299 - "`) || !strings.HasSuffix(header, `"`) {
+		// minimum header value: `299 - " "`
 		return WarningHeader{}, fmt.Errorf("%s: %w", header, errUnexpectedWarningFormat)
+	}
+	parts := strings.SplitN(header, " ", 3)
+	if len(parts) != 3 {
+		return WarningHeader{}, fmt.Errorf("%s: %w", header, errUnexpectedWarningFormat)
+	}
+
+	code, agent, quotedText := parts[0], parts[1], parts[2]
+	// validate code
+	if code != strconv.Itoa(warningCode299) {
+		return WarningHeader{}, fmt.Errorf("%s: unexpected code: %w", header, errUnexpectedWarningFormat)
+	}
+	// validate agent
+	if agent != warningAgentUnknown {
+		return WarningHeader{}, fmt.Errorf("%s: unexpected agent: %w", header, errUnexpectedWarningFormat)
+	}
+	// validate text
+	text, err := strconv.Unquote(quotedText)
+	if err != nil {
+		return WarningHeader{}, fmt.Errorf("%s: unexpected text: %w: %v", header, errUnexpectedWarningFormat, err)
+	}
+	if len(text) == 0 {
+		return WarningHeader{}, fmt.Errorf("%s: empty text: %w", header, errUnexpectedWarningFormat)
 	}
 
 	return WarningHeader{
 		Code:  warningCode299,
 		Agent: warningAgentUnknown,
-		Text:  matches[1],
+		Text:  text,
 	}, nil
 }
 
