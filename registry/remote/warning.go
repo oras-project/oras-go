@@ -58,6 +58,10 @@ type WarningValue struct {
 
 // Warning contains the value of the warning header and other information
 // related to the warning.
+//
+// References:
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#warnings
+//   - https://www.rfc-editor.org/rfc/rfc7234#section-5.5
 type Warning struct {
 	// Value is the value of the warning header.
 	Value WarningValue
