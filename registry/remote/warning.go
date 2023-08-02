@@ -92,10 +92,9 @@ func handleWarningHeaders(headers []string, handleWarning func(Warning)) {
 	for _, h := range headers {
 		if value, err := parseWarningHeader(h); err == nil {
 			// ignore warnings in unexpected formats
-			warning := Warning{
+			handleWarning(Warning{
 				WarningValue: value,
-			}
-			handleWarning(warning)
+			})
 		}
 	}
 }
