@@ -75,8 +75,8 @@ const (
 // referrers.
 //
 // References:
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+//   - Latest spec: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+//   - Compatible spec: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
 const filterTypeArtifactType = "artifactType"
 
 // Client is an interface for a HTTP client.
@@ -527,8 +527,8 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	referrers := index.Manifests
 	if artifactType != "" {
 		// check both filters header and filters annotations for compatibility
-		// reference for filters header: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
-		// reference for filters annotations: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+		// latest spec for filters header: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+		// older spec for filters annotations: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
 		filtersHeader := resp.Header.Get(headerOCIFiltersApplied)
 		filtersAnnotation := index.Annotations[spec.AnnotationReferrersFiltersApplied]
 		if !isReferrersFilterApplied(filtersHeader, filterTypeArtifactType) &&
@@ -793,10 +793,11 @@ func (s *blobStore) sibling(otherRepoName string) *blobStore {
 // Push is done by conventional 2-step monolithic upload instead of a single
 // `POST` request for better overall performance. It also allows early fail on
 // authentication errors.
+//
 // References:
-// - https://docs.docker.com/registry/spec/api/#pushing-an-image
-// - https://docs.docker.com/registry/spec/api/#initiate-blob-upload
-// - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-a-blob-monolithically
+//   - https://docs.docker.com/registry/spec/api/#pushing-an-image
+//   - https://docs.docker.com/registry/spec/api/#initiate-blob-upload
+//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	// start an upload
 	// pushing usually requires both pull and push actions.
@@ -1105,8 +1106,8 @@ func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.D
 // on manifest delete.
 //
 // References:
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#deleting-manifests
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#deleting-manifests
+//   - Latest spec: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#deleting-manifests
+//   - Compatible spec: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#deleting-manifests
 func (s *manifestStore) indexReferrersForDelete(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	var manifest struct {
 		Subject *ocispec.Descriptor `json:"subject"`
@@ -1334,8 +1335,8 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 // on manifest push.
 //
 // References:
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
-//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
+//   - Latest spec: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
+//   - Compatible spec: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#pushing-manifests-with-subject
 func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.Descriptor, manifestJSON []byte) error {
 	var subject ocispec.Descriptor
 	switch desc.MediaType {
