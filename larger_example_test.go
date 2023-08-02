@@ -21,17 +21,93 @@ import (
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
+	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
-func pushFiles() error {
+func Example_pullFilesFromRemoteRepository() {
 	// 0. Create a file store
 	fs, err := file.New("/tmp/")
 	if err != nil {
-		return err
+		panic(err)
+	}
+	defer fs.Close()
+
+	// 1. Connect to a remote repository
+	ctx := context.Background()
+	reg := "myregistry.example.com"
+	repo, err := remote.NewRepository(reg + "/myrepo")
+	if err != nil {
+		panic(err)
+	}
+	// Note: The below code can be omitted if authentication is not required
+	repo.Client = &auth.Client{
+		Client: retry.DefaultClient,
+		Cache:  auth.DefaultCache,
+		Credential: auth.StaticCredential(reg, auth.Credential{
+			Username: "username",
+			Password: "password",
+		}),
+	}
+
+	// 2. Copy from the remote repository to the file store
+	tag := "latest"
+	manifestDescriptor, err := oras.Copy(ctx, repo, tag, fs, tag, oras.DefaultCopyOptions)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("manifest descriptor:", manifestDescriptor)
+}
+
+func Example_pullImageFromRemoteRepository() {
+	// 0. Create an OCI layout store
+	store, err := oci.New("/tmp/oci-layout-root")
+	if err != nil {
+		panic(err)
+	}
+
+	// 1. Connect to a remote repository
+	ctx := context.Background()
+	reg := "myregistry.example.com"
+	repo, err := remote.NewRepository(reg + "/myrepo")
+	if err != nil {
+		panic(err)
+	}
+	// Note: The below code can be omitted if authentication is not required
+	repo.Client = &auth.Client{
+		Client: retry.DefaultClient,
+		Cache:  auth.DefaultCache,
+		Credential: auth.StaticCredential(reg, auth.Credential{
+			Username: "username",
+			Password: "password",
+		}),
+	}
+
+	// 2. Copy from the remote repository to the OCI layout store
+	tag := "latest"
+	manifestDescriptor, err := oras.Copy(ctx, repo, tag, store, tag, oras.DefaultCopyOptions)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("manifest pulled:", manifestDescriptor.Digest, manifestDescriptor.MediaType)
+
+	// 3. Fetch from OCI layout store to verify
+	fetched, err := content.FetchAll(ctx, store, manifestDescriptor)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("manifest content:\n%s", fetched)
+}
+
+func Example_pushFilesToRemoteRepository() {
+	// 0. Create a file store
+	fs, err := file.New("/tmp/")
+	if err != nil {
+		panic(err)
 	}
 	defer fs.Close()
 	ctx := context.Background()
@@ -43,7 +119,7 @@ func pushFiles() error {
 	for _, name := range fileNames {
 		fileDescriptor, err := fs.Add(ctx, name, mediaType, "")
 		if err != nil {
-			return err
+			panic(err)
 		}
 		fileDescriptors = append(fileDescriptors, fileDescriptor)
 		fmt.Printf("file descriptor for %s: %v\n", name, fileDescriptor)
@@ -53,13 +129,13 @@ func pushFiles() error {
 	artifactType := "example/files"
 	manifestDescriptor, err := oras.Pack(ctx, fs, artifactType, fileDescriptors, oras.DefaultPackOptions)
 	if err != nil {
-		return err
+		panic(err)
 	}
 	fmt.Println("manifest descriptor:", manifestDescriptor)
 
 	tag := "latest"
 	if err = fs.Tag(ctx, manifestDescriptor, tag); err != nil {
-		return err
+		panic(err)
 	}
 
 	// 3. Connect to a remote repository
@@ -80,11 +156,7 @@ func pushFiles() error {
 
 	// 3. Copy from the file store to the remote repository
 	_, err = oras.Copy(ctx, fs, tag, repo, tag, oras.DefaultCopyOptions)
-	return err
-}
-
-func Example_pushFilesToRemoteRepository() {
-	if err := pushFiles(); err != nil {
+	if err != nil {
 		panic(err)
 	}
 }
