@@ -6832,3 +6832,115 @@ func TestRepository_pingReferrers_Concurrent(t *testing.T) {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 }
+
+func TestRepository_do(t *testing.T) {
+	data := []byte(`hello world!`)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/test" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Add("Warning", `299 - "Test 1: Good warning."`)
+		w.Header().Add("Warning", `199 - "Test 2: Warning with a non-299 code."`)
+		w.Header().Add("Warning", `299 - "Test 3: Good warning."`)
+		w.Header().Add("Warning", `299 myregistry.example.com "Test 4: Warning with a non-unknown agent"`)
+		w.Header().Add("Warning", `299 - "Test 5: Warning with a date." "Sat, 25 Aug 2012 23:34:45 GMT"`)
+		w.Header().Add("wArnIng", `299 - "Test 6: Good warning."`)
+		w.Write(data)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	testURL := ts.URL + "/test"
+
+	// test do() without HandleWarning
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatal("NewRepository() error =", err)
+	}
+	req, err := http.NewRequest(http.MethodGet, testURL, nil)
+	if err != nil {
+		t.Fatal("failed to create test request:", err)
+	}
+	resp, err := repo.do(req)
+	if err != nil {
+		t.Fatal("Repository.do() error =", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Repository.do() status code = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if got := len(resp.Header["Warning"]); got != 6 {
+		t.Errorf("Repository.do() warning header len = %v, want %v", got, 6)
+	}
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal("io.ReadAll() error =", err)
+	}
+	resp.Body.Close()
+	if !bytes.Equal(got, data) {
+		t.Errorf("Repository.do() = %v, want %v", got, data)
+	}
+
+	// test do() with HandleWarning
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatal("NewRepository() error =", err)
+	}
+	var gotWarnings []Warning
+	repo.HandleWarning = func(warning Warning) {
+		gotWarnings = append(gotWarnings, warning)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, testURL, nil)
+	if err != nil {
+		t.Fatal("failed to create test request:", err)
+	}
+	resp, err = repo.do(req)
+	if err != nil {
+		t.Fatal("Repository.do() error =", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Repository.do() status code = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if got := len(resp.Header["Warning"]); got != 6 {
+		t.Errorf("Repository.do() warning header len = %v, want %v", got, 6)
+	}
+	got, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Errorf("Repository.do() = %v, want %v", got, data)
+	}
+	resp.Body.Close()
+	if !bytes.Equal(got, data) {
+		t.Errorf("Repository.do() = %v, want %v", got, data)
+	}
+
+	wantWarnings := []Warning{
+		{
+			WarningValue: WarningValue{
+				Code:  299,
+				Agent: "-",
+				Text:  "Test 1: Good warning.",
+			},
+		},
+		{
+			WarningValue: WarningValue{
+				Code:  299,
+				Agent: "-",
+				Text:  "Test 3: Good warning.",
+			},
+		},
+		{
+			WarningValue: WarningValue{
+				Code:  299,
+				Agent: "-",
+				Text:  "Test 6: Good warning.",
+			},
+		},
+	}
+	if !reflect.DeepEqual(gotWarnings, wantWarnings) {
+		t.Errorf("Repository.do() = %v, want %v", gotWarnings, wantWarnings)
+	}
+}
