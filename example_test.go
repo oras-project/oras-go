@@ -28,6 +28,8 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
+// ExamplePullFilesFromRemoteRepository gives an example of pulling files from
+// a remote repository.
 func Example_pullFilesFromRemoteRepository() {
 	// 0. Create a file store
 	fs, err := file.New("/tmp/")
@@ -62,6 +64,8 @@ func Example_pullFilesFromRemoteRepository() {
 	fmt.Println("manifest descriptor:", manifestDescriptor)
 }
 
+// ExamplePullImageFromRemoteRepository gives an example of pulling an image
+// tagged "latest" from a remote repository.
 func Example_pullImageFromRemoteRepository() {
 	// 0. Create an OCI layout store
 	store, err := oci.New("/tmp/oci-layout-root")
@@ -95,6 +99,8 @@ func Example_pullImageFromRemoteRepository() {
 	fmt.Println("manifest descriptor:", manifestDescriptor)
 }
 
+// ExamplePushFilesToRemoteRepository gives an example of pushing local files
+// to a remote repository.
 func Example_pushFilesToRemoteRepository() {
 	// 0. Create a file store
 	fs, err := file.New("/tmp/")
@@ -104,7 +110,7 @@ func Example_pushFilesToRemoteRepository() {
 	defer fs.Close()
 	ctx := context.Background()
 
-	// 1. Add files to a file store
+	// 1. Add files to the file store
 	mediaType := "example/file"
 	fileNames := []string{"/tmp/myfile"}
 	fileDescriptors := make([]v1.Descriptor, 0, len(fileNames))

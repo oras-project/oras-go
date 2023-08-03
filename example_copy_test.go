@@ -301,7 +301,7 @@ func ExampleCopy_localToRemote() {
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
-// Example_copyArtifactManifestRemoteToLocal gives an example of copying
+// ExampleCopyArtifactManifestRemoteToLocal gives an example of copying
 // an artifact manifest from a remote repository to local.
 func Example_copyArtifactManifestRemoteToLocal() {
 	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
@@ -332,7 +332,7 @@ func Example_copyArtifactManifestRemoteToLocal() {
 	// true
 }
 
-// Example_extendedCopyArtifactAndReferrersRemoteToLocal gives an example of
+// ExampleExtendedCopyArtifactAndReferrersRemoteToLocal gives an example of
 // copying an artifact along with its referrers from a remote repository to local.
 func Example_extendedCopyArtifactAndReferrersRemoteToLocal() {
 	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
