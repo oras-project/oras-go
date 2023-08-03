@@ -29,7 +29,7 @@ import (
 )
 
 // ExamplePullFilesFromRemoteRepository gives an example of pulling files from
-// a remote repository.
+// a remote repository to the local file system.
 func Example_pullFilesFromRemoteRepository() {
 	// 0. Create a file store
 	fs, err := file.New("/tmp/")
@@ -65,7 +65,7 @@ func Example_pullFilesFromRemoteRepository() {
 }
 
 // ExamplePullImageFromRemoteRepository gives an example of pulling an image
-// tagged "latest" from a remote repository.
+// from a remote repository to an OCI Image layout folder.
 func Example_pullImageFromRemoteRepository() {
 	// 0. Create an OCI layout store
 	store, err := oci.New("/tmp/oci-layout-root")
@@ -100,7 +100,7 @@ func Example_pullImageFromRemoteRepository() {
 }
 
 // ExamplePushFilesToRemoteRepository gives an example of pushing local files
-// to a remote repository.
+// to a remote repository into memory.
 func Example_pushFilesToRemoteRepository() {
 	// 0. Create a file store
 	fs, err := file.New("/tmp/")
