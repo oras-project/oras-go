@@ -100,7 +100,7 @@ func Example_pullImageFromRemoteRepository() {
 }
 
 // ExamplePushFilesToRemoteRepository gives an example of pushing local files
-// to a remote repository into memory.
+// to a remote repository.
 func Example_pushFilesToRemoteRepository() {
 	// 0. Create a file store
 	fs, err := file.New("/tmp/")
