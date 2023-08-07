@@ -25,10 +25,10 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"oras.land/oras-go/pkg/artifact"
-	"oras.land/oras-go/pkg/content"
-	"oras.land/oras-go/pkg/oras"
-	"oras.land/oras-go/pkg/target"
+	"github.com/tensorleap/oras-go/pkg/artifact"
+	"github.com/tensorleap/oras-go/pkg/content"
+	"github.com/tensorleap/oras-go/pkg/oras"
+	"github.com/tensorleap/oras-go/pkg/target"
 )
 
 func main() {

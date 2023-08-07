@@ -21,7 +21,7 @@ import (
 	"net/http"
 	"os"
 
-	auth "oras.land/oras-go/pkg/auth/docker"
+	auth "github.com/tensorleap/oras-go/pkg/auth/docker"
 
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"

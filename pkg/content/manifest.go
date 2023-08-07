@@ -21,7 +21,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	artifact "oras.land/oras-go/pkg/artifact"
+	artifact "github.com/tensorleap/oras-go/pkg/artifact"
 )
 
 // GenerateManifest generates a manifest. The manifest will include the provided config,

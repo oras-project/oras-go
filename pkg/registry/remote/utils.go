@@ -22,8 +22,8 @@ import (
 	"net/http"
 	"strings"
 
-	"oras.land/oras-go/pkg/registry"
-	"oras.land/oras-go/pkg/registry/remote/auth"
+	"github.com/tensorleap/oras-go/pkg/registry"
+	"github.com/tensorleap/oras-go/pkg/registry/remote/auth"
 )
 
 // defaultMaxMetadataBytes specifies the default limit on how many response

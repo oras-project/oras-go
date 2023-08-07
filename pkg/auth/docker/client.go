@@ -23,7 +23,7 @@ import (
 	"github.com/docker/cli/cli/config/credentials"
 	"github.com/pkg/errors"
 
-	"oras.land/oras-go/pkg/auth"
+	"github.com/tensorleap/oras-go/pkg/auth"
 )
 
 // Client provides authentication operations for docker registries.

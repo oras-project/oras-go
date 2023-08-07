@@ -31,8 +31,8 @@ import (
 	_ "github.com/distribution/distribution/v3/registry/storage/driver/inmemory"
 	"github.com/phayes/freeport"
 	"github.com/stretchr/testify/suite"
+	iface "github.com/tensorleap/oras-go/pkg/auth"
 	"golang.org/x/crypto/bcrypt"
-	iface "oras.land/oras-go/pkg/auth"
 )
 
 var (

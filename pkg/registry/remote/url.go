@@ -17,7 +17,7 @@ package remote
 import (
 	"fmt"
 
-	"oras.land/oras-go/pkg/registry"
+	"github.com/tensorleap/oras-go/pkg/registry"
 )
 
 // buildScheme returns HTTP scheme used to access the remote registry.

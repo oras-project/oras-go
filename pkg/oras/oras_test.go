@@ -29,8 +29,8 @@ import (
 	"testing"
 	"time"
 
-	orascontent "oras.land/oras-go/pkg/content"
-	"oras.land/oras-go/pkg/target"
+	orascontent "github.com/tensorleap/oras-go/pkg/content"
+	"github.com/tensorleap/oras-go/pkg/target"
 
 	"github.com/containerd/containerd/images"
 	"github.com/distribution/distribution/v3/configuration"

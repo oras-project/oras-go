@@ -26,8 +26,8 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
+	orascontent "github.com/tensorleap/oras-go/pkg/content"
 	"golang.org/x/sync/semaphore"
-	orascontent "oras.land/oras-go/pkg/content"
 )
 
 func copyOptsDefaults() *copyOpts {

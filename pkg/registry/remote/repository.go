@@ -21,10 +21,10 @@ import (
 	"net/http"
 	"strconv"
 
-	errdef "oras.land/oras-go/pkg/content"
-	"oras.land/oras-go/pkg/registry"
-	"oras.land/oras-go/pkg/registry/remote/auth"
-	"oras.land/oras-go/pkg/registry/remote/internal/errutil"
+	errdef "github.com/tensorleap/oras-go/pkg/content"
+	"github.com/tensorleap/oras-go/pkg/registry"
+	"github.com/tensorleap/oras-go/pkg/registry/remote/auth"
+	"github.com/tensorleap/oras-go/pkg/registry/remote/internal/errutil"
 )
 
 // Client is an interface for a HTTP client.

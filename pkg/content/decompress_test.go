@@ -25,7 +25,7 @@ import (
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"oras.land/oras-go/pkg/content"
+	"github.com/tensorleap/oras-go/pkg/content"
 )
 
 func TestDecompressStore(t *testing.T) {

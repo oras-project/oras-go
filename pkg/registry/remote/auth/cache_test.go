@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	errdef "oras.land/oras-go/pkg/content"
+	errdef "github.com/tensorleap/oras-go/pkg/content"
 )
 
 func Test_concurrentCache_GetScheme(t *testing.T) {

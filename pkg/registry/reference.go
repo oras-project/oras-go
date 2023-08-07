@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/opencontainers/go-digest"
-	errdef "oras.land/oras-go/pkg/content"
+	errdef "github.com/tensorleap/oras-go/pkg/content"
 )
 
 // regular expressions for components.

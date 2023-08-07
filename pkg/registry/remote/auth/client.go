@@ -25,7 +25,7 @@ import (
 	"net/url"
 	"strings"
 
-	"oras.land/oras-go/pkg/registry/remote/internal/errutil"
+	"github.com/tensorleap/oras-go/pkg/registry/remote/internal/errutil"
 )
 
 // DefaultClient is the default auth-decorated client.

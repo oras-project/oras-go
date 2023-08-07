@@ -28,7 +28,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 
-	orascontent "oras.land/oras-go/pkg/content"
+	orascontent "github.com/tensorleap/oras-go/pkg/content"
 )
 
 type hybridStore struct {

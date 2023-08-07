@@ -26,7 +26,7 @@ import (
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/remotes"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/pkg/target"
+	"github.com/tensorleap/oras-go/pkg/target"
 )
 
 // Copy copy a ref from one target.Target to a ref in another target.Target. If toRef is blank, reuses fromRef

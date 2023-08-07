@@ -19,8 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	errdef "oras.land/oras-go/pkg/content"
-	"oras.land/oras-go/pkg/registry/remote/internal/syncutil"
+	errdef "github.com/tensorleap/oras-go/pkg/content"
+	"github.com/tensorleap/oras-go/pkg/registry/remote/internal/syncutil"
 )
 
 // DefaultCache is the sharable cache used by DefaultClient.

@@ -33,7 +33,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/crypto/bcrypt"
 
-	iface "oras.land/oras-go/pkg/auth"
+	iface "github.com/tensorleap/oras-go/pkg/auth"
 )
 
 const (

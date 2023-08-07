@@ -22,7 +22,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/registry"
 
-	iface "oras.land/oras-go/pkg/auth"
+	iface "github.com/tensorleap/oras-go/pkg/auth"
 )
 
 const IndexHostname = "index.docker.io"

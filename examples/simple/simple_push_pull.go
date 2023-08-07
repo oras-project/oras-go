@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"os"
 
-	"oras.land/oras-go/pkg/content"
-	"oras.land/oras-go/pkg/oras"
+	"github.com/tensorleap/oras-go/pkg/content"
+	"github.com/tensorleap/oras-go/pkg/oras"
 )
 
 func check(e error) {
