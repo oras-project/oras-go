@@ -217,6 +217,11 @@ func packImageRC2(ctx context.Context, pusher content.Pusher, configMediaType st
 // If succeeded, returns a descriptor of the manifest.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md#guidelines-for-artifact-usage
 func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
+	if artifactType == "" && (opts.ConfigDescriptor == nil || opts.ConfigDescriptor.MediaType == ocispec.MediaTypeEmptyJSON) {
+		// artifactType MUST be set when config.mediaType is set to the empty value
+		return ocispec.Descriptor{}, ErrMissingArtifactType
+	}
+
 	var emptyBlobExists bool
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
@@ -231,13 +236,6 @@ func packImageRC4(ctx context.Context, pusher content.Pusher, artifactType strin
 			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
 		}
 		emptyBlobExists = true
-	}
-	if artifactType == "" {
-		if configDesc.MediaType == ocispec.MediaTypeEmptyJSON {
-			// artifactType MUST be set when config.mediaType is set to the empty value
-			return ocispec.Descriptor{}, ErrMissingArtifactType
-		}
-		artifactType = configDesc.MediaType
 	}
 
 	annotations, err := ensureAnnotationCreated(opts.ManifestAnnotations, ocispec.AnnotationCreated)
