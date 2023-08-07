@@ -678,6 +678,14 @@ func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 	}
 
 	// test Pack with ConfigDescriptor, but without artifactType
+	opts = PackOptions{
+		PackImageManifest:   true,
+		PackManifestType:    PackManifestTypeImageV1_1_0_RC4,
+		Subject:             &subjectDesc,
+		ConfigDescriptor:    &configDesc,
+		ConfigAnnotations:   configAnnotations,
+		ManifestAnnotations: annotations,
+	}
 	manifestDesc, err = Pack(ctx, s, "", layers, opts)
 	if err != nil {
 		t.Fatal("Oras.Pack() error =", err)
@@ -687,12 +695,11 @@ func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
 		},
-		MediaType:    ocispec.MediaTypeImageManifest,
-		ArtifactType: configDesc.MediaType,
-		Subject:      &subjectDesc,
-		Config:       configDesc,
-		Layers:       layers,
-		Annotations:  annotations,
+		MediaType:   ocispec.MediaTypeImageManifest,
+		Subject:     &subjectDesc,
+		Config:      configDesc,
+		Layers:      layers,
+		Annotations: annotations,
 	}
 	expectedManifestBytes, err = json.Marshal(expectedManifest)
 	if err != nil {
@@ -783,11 +790,25 @@ func Test_Pack_ImageRC4_NoArtifactType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
+	// test no artifact type and no config
 	opts := PackOptions{
 		PackImageManifest: true,
 		PackManifestType:  PackManifestTypeImageV1_1_0_RC4,
 	}
 	_, err := Pack(ctx, s, "", nil, opts)
+	if wantErr := ErrMissingArtifactType; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, wantErr)
+	}
+
+	// test no artifact type and config with media type empty
+	opts = PackOptions{
+		PackImageManifest: true,
+		PackManifestType:  PackManifestTypeImageV1_1_0_RC4,
+		ConfigDescriptor: &ocispec.Descriptor{
+			MediaType: ocispec.DescriptorEmptyJSON.MediaType,
+		},
+	}
+	_, err = Pack(ctx, s, "", nil, opts)
 	if wantErr := ErrMissingArtifactType; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, wantErr)
 	}
