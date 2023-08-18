@@ -31,10 +31,12 @@ import (
 )
 
 const (
-	// MediaTypeUnknownConfig is the default mediaType used for [Pack] when
-	// PackOptions.PackImageManifest is true and PackOptions.PackManifestType
-	// is PackManifestTypeImageV1_1_0_RC2 and PackOptions.ConfigDescriptor
-	// is not specified.
+	// MediaTypeUnknownConfig is the default config mediaType used
+	//   - for [Pack] when PackOptions.PackImageManifest is true and
+	//     PackOptions.ConfigDescriptor is not specified.
+	//   - for [PackManifest] when PackManifestOptions.PackManifestType is
+	//     PackManifestTypeImageV1_0 and PackManifestOptions.ConfigDescriptor is
+	//     not specified.
 	MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
 
 	// MediaTypeUnknownArtifact is the default artifactType used for [Pack]
@@ -44,14 +46,15 @@ const (
 )
 
 var (
-	// ErrInvalidDateTimeFormat is returned by [Pack] when
+	// ErrInvalidDateTimeFormat is returned by [Pack] and [PackManifest] when
 	// AnnotationArtifactCreated or AnnotationCreated is provided, but its value
 	// is not in RFC 3339 format.
 	// Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
 	ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
 
-	// ErrMissingArtifactType is returned by [Pack] when artifactType is not
-	// specified and the config media type is set to
+	// ErrMissingArtifactType is returned by [PackManifest] when
+	// PackManifestOptions.PackManifestType is PackManifestTypeImageV1_1_RC4
+	// and artifactType is not specified and the config media type is set to
 	// "application/vnd.oci.empty.v1+json".
 	ErrMissingArtifactType = errors.New("missing artifact type")
 )
