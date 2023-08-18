@@ -534,7 +534,7 @@ func Test_Pack_ImageRC4(t *testing.T) {
 	ctx := context.Background()
 	artifactType := "application/vnd.test"
 	opts := PackManifestOptions{
-		PackManifestType: PackManifestTypeImageV1_1_0_RC4,
+		PackManifestType: PackManifestTypeImageV1_1_RC4,
 	}
 	manifestDesc, err := PackManifest(ctx, s, artifactType, layers, opts)
 	if err != nil {
@@ -622,7 +622,7 @@ func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 	// test Pack with ConfigDescriptor
 	ctx := context.Background()
 	opts := PackManifestOptions{
-		PackManifestType:    PackManifestTypeImageV1_1_0_RC4,
+		PackManifestType:    PackManifestTypeImageV1_1_RC4,
 		Subject:             &subjectDesc,
 		ConfigDescriptor:    &configDesc,
 		ConfigAnnotations:   configAnnotations,
@@ -675,7 +675,7 @@ func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 
 	// test Pack with ConfigDescriptor, but without artifactType
 	opts = PackManifestOptions{
-		PackManifestType:    PackManifestTypeImageV1_1_0_RC4,
+		PackManifestType:    PackManifestTypeImageV1_1_RC4,
 		Subject:             &subjectDesc,
 		ConfigDescriptor:    &configDesc,
 		ConfigAnnotations:   configAnnotations,
@@ -727,7 +727,7 @@ func Test_Pack_ImageRC4_WithOptions(t *testing.T) {
 
 	// test Pack without ConfigDescriptor
 	opts = PackManifestOptions{
-		PackManifestType:    PackManifestTypeImageV1_1_0_RC4,
+		PackManifestType:    PackManifestTypeImageV1_1_RC4,
 		Subject:             &subjectDesc,
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
@@ -786,7 +786,7 @@ func Test_Pack_ImageRC4_NoArtifactType(t *testing.T) {
 	ctx := context.Background()
 	// test no artifact type and no config
 	opts := PackManifestOptions{
-		PackManifestType: PackManifestTypeImageV1_1_0_RC4,
+		PackManifestType: PackManifestTypeImageV1_1_RC4,
 	}
 	_, err := PackManifest(ctx, s, "", nil, opts)
 	if wantErr := ErrMissingArtifactType; !errors.Is(err, wantErr) {
@@ -795,7 +795,7 @@ func Test_Pack_ImageRC4_NoArtifactType(t *testing.T) {
 
 	// test no artifact type and config with media type empty
 	opts = PackManifestOptions{
-		PackManifestType: PackManifestTypeImageV1_1_0_RC4,
+		PackManifestType: PackManifestTypeImageV1_1_RC4,
 		ConfigDescriptor: &ocispec.Descriptor{
 			MediaType: ocispec.DescriptorEmptyJSON.MediaType,
 		},
@@ -812,7 +812,7 @@ func Test_Pack_ImageRC4_NoLayer(t *testing.T) {
 	// test Pack
 	ctx := context.Background()
 	opts := PackManifestOptions{
-		PackManifestType: PackManifestTypeImageV1_1_0_RC4,
+		PackManifestType: PackManifestTypeImageV1_1_RC4,
 	}
 	manifestDesc, err := PackManifest(ctx, s, "test", nil, opts)
 	if err != nil {
@@ -843,7 +843,7 @@ func Test_Pack_ImageRC4_InvalidDateTimeFormat(t *testing.T) {
 
 	ctx := context.Background()
 	opts := PackManifestOptions{
-		PackManifestType: PackManifestTypeImageV1_1_0_RC4,
+		PackManifestType: PackManifestTypeImageV1_1_RC4,
 		ManifestAnnotations: map[string]string{
 			ocispec.AnnotationCreated: "2000/01/01 00:00:00",
 		},
