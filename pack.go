@@ -115,7 +115,7 @@ func PackManifest(ctx context.Context, pusher content.Pusher, manifestVersion Pa
 	case PackManifestVersion1_1_RC4:
 		return packManifestV1_1_RC4(ctx, pusher, artifactType, opts)
 	default:
-		return ocispec.Descriptor{}, fmt.Errorf("PackManifestType(%v): %w", manifestVersion, errdef.ErrUnsupported)
+		return ocispec.Descriptor{}, fmt.Errorf("PackManifestVersion(%v): %w", manifestVersion, errdef.ErrUnsupported)
 	}
 }
 
