@@ -34,9 +34,8 @@ const (
 	// MediaTypeUnknownConfig is the default config mediaType used
 	//   - for [Pack] when PackOptions.PackImageManifest is true and
 	//     PackOptions.ConfigDescriptor is not specified.
-	//   - for [PackManifest] when PackManifestOptions.PackManifestType is
-	//     PackManifestTypeImageV1_0 and PackManifestOptions.ConfigDescriptor is
-	//     not specified.
+	//   - for [PackManifest] when manifestType is PackManifestTypeImageV1_0
+	//     and PackManifestOptions.ConfigDescriptor is not specified.
 	MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
 
 	// MediaTypeUnknownArtifact is the default artifactType used for [Pack]
@@ -53,8 +52,8 @@ var (
 	ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
 
 	// ErrMissingArtifactType is returned by [PackManifest] when
-	// PackManifestOptions.PackManifestType is PackManifestTypeImageV1_1_RC4
-	// and artifactType is not specified and the config media type is set to
+	// packManifestType is PackManifestTypeImageV1_1_RC4 and artifactType is
+	// empty and the config media type is set to
 	// "application/vnd.oci.empty.v1+json".
 	ErrMissingArtifactType = errors.New("missing artifact type")
 )
@@ -74,7 +73,10 @@ const (
 	PackManifestTypeImageV1_0 PackManifestType = 2
 )
 
-var DefaultPackManifestType = PackManifestTypeImageV1_1_RC4
+// DefaultPackManifestType is the default PackManifestType that is recommended
+// to be used.
+// Note that DefaultPackManifestType is subject to change in the future.
+var DefaultPackManifestType PackManifestType = PackManifestTypeImageV1_1_RC4
 
 // PackManifestOptions contains parameters for [PackManifest].
 type PackManifestOptions struct {
@@ -83,6 +85,7 @@ type PackManifestOptions struct {
 	// NOT PackManifestTypeImageV1_0.
 	Subject *ocispec.Descriptor
 
+	// Layers is the layers of the manifest.
 	Layers []ocispec.Descriptor
 
 	// ManifestAnnotations is the annotation map of the manifest.
@@ -98,15 +101,15 @@ type PackManifestOptions struct {
 	ConfigAnnotations map[string]string
 }
 
-// PackManifest packs the given layers, generates a manifest for the pack,
-// and pushes it to a content storage.
+// PackManifest generates an OCI Image Manifest based on the given parameters
+// and pushes the packed manifest to a content storage using pusher. The type
+// of the manifest to be packed is determined by manifestType.
 //
-//   - If opts.PackManifestType is [PackManifestTypeImageV1_1_RC4],
-//     [ErrMissingArtifactType] will be returned when none of artifactType and
-//     opts.ConfigDescriptor is specified.
-//   - If opts.PackManifestType is [PackManifestTypeImageV1_0],
-//     artifactType will be used as the the config media type of the image
-//     manifest when opts.ConfigDescriptor is not specified.
+//   - If manifestType is [PackManifestTypeImageV1_1_RC4], artifactType must not
+//     be empty when opts.ConfigDescriptor is nil.
+//   - If manifestType is [PackManifestTypeImageV1_0],
+//     artifactType will be used as the the config media type when
+//     opts.ConfigDescriptor is nil.
 //
 // If succeeded, returns a descriptor of the manifest.
 func PackManifest(ctx context.Context, pusher content.Pusher, manifestType PackManifestType, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
@@ -118,10 +121,6 @@ func PackManifest(ctx context.Context, pusher content.Pusher, manifestType PackM
 	default:
 		return ocispec.Descriptor{}, fmt.Errorf("PackManifestType(%v): %w", manifestType, errdef.ErrUnsupported)
 	}
-}
-
-func PackIndex(ctx context.Context, pusher content.Pusher, artifactType string, manifests []ocispec.Descriptor) {
-
 }
 
 // PackOptions contains parameters for [Pack].
