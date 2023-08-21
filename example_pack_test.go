@@ -25,7 +25,8 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 )
 
-// ExampleImageV11RC4 demonstrates packing an OCI Image Manifest.
+// ExampleDefaultManifestType demonstrates packing an default type of
+// OCI Image Manifest.
 func ExamplePackManifest_defaultManifestType() {
 	// 0. Create a storage
 	store := memory.New()
@@ -96,9 +97,9 @@ func ExamplePackManifest_imageV11RC4() {
 	// Manifest content: {"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.example+type","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="}],"annotations":{"org.opencontainers.image.created":"2000-01-01T00:00:00Z"}}
 }
 
-// ExampleImageV1 demonstrates packing an OCI Image Manifest as defined in
+// ExampleImageV10 demonstrates packing an OCI Image Manifest as defined in
 // image-spec v1.0.2.
-func ExamplePackManifest_imageV1() {
+func ExamplePackManifest_imageV10() {
 	// 0. Create a storage
 	store := memory.New()
 
