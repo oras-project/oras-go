@@ -528,7 +528,7 @@ func Test_PackManifest_ImageV1_1_RC4(t *testing.T) {
 
 	// test PackManifest
 	ctx := context.Background()
-	manifestDesc, err := PackManifest(ctx, s, PackManifestVersionV1_1_RC4, "test", PackManifestOptions{})
+	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, "test", PackManifestOptions{})
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -584,7 +584,7 @@ func Test_PackManifest_ImageV1_1_RC4_WithOptions(t *testing.T) {
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
 	}
-	manifestDesc, err := PackManifest(ctx, s, PackManifestVersionV1_1_RC4, artifactType, opts)
+	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -637,7 +637,7 @@ func Test_PackManifest_ImageV1_1_RC4_WithOptions(t *testing.T) {
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
 	}
-	manifestDesc, err = PackManifest(ctx, s, PackManifestVersionV1_1_RC4, "", opts)
+	manifestDesc, err = PackManifest(ctx, s, PackManifestVersion1_1_RC4, "", opts)
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -688,7 +688,7 @@ func Test_PackManifest_ImageV1_1_RC4_WithOptions(t *testing.T) {
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
 	}
-	manifestDesc, err = PackManifest(ctx, s, PackManifestVersionV1_1_RC4, artifactType, opts)
+	manifestDesc, err = PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -741,7 +741,7 @@ func Test_PackManifest_ImageV1_1_RC4_NoArtifactType(t *testing.T) {
 
 	ctx := context.Background()
 	// test no artifact type and no config
-	_, err := PackManifest(ctx, s, PackManifestVersionV1_1_RC4, "", PackManifestOptions{})
+	_, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, "", PackManifestOptions{})
 	if wantErr := ErrMissingArtifactType; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
@@ -752,7 +752,7 @@ func Test_PackManifest_ImageV1_1_RC4_NoArtifactType(t *testing.T) {
 			MediaType: ocispec.DescriptorEmptyJSON.MediaType,
 		},
 	}
-	_, err = PackManifest(ctx, s, PackManifestVersionV1_1_RC4, "", opts)
+	_, err = PackManifest(ctx, s, PackManifestVersion1_1_RC4, "", opts)
 	if wantErr := ErrMissingArtifactType; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
@@ -767,7 +767,7 @@ func Test_PackManifest_ImageV1_1_RC4_InvalidDateTimeFormat(t *testing.T) {
 			ocispec.AnnotationCreated: "2000/01/01 00:00:00",
 		},
 	}
-	_, err := PackManifest(ctx, s, PackManifestVersionV1_1_RC4, "test", opts)
+	_, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, "test", opts)
 	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
@@ -779,7 +779,7 @@ func Test_PackManifest_ImageV1_0(t *testing.T) {
 	// test Pack
 	ctx := context.Background()
 	artifactType := "testconfig"
-	manifestDesc, err := PackManifest(ctx, s, PackManifestVersionV1_0, artifactType, PackManifestOptions{})
+	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_0, artifactType, PackManifestOptions{})
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -860,7 +860,7 @@ func Test_PackManifest_ImageV1_0_WithOptions(t *testing.T) {
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
 	}
-	manifestDesc, err := PackManifest(ctx, s, PackManifestVersionV1_0, artifactType, opts)
+	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_0, artifactType, opts)
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -909,7 +909,7 @@ func Test_PackManifest_ImageV1_0_WithOptions(t *testing.T) {
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
 	}
-	manifestDesc, err = PackManifest(ctx, s, PackManifestVersionV1_0, artifactType, opts)
+	manifestDesc, err = PackManifest(ctx, s, PackManifestVersion1_0, artifactType, opts)
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -972,7 +972,7 @@ func Test_PackManifest_ImageV1_0_SubjectUnsupported(t *testing.T) {
 	opts := PackManifestOptions{
 		Subject: &subjectDesc,
 	}
-	_, err := PackManifest(ctx, s, PackManifestVersionV1_0, artifactType, opts)
+	_, err := PackManifest(ctx, s, PackManifestVersion1_0, artifactType, opts)
 	if wantErr := errdef.ErrUnsupported; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr %v", err, wantErr)
 	}
@@ -982,7 +982,7 @@ func Test_PackManifest_ImageV1_0_NoArtifactType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
-	manifestDesc, err := PackManifest(ctx, s, PackManifestVersionV1_0, "", PackManifestOptions{})
+	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_0, "", PackManifestOptions{})
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -1017,7 +1017,7 @@ func Test_PackManifest_ImageV1_0_InvalidDateTimeFormat(t *testing.T) {
 			ocispec.AnnotationCreated: "2000/01/01 00:00:00",
 		},
 	}
-	_, err := PackManifest(ctx, s, PackManifestVersionV1_0, "", opts)
+	_, err := PackManifest(ctx, s, PackManifestVersion1_0, "", opts)
 	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}

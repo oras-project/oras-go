@@ -43,7 +43,7 @@ func ExamplePackManifest_imageV11RC4() {
 
 	// 2. Pack a manifest
 	artifactType := "application/vnd.example+type"
-	manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestVersionV1_1_RC4, artifactType, opts)
+	manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_1_RC4, artifactType, opts)
 	if err != nil {
 		panic(err)
 	}
@@ -79,7 +79,7 @@ func ExamplePackManifest_imageV10() {
 
 	// 2. Pack a manifest
 	artifactType := "application/vnd.example+type"
-	manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestVersionV1_0, artifactType, opts)
+	manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_0, artifactType, opts)
 	if err != nil {
 		panic(err)
 	}
