@@ -128,7 +128,7 @@ func Example_pushFilesToRemoteRepository() {
 	opts := oras.PackManifestOptions{
 		Layers: fileDescriptors,
 	}
-	manifestDescriptor, err := oras.PackManifest(ctx, fs, oras.DefaultPackManifestType, artifactType, opts)
+	manifestDescriptor, err := oras.PackManifest(ctx, fs, oras.PackManifestVersionV1_1_RC4, artifactType, opts)
 	if err != nil {
 		panic(err)
 	}

@@ -25,43 +25,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 )
 
-// ExampleDefaultManifestType demonstrates packing an default type of
-// OCI Image Manifest.
-func ExamplePackManifest_defaultManifestType() {
-	// 0. Create a storage
-	store := memory.New()
-
-	// 1. Set optional parameters
-	opts := oras.PackManifestOptions{
-		ManifestAnnotations: map[string]string{
-			// this timestamp will be automatically generated if not specified
-			// use a fix value here in order to test the output
-			ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
-		},
-	}
-	ctx := context.Background()
-
-	// 2. Pack a manifest
-	artifactType := "application/vnd.example+type"
-	manifestDesc, err := oras.PackManifest(ctx, store, oras.DefaultPackManifestType, artifactType, opts)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Manifest descriptor:", manifestDesc)
-
-	// 3. Verify the packed manifest
-	manifestData, err := content.FetchAll(ctx, store, manifestDesc)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Manifest content:", string(manifestData))
-
-	// Output:
-	// Manifest descriptor: {application/vnd.oci.image.manifest.v1+json sha256:c259a195a48d8029d75449579c81269ca6225cd5b57d36073a7de6458afdfdbd 528 [] map[org.opencontainers.image.created:2000-01-01T00:00:00Z] [] <nil> application/vnd.example+type}
-	// Manifest content: {"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.example+type","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="}],"annotations":{"org.opencontainers.image.created":"2000-01-01T00:00:00Z"}}
-}
-
-// ExampleImageV11RC4 demonstrates packing an OCI Image Manifest as defined since
+// ExampleImageV11RC4 demonstrates packing an OCI Image Manifest as defined in
 // image-spec v1.1.0-rc4.
 func ExamplePackManifest_imageV11RC4() {
 	// 0. Create a storage
@@ -79,7 +43,7 @@ func ExamplePackManifest_imageV11RC4() {
 
 	// 2. Pack a manifest
 	artifactType := "application/vnd.example+type"
-	manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestTypeImageV1_1_RC4, artifactType, opts)
+	manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestVersionV1_1_RC4, artifactType, opts)
 	if err != nil {
 		panic(err)
 	}
@@ -115,7 +79,7 @@ func ExamplePackManifest_imageV10() {
 
 	// 2. Pack a manifest
 	artifactType := "application/vnd.example+type"
-	manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestTypeImageV1_0, artifactType, opts)
+	manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestVersionV1_0, artifactType, opts)
 	if err != nil {
 		panic(err)
 	}
