@@ -161,7 +161,14 @@ type PackOptions struct {
 // Use [PackManifest] instead.
 func Pack(ctx context.Context, pusher content.Pusher, artifactType string, blobs []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	if opts.PackImageManifest {
-		return packManifestV1_1_RC2(ctx, pusher, artifactType, blobs, opts)
+		packOpts := PackManifestOptions{
+			Layers:              blobs,
+			Subject:             opts.Subject,
+			ManifestAnnotations: opts.ManifestAnnotations,
+			ConfigDescriptor:    opts.ConfigDescriptor,
+			ConfigAnnotations:   opts.ConfigAnnotations,
+		}
+		return packManifestV1_1_RC2(ctx, pusher, artifactType, packOpts)
 	}
 	return packArtifact(ctx, pusher, artifactType, blobs, opts)
 }
@@ -190,7 +197,7 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 // packManifestV1_1_RC2 packs an image manifest as defined in image-spec
 // v1.1.0-rc2.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/manifest.md
-func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMediaType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
+func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMediaType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
 	if configMediaType == "" {
 		configMediaType = MediaTypeUnknownConfig
 	}
@@ -216,8 +223,8 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	if layers == nil {
-		layers = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
+	if opts.Layers == nil {
+		opts.Layers = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
 	}
 	manifest := ocispec.Manifest{
 		Versioned: specs.Versioned{
@@ -225,7 +232,7 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 		},
 		Config:      configDesc,
 		MediaType:   ocispec.MediaTypeImageManifest,
-		Layers:      layers,
+		Layers:      opts.Layers,
 		Subject:     opts.Subject,
 		Annotations: annotations,
 	}
@@ -294,13 +301,7 @@ func packManifestV1_0(ctx context.Context, pusher content.Pusher, configMediaTyp
 	}
 
 	// manifest v1.0 is equivalent to manifest v1.1.0-rc2 without subject
-	packOpts := PackOptions{
-		PackImageManifest:   true,
-		ManifestAnnotations: opts.ManifestAnnotations,
-		ConfigDescriptor:    opts.ConfigDescriptor,
-		ConfigAnnotations:   opts.ConfigAnnotations,
-	}
-	return packManifestV1_1_RC2(ctx, pusher, configMediaType, opts.Layers, packOpts)
+	return packManifestV1_1_RC2(ctx, pusher, configMediaType, opts)
 }
 
 // pushIfNotExist pushes data described by desc if it does not exist in the
