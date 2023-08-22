@@ -1023,7 +1023,7 @@ func Test_PackManifest_ImageV1_0_InvalidDateTimeFormat(t *testing.T) {
 	}
 }
 
-func Test_PackManifest_UnsupportedPackManifestType(t *testing.T) {
+func Test_PackManifest_UnsupportedPackManifestVersion(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()

@@ -34,7 +34,7 @@ const (
 	// MediaTypeUnknownConfig is the default config mediaType used
 	//   - for [Pack] when PackOptions.PackImageManifest is true and
 	//     PackOptions.ConfigDescriptor is not specified.
-	//   - for [PackManifest] when manifestType is PackManifestVersion1_0
+	//   - for [PackManifest] when packManifestVersion is PackManifestVersion1_0
 	//     and PackManifestOptions.ConfigDescriptor is not specified.
 	MediaTypeUnknownConfig = "application/vnd.unknown.config.v1+json"
 
@@ -52,7 +52,7 @@ var (
 	ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
 
 	// ErrMissingArtifactType is returned by [PackManifest] when
-	// packManifestType is PackManifestVersion1_1_RC4 and artifactType is
+	// packManifestVersion is PackManifestVersion1_1_RC4 and artifactType is
 	// empty and the config media type is set to
 	// "application/vnd.oci.empty.v1+json".
 	ErrMissingArtifactType = errors.New("missing artifact type")
@@ -73,10 +73,10 @@ const (
 	PackManifestVersion1_1_RC4 PackManifestVersion = 2
 )
 
-// PackManifestOptions contains parameters for [PackManifest].
+// PackManifestOptions contains optional parameters for [PackManifest].
 type PackManifestOptions struct {
 	// Subject is the subject of the manifest.
-	// This option is only valid when PackManifestType is
+	// This option is only valid when PackManifestVersion is
 	// NOT PackManifestVersion1_0.
 	Subject *ocispec.Descriptor
 
@@ -87,8 +87,7 @@ type PackManifestOptions struct {
 	ManifestAnnotations map[string]string
 
 	// ConfigDescriptor is a pointer to the descriptor of the config blob.
-	// If not nil, artifactType will be implied by the mediaType of the
-	// specified ConfigDescriptor, and ConfigAnnotations will be ignored.
+	// If not nil, ConfigAnnotations will be ignored.
 	ConfigDescriptor *ocispec.Descriptor
 
 	// ConfigAnnotations is the annotation map of the config descriptor.
@@ -98,28 +97,29 @@ type PackManifestOptions struct {
 
 // PackManifest generates an OCI Image Manifest based on the given parameters
 // and pushes the packed manifest to a content storage using pusher. The version
-// of the manifest to be packed is determined by manifestVersion (Recommended
-// value: PackManifestVersion1_1_RC4).
+// of the manifest to be packed is determined by packManifestVersion
+// (Recommended value: PackManifestVersion1_1_RC4).
 //
-//   - If manifestVersion is [PackManifestVersion1_1_RC4],
-//     artifactType must not be empty when opts.ConfigDescriptor is nil.
-//   - If manifestVersion is [PackManifestVersion1_0],
-//     artifactType will be used as the the config media type when
-//     opts.ConfigDescriptor is nil.
+//   - If packManifestVersion is [PackManifestVersion1_1_RC4],
+//     artifactType MUST NOT be empty unless opts.ConfigDescriptor is specified.
+//   - If packManifestVersion is [PackManifestVersion1_0],
+//     artifactType will be used as the the config media type unless
+//     opts.ConfigDescriptor is specified. If artifactType is empty,
+//     "application/vnd.unknown.config.v1+json" will be used.
 //
-// If succeeded, returns a descriptor of the manifest.
-func PackManifest(ctx context.Context, pusher content.Pusher, manifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
-	switch manifestVersion {
+// If succeeded, returns a descriptor of the packed manifest.
+func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
+	switch packManifestVersion {
 	case PackManifestVersion1_0:
 		return packManifestV1_0(ctx, pusher, artifactType, opts)
 	case PackManifestVersion1_1_RC4:
 		return packManifestV1_1_RC4(ctx, pusher, artifactType, opts)
 	default:
-		return ocispec.Descriptor{}, fmt.Errorf("PackManifestVersion(%v): %w", manifestVersion, errdef.ErrUnsupported)
+		return ocispec.Descriptor{}, fmt.Errorf("PackManifestVersion(%v): %w", packManifestVersion, errdef.ErrUnsupported)
 	}
 }
 
-// PackOptions contains parameters for [Pack].
+// PackOptions contains optional parameters for [Pack].
 //
 // Deprecated: This type is deprecated and not recommended for future use.
 // Use [PackManifestOptions] instead.
