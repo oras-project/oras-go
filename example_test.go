@@ -125,7 +125,10 @@ func Example_pushFilesToRemoteRepository() {
 
 	// 2. Pack the files and tag the packed manifest
 	artifactType := "example/files"
-	manifestDescriptor, err := oras.Pack(ctx, fs, artifactType, fileDescriptors, oras.DefaultPackOptions)
+	opts := oras.PackManifestOptions{
+		Layers: fileDescriptors,
+	}
+	manifestDescriptor, err := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1_RC4, artifactType, opts)
 	if err != nil {
 		panic(err)
 	}
