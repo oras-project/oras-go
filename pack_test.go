@@ -121,7 +121,7 @@ func Test_Pack_Artifact_WithOptions(t *testing.T) {
 		Annotations:  annotations,
 	}
 	configBytes := []byte("{}")
-	configDesc := content.NewDescriptorFromBytes("testconfig", configBytes)
+	configDesc := content.NewDescriptorFromBytes("application/vnd.test.config", configBytes)
 	configAnnotations := map[string]string{"foo": "bar"}
 
 	// test Pack
@@ -262,7 +262,7 @@ func Test_Pack_ImageV1_1_RC2(t *testing.T) {
 
 	// test Pack
 	ctx := context.Background()
-	artifactType := "testconfig"
+	artifactType := "application/vnd.test"
 	manifestDesc, err := Pack(ctx, s, artifactType, layers, PackOptions{PackImageManifest: true})
 	if err != nil {
 		t.Fatal("Oras.Pack() error =", err)
@@ -327,7 +327,7 @@ func Test_Pack_ImageV1_1_RC2_WithOptions(t *testing.T) {
 		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
 	}
 	configBytes := []byte("{}")
-	configDesc := content.NewDescriptorFromBytes("testconfig", configBytes)
+	configDesc := content.NewDescriptorFromBytes("application/vnd.test.config", configBytes)
 	configAnnotations := map[string]string{"foo": "bar"}
 	annotations := map[string]string{
 		ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
@@ -528,7 +528,8 @@ func Test_PackManifest_ImageV1_1_RC4(t *testing.T) {
 
 	// test PackManifest
 	ctx := context.Background()
-	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, "test", PackManifestOptions{})
+	artifactType := "application/vnd.test"
+	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, PackManifestOptions{})
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -561,7 +562,7 @@ func Test_PackManifest_ImageV1_1_RC4_WithOptions(t *testing.T) {
 		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
 	}
 	configBytes := []byte("config")
-	configDesc := content.NewDescriptorFromBytes("testconfig", configBytes)
+	configDesc := content.NewDescriptorFromBytes("application/vnd.test.config", configBytes)
 	configAnnotations := map[string]string{"foo": "bar"}
 	annotations := map[string]string{
 		ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
@@ -758,6 +759,34 @@ func Test_PackManifest_ImageV1_1_RC4_NoArtifactType(t *testing.T) {
 	}
 }
 
+func Test_PackManifest_ImageV1_1_RC4_InvalidMediaType(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	// test invalid artifact type + valid config media type
+	artifactType := "random"
+	configBytes := []byte("{}")
+	configDesc := content.NewDescriptorFromBytes("application/vnd.test.config", configBytes)
+	opts := PackManifestOptions{
+		ConfigDescriptor: &configDesc,
+	}
+	_, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
+	if wantErr := errdef.ErrInvalidMediaType; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
+	}
+
+	// test invalid config media type + invalid artifact type
+	artifactType = "application/vnd.test"
+	configDesc = content.NewDescriptorFromBytes("random", configBytes)
+	opts = PackManifestOptions{
+		ConfigDescriptor: &configDesc,
+	}
+	_, err = PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
+	if wantErr := errdef.ErrInvalidMediaType; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
+	}
+}
+
 func Test_PackManifest_ImageV1_1_RC4_InvalidDateTimeFormat(t *testing.T) {
 	s := memory.New()
 
@@ -767,7 +796,8 @@ func Test_PackManifest_ImageV1_1_RC4_InvalidDateTimeFormat(t *testing.T) {
 			ocispec.AnnotationCreated: "2000/01/01 00:00:00",
 		},
 	}
-	_, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, "test", opts)
+	artifactType := "application/vnd.test"
+	_, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
 	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
@@ -778,7 +808,7 @@ func Test_PackManifest_ImageV1_0(t *testing.T) {
 
 	// test Pack
 	ctx := context.Background()
-	artifactType := "testconfig"
+	artifactType := "application/vnd.test"
 	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_0, artifactType, PackManifestOptions{})
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
@@ -844,7 +874,7 @@ func Test_PackManifest_ImageV1_0_WithOptions(t *testing.T) {
 		content.NewDescriptorFromBytes("test", []byte("goodbye world")),
 	}
 	configBytes := []byte("{}")
-	configDesc := content.NewDescriptorFromBytes("testconfig", configBytes)
+	configDesc := content.NewDescriptorFromBytes("application/vnd.test.config", configBytes)
 	configAnnotations := map[string]string{"foo": "bar"}
 	annotations := map[string]string{
 		ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
@@ -1005,6 +1035,34 @@ func Test_PackManifest_ImageV1_0_NoArtifactType(t *testing.T) {
 	}
 	if manifest.Config.MediaType != MediaTypeUnknownConfig {
 		t.Fatalf("got artifact type = %s, want %s", manifest.Config.MediaType, MediaTypeUnknownConfig)
+	}
+}
+
+func Test_PackManifest_ImageV1_0_InvalidMediaType(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	// test invalid artifact type + valid config media type
+	artifactType := "random"
+	configBytes := []byte("{}")
+	configDesc := content.NewDescriptorFromBytes("application/vnd.test.config", configBytes)
+	opts := PackManifestOptions{
+		ConfigDescriptor: &configDesc,
+	}
+	_, err := PackManifest(ctx, s, PackManifestVersion1_0, artifactType, opts)
+	if err != nil {
+		t.Error("Oras.PackManifest() error =", err)
+	}
+
+	// test invalid config media type + valid artifact type
+	artifactType = "application/vnd.test"
+	configDesc = content.NewDescriptorFromBytes("random", configBytes)
+	opts = PackManifestOptions{
+		ConfigDescriptor: &configDesc,
+	}
+	_, err = PackManifest(ctx, s, PackManifestVersion1_0, artifactType, opts)
+	if wantErr := errdef.ErrInvalidMediaType; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
 }
 

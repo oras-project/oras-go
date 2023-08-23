@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -95,6 +96,10 @@ type PackManifestOptions struct {
 	ConfigAnnotations map[string]string
 }
 
+// mediaTypeRegexp checks the format of media types.
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/schema/defs-descriptor.json#L7
+var mediaTypeRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&-^_.+]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&-^_.+]{0,126}$`)
+
 // PackManifest generates an OCI Image Manifest based on the given parameters
 // and pushes the packed manifest to a content storage using pusher. The version
 // of the manifest to be packed is determined by packManifestVersion
@@ -107,6 +112,8 @@ type PackManifestOptions struct {
 //     config media type; if artifactType is empty,
 //     "application/vnd.unknown.config.v1+json" will be used.
 //     if opts.ConfigDescriptor is NOT nil, artifactType will be ignored.
+//
+// artifactType and opts.ConfigDescriptor.MediaType MUST comply with RFC 6838.
 //
 // If succeeded, returns a descriptor of the packed manifest.
 func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
@@ -194,14 +201,22 @@ func packManifestV1_0(ctx context.Context, pusher content.Pusher, configMediaTyp
 	if opts.Subject != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("subject is not supported for manifest version %v: %w", PackManifestVersion1_0, errdef.ErrUnsupported)
 	}
-	if configMediaType == "" {
-		configMediaType = MediaTypeUnknownConfig
-	}
 
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
+		if err := validateMediaType(opts.ConfigDescriptor.MediaType); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("invalid config mediaType format: %s: %w", opts.ConfigDescriptor.MediaType, err)
+		}
 		configDesc = *opts.ConfigDescriptor
 	} else {
+		if configMediaType != "" {
+			if err := validateMediaType(configMediaType); err != nil {
+				return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %s: %w", configMediaType, err)
+			}
+		} else {
+			configMediaType = MediaTypeUnknownConfig
+		}
+
 		// Use an empty JSON object here, because some registries may not accept
 		// empty config blob.
 		// As of September 2022, GAR is known to return 400 on empty blob upload.
@@ -286,10 +301,18 @@ func packManifestV1_1_RC4(ctx context.Context, pusher content.Pusher, artifactTy
 		// artifactType MUST be set when config.mediaType is set to the empty value
 		return ocispec.Descriptor{}, ErrMissingArtifactType
 	}
+	if artifactType != "" {
+		if err := validateMediaType(artifactType); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %s: %w", artifactType, err)
+		}
+	}
 
 	var emptyBlobExists bool
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
+		if err := validateMediaType(opts.ConfigDescriptor.MediaType); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("invalid config mediaType format: %s: %w", opts.ConfigDescriptor.MediaType, err)
+		}
 		configDesc = *opts.ConfigDescriptor
 	} else {
 		// use the empty descriptor for config
@@ -391,4 +414,12 @@ func ensureAnnotationCreated(annotations map[string]string, annotationCreatedKey
 	now := time.Now().UTC()
 	copied[annotationCreatedKey] = now.Format(time.RFC3339)
 	return copied, nil
+}
+
+// validateMediaType validates the format of mediaType.
+func validateMediaType(mediaType string) error {
+	if !mediaTypeRegexp.MatchString(mediaType) {
+		return errdef.ErrInvalidMediaType
+	}
+	return nil
 }
