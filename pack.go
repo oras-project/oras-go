@@ -100,12 +100,12 @@ type PackManifestOptions struct {
 // of the manifest to be packed is determined by packManifestVersion
 // (Recommended value: PackManifestVersion1_1_RC4).
 //
-//   - If packManifestVersion is [PackManifestVersion1_1_RC4],
+//   - If packManifestVersion is [PackManifestVersion1_1_RC4]:
 //     artifactType MUST NOT be empty unless opts.ConfigDescriptor is specified.
-//   - If packManifestVersion is [PackManifestVersion1_0],
-//     artifactType will be used as the the config media type unless
-//     opts.ConfigDescriptor is specified. If artifactType is empty,
-//     "application/vnd.unknown.config.v1+json" will be used.
+//   - If packManifestVersion is [PackManifestVersion1_0]:
+//     when opts.ConfigDescriptor is nil, artifactType will be used as the
+//     config media type; when opts.ConfigDescriptor is NOT nil,
+//     artifactType will be ignored.
 //
 // If succeeded, returns a descriptor of the packed manifest.
 func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
@@ -161,14 +161,7 @@ type PackOptions struct {
 // Use [PackManifest] instead.
 func Pack(ctx context.Context, pusher content.Pusher, artifactType string, blobs []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
 	if opts.PackImageManifest {
-		packOpts := PackManifestOptions{
-			Layers:              blobs,
-			Subject:             opts.Subject,
-			ManifestAnnotations: opts.ManifestAnnotations,
-			ConfigDescriptor:    opts.ConfigDescriptor,
-			ConfigAnnotations:   opts.ConfigAnnotations,
-		}
-		return packManifestV1_1_RC2(ctx, pusher, artifactType, packOpts)
+		return packManifestV1_1_RC2(ctx, pusher, artifactType, blobs, opts)
 	}
 	return packArtifact(ctx, pusher, artifactType, blobs, opts)
 }
@@ -194,10 +187,12 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, manifest.Annotations)
 }
 
-// packManifestV1_1_RC2 packs an image manifest as defined in image-spec
-// v1.1.0-rc2.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/manifest.md
-func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMediaType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
+// packManifestV1_0 packs an image manifest defined in image-spec v1.0.2.
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.0.2/manifest.md
+func packManifestV1_0(ctx context.Context, pusher content.Pusher, configMediaType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
+	if opts.Subject != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("subject is not supported for manifest version %v: %w", PackManifestVersion1_0, errdef.ErrUnsupported)
+	}
 	if configMediaType == "" {
 		configMediaType = MediaTypeUnknownConfig
 	}
@@ -233,6 +228,50 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 		Config:      configDesc,
 		MediaType:   ocispec.MediaTypeImageManifest,
 		Layers:      opts.Layers,
+		Annotations: annotations,
+	}
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, manifest.Annotations)
+}
+
+// packManifestV1_1_RC2 packs an image manifest as defined in image-spec
+// v1.1.0-rc2.
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/manifest.md
+func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMediaType string, layers []ocispec.Descriptor, opts PackOptions) (ocispec.Descriptor, error) {
+	if configMediaType == "" {
+		configMediaType = MediaTypeUnknownConfig
+	}
+
+	var configDesc ocispec.Descriptor
+	if opts.ConfigDescriptor != nil {
+		configDesc = *opts.ConfigDescriptor
+	} else {
+		// Use an empty JSON object here, because some registries may not accept
+		// empty config blob.
+		// As of September 2022, GAR is known to return 400 on empty blob upload.
+		// See https://github.com/oras-project/oras-go/issues/294 for details.
+		configBytes := []byte("{}")
+		configDesc = content.NewDescriptorFromBytes(configMediaType, configBytes)
+		configDesc.Annotations = opts.ConfigAnnotations
+		// push config
+		if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+		}
+	}
+
+	annotations, err := ensureAnnotationCreated(opts.ManifestAnnotations, ocispec.AnnotationCreated)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if layers == nil {
+		layers = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
+	}
+	manifest := ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		Config:      configDesc,
+		MediaType:   ocispec.MediaTypeImageManifest,
+		Layers:      layers,
 		Subject:     opts.Subject,
 		Annotations: annotations,
 	}
@@ -291,17 +330,6 @@ func packManifestV1_1_RC4(ctx context.Context, pusher content.Pusher, artifactTy
 		Annotations:  annotations,
 	}
 	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, manifest.Annotations)
-}
-
-// packManifestV1_0 packs an image manifest defined in image-spec v1.0.2.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.0.2/manifest.md
-func packManifestV1_0(ctx context.Context, pusher content.Pusher, configMediaType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
-	if opts.Subject != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("subject is not supported for manifest version %v: %w", PackManifestVersion1_0, errdef.ErrUnsupported)
-	}
-
-	// manifest v1.0 is equivalent to manifest v1.1.0-rc2 without subject
-	return packManifestV1_1_RC2(ctx, pusher, configMediaType, opts)
 }
 
 // pushIfNotExist pushes data described by desc if it does not exist in the
