@@ -199,11 +199,12 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 
 // packManifestV1_0 packs an image manifest defined in image-spec v1.0.2.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.0.2/manifest.md
-func packManifestV1_0(ctx context.Context, pusher content.Pusher, configMediaType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
+func packManifestV1_0(ctx context.Context, pusher content.Pusher, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
 	if opts.Subject != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("subject is not supported for manifest version %v: %w", PackManifestVersion1_0, errdef.ErrUnsupported)
 	}
 
+	// prepare config
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
 		if err := validateMediaType(opts.ConfigDescriptor.MediaType); err != nil {
@@ -211,24 +212,17 @@ func packManifestV1_0(ctx context.Context, pusher content.Pusher, configMediaTyp
 		}
 		configDesc = *opts.ConfigDescriptor
 	} else {
-		if configMediaType != "" {
-			if err := validateMediaType(configMediaType); err != nil {
-				return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %s: %w", configMediaType, err)
+		if artifactType != "" {
+			if err := validateMediaType(artifactType); err != nil {
+				return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %s: %w", artifactType, err)
 			}
 		} else {
-			configMediaType = MediaTypeUnknownConfig
+			artifactType = MediaTypeUnknownConfig
 		}
-
-		// Use an empty JSON object here, because some registries may not accept
-		// empty config blob.
-		// As of September 2022, GAR is known to return 400 on empty blob upload.
-		// See https://github.com/oras-project/oras-go/issues/294 for details.
-		configBytes := []byte("{}")
-		configDesc = content.NewDescriptorFromBytes(configMediaType, configBytes)
-		configDesc.Annotations = opts.ConfigAnnotations
-		// push config
-		if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+		var err error
+		configDesc, err = pushCustomConfig(ctx, pusher, artifactType, opts.ConfigAnnotations)
+		if err != nil {
+			return ocispec.Descriptor{}, err
 		}
 	}
 
@@ -259,20 +253,15 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 		configMediaType = MediaTypeUnknownConfig
 	}
 
+	// prepare config
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
 		configDesc = *opts.ConfigDescriptor
 	} else {
-		// Use an empty JSON object here, because some registries may not accept
-		// empty config blob.
-		// As of September 2022, GAR is known to return 400 on empty blob upload.
-		// See https://github.com/oras-project/oras-go/issues/294 for details.
-		configBytes := []byte("{}")
-		configDesc = content.NewDescriptorFromBytes(configMediaType, configBytes)
-		configDesc.Annotations = opts.ConfigAnnotations
-		// push config
-		if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+		var err error
+		configDesc, err = pushCustomConfig(ctx, pusher, configMediaType, opts.ConfigAnnotations)
+		if err != nil {
+			return ocispec.Descriptor{}, err
 		}
 	}
 
@@ -309,6 +298,7 @@ func packManifestV1_1_RC4(ctx context.Context, pusher content.Pusher, artifactTy
 		}
 	}
 
+	// prepare config
 	var emptyBlobExists bool
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
@@ -392,6 +382,22 @@ func pushManifest(ctx context.Context, pusher content.Pusher, manifest any, medi
 		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
 	}
 	return manifestDesc, nil
+}
+
+// pushCustomConfig generates and pushes a custom config blob.
+func pushCustomConfig(ctx context.Context, pusher content.Pusher, mediaType string, annotations map[string]string) (ocispec.Descriptor, error) {
+	// Use an empty JSON object here, because some registries may not accept
+	// empty config blob.
+	// As of September 2022, GAR is known to return 400 on empty blob upload.
+	// See https://github.com/oras-project/oras-go/issues/294 for details.
+	configBytes := []byte("{}")
+	configDesc := content.NewDescriptorFromBytes(mediaType, configBytes)
+	configDesc.Annotations = annotations
+	// push config
+	if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
+	}
+	return configDesc, nil
 }
 
 // ensureAnnotationCreated ensures that annotationCreatedKey is in annotations,
