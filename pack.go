@@ -425,7 +425,7 @@ func ensureAnnotationCreated(annotations map[string]string, annotationCreatedKey
 // validateMediaType validates the format of mediaType.
 func validateMediaType(mediaType string) error {
 	if !mediaTypeRegexp.MatchString(mediaType) {
-		return fmt.Errorf("%s %w", mediaType, errdef.ErrInvalidMediaType)
+		return fmt.Errorf("%s: %w", mediaType, errdef.ErrInvalidMediaType)
 	}
 	return nil
 }
