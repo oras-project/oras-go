@@ -208,19 +208,17 @@ func packManifestV1_0(ctx context.Context, pusher content.Pusher, artifactType s
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
 		if err := validateMediaType(opts.ConfigDescriptor.MediaType); err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("invalid config mediaType format: %s: %w", opts.ConfigDescriptor.MediaType, err)
+			return ocispec.Descriptor{}, fmt.Errorf("invalid config mediaType format: %w", err)
 		}
 		configDesc = *opts.ConfigDescriptor
 	} else {
-		if artifactType != "" {
-			if err := validateMediaType(artifactType); err != nil {
-				return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %s: %w", artifactType, err)
-			}
-		} else {
+		if artifactType == "" {
 			artifactType = MediaTypeUnknownConfig
+		} else if err := validateMediaType(artifactType); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %w", err)
 		}
 		var err error
-		configDesc, err = pushCustomConfig(ctx, pusher, artifactType, opts.ConfigAnnotations)
+		configDesc, err = pushCustomEmptyConfig(ctx, pusher, artifactType, opts.ConfigAnnotations)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -259,7 +257,7 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 		configDesc = *opts.ConfigDescriptor
 	} else {
 		var err error
-		configDesc, err = pushCustomConfig(ctx, pusher, configMediaType, opts.ConfigAnnotations)
+		configDesc, err = pushCustomEmptyConfig(ctx, pusher, configMediaType, opts.ConfigAnnotations)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -294,7 +292,7 @@ func packManifestV1_1_RC4(ctx context.Context, pusher content.Pusher, artifactTy
 	}
 	if artifactType != "" {
 		if err := validateMediaType(artifactType); err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %s: %w", artifactType, err)
+			return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %w", err)
 		}
 	}
 
@@ -303,7 +301,7 @@ func packManifestV1_1_RC4(ctx context.Context, pusher content.Pusher, artifactTy
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
 		if err := validateMediaType(opts.ConfigDescriptor.MediaType); err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("invalid config mediaType format: %s: %w", opts.ConfigDescriptor.MediaType, err)
+			return ocispec.Descriptor{}, fmt.Errorf("invalid config mediaType format: %w", err)
 		}
 		configDesc = *opts.ConfigDescriptor
 	} else {
@@ -384,8 +382,8 @@ func pushManifest(ctx context.Context, pusher content.Pusher, manifest any, medi
 	return manifestDesc, nil
 }
 
-// pushCustomConfig generates and pushes a custom config blob.
-func pushCustomConfig(ctx context.Context, pusher content.Pusher, mediaType string, annotations map[string]string) (ocispec.Descriptor, error) {
+// pushCustomEmptyConfig generates and pushes an empty config blob.
+func pushCustomEmptyConfig(ctx context.Context, pusher content.Pusher, mediaType string, annotations map[string]string) (ocispec.Descriptor, error) {
 	// Use an empty JSON object here, because some registries may not accept
 	// empty config blob.
 	// As of September 2022, GAR is known to return 400 on empty blob upload.
@@ -427,7 +425,7 @@ func ensureAnnotationCreated(annotations map[string]string, annotationCreatedKey
 // validateMediaType validates the format of mediaType.
 func validateMediaType(mediaType string) error {
 	if !mediaTypeRegexp.MatchString(mediaType) {
-		return errdef.ErrInvalidMediaType
+		return fmt.Errorf("%s %w", mediaType, errdef.ErrInvalidMediaType)
 	}
 	return nil
 }
