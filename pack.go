@@ -97,7 +97,9 @@ type PackManifestOptions struct {
 }
 
 // mediaTypeRegexp checks the format of media types.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/schema/defs-descriptor.json#L7
+// References:
+//   - https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/schema/defs-descriptor.json#L7
+//   - https://datatracker.ietf.org/doc/html/rfc6838#section-4.2
 var mediaTypeRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&-^_.+]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&-^_.+]{0,126}$`)
 
 // PackManifest generates an OCI Image Manifest based on the given parameters
