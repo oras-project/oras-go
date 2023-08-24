@@ -103,9 +103,10 @@ type PackManifestOptions struct {
 //   - If packManifestVersion is [PackManifestVersion1_1_RC4]:
 //     artifactType MUST NOT be empty unless opts.ConfigDescriptor is specified.
 //   - If packManifestVersion is [PackManifestVersion1_0]:
-//     when opts.ConfigDescriptor is nil, artifactType will be used as the
-//     config media type; when opts.ConfigDescriptor is NOT nil,
-//     artifactType will be ignored.
+//     if opts.ConfigDescriptor is nil, artifactType will be used as the
+//     config media type; if artifactType is empty,
+//     "application/vnd.unknown.config.v1+json" will be used.
+//     if opts.ConfigDescriptor is NOT nil, artifactType will be ignored.
 //
 // If succeeded, returns a descriptor of the packed manifest.
 func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
