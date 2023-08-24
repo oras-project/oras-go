@@ -111,7 +111,7 @@ func Example_pushFilesToRemoteRepository() {
 	ctx := context.Background()
 
 	// 1. Add files to the file store
-	mediaType := "example/file"
+	mediaType := "application/vnd.test.file"
 	fileNames := []string{"/tmp/myfile"}
 	fileDescriptors := make([]v1.Descriptor, 0, len(fileNames))
 	for _, name := range fileNames {
@@ -124,7 +124,7 @@ func Example_pushFilesToRemoteRepository() {
 	}
 
 	// 2. Pack the files and tag the packed manifest
-	artifactType := "example/files"
+	artifactType := "application/vnd.test.artifact"
 	opts := oras.PackManifestOptions{
 		Layers: fileDescriptors,
 	}
