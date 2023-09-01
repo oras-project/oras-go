@@ -44,7 +44,8 @@ var bufPool = sync.Pool{
 // Storage is a CAS based on file system with the OCI-Image layout.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md
 type Storage struct {
-	*ReadOnlyStorage
+	rs          *ReadOnlyStorage
+	storageLock sync.RWMutex
 	// root is the root directory of the OCI layout.
 	root string
 	// ingestRoot is the root directory of the temporary ingest files.
@@ -59,10 +60,22 @@ func NewStorage(root string) (*Storage, error) {
 	}
 
 	return &Storage{
-		ReadOnlyStorage: NewStorageFromFS(os.DirFS(rootAbs)),
-		root:            rootAbs,
-		ingestRoot:      filepath.Join(rootAbs, "ingest"),
+		rs:         NewStorageFromFS(os.DirFS(rootAbs)),
+		root:       rootAbs,
+		ingestRoot: filepath.Join(rootAbs, "ingest"),
 	}, nil
+}
+
+func (s *Storage) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	s.storageLock.RLock()
+	defer s.storageLock.RUnlock()
+	return s.rs.Fetch(ctx, target)
+}
+
+func (s *Storage) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	s.storageLock.RLock()
+	defer s.storageLock.RUnlock()
+	return s.rs.Exists(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
@@ -72,6 +85,9 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 		return fmt.Errorf("%s: %s: %w", expected.Digest, expected.MediaType, errdef.ErrInvalidDigest)
 	}
 	target := filepath.Join(s.root, path)
+
+	s.storageLock.Lock()
+	defer s.storageLock.Unlock()
 
 	// check if the target content already exists in the blob directory.
 	if _, err := os.Stat(target); err == nil {
@@ -104,6 +120,20 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 	}
 
 	return nil
+}
+
+// Delete removes the target from the system. With Delete, Storage implements the
+// DeletableStorage interface.
+func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	path, err := blobPath(target.Digest)
+	if err != nil {
+		return fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrInvalidDigest)
+	}
+	targetPath := filepath.Join(s.root, path)
+
+	s.storageLock.Lock()
+	defer s.storageLock.Unlock()
+	return os.Remove(targetPath)
 }
 
 // ingest write the content into a temporary ingest file.
