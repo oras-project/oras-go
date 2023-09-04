@@ -53,7 +53,6 @@ type DeletableStore struct {
 	root          string
 	indexPath     string
 	index         *ocispec.Index
-	indexLock     sync.Mutex
 	lock          sync.RWMutex
 
 	storage     *Storage
@@ -137,7 +136,7 @@ func (ds *DeletableStore) Delete(ctx context.Context, target ocispec.Descriptor)
 		return err
 	}
 	if ds.AutoSaveIndex {
-		err := ds.SaveIndex()
+		err := ds.saveIndex()
 		if err != nil {
 			return err
 		}
@@ -186,7 +185,7 @@ func (ds *DeletableStore) tag(ctx context.Context, desc ocispec.Descriptor, refe
 		return err
 	}
 	if ds.AutoSaveIndex {
-		return ds.SaveIndex()
+		return ds.saveIndex()
 	}
 	return nil
 }
@@ -300,13 +299,16 @@ func (ds *DeletableStore) loadIndexFile(ctx context.Context) error {
 
 // SaveIndex writes the `index.json` file to the file system.
 //   - If AutoSaveIndex is set to true (default value),
-//     the OCI store will automatically call this method on each Tag() call.
+//     the OCI store will automatically save the index on each Tag() call.
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
 //     to manually call this method when needed.
 func (ds *DeletableStore) SaveIndex() error {
-	ds.indexLock.Lock()
-	defer ds.indexLock.Unlock()
+	ds.lock.Lock()
+	defer ds.lock.Unlock()
+	return ds.saveIndex()
+}
 
+func (ds *DeletableStore) saveIndex() error {
 	var manifests []ocispec.Descriptor
 	tagged := set.New[digest.Digest]()
 	refMap := ds.tagResolver.Map()
