@@ -44,8 +44,7 @@ var bufPool = sync.Pool{
 // Storage is a CAS based on file system with the OCI-Image layout.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md
 type Storage struct {
-	rs          *ReadOnlyStorage
-	storageLock sync.RWMutex
+	rs *ReadOnlyStorage
 	// root is the root directory of the OCI layout.
 	root string
 	// ingestRoot is the root directory of the temporary ingest files.
@@ -67,14 +66,10 @@ func NewStorage(root string) (*Storage, error) {
 }
 
 func (s *Storage) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	s.storageLock.RLock()
-	defer s.storageLock.RUnlock()
 	return s.rs.Fetch(ctx, target)
 }
 
 func (s *Storage) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	s.storageLock.RLock()
-	defer s.storageLock.RUnlock()
 	return s.rs.Exists(ctx, target)
 }
 
@@ -85,9 +80,6 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 		return fmt.Errorf("%s: %s: %w", expected.Digest, expected.MediaType, errdef.ErrInvalidDigest)
 	}
 	target := filepath.Join(s.root, path)
-
-	s.storageLock.Lock()
-	defer s.storageLock.Unlock()
 
 	// check if the target content already exists in the blob directory.
 	if _, err := os.Stat(target); err == nil {
@@ -131,8 +123,6 @@ func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	}
 	targetPath := filepath.Join(s.root, path)
 
-	s.storageLock.Lock()
-	defer s.storageLock.Unlock()
 	return os.Remove(targetPath)
 }
 

@@ -20,7 +20,6 @@ package oci
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,7 +30,6 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/container/set"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/graph"
@@ -54,6 +52,7 @@ type DeletableStore struct {
 	indexPath     string
 	index         *ocispec.Index
 	indexLock     sync.Mutex
+	operationLock sync.RWMutex
 
 	storage     content.DeletableStorage
 	tagResolver *resolver.Memory
@@ -100,11 +99,15 @@ func NewDeletableStoreWithContext(ctx context.Context, root string) (*DeletableS
 
 // Fetch fetches the content identified by the descriptor.
 func (s *DeletableStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	s.operationLock.RLock()
+	defer s.operationLock.RUnlock()
 	return s.storage.Fetch(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
 func (s *DeletableStore) Push(ctx context.Context, expected ocispec.Descriptor, reader io.Reader) error {
+	s.operationLock.Lock()
+	defer s.operationLock.Unlock()
 	if err := s.storage.Push(ctx, expected, reader); err != nil {
 		return err
 	}
@@ -120,6 +123,8 @@ func (s *DeletableStore) Push(ctx context.Context, expected ocispec.Descriptor, 
 
 // Delete removes the content matching the descriptor from the store.
 func (s *DeletableStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	s.operationLock.Lock()
+	defer s.operationLock.Unlock()
 	resolvers := s.tagResolver.Map()
 	for reference, desc := range resolvers {
 		if content.Equal(desc, target) {
@@ -140,26 +145,9 @@ func (s *DeletableStore) Delete(ctx context.Context, target ocispec.Descriptor) 
 
 // Exists returns true if the described content exists.
 func (s *DeletableStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	s.operationLock.RLock()
+	defer s.operationLock.RUnlock()
 	return s.storage.Exists(ctx, target)
-}
-
-// Tag tags a descriptor with a reference string.
-// reference should be a valid tag (e.g. "latest").
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md#indexjson-file
-func (s *DeletableStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	if err := validateReference(reference); err != nil {
-		return err
-	}
-
-	exists, err := s.storage.Exists(ctx, desc)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrNotFound)
-	}
-
-	return s.tag(ctx, desc, reference)
 }
 
 // tag tags a descriptor with a reference string.
@@ -180,49 +168,11 @@ func (s *DeletableStore) tag(ctx context.Context, desc ocispec.Descriptor, refer
 	return nil
 }
 
-// Resolve resolves a reference to a descriptor. If the reference to be resolved
-// is a tag, the returned descriptor will be a full descriptor declared by
-// github.com/opencontainers/image-spec/specs-go/v1. If the reference is a
-// digest the returned descriptor will be a plain descriptor (containing only
-// the digest, media type and size).
-func (s *DeletableStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
-	if reference == "" {
-		return ocispec.Descriptor{}, errdef.ErrMissingReference
-	}
-
-	// attempt resolving manifest
-	desc, err := s.tagResolver.Resolve(ctx, reference)
-	if err != nil {
-		if errors.Is(err, errdef.ErrNotFound) {
-			// attempt resolving blob
-			return resolveBlob(os.DirFS(s.root), reference)
-		}
-		return ocispec.Descriptor{}, err
-	}
-
-	if reference == desc.Digest.String() {
-		return descriptor.Plain(desc), nil
-	}
-
-	return desc, nil
-}
-
 // Predecessors returns the nodes directly pointing to the current node.
 // Predecessors returns nil without error if the node does not exists in the
 // store.
 func (s *DeletableStore) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	return s.graph.Predecessors(ctx, node)
-}
-
-// Tags lists the tags presented in the `index.json` file of the OCI layout,
-// returned in ascending order.
-// If `last` is NOT empty, the entries in the response start after the tag
-// specified by `last`. Otherwise, the response starts from the top of the tags
-// list.
-//
-// See also `Tags()` in the package `registry`.
-func (s *DeletableStore) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
-	return listTags(ctx, s.tagResolver, last, fn)
 }
 
 // ensureOCILayoutFile ensures the `oci-layout` file.
