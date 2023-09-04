@@ -48,17 +48,17 @@ func TestDeletableStore(t *testing.T) {
 		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
 	}
 
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
 	exists, err := s.Exists(ctx, desc)
 	if err != nil {
 		t.Fatal("Store.Exists() error =", err)
 	}
 	if !exists {
 		t.Errorf("Store.Exists() = %v, want %v", exists, true)
-	}
-
-	err = s.tag(ctx, desc, ref)
-	if err != nil {
-		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
 	}
 
 	resolvedDescr, err := s.Resolve(ctx, ref)

@@ -54,7 +54,7 @@ type DeletableStore struct {
 	indexPath     string
 	index         *ocispec.Index
 	indexLock     sync.Mutex
-	operationLock sync.RWMutex
+	lock          sync.RWMutex
 
 	storage     *Storage
 	tagResolver *resolver.Memory
@@ -101,15 +101,15 @@ func NewDeletableStoreWithContext(ctx context.Context, root string) (*DeletableS
 
 // Fetch fetches the content identified by the descriptor.
 func (ds *DeletableStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	ds.operationLock.RLock()
-	defer ds.operationLock.RUnlock()
+	ds.lock.RLock()
+	defer ds.lock.RUnlock()
 	return ds.storage.Fetch(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
 func (ds *DeletableStore) Push(ctx context.Context, expected ocispec.Descriptor, reader io.Reader) error {
-	ds.operationLock.Lock()
-	defer ds.operationLock.Unlock()
+	ds.lock.Lock()
+	defer ds.lock.Unlock()
 	if err := ds.storage.Push(ctx, expected, reader); err != nil {
 		return err
 	}
@@ -125,8 +125,8 @@ func (ds *DeletableStore) Push(ctx context.Context, expected ocispec.Descriptor,
 
 // Delete removes the content matching the descriptor from the store.
 func (ds *DeletableStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	ds.operationLock.Lock()
-	defer ds.operationLock.Unlock()
+	ds.lock.Lock()
+	defer ds.lock.Unlock()
 	resolvers := ds.tagResolver.Map()
 	for reference, desc := range resolvers {
 		if content.Equal(desc, target) {
@@ -147,9 +147,30 @@ func (ds *DeletableStore) Delete(ctx context.Context, target ocispec.Descriptor)
 
 // Exists returns true if the described content exists.
 func (ds *DeletableStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	ds.operationLock.RLock()
-	defer ds.operationLock.RUnlock()
+	ds.lock.RLock()
+	defer ds.lock.RUnlock()
 	return ds.storage.Exists(ctx, target)
+}
+
+// Tag tags a descriptor with a reference string.
+// reference should be a valid tag (e.g. "latest").
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md#indexjson-file
+func (ds *DeletableStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
+	ds.lock.Lock()
+	defer ds.lock.Unlock()
+	if err := validateReference(reference); err != nil {
+		return err
+	}
+
+	exists, err := ds.storage.Exists(ctx, desc)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrNotFound)
+	}
+
+	return ds.tag(ctx, desc, reference)
 }
 
 // tag tags a descriptor with a reference string.
@@ -176,8 +197,8 @@ func (ds *DeletableStore) tag(ctx context.Context, desc ocispec.Descriptor, refe
 // digest the returned descriptor will be a plain descriptor (containing only
 // the digest, media type and size).
 func (ds *DeletableStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
-	ds.operationLock.RLock()
-	defer ds.operationLock.RUnlock()
+	ds.lock.RLock()
+	defer ds.lock.RUnlock()
 	if reference == "" {
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
@@ -203,7 +224,22 @@ func (ds *DeletableStore) Resolve(ctx context.Context, reference string) (ocispe
 // Predecessors returns nil without error if the node does not exists in the
 // store.
 func (ds *DeletableStore) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	ds.lock.RLock()
+	defer ds.lock.RUnlock()
 	return ds.graph.Predecessors(ctx, node)
+}
+
+// Tags lists the tags presented in the `index.json` file of the OCI layout,
+// returned in ascending order.
+// If `last` is NOT empty, the entries in the response start after the tag
+// specified by `last`. Otherwise, the response starts from the top of the tags
+// list.
+//
+// See also `Tags()` in the package `registry`.
+func (ds *DeletableStore) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
+	ds.lock.RLock()
+	defer ds.lock.RUnlock()
+	return listTags(ctx, ds.tagResolver, last, fn)
 }
 
 // ensureOCILayoutFile ensures the `oci-layout` file.
