@@ -44,7 +44,7 @@ var bufPool = sync.Pool{
 // Storage is a CAS based on file system with the OCI-Image layout.
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md
 type Storage struct {
-	rs *ReadOnlyStorage
+	*ReadOnlyStorage
 	// root is the root directory of the OCI layout.
 	root string
 	// ingestRoot is the root directory of the temporary ingest files.
@@ -59,18 +59,10 @@ func NewStorage(root string) (*Storage, error) {
 	}
 
 	return &Storage{
-		rs:         NewStorageFromFS(os.DirFS(rootAbs)),
-		root:       rootAbs,
-		ingestRoot: filepath.Join(rootAbs, "ingest"),
+		ReadOnlyStorage: NewStorageFromFS(os.DirFS(rootAbs)),
+		root:            rootAbs,
+		ingestRoot:      filepath.Join(rootAbs, "ingest"),
 	}, nil
-}
-
-func (s *Storage) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	return s.rs.Fetch(ctx, target)
-}
-
-func (s *Storage) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	return s.rs.Exists(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
