@@ -54,7 +54,7 @@ type DeletableStore struct {
 	indexLock     sync.Mutex
 	operationLock sync.RWMutex
 
-	storage     content.DeletableStorage
+	storage     *Storage
 	tagResolver *resolver.Memory
 	graph       *graph.Memory
 }
