@@ -20,19 +20,21 @@ package oci
 import (
 	"bytes"
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func TestDeletableStore_Delete(t *testing.T) {
+func TestDeletableStore(t *testing.T) {
 	content := []byte("test delete")
 	desc := ocispec.Descriptor{
 		MediaType: "test-delete",
 		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)),
 	}
+	ref := "latest"
 
 	tempDir := t.TempDir()
 	s, err := NewDeletableStore(tempDir)
@@ -52,6 +54,20 @@ func TestDeletableStore_Delete(t *testing.T) {
 	}
 	if !exists {
 		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	err = s.tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, desc)
 	}
 
 	err = s.Delete(ctx, desc)
