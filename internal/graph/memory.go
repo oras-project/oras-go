@@ -18,6 +18,7 @@ package graph
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -31,6 +32,7 @@ import (
 // Memory is a memory based PredecessorFinder.
 type Memory struct {
 	predecessors sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
+	successors   sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
 	indexed      sync.Map // map[descriptor.Descriptor]any
 }
 
@@ -116,22 +118,37 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 	return res, nil
 }
 
-// RemoveFromIndex removes the node and all its predecessors from the index and predecessor maps.
+// RemoveFromIndex removes the node from its predecessors and successors.
 func (m *Memory) RemoveFromIndex(ctx context.Context, node ocispec.Descriptor) error {
 	nodeKey := descriptor.FromOCI(node)
-	_, loaded := m.indexed.LoadAndDelete(nodeKey)
-	if loaded {
-		predecessors, err := m.Predecessors(ctx, node)
-		if err != nil {
-			return err
-		}
-		for _, predecessor := range predecessors {
-			if err = m.RemoveFromIndex(ctx, predecessor); err != nil {
-				return err
-			}
-			m.predecessors.Delete(predecessor)
-		}
+	// remove the node from its predecessors' successor list
+	preds, exists := m.predecessors.Load(nodeKey)
+	if !exists {
+		return fmt.Errorf("predecessors of the node is not found")
 	}
+	predecessors := preds.(*sync.Map)
+	predecessors.Range(func(key, value interface{}) bool {
+		succs, _ := m.successors.Load(key)
+		successors := succs.(*sync.Map)
+		successors.Delete(nodeKey)
+		return true
+	})
+	// remove the node from its successors' predecessor list
+	succs, exists := m.successors.Load(nodeKey)
+	if !exists {
+		return fmt.Errorf("successors of the node is not found")
+	}
+	successors := succs.(*sync.Map)
+	successors.Range(func(key, value interface{}) bool {
+		preds, _ := m.predecessors.Load(key)
+		predecessors := preds.(*sync.Map)
+		predecessors.Delete(nodeKey)
+		return true
+	})
+	// remove the node's entries in the maps
+	m.predecessors.Delete(nodeKey)
+	m.successors.Delete(nodeKey)
+	m.indexed.Delete(nodeKey)
 	return nil
 }
 
@@ -142,12 +159,16 @@ func (m *Memory) index(ctx context.Context, node ocispec.Descriptor, successors 
 	if len(successors) == 0 {
 		return
 	}
-
 	predecessorKey := descriptor.FromOCI(node)
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
-		value, _ := m.predecessors.LoadOrStore(successorKey, &sync.Map{})
-		predecessors := value.(*sync.Map)
-		predecessors.Store(predecessorKey, node)
+		// store in m.predecessors
+		pred, _ := m.predecessors.LoadOrStore(successorKey, &sync.Map{})
+		predecessorsMap := pred.(*sync.Map)
+		predecessorsMap.Store(predecessorKey, node)
+		// store in m.successors
+		succ, _ := m.successors.LoadOrStore(predecessorKey, &sync.Map{})
+		successorsMap := succ.(*sync.Map)
+		successorsMap.Store(successorKey, successor)
 	}
 }
