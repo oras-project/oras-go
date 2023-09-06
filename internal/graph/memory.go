@@ -121,27 +121,15 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 // RemoveFromIndex removes the node from its predecessors and successors.
 func (m *Memory) RemoveFromIndex(ctx context.Context, node ocispec.Descriptor) error {
 	nodeKey := descriptor.FromOCI(node)
-	// remove the node from its predecessors' successor list
-	preds, exists := m.predecessors.Load(nodeKey)
-	if !exists {
-		return fmt.Errorf("predecessors of the node is not found")
-	}
-	predecessors := preds.(*sync.Map)
-	predecessors.Range(func(key, value interface{}) bool {
-		succs, _ := m.successors.Load(key)
-		successors := succs.(*sync.Map)
-		successors.Delete(nodeKey)
-		return true
-	})
 	// remove the node from its successors' predecessor list
-	succs, exists := m.successors.Load(nodeKey)
+	value, exists := m.successors.Load(nodeKey)
 	if !exists {
 		return fmt.Errorf("successors of the node is not found")
 	}
-	successors := succs.(*sync.Map)
-	successors.Range(func(key, value interface{}) bool {
-		preds, _ := m.predecessors.Load(key)
-		predecessors := preds.(*sync.Map)
+	successors := value.(*sync.Map)
+	successors.Range(func(key, _ interface{}) bool {
+		value, _ = m.predecessors.Load(key)
+		predecessors := value.(*sync.Map)
 		predecessors.Delete(nodeKey)
 		return true
 	})
@@ -162,11 +150,11 @@ func (m *Memory) index(ctx context.Context, node ocispec.Descriptor, successors 
 	predecessorKey := descriptor.FromOCI(node)
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
-		// store in m.predecessors
+		// store in m.predecessors, memory.predecessors[successorKey].Store(node)
 		pred, _ := m.predecessors.LoadOrStore(successorKey, &sync.Map{})
 		predecessorsMap := pred.(*sync.Map)
 		predecessorsMap.Store(predecessorKey, node)
-		// store in m.successors
+		// store in m.successors, memory.successors[predecessorKey].Store(successor)
 		succ, _ := m.successors.LoadOrStore(predecessorKey, &sync.Map{})
 		successorsMap := succ.(*sync.Map)
 		successorsMap.Store(successorKey, successor)
