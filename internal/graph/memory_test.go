@@ -103,7 +103,7 @@ func TestMemory_index(t *testing.T) {
 	testMemory.index(ctx, B, []ocispec.Descriptor{C, D})
 
 	// check the memory: B exists in testMemory.predecessors, successors and indexed,
-	// C ONLY exists in predecessors
+	// C, D ONLY exists in predecessors
 	_, exists = testMemory.predecessors.Load(BKey)
 	if !exists {
 		t.Errorf("could not find the entry of %v in predecessors", B)
@@ -128,7 +128,18 @@ func TestMemory_index(t *testing.T) {
 	if exists {
 		t.Errorf("%v should not exist in indexed", C)
 	}
-
+	_, exists = testMemory.predecessors.Load(DKey)
+	if !exists {
+		t.Errorf("could not find the entry of %v in predecessors", D)
+	}
+	_, exists = testMemory.successors.Load(DKey)
+	if exists {
+		t.Errorf("%v should not exist in successors", D)
+	}
+	_, exists = testMemory.indexed.Load(DKey)
+	if exists {
+		t.Errorf("%v should not exist in indexed", D)
+	}
 	// predecessors[C] contains B, predecessors[D] contains B,
 	// successors[B] contains C and D
 	value, _ = testMemory.predecessors.Load(CKey)
@@ -157,7 +168,7 @@ func TestMemory_index(t *testing.T) {
 	// test 3: index "A -> D"
 	testMemory.index(ctx, A, []ocispec.Descriptor{D})
 
-	// predecessors[D] contains A and B, successors[A] contains D
+	// predecessors[D] contains A and B, successors[A] contains B and D
 	value, _ = testMemory.predecessors.Load(DKey)
 	DPreds = value.(*sync.Map)
 	_, exists = DPreds.Load(AKey)
@@ -170,6 +181,10 @@ func TestMemory_index(t *testing.T) {
 	}
 	value, _ = testMemory.successors.Load(AKey)
 	ASuccs = value.(*sync.Map)
+	_, exists = ASuccs.Load(BKey)
+	if !exists {
+		t.Errorf("could not find %v in successors of %v", B, A)
+	}
 	_, exists = ASuccs.Load(DKey)
 	if !exists {
 		t.Errorf("could not find %v in successors of %v", D, A)
