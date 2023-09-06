@@ -13,6 +13,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package credentials supports reading, saving, and removing credentials from
+// Docker configuration files and external credential stores that follow
+// the Docker credential helper protocol.
+//
+// Reference: https://docs.docker.com/engine/reference/commandline/login/#credential-stores
 package credentials
 
 import (
