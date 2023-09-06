@@ -69,7 +69,7 @@ func Logout(ctx context.Context, store Store, registryName string) error {
 }
 
 // Credential returns a Credential() function that can be used by auth.Client.
-func Credential(store Store) func(context.Context, string) (auth.Credential, error) {
+func Credential(store Store) auth.CredentialFunc {
 	return func(ctx context.Context, reg string) (auth.Credential, error) {
 		reg = ServerAddressFromHostname(reg)
 		if reg == "" {

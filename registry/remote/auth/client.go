@@ -54,8 +54,12 @@ var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 // See also ClientID.
 var defaultClientID = "oras-go"
 
+// CredentialFunc represents a function that resolves the credential for the
+// given registry (i.e. host:port).
+type CredentialFunc func(ctx context.Context, registry string) (Credential, error)
+
 // StaticCredential specifies static credentials for the given host.
-func StaticCredential(registry string, cred Credential) func(context.Context, string) (Credential, error) {
+func StaticCredential(registry string, cred Credential) CredentialFunc {
 	if registry == "docker.io" {
 		// it is expected that traffic targeting "docker.io" will be redirected
 		// to "registry-1.docker.io"
@@ -91,7 +95,7 @@ type Client struct {
 	// `EmptyCredential` is a valid return value and should not be considered as
 	// an error.
 	// If nil, the credential is always resolved to `EmptyCredential`.
-	Credential func(context.Context, string) (Credential, error)
+	Credential CredentialFunc
 
 	// Cache caches credentials for direct accessing the remote registry.
 	// If nil, no cache is used.
