@@ -25,6 +25,7 @@ import (
 	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/credentials"
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
@@ -99,6 +100,46 @@ func Example_pullImageFromRemoteRepository() {
 	fmt.Println("manifest descriptor:", manifestDescriptor)
 }
 
+// ExamplePullImageUsingDockerCredentials gives an example of pulling an image
+// from a remote repository to an OCI Image layout folder using Docker
+// credentials.
+func Example_pullImageUsingDockerCredentials() {
+	// 0. Create an OCI layout store
+	store, err := oci.New("/tmp/oci-layout-root")
+	if err != nil {
+		panic(err)
+	}
+
+	// 1. Connect to a remote repository
+	ctx := context.Background()
+	reg := "docker.io"
+	repo, err := remote.NewRepository(reg + "/user/my-repo")
+	if err != nil {
+		panic(err)
+	}
+
+	// prepare authentication using Docker credentials
+	storeOpts := credentials.StoreOptions{}
+	credStore, err := credentials.NewStoreFromDocker(storeOpts)
+	if err != nil {
+		panic(err)
+	}
+	repo.Client = &auth.Client{
+		Client:     retry.DefaultClient,
+		Cache:      auth.DefaultCache,
+		Credential: credentials.Credential(credStore), // Use the credentials store
+	}
+
+	// 2. Copy from the remote repository to the OCI layout store
+	tag := "latest"
+	manifestDescriptor, err := oras.Copy(ctx, repo, tag, store, tag, oras.DefaultCopyOptions)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("manifest pulled:", manifestDescriptor.Digest, manifestDescriptor.MediaType)
+}
+
 // ExamplePushFilesToRemoteRepository gives an example of pushing local files
 // to a remote repository.
 func Example_pushFilesToRemoteRepository() {
@@ -155,7 +196,7 @@ func Example_pushFilesToRemoteRepository() {
 		}),
 	}
 
-	// 3. Copy from the file store to the remote repository
+	// 4. Copy from the file store to the remote repository
 	_, err = oras.Copy(ctx, fs, tag, repo, tag, oras.DefaultCopyOptions)
 	if err != nil {
 		panic(err)
