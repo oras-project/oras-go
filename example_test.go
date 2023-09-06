@@ -49,7 +49,7 @@ func Example_pullFilesFromRemoteRepository() {
 	// Note: The below code can be omitted if authentication is not required
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
-		Cache:  auth.DefaultCache,
+		Cache:  auth.NewCache(),
 		Credential: auth.StaticCredential(reg, auth.Credential{
 			Username: "username",
 			Password: "password",
@@ -84,7 +84,7 @@ func Example_pullImageFromRemoteRepository() {
 	// Note: The below code can be omitted if authentication is not required
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
-		Cache:  auth.DefaultCache,
+		Cache:  auth.NewCache(),
 		Credential: auth.StaticCredential(reg, auth.Credential{
 			Username: "username",
 			Password: "password",
@@ -126,7 +126,7 @@ func Example_pullImageUsingDockerCredentials() {
 	}
 	repo.Client = &auth.Client{
 		Client:     retry.DefaultClient,
-		Cache:      auth.DefaultCache,
+		Cache:      auth.NewCache(),
 		Credential: credentials.Credential(credStore), // Use the credentials store
 	}
 
@@ -189,7 +189,7 @@ func Example_pushFilesToRemoteRepository() {
 	// Note: The below code can be omitted if authentication is not required
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
-		Cache:  auth.DefaultCache,
+		Cache:  auth.NewCache(),
 		Credential: auth.StaticCredential(reg, auth.Credential{
 			Username: "username",
 			Password: "password",
