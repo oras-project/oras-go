@@ -57,7 +57,7 @@ type DeletableStore struct {
 
 	storage     *Storage
 	tagResolver *resolver.Memory
-	graph       *graph.Memory
+	graph       *graph.MemoryWithDelete
 }
 
 // NewDeletableStore returns a new DeletableStore.
@@ -82,7 +82,7 @@ func NewDeletableStoreWithContext(ctx context.Context, root string) (*DeletableS
 		indexPath:     filepath.Join(rootAbs, ociImageIndexFile),
 		storage:       storage,
 		tagResolver:   resolver.NewMemory(),
-		graph:         graph.NewMemory(),
+		graph:         graph.NewMemoryWithDelete(),
 	}
 
 	if err := ensureDir(filepath.Join(rootAbs, ociBlobsDir)); err != nil {
@@ -294,7 +294,7 @@ func (ds *DeletableStore) loadIndexFile(ctx context.Context) error {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
 	ds.index = &index
-	return loadIndex(ctx, ds.index, ds.storage, ds.tagResolver, ds.graph)
+	return loadIndexWithMemoryWithDelete(ctx, ds.index, ds.storage, ds.tagResolver, ds.graph)
 }
 
 // SaveIndex writes the `index.json` file to the file system.

@@ -28,21 +28,22 @@ import (
 	"oras.land/oras-go/v2/internal/syncutil"
 )
 
-// Memory is a memory based PredecessorFinder.
-type Memory struct {
+// MemoryWithDelete is a MemoryWithDelete based PredecessorFinder.
+type MemoryWithDelete struct {
 	predecessors sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
+	successors   sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
 	indexed      sync.Map // map[descriptor.Descriptor]any
 }
 
-// NewMemory creates a new memory PredecessorFinder.
-func NewMemory() *Memory {
-	return &Memory{}
+// NewMemoryWithDelete creates a new MemoryWithDelete PredecessorFinder.
+func NewMemoryWithDelete() *MemoryWithDelete {
+	return &MemoryWithDelete{}
 }
 
 // Index indexes predecessors for each direct successor of the given node.
 // There is no data consistency issue as long as deletion is not implemented
 // for the underlying storage.
-func (m *Memory) Index(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
+func (m *MemoryWithDelete) Index(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
 	successors, err := content.Successors(ctx, fetcher, node)
 	if err != nil {
 		return err
@@ -55,7 +56,7 @@ func (m *Memory) Index(ctx context.Context, fetcher content.Fetcher, node ocispe
 // Index indexes predecessors for all the successors of the given node.
 // There is no data consistency issue as long as deletion is not implemented
 // for the underlying storage.
-func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
+func (m *MemoryWithDelete) IndexAll(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
 	// track content status
 	tracker := status.NewTracker()
 
@@ -100,7 +101,7 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 // Like other operations, calling Predecessors() is go-routine safe. However,
 // it does not necessarily correspond to any consistent snapshot of the stored
 // contents.
-func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+func (m *MemoryWithDelete) Predecessors(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	key := descriptor.FromOCI(node)
 	value, exists := m.predecessors.Load(key)
 	if !exists {
@@ -116,18 +117,54 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 	return res, nil
 }
 
+// RemoveFromIndex removes the node from its predecessors and successors.
+func (m *MemoryWithDelete) RemoveFromIndex(ctx context.Context, node ocispec.Descriptor) error {
+	nodeKey := descriptor.FromOCI(node)
+	// remove the node from its successors' predecessor list
+	value, _ := m.successors.Load(nodeKey)
+	successors := value.(*sync.Map)
+	successors.Range(func(key, _ interface{}) bool {
+		value, _ = m.predecessors.Load(key)
+		predecessors := value.(*sync.Map)
+		predecessors.Delete(nodeKey)
+		return true
+	})
+	m.removeFromMemoryWithDelete(ctx, node)
+	return nil
+}
+
 // index indexes predecessors for each direct successor of the given node.
 // There is no data consistency issue as long as deletion is not implemented
 // for the underlying storage.
-func (m *Memory) index(ctx context.Context, node ocispec.Descriptor, successors []ocispec.Descriptor) {
+func (m *MemoryWithDelete) index(ctx context.Context, node ocispec.Descriptor, successors []ocispec.Descriptor) {
+	m.indexIntoMemoryWithDelete(ctx, node)
 	if len(successors) == 0 {
 		return
 	}
 	predecessorKey := descriptor.FromOCI(node)
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
-		value, _ := m.predecessors.LoadOrStore(successorKey, &sync.Map{})
-		predecessors := value.(*sync.Map)
-		predecessors.Store(predecessorKey, node)
+		// store in m.predecessors, MemoryWithDelete.predecessors[successorKey].Store(node)
+		pred, _ := m.predecessors.LoadOrStore(successorKey, &sync.Map{})
+		predecessorsMap := pred.(*sync.Map)
+		predecessorsMap.Store(predecessorKey, node)
+		// store in m.successors, MemoryWithDelete.successors[predecessorKey].Store(successor)
+		succ, _ := m.successors.Load(predecessorKey)
+		successorsMap := succ.(*sync.Map)
+		successorsMap.Store(successorKey, successor)
 	}
+}
+
+func (m *MemoryWithDelete) indexIntoMemoryWithDelete(ctx context.Context, node ocispec.Descriptor) {
+	key := descriptor.FromOCI(node)
+	m.predecessors.LoadOrStore(key, &sync.Map{})
+	m.successors.LoadOrStore(key, &sync.Map{})
+	m.indexed.LoadOrStore(key, &sync.Map{})
+}
+
+func (m *MemoryWithDelete) removeFromMemoryWithDelete(ctx context.Context, node ocispec.Descriptor) {
+	key := descriptor.FromOCI(node)
+	m.predecessors.Delete(key)
+	m.successors.Delete(key)
+	m.indexed.Delete(key)
 }

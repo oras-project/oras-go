@@ -186,6 +186,25 @@ func loadIndex(ctx context.Context, index *ocispec.Index, fetcher content.Fetche
 	return nil
 }
 
+// loadIndex loads index into memory.
+func loadIndexWithMemoryWithDelete(ctx context.Context, index *ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.MemoryWithDelete) error {
+	for _, desc := range index.Manifests {
+		if err := tagger.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
+			return err
+		}
+		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
+			if err := tagger.Tag(ctx, desc, ref); err != nil {
+				return err
+			}
+		}
+		plain := descriptor.Plain(desc)
+		if err := graph.IndexAll(ctx, fetcher, plain); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // resolveBlob returns a descriptor describing the blob identified by dgst.
 func resolveBlob(fsys fs.FS, dgst string) (ocispec.Descriptor, error) {
 	path, err := blobPath(digest.Digest(dgst))
