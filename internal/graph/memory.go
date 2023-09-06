@@ -18,7 +18,6 @@ package graph
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -122,10 +121,7 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 func (m *Memory) RemoveFromIndex(ctx context.Context, node ocispec.Descriptor) error {
 	nodeKey := descriptor.FromOCI(node)
 	// remove the node from its successors' predecessor list
-	value, exists := m.successors.Load(nodeKey)
-	if !exists {
-		return fmt.Errorf("successors of the node %v is not found", node)
-	}
+	value, _ := m.successors.Load(nodeKey)
 	successors := value.(*sync.Map)
 	successors.Range(func(key, _ interface{}) bool {
 		value, _ = m.predecessors.Load(key)
@@ -133,10 +129,7 @@ func (m *Memory) RemoveFromIndex(ctx context.Context, node ocispec.Descriptor) e
 		predecessors.Delete(nodeKey)
 		return true
 	})
-	// remove the node's entries in the maps
-	m.predecessors.Delete(nodeKey)
-	m.successors.Delete(nodeKey)
-	m.indexed.Delete(nodeKey)
+	m.removeFromMemory(ctx, node)
 	return nil
 }
 
@@ -144,12 +137,11 @@ func (m *Memory) RemoveFromIndex(ctx context.Context, node ocispec.Descriptor) e
 // There is no data consistency issue as long as deletion is not implemented
 // for the underlying storage.
 func (m *Memory) index(ctx context.Context, node ocispec.Descriptor, successors []ocispec.Descriptor) {
-	predecessorKey := descriptor.FromOCI(node)
+	m.indexIntoMemory(ctx, node)
 	if len(successors) == 0 {
-		// still create the entry for the node
-		m.successors.LoadOrStore(predecessorKey, &sync.Map{})
 		return
 	}
+	predecessorKey := descriptor.FromOCI(node)
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
 		// store in m.predecessors, memory.predecessors[successorKey].Store(node)
@@ -157,8 +149,22 @@ func (m *Memory) index(ctx context.Context, node ocispec.Descriptor, successors 
 		predecessorsMap := pred.(*sync.Map)
 		predecessorsMap.Store(predecessorKey, node)
 		// store in m.successors, memory.successors[predecessorKey].Store(successor)
-		succ, _ := m.successors.LoadOrStore(predecessorKey, &sync.Map{})
+		succ, _ := m.successors.Load(predecessorKey)
 		successorsMap := succ.(*sync.Map)
 		successorsMap.Store(successorKey, successor)
 	}
+}
+
+func (m *Memory) indexIntoMemory(ctx context.Context, node ocispec.Descriptor) {
+	key := descriptor.FromOCI(node)
+	m.predecessors.LoadOrStore(key, &sync.Map{})
+	m.successors.LoadOrStore(key, &sync.Map{})
+	m.indexed.LoadOrStore(key, &sync.Map{})
+}
+
+func (m *Memory) removeFromMemory(ctx context.Context, node ocispec.Descriptor) {
+	key := descriptor.FromOCI(node)
+	m.predecessors.Delete(key)
+	m.successors.Delete(key)
+	m.indexed.Delete(key)
 }
