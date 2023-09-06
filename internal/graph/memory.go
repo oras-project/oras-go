@@ -124,7 +124,7 @@ func (m *Memory) RemoveFromIndex(ctx context.Context, node ocispec.Descriptor) e
 	// remove the node from its successors' predecessor list
 	value, exists := m.successors.Load(nodeKey)
 	if !exists {
-		return fmt.Errorf("successors of the node is not found")
+		return fmt.Errorf("successors of the node %v is not found", node)
 	}
 	successors := value.(*sync.Map)
 	successors.Range(func(key, _ interface{}) bool {
@@ -144,10 +144,12 @@ func (m *Memory) RemoveFromIndex(ctx context.Context, node ocispec.Descriptor) e
 // There is no data consistency issue as long as deletion is not implemented
 // for the underlying storage.
 func (m *Memory) index(ctx context.Context, node ocispec.Descriptor, successors []ocispec.Descriptor) {
+	predecessorKey := descriptor.FromOCI(node)
 	if len(successors) == 0 {
+		// still create the entry for the node
+		m.successors.LoadOrStore(predecessorKey, &sync.Map{})
 		return
 	}
-	predecessorKey := descriptor.FromOCI(node)
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
 		// store in m.predecessors, memory.predecessors[successorKey].Store(node)

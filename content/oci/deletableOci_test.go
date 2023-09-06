@@ -72,7 +72,7 @@ func TestDeletableStore(t *testing.T) {
 
 	err = s.Delete(ctx, desc)
 	if err != nil {
-		t.Errorf("Store.Delete() = %v, wantErr %v", err, true)
+		t.Errorf("Store.Delete() = %v, wantErr %v", err, nil)
 	}
 
 	exists, err = s.Exists(ctx, desc)
