@@ -57,9 +57,9 @@ var defaultClientID = "oras-go"
 // CredentialFunc represents a function that resolves the credential for the
 // given registry (i.e. host:port).
 //
-// `EmptyCredential` is a valid return value and should not be considered as
+// [EmptyCredential] is a valid return value and should not be considered as
 // an error.
-type CredentialFunc func(ctx context.Context, registry string) (Credential, error)
+type CredentialFunc func(ctx context.Context, target string) (Credential, error)
 
 // StaticCredential specifies static credentials for the given host.
 func StaticCredential(registry string, cred Credential) CredentialFunc {
@@ -95,9 +95,9 @@ type Client struct {
 
 	// Credential specifies the function for resolving the credential for the
 	// given registry (i.e. host:port).
-	// `EmptyCredential` is a valid return value and should not be considered as
+	// EmptyCredential is a valid return value and should not be considered as
 	// an error.
-	// If nil, the credential is always resolved to `EmptyCredential`.
+	// If nil, the credential is always resolved to EmptyCredential.
 	Credential CredentialFunc
 
 	// Cache caches credentials for direct accessing the remote registry.

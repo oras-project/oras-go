@@ -15,9 +15,7 @@ limitations under the License.
 
 package trace
 
-import (
-	"context"
-)
+import "context"
 
 // executableTraceContextKey is a value key used to retrieve the ExecutableTrace
 // from Context.
