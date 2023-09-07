@@ -35,11 +35,13 @@ var (
 	DKey = descriptor.FromOCI(D)
 )
 
-// 条件：
-// 1. 只要node被index（作为函数的第二个输入），node就在predecessors，successors，indexed中有entry
-// 2. 只要node被Removed from index，node就在predecessors，successors，indexed中都没有entry
+// 当前条件（后续可能改动）：
+// 1. 只要node被index（作为函数的第二个输入），node就在predecessors，successors中都有entry
+// 2. 只要node被Removed from index，node就在predecessors，successors中都没有entry
 // 3. 只有node被index（作为函数的第二个输入），successors中才有其entry
 // 4. successors中的内容与node中的内容一致，只要entry还在，其内容就不会改变
+// 5. 变量indexed的作用和行为和原始版本一样，没有加以变动
+// 6. 删除一个node的时候，indexed里面的entry也会删除。
 
 // GC情况：
 // predecessors中可能有空的map，如下图中B被删除后，C还在predecessors中有entry但内容为空
@@ -51,14 +53,14 @@ A--->B--->C
 |         |
 +---------+
 */
-func TestMemoryWithDelete_index(t *testing.T) {
+func TestMemoryWithDelete_indexAndDelete(t *testing.T) {
 	ctx := context.Background()
 	testMemoryWithDelete := NewMemoryWithDelete()
 
 	// test 1: index "A -> B"
 	testMemoryWithDelete.index(ctx, A, []ocispec.Descriptor{B})
 
-	// check the MemoryWithDelete: A exists in testMemoryWithDelete.predecessors, successors and indexed,
+	// check the MemoryWithDelete: A exists in testMemoryWithDelete.predecessors and successors
 	// B ONLY exists in predecessors
 	_, exists := testMemoryWithDelete.predecessors.Load(AKey)
 	if !exists {
@@ -68,10 +70,6 @@ func TestMemoryWithDelete_index(t *testing.T) {
 	if !exists {
 		t.Errorf("could not find the entry of %v in successors", A)
 	}
-	_, exists = testMemoryWithDelete.indexed.Load(AKey)
-	if !exists {
-		t.Errorf("could not find the entry of %v in indexed", A)
-	}
 	_, exists = testMemoryWithDelete.predecessors.Load(BKey)
 	if !exists {
 		t.Errorf("could not find the entry of %v in predecessors", B)
@@ -79,10 +77,6 @@ func TestMemoryWithDelete_index(t *testing.T) {
 	_, exists = testMemoryWithDelete.successors.Load(BKey)
 	if exists {
 		t.Errorf("%v should not exist in successors", B)
-	}
-	_, exists = testMemoryWithDelete.indexed.Load(BKey)
-	if exists {
-		t.Errorf("%v should not exist in indexed", B)
 	}
 
 	// predecessors[B] contains A, successors[A] contains B
@@ -112,10 +106,6 @@ func TestMemoryWithDelete_index(t *testing.T) {
 	if !exists {
 		t.Errorf("could not find the entry of %v in successors", B)
 	}
-	_, exists = testMemoryWithDelete.indexed.Load(BKey)
-	if !exists {
-		t.Errorf("could not find the entry of %v in indexed", B)
-	}
 	_, exists = testMemoryWithDelete.predecessors.Load(CKey)
 	if !exists {
 		t.Errorf("could not find the entry of %v in predecessors", C)
@@ -124,10 +114,6 @@ func TestMemoryWithDelete_index(t *testing.T) {
 	if exists {
 		t.Errorf("%v should not exist in successors", C)
 	}
-	_, exists = testMemoryWithDelete.indexed.Load(CKey)
-	if exists {
-		t.Errorf("%v should not exist in indexed", C)
-	}
 	_, exists = testMemoryWithDelete.predecessors.Load(DKey)
 	if !exists {
 		t.Errorf("could not find the entry of %v in predecessors", D)
@@ -135,10 +121,6 @@ func TestMemoryWithDelete_index(t *testing.T) {
 	_, exists = testMemoryWithDelete.successors.Load(DKey)
 	if exists {
 		t.Errorf("%v should not exist in successors", D)
-	}
-	_, exists = testMemoryWithDelete.indexed.Load(DKey)
-	if exists {
-		t.Errorf("%v should not exist in indexed", D)
 	}
 	// predecessors[C] contains B, predecessors[D] contains B,
 	// successors[B] contains C and D
@@ -191,26 +173,18 @@ func TestMemoryWithDelete_index(t *testing.T) {
 	}
 
 	// check the MemoryWithDelete: C and D have not been indexed, so C, D should not
-	// exist in indexed and successors
+	// exist in successors
 	_, exists = testMemoryWithDelete.successors.Load(CKey)
 	if exists {
 		t.Errorf("%v should not exist in successors", C)
-	}
-	_, exists = testMemoryWithDelete.indexed.Load(CKey)
-	if exists {
-		t.Errorf("%v should not exist in indexed", C)
 	}
 	_, exists = testMemoryWithDelete.successors.Load(DKey)
 	if exists {
 		t.Errorf("%v should not exist in successors", D)
 	}
-	_, exists = testMemoryWithDelete.indexed.Load(DKey)
-	if exists {
-		t.Errorf("%v should not exist in indexed", D)
-	}
 
 	// test 4: delete B
-	err := testMemoryWithDelete.RemoveFromIndex(ctx, B)
+	err := testMemoryWithDelete.Remove(ctx, B)
 	if err != nil {
 		t.Errorf("got error when removing %v from index: %v", B, err)
 	}
@@ -223,10 +197,6 @@ func TestMemoryWithDelete_index(t *testing.T) {
 	_, exists = testMemoryWithDelete.successors.Load(BKey)
 	if exists {
 		t.Errorf("%v should not exist in successors", B)
-	}
-	_, exists = testMemoryWithDelete.indexed.Load(BKey)
-	if exists {
-		t.Errorf("%v should not exist in indexed", B)
 	}
 
 	// B should STILL exist in successors[A]

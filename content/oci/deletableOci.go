@@ -132,7 +132,7 @@ func (ds *DeletableStore) Delete(ctx context.Context, target ocispec.Descriptor)
 			ds.tagResolver.Delete(reference)
 		}
 	}
-	if err := ds.graph.RemoveFromIndex(ctx, target); err != nil {
+	if err := ds.graph.Remove(ctx, target); err != nil {
 		return err
 	}
 	if ds.AutoSaveIndex {
