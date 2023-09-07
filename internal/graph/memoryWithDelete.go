@@ -53,6 +53,8 @@ func (m *MemoryWithDelete) Index(ctx context.Context, fetcher content.Fetcher, n
 		return err
 	}
 
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	m.index(ctx, node, successors)
 	return nil
 }
@@ -96,6 +98,8 @@ func (m *MemoryWithDelete) IndexAll(ctx context.Context, fetcher content.Fetcher
 		}
 		return nil
 	}
+	m.lock.Lock()
+	defer m.lock.Unlock()
 	return syncutil.Go(ctx, nil, fn, node)
 }
 
@@ -120,9 +124,9 @@ func (m *MemoryWithDelete) Predecessors(_ context.Context, node ocispec.Descript
 
 // Remove removes the node from its predecessors and successors.
 func (m *MemoryWithDelete) Remove(ctx context.Context, node ocispec.Descriptor) error {
+	nodeKey := descriptor.FromOCI(node)
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	nodeKey := descriptor.FromOCI(node)
 	// remove the node from its successors' predecessor list
 	for successorKey := range m.successors[nodeKey] {
 		delete(m.predecessors[successorKey], nodeKey)
@@ -135,8 +139,6 @@ func (m *MemoryWithDelete) Remove(ctx context.Context, node ocispec.Descriptor) 
 // There is no data consistency issue as long as deletion is not implemented
 // for the underlying storage.
 func (m *MemoryWithDelete) index(ctx context.Context, node ocispec.Descriptor, successors []ocispec.Descriptor) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
 	m.createEntriesInMaps(ctx, node)
 	if len(successors) == 0 {
 		return

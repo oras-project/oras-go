@@ -123,6 +123,7 @@ func (m *Memory) index(ctx context.Context, node ocispec.Descriptor, successors 
 	if len(successors) == 0 {
 		return
 	}
+
 	predecessorKey := descriptor.FromOCI(node)
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
