@@ -30,15 +30,17 @@ import (
 
 // MemoryWithDelete is a MemoryWithDelete based PredecessorFinder.
 type MemoryWithDelete struct {
-	indexed      sync.Map // map[descriptor.Descriptor]any
+	indexed      sync.Map // map[descriptor.Descriptor]any, this variable is only used by IndexAll
 	predecessors sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
-	successors   sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
+	successors   map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
 	lock         sync.Mutex
 }
 
 // NewMemoryWithDelete creates a new MemoryWithDelete PredecessorFinder.
 func NewMemoryWithDelete() *MemoryWithDelete {
-	return &MemoryWithDelete{}
+	return &MemoryWithDelete{
+		successors: make(map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor),
+	}
 }
 
 // Index indexes predecessors for each direct successor of the given node.
@@ -124,14 +126,11 @@ func (m *MemoryWithDelete) Remove(ctx context.Context, node ocispec.Descriptor) 
 	defer m.lock.Unlock()
 	nodeKey := descriptor.FromOCI(node)
 	// remove the node from its successors' predecessor list
-	value, _ := m.successors.Load(nodeKey)
-	successors := value.(*sync.Map)
-	successors.Range(func(key, _ interface{}) bool {
-		value, _ = m.predecessors.Load(key)
+	for successorKey, _ := range m.successors[nodeKey] {
+		value, _ := m.predecessors.Load(successorKey)
 		predecessors := value.(*sync.Map)
 		predecessors.Delete(nodeKey)
-		return true
-	})
+	}
 	m.removeEntriesFromMaps(ctx, node)
 	return nil
 }
@@ -154,21 +153,20 @@ func (m *MemoryWithDelete) index(ctx context.Context, node ocispec.Descriptor, s
 		predecessorsMap := pred.(*sync.Map)
 		predecessorsMap.Store(predecessorKey, node)
 		// store in m.successors, MemoryWithDelete.successors[predecessorKey].Store(successor)
-		succ, _ := m.successors.Load(predecessorKey)
-		successorsMap := succ.(*sync.Map)
-		successorsMap.Store(successorKey, successor)
+		m.successors[predecessorKey][successorKey] = successor
 	}
 }
 
 func (m *MemoryWithDelete) createEntriesInMaps(ctx context.Context, node ocispec.Descriptor) {
 	key := descriptor.FromOCI(node)
 	m.predecessors.LoadOrStore(key, &sync.Map{})
-	m.successors.LoadOrStore(key, &sync.Map{})
+	if _, hasEntry := m.successors[key]; !hasEntry {
+		m.successors[key] = make(map[descriptor.Descriptor]ocispec.Descriptor)
+	}
 }
 
 func (m *MemoryWithDelete) removeEntriesFromMaps(ctx context.Context, node ocispec.Descriptor) {
 	key := descriptor.FromOCI(node)
-	m.predecessors.Delete(key)
-	m.successors.Delete(key)
-	m.indexed.Delete(key)
+	delete(m.successors, key)
+	m.indexed.Delete(key) // pending
 }
