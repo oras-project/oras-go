@@ -1425,17 +1425,17 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
 
-	skipDelete := s.repo.SkipReferrersGC
+	var noOldIndex bool
 	var oldIndexDesc ocispec.Descriptor
-	var referrers []ocispec.Descriptor
+	var oldReferrers []ocispec.Descriptor
 	prepare := func() error {
 		// 1. pull the original referrers list using the referrers tag schema
 		var err error
-		oldIndexDesc, referrers, err = s.repo.referrersFromIndex(ctx, referrersTag)
+		oldIndexDesc, oldReferrers, err = s.repo.referrersFromIndex(ctx, referrersTag)
 		if err != nil {
 			if errors.Is(err, errdef.ErrNotFound) {
 				// no old index found, skip delete
-				skipDelete = true
+				noOldIndex = true
 				return nil
 			}
 			return err
@@ -1444,7 +1444,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 	}
 	update := func(referrerChanges []referrerChange) error {
 		// 2. apply the referrer changes on the referrers list
-		updatedReferrers, err := applyReferrerChanges(referrers, referrerChanges)
+		updatedReferrers, err := applyReferrerChanges(oldReferrers, referrerChanges)
 		if err != nil {
 			if err == errNoReferrerUpdate {
 				return nil
@@ -1453,7 +1453,11 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		}
 
 		// 3. push the updated referrers list using referrers tag schema
-		if len(updatedReferrers) > 0 {
+		if len(updatedReferrers) > 0 || s.repo.SkipReferrersGC {
+			// push a new index when:
+			// 1. updatedReferrers is not empty
+			// 2. OR referrers GC is skipped, in this case the old index
+			//    won't get deleted and an empty index should be pushed
 			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
 			if err != nil {
 				return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
@@ -1463,14 +1467,15 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 			}
 		}
 
-		// 4. delete the dangling original referrers index
-		if !skipDelete {
-			if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
-				return &ReferrersError{
-					Op:      opDeleteReferrersIndex,
-					Err:     fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err),
-					Subject: subject,
-				}
+		// 4. delete the dangling original referrers index, if applicable
+		if s.repo.SkipReferrersGC || noOldIndex {
+			return nil
+		}
+		if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
+			return &ReferrersError{
+				Op:      opDeleteReferrersIndex,
+				Err:     fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err),
+				Subject: subject,
 			}
 		}
 		return nil
