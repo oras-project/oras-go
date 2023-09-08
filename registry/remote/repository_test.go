@@ -4847,7 +4847,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_SkipReferrersGC(t *testin
 	}
 
 	// test deleting index with a subject, referrers list should be updated,
-	// the old one should not be deleted
+	// the old one should not be deleted, an empty one should be pushed
 	manifestDeleted = false
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
