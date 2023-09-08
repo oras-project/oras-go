@@ -1454,10 +1454,11 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 
 		// 3. push the updated referrers list using referrers tag schema
 		if len(updatedReferrers) > 0 || s.repo.SkipReferrersGC {
-			// push a new index when:
-			// 1. updatedReferrers is not empty
-			// 2. OR referrers GC is skipped, in this case the old index
-			//    won't get deleted and an empty index should be pushed
+			// push a new index in either case:
+			// 1. the referrers list has been updated with a non-zero size
+			// 2. OR the updated referrers list is empty but referrers GC
+			//    is skipped, in this case an empty index should still be pushed
+			//    as the old index won't get deleted
 			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
 			if err != nil {
 				return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
