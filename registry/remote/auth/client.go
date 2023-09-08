@@ -59,7 +59,7 @@ var defaultClientID = "oras-go"
 //
 // [EmptyCredential] is a valid return value and should not be considered as
 // an error.
-type CredentialFunc func(ctx context.Context, target string) (Credential, error)
+type CredentialFunc func(ctx context.Context, hostport string) (Credential, error)
 
 // StaticCredential specifies static credentials for the given host.
 func StaticCredential(registry string, cred Credential) CredentialFunc {
@@ -69,8 +69,8 @@ func StaticCredential(registry string, cred Credential) CredentialFunc {
 		// reference: https://github.com/moby/moby/blob/v24.0.0-beta.2/registry/config.go#L25-L48
 		registry = "registry-1.docker.io"
 	}
-	return func(_ context.Context, target string) (Credential, error) {
-		if target == registry {
+	return func(_ context.Context, hostport string) (Credential, error) {
+		if hostport == registry {
 			return cred, nil
 		}
 		return EmptyCredential, nil

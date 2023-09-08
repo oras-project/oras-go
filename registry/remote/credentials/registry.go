@@ -70,12 +70,12 @@ func Logout(ctx context.Context, store Store, registryName string) error {
 
 // Credential returns a Credential() function that can be used by auth.Client.
 func Credential(store Store) auth.CredentialFunc {
-	return func(ctx context.Context, reg string) (auth.Credential, error) {
-		reg = ServerAddressFromHostname(reg)
-		if reg == "" {
+	return func(ctx context.Context, hostport string) (auth.Credential, error) {
+		hostport = ServerAddressFromHostname(hostport)
+		if hostport == "" {
 			return auth.EmptyCredential, nil
 		}
-		return store.Get(ctx, reg)
+		return store.Get(ctx, hostport)
 	}
 }
 
