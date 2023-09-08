@@ -54,16 +54,23 @@ var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 // See also ClientID.
 var defaultClientID = "oras-go"
 
+// CredentialFunc represents a function that resolves the credential for the
+// given registry (i.e. host:port).
+//
+// [EmptyCredential] is a valid return value and should not be considered as
+// an error.
+type CredentialFunc func(ctx context.Context, hostport string) (Credential, error)
+
 // StaticCredential specifies static credentials for the given host.
-func StaticCredential(registry string, cred Credential) func(context.Context, string) (Credential, error) {
+func StaticCredential(registry string, cred Credential) CredentialFunc {
 	if registry == "docker.io" {
 		// it is expected that traffic targeting "docker.io" will be redirected
 		// to "registry-1.docker.io"
 		// reference: https://github.com/moby/moby/blob/v24.0.0-beta.2/registry/config.go#L25-L48
 		registry = "registry-1.docker.io"
 	}
-	return func(_ context.Context, target string) (Credential, error) {
-		if target == registry {
+	return func(_ context.Context, hostport string) (Credential, error) {
+		if hostport == registry {
 			return cred, nil
 		}
 		return EmptyCredential, nil
@@ -88,10 +95,10 @@ type Client struct {
 
 	// Credential specifies the function for resolving the credential for the
 	// given registry (i.e. host:port).
-	// `EmptyCredential` is a valid return value and should not be considered as
+	// EmptyCredential is a valid return value and should not be considered as
 	// an error.
-	// If nil, the credential is always resolved to `EmptyCredential`.
-	Credential func(context.Context, string) (Credential, error)
+	// If nil, the credential is always resolved to EmptyCredential.
+	Credential CredentialFunc
 
 	// Cache caches credentials for direct accessing the remote registry.
 	// If nil, no cache is used.
