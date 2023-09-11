@@ -1425,21 +1425,20 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
 	referrersTag := buildReferrersTag(subject)
 
-	var noOldIndex bool
-	var oldIndexDesc ocispec.Descriptor
+	var oldIndexDesc *ocispec.Descriptor
 	var oldReferrers []ocispec.Descriptor
 	prepare := func() error {
 		// 1. pull the original referrers list using the referrers tag schema
-		var err error
-		oldIndexDesc, oldReferrers, err = s.repo.referrersFromIndex(ctx, referrersTag)
+		indexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
 		if err != nil {
 			if errors.Is(err, errdef.ErrNotFound) {
-				// no old index found, skip delete
-				noOldIndex = true
+				// valid case: the old index does not exist
 				return nil
 			}
 			return err
 		}
+		oldIndexDesc = &indexDesc
+		oldReferrers = referrers
 		return nil
 	}
 	update := func(referrerChanges []referrerChange) error {
@@ -1469,13 +1468,13 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		}
 
 		// 4. delete the dangling original referrers index, if applicable
-		if s.repo.SkipReferrersGC || noOldIndex {
+		if s.repo.SkipReferrersGC || oldIndexDesc == nil {
 			return nil
 		}
-		if err := s.repo.delete(ctx, oldIndexDesc, true); err != nil {
+		if err := s.repo.delete(ctx, *oldIndexDesc, true); err != nil {
 			return &ReferrersError{
 				Op:      opDeleteReferrersIndex,
-				Err:     fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", oldIndexDesc.Digest.String(), referrersTag, err),
+				Err:     fmt.Errorf("failed to delete dangling referrers index %s for referrers tag %s: %w", (*oldIndexDesc).Digest.String(), referrersTag, err),
 				Subject: subject,
 			}
 		}
