@@ -3671,6 +3671,92 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
 	}
 
+	// test pushing artifact with subject when an old empty referrer list exists,
+	// the referrer list should be updated
+	emptyIndex := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType: ocispec.MediaTypeImageIndex,
+	}
+	emptyIndexJSON, err := json.Marshal(emptyIndex)
+	if err != nil {
+		t.Error("failed to marshal index", err)
+	}
+	emptyIndexDesc := content.NewDescriptorFromBytes(emptyIndex.MediaType, emptyIndexJSON)
+	var indexDeleted bool
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+artifactDesc.Digest.String():
+			if contentType := r.Header.Get("Content-Type"); contentType != artifactDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotManifest = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Write(emptyIndexJSON)
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotReferrerIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc_1.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+emptyIndexDesc.Digest.String():
+			indexDeleted = true
+			// no "Docker-Content-Digest" header for manifest deletion
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err = url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	ctx = context.Background()
+	repo, err = NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	err = repo.Push(ctx, artifactDesc, bytes.NewReader(artifactJSON))
+	if err != nil {
+		t.Fatalf("Manifests.Push() error = %v", err)
+	}
+	if !bytes.Equal(gotManifest, artifactJSON) {
+		t.Errorf("Manifests.Push() = %v, want %v", string(gotManifest), string(artifactJSON))
+	}
+	if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
+		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
+	}
+	if !indexDeleted {
+		t.Errorf("indexDeleted = %v, want %v", indexDeleted, true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+
 	// test pushing image manifest with subject, referrer list should be updated
 	manifest := ocispec.Manifest{
 		MediaType: ocispec.MediaTypeImageManifest,
@@ -3702,7 +3788,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_2 := content.NewDescriptorFromBytes(index_2.MediaType, indexJSON_2)
-	var manifestDeleted bool
+	indexDeleted = false
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+manifestDesc.Digest.String():
@@ -3734,7 +3820,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", indexDesc_2.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+indexDesc_1.Digest.String():
-			manifestDeleted = true
+			indexDeleted = true
 			// no "Docker-Content-Digest" header for manifest deletion
 			w.WriteHeader(http.StatusAccepted)
 		default:
@@ -3767,8 +3853,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	if !bytes.Equal(gotReferrerIndex, indexJSON_2) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_2))
 	}
-	if !manifestDeleted {
-		t.Errorf("manifestDeleted = %v, want %v", manifestDeleted, true)
+	if !indexDeleted {
+		t.Errorf("indexDeleted = %v, want %v", indexDeleted, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
@@ -3858,7 +3944,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 		t.Fatalf("failed to marshal manifest: %v", err)
 	}
 	indexDesc_3 := content.NewDescriptorFromBytes(index_3.MediaType, indexJSON_3)
-	manifestDeleted = false
+	indexDeleted = false
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+indexManifestDesc.Digest.String():
@@ -3890,7 +3976,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", indexDesc_3.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+indexDesc_2.Digest.String():
-			manifestDeleted = true
+			indexDeleted = true
 			// no "Docker-Content-Digest" header for manifest deletion
 			w.WriteHeader(http.StatusAccepted)
 		default:
@@ -3923,8 +4009,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	if !bytes.Equal(gotReferrerIndex, indexJSON_3) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_3))
 	}
-	if !manifestDeleted {
-		t.Errorf("manifestDeleted = %v, want %v", manifestDeleted, true)
+	if !indexDeleted {
+		t.Errorf("indexDeleted = %v, want %v", indexDeleted, true)
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
@@ -4012,6 +4098,84 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 
 	ctx := context.Background()
 	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.SkipReferrersGC = true
+
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	err = repo.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON))
+	if err != nil {
+		t.Fatalf("Manifests.Push() error = %v", err)
+	}
+	if !bytes.Equal(gotManifest, manifestJSON) {
+		t.Errorf("Manifests.Push() = %v, want %v", string(gotManifest), string(manifestJSON))
+	}
+	if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
+		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+
+	// test pushing image manifest with subject when an old empty referrer list exists,
+	// the referrer list should be updated
+	emptyIndex := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType: ocispec.MediaTypeImageIndex,
+	}
+	emptyIndexJSON, err := json.Marshal(emptyIndex)
+	if err != nil {
+		t.Error("failed to marshal index", err)
+	}
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+manifestDesc.Digest.String():
+			if contentType := r.Header.Get("Content-Type"); contentType != manifestDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotManifest = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Write(emptyIndexJSON)
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotReferrerIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc_1.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err = url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	ctx = context.Background()
+	repo, err = NewRepository(uri.Host + "/test")
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
