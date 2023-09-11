@@ -1432,7 +1432,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		indexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
 		if err != nil {
 			if errors.Is(err, errdef.ErrNotFound) {
-				// valid case: the old index does not exist
+				// valid case: no old referrers index
 				return nil
 			}
 			return err
