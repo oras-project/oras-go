@@ -294,7 +294,7 @@ func (ds *DeletableStore) loadIndexFile(ctx context.Context) error {
 		return fmt.Errorf("failed to decode index file: %w", err)
 	}
 	ds.index = &index
-	return loadIndexWithMemoryWithDelete(ctx, ds.index, ds.storage, ds.tagResolver, ds.graph)
+	return loadIndexInDeletableMemory(ctx, ds.index, ds.storage, ds.tagResolver, ds.graph)
 }
 
 // SaveIndex writes the `index.json` file to the file system.
@@ -347,4 +347,23 @@ func (ds *DeletableStore) writeIndexFile() error {
 		return fmt.Errorf("failed to marshal index file: %w", err)
 	}
 	return os.WriteFile(ds.indexPath, indexJSON, 0666)
+}
+
+// loadIndexInDeletableMemory loads index into memory.
+func loadIndexInDeletableMemory(ctx context.Context, index *ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.DeletableMemory) error {
+	for _, desc := range index.Manifests {
+		if err := tagger.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
+			return err
+		}
+		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
+			if err := tagger.Tag(ctx, desc, ref); err != nil {
+				return err
+			}
+		}
+		plain := descriptor.Plain(desc)
+		if err := graph.IndexAll(ctx, fetcher, plain); err != nil {
+			return err
+		}
+	}
+	return nil
 }
