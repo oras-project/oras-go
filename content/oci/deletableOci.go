@@ -57,7 +57,7 @@ type DeletableStore struct {
 
 	storage     *Storage
 	tagResolver *resolver.Memory
-	graph       *graph.MemoryWithDelete
+	graph       *graph.DeletableMemory
 }
 
 // NewDeletableStore returns a new DeletableStore.
@@ -82,7 +82,7 @@ func NewDeletableStoreWithContext(ctx context.Context, root string) (*DeletableS
 		indexPath:     filepath.Join(rootAbs, ociImageIndexFile),
 		storage:       storage,
 		tagResolver:   resolver.NewMemory(),
-		graph:         graph.NewMemoryWithDelete(),
+		graph:         graph.NewDeletableMemory(),
 	}
 
 	if err := ensureDir(filepath.Join(rootAbs, ociBlobsDir)); err != nil {

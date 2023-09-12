@@ -187,7 +187,7 @@ func loadIndex(ctx context.Context, index *ocispec.Index, fetcher content.Fetche
 }
 
 // loadIndex loads index into memory.
-func loadIndexWithMemoryWithDelete(ctx context.Context, index *ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.MemoryWithDelete) error {
+func loadIndexWithMemoryWithDelete(ctx context.Context, index *ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.DeletableMemory) error {
 	for _, desc := range index.Manifests {
 		if err := tagger.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
 			return err
