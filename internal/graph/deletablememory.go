@@ -29,7 +29,7 @@ import (
 	"oras.land/oras-go/v2/internal/syncutil"
 )
 
-// DeletableMemory is a DeletableMemory based PredecessorFinder.
+// DeletableMemory is a memory based PredecessorFinder.
 type DeletableMemory struct {
 	nodes        map[descriptor.Descriptor]ocispec.Descriptor // nodes saves the map keys of ocispec.Descriptor
 	predecessors map[descriptor.Descriptor]set.Set[descriptor.Descriptor]
@@ -47,16 +47,12 @@ func NewDeletableMemory() *DeletableMemory {
 }
 
 // Index indexes predecessors for each direct successor of the given node.
-// There is no data consistency issue as long as deletion is not implemented
-// for the underlying storage.
 func (m *DeletableMemory) Index(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
 	_, err := m.index(ctx, fetcher, node)
 	return err
 }
 
 // Index indexes predecessors for all the successors of the given node.
-// There is no data consistency issue as long as deletion is not implemented
-// for the underlying storage.
 func (m *DeletableMemory) IndexAll(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
 	// track content status
 	tracker := status.NewTracker()
@@ -123,8 +119,6 @@ func (m *DeletableMemory) Remove(ctx context.Context, node ocispec.Descriptor) e
 }
 
 // index indexes predecessors for each direct successor of the given node.
-// There is no data consistency issue as long as deletion is not implemented
-// for the underlying storage.
 func (m *DeletableMemory) index(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	successors, err := content.Successors(ctx, fetcher, node)
 	if err != nil {

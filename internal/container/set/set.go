@@ -34,7 +34,7 @@ func (s Set[T]) Contains(item T) bool {
 	return ok
 }
 
-// Delete deletes an item from the set
+// Delete deletes an item from the set.
 func (s Set[T]) Delete(item T) {
 	delete(s, item)
 }

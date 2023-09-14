@@ -16,6 +16,8 @@ limitations under the License.
 package graph
 
 import (
+	"testing"
+
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/internal/descriptor"
 )
@@ -31,19 +33,6 @@ var (
 	DKey = descriptor.FromOCI(D)
 )
 
-// TODO:
-// IndexAll和Delete，会不会出现race condition？
-// IndexAll和Index同时调用，会不会出现race condition？
-
-// 当前条件（后续可能改动）：
-// * 变量indexed的作用和行为和原始版本一样，没有加以变动
-// * 只要node被index（作为函数的第二个输入），node就在predecessors，successors中都有entry
-// * 只有node被index（作为函数的第二个输入），successors中才有其entry
-// * successors中的内容与node中的内容一致，只要entry还在，其内容就不会改变
-// * 删除一个node的时候，indexed和successors里面的entry也会删除。predecessors中的entry不会被删除
-
-// GC情况：
-// predecessors中可能有空的map，如下图中B被删除后，C还在predecessors中有entry但内容为空
 /*
 
 test 1: index "A -> B"
@@ -59,181 +48,182 @@ A--->B--->C
 |         |
 +---------+
 */
-// func TestMemoryWithDelete_indexAndDelete(t *testing.T) {
-// 	ctx := context.Background()
-// 	testMemoryWithDelete := NewMemoryWithDelete()
 
-// 	// test 1: index "A -> B"
-// 	testMemoryWithDelete.index(ctx, A, []ocispec.Descriptor{B})
+func TestMemoryWithDelete_indexAndDelete(t *testing.T) {
+	// ctx := context.Background()
+	// testDeletableMemory := NewDeletableMemory()
 
-// 	// check the memory: A exists in predecessors and successors
-// 	// B ONLY exists in predecessors
-// 	_, exists := testMemoryWithDelete.predecessors[AKey]
-// 	if !exists {
-// 		t.Errorf("could not find the entry of %v in predecessors", A)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[AKey]
-// 	if !exists {
-// 		t.Errorf("could not find the entry of %v in successors", A)
-// 	}
-// 	_, exists = testMemoryWithDelete.predecessors[BKey]
-// 	if !exists {
-// 		t.Errorf("could not find the entry of %v in predecessors", B)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[BKey]
-// 	if exists {
-// 		t.Errorf("%v should not exist in successors", B)
-// 	}
+	// // test 1: index "A -> B"
+	// testMemoryWithDelete.index(ctx, A, []ocispec.Descriptor{B})
 
-// 	// predecessors[B] contains A, successors[A] contains B
-// 	_, exists = testMemoryWithDelete.predecessors[BKey][AKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in predecessors of %v", A, B)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[AKey][BKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in successors of %v", B, A)
-// 	}
+	// // check the memory: A exists in predecessors and successors
+	// // B ONLY exists in predecessors
+	// _, exists := testMemoryWithDelete.predecessors[AKey]
+	// if !exists {
+	// 	t.Errorf("could not find the entry of %v in predecessors", A)
+	// }
+	// _, exists = testMemoryWithDelete.successors[AKey]
+	// if !exists {
+	// 	t.Errorf("could not find the entry of %v in successors", A)
+	// }
+	// _, exists = testMemoryWithDelete.predecessors[BKey]
+	// if !exists {
+	// 	t.Errorf("could not find the entry of %v in predecessors", B)
+	// }
+	// _, exists = testMemoryWithDelete.successors[BKey]
+	// if exists {
+	// 	t.Errorf("%v should not exist in successors", B)
+	// }
 
-// 	// test 2: index "B -> C, B -> D"
-// 	testMemoryWithDelete.index(ctx, B, []ocispec.Descriptor{C, D})
+	// // predecessors[B] contains A, successors[A] contains B
+	// _, exists = testMemoryWithDelete.predecessors[BKey][AKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in predecessors of %v", A, B)
+	// }
+	// _, exists = testMemoryWithDelete.successors[AKey][BKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in successors of %v", B, A)
+	// }
 
-// 	// check the memory: B exists in predecessors and successors,
-// 	// C, D ONLY exists in predecessors
-// 	_, exists = testMemoryWithDelete.predecessors[BKey]
-// 	if !exists {
-// 		t.Errorf("could not find the entry of %v in predecessors", B)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[BKey]
-// 	if !exists {
-// 		t.Errorf("could not find the entry of %v in successors", B)
-// 	}
-// 	_, exists = testMemoryWithDelete.predecessors[CKey]
-// 	if !exists {
-// 		t.Errorf("could not find the entry of %v in predecessors", C)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[CKey]
-// 	if exists {
-// 		t.Errorf("%v should not exist in successors", C)
-// 	}
-// 	_, exists = testMemoryWithDelete.predecessors[DKey]
-// 	if !exists {
-// 		t.Errorf("could not find the entry of %v in predecessors", D)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[DKey]
-// 	if exists {
-// 		t.Errorf("%v should not exist in successors", D)
-// 	}
-// 	// predecessors[C] contains B, predecessors[D] contains B,
-// 	// successors[B] contains C and D
-// 	_, exists = testMemoryWithDelete.predecessors[CKey][BKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in predecessors of %v", B, C)
-// 	}
-// 	_, exists = testMemoryWithDelete.predecessors[DKey][BKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in predecessors of %v", B, D)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[BKey][CKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in successors of %v", C, B)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[BKey][DKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in successors of %v", D, B)
-// 	}
+	// // test 2: index "B -> C, B -> D"
+	// testMemoryWithDelete.index(ctx, B, []ocispec.Descriptor{C, D})
 
-// 	// test 3: index "A -> D"
-// 	testMemoryWithDelete.index(ctx, A, []ocispec.Descriptor{D})
+	// // check the memory: B exists in predecessors and successors,
+	// // C, D ONLY exists in predecessors
+	// _, exists = testMemoryWithDelete.predecessors[BKey]
+	// if !exists {
+	// 	t.Errorf("could not find the entry of %v in predecessors", B)
+	// }
+	// _, exists = testMemoryWithDelete.successors[BKey]
+	// if !exists {
+	// 	t.Errorf("could not find the entry of %v in successors", B)
+	// }
+	// _, exists = testMemoryWithDelete.predecessors[CKey]
+	// if !exists {
+	// 	t.Errorf("could not find the entry of %v in predecessors", C)
+	// }
+	// _, exists = testMemoryWithDelete.successors[CKey]
+	// if exists {
+	// 	t.Errorf("%v should not exist in successors", C)
+	// }
+	// _, exists = testMemoryWithDelete.predecessors[DKey]
+	// if !exists {
+	// 	t.Errorf("could not find the entry of %v in predecessors", D)
+	// }
+	// _, exists = testMemoryWithDelete.successors[DKey]
+	// if exists {
+	// 	t.Errorf("%v should not exist in successors", D)
+	// }
+	// // predecessors[C] contains B, predecessors[D] contains B,
+	// // successors[B] contains C and D
+	// _, exists = testMemoryWithDelete.predecessors[CKey][BKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in predecessors of %v", B, C)
+	// }
+	// _, exists = testMemoryWithDelete.predecessors[DKey][BKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in predecessors of %v", B, D)
+	// }
+	// _, exists = testMemoryWithDelete.successors[BKey][CKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in successors of %v", C, B)
+	// }
+	// _, exists = testMemoryWithDelete.successors[BKey][DKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in successors of %v", D, B)
+	// }
 
-// 	// predecessors[D] contains A and B, successors[A] contains B and D
-// 	_, exists = testMemoryWithDelete.predecessors[DKey][AKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in predecessors of %v", A, D)
-// 	}
-// 	_, exists = testMemoryWithDelete.predecessors[DKey][BKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in predecessors of %v", B, D)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[AKey][BKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in successors of %v", B, A)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[AKey][DKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in successors of %v", D, A)
-// 	}
+	// // test 3: index "A -> D"
+	// testMemoryWithDelete.index(ctx, A, []ocispec.Descriptor{D})
 
-// 	// check the memory: C and D have not been indexed, so C, D should not
-// 	// exist in successors
-// 	_, exists = testMemoryWithDelete.successors[CKey]
-// 	if exists {
-// 		t.Errorf("%v should not exist in successors", C)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[DKey]
-// 	if exists {
-// 		t.Errorf("%v should not exist in successors", D)
-// 	}
+	// // predecessors[D] contains A and B, successors[A] contains B and D
+	// _, exists = testMemoryWithDelete.predecessors[DKey][AKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in predecessors of %v", A, D)
+	// }
+	// _, exists = testMemoryWithDelete.predecessors[DKey][BKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in predecessors of %v", B, D)
+	// }
+	// _, exists = testMemoryWithDelete.successors[AKey][BKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in successors of %v", B, A)
+	// }
+	// _, exists = testMemoryWithDelete.successors[AKey][DKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in successors of %v", D, A)
+	// }
 
-// 	// test 4: delete B
-// 	err := testMemoryWithDelete.Remove(ctx, B)
-// 	if err != nil {
-// 		t.Errorf("got error when removing %v from index: %v", B, err)
-// 	}
+	// // check the memory: C and D have not been indexed, so C, D should not
+	// // exist in successors
+	// _, exists = testMemoryWithDelete.successors[CKey]
+	// if exists {
+	// 	t.Errorf("%v should not exist in successors", C)
+	// }
+	// _, exists = testMemoryWithDelete.successors[DKey]
+	// if exists {
+	// 	t.Errorf("%v should not exist in successors", D)
+	// }
 
-// 	// check the memory: B should NOT exist in successors, should still exist
-// 	// in predecessors
-// 	_, exists = testMemoryWithDelete.predecessors[BKey]
-// 	if !exists {
-// 		t.Errorf("%v should exist in predecessors", B)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[BKey]
-// 	if exists {
-// 		t.Errorf("%v should not exist in successors", B)
-// 	}
+	// // test 4: delete B
+	// err := testMemoryWithDelete.Remove(ctx, B)
+	// if err != nil {
+	// 	t.Errorf("got error when removing %v from index: %v", B, err)
+	// }
 
-// 	// B should STILL exist in successors[A]
-// 	_, exists = testMemoryWithDelete.successors[AKey][BKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in successors of %v", B, A)
-// 	}
+	// // check the memory: B should NOT exist in successors, should still exist
+	// // in predecessors
+	// _, exists = testMemoryWithDelete.predecessors[BKey]
+	// if !exists {
+	// 	t.Errorf("%v should exist in predecessors", B)
+	// }
+	// _, exists = testMemoryWithDelete.successors[BKey]
+	// if exists {
+	// 	t.Errorf("%v should not exist in successors", B)
+	// }
 
-// 	// B should NOT exist in predecessors[C], predecessors[D]
-// 	_, exists = testMemoryWithDelete.predecessors[CKey][BKey]
-// 	if exists {
-// 		t.Errorf("should not find %v in predecessors of %v", B, C)
-// 	}
-// 	_, exists = testMemoryWithDelete.predecessors[DKey][BKey]
-// 	if exists {
-// 		t.Errorf("should not find %v in predecessors of %v", B, D)
-// 	}
+	// // B should STILL exist in successors[A]
+	// _, exists = testMemoryWithDelete.successors[AKey][BKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in successors of %v", B, A)
+	// }
 
-// 	// A should STILL exist in predecessors[D]
-// 	_, exists = testMemoryWithDelete.predecessors[DKey][AKey]
-// 	if !exists {
-// 		t.Errorf("could not find %v in predecessors of %v", A, D)
-// 	}
+	// // B should NOT exist in predecessors[C], predecessors[D]
+	// _, exists = testMemoryWithDelete.predecessors[CKey][BKey]
+	// if exists {
+	// 	t.Errorf("should not find %v in predecessors of %v", B, C)
+	// }
+	// _, exists = testMemoryWithDelete.predecessors[DKey][BKey]
+	// if exists {
+	// 	t.Errorf("should not find %v in predecessors of %v", B, D)
+	// }
 
-// 	// test 5: delete A
-// 	err = testMemoryWithDelete.Remove(ctx, A)
-// 	if err != nil {
-// 		t.Errorf("got error when removing %v from index: %v", A, err)
-// 	}
+	// // A should STILL exist in predecessors[D]
+	// _, exists = testMemoryWithDelete.predecessors[DKey][AKey]
+	// if !exists {
+	// 	t.Errorf("could not find %v in predecessors of %v", A, D)
+	// }
 
-// 	// check the memory: A should NOT exist in successors, should still exist
-// 	// in predecessors
-// 	_, exists = testMemoryWithDelete.predecessors[AKey]
-// 	if !exists {
-// 		t.Errorf("%v should exist in predecessors", A)
-// 	}
-// 	_, exists = testMemoryWithDelete.successors[AKey]
-// 	if exists {
-// 		t.Errorf("%v should not exist in successors", A)
-// 	}
+	// // test 5: delete A
+	// err = testMemoryWithDelete.Remove(ctx, A)
+	// if err != nil {
+	// 	t.Errorf("got error when removing %v from index: %v", A, err)
+	// }
 
-// 	// A should NOT exist in predecessors[D]
-// 	_, exists = testMemoryWithDelete.predecessors[DKey][AKey]
-// 	if exists {
-// 		t.Errorf("should not find %v in predecessors of %v", A, D)
-// 	}
-// }
+	// // check the memory: A should NOT exist in successors, should still exist
+	// // in predecessors
+	// _, exists = testMemoryWithDelete.predecessors[AKey]
+	// if !exists {
+	// 	t.Errorf("%v should exist in predecessors", A)
+	// }
+	// _, exists = testMemoryWithDelete.successors[AKey]
+	// if exists {
+	// 	t.Errorf("%v should not exist in successors", A)
+	// }
+
+	// // A should NOT exist in predecessors[D]
+	// _, exists = testMemoryWithDelete.predecessors[DKey][AKey]
+	// if exists {
+	// 	t.Errorf("should not find %v in predecessors of %v", A, D)
+	// }
+}
