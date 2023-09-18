@@ -75,7 +75,6 @@ func NewDeletableStoreWithContext(ctx context.Context, root string) (*DeletableS
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage: %w", err)
 	}
-
 	store := &DeletableStore{
 		AutoSaveIndex: true,
 		root:          rootAbs,
@@ -84,7 +83,6 @@ func NewDeletableStoreWithContext(ctx context.Context, root string) (*DeletableS
 		tagResolver:   resolver.NewMemory(),
 		graph:         graph.NewDeletableMemory(),
 	}
-
 	if err := ensureDir(filepath.Join(rootAbs, ociBlobsDir)); err != nil {
 		return nil, err
 	}
@@ -94,7 +92,6 @@ func NewDeletableStoreWithContext(ctx context.Context, root string) (*DeletableS
 	if err := store.loadIndexFile(ctx); err != nil {
 		return nil, fmt.Errorf("invalid OCI Image Index: %w", err)
 	}
-
 	return store, nil
 }
 
@@ -160,7 +157,6 @@ func (ds *DeletableStore) Tag(ctx context.Context, desc ocispec.Descriptor, refe
 	if err := validateReference(reference); err != nil {
 		return err
 	}
-
 	exists, err := ds.storage.Exists(ctx, desc)
 	if err != nil {
 		return err
@@ -168,7 +164,6 @@ func (ds *DeletableStore) Tag(ctx context.Context, desc ocispec.Descriptor, refe
 	if !exists {
 		return fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrNotFound)
 	}
-
 	return ds.tag(ctx, desc, reference)
 }
 
@@ -201,7 +196,6 @@ func (ds *DeletableStore) Resolve(ctx context.Context, reference string) (ocispe
 	if reference == "" {
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
-
 	// attempt resolving manifest
 	desc, err := ds.tagResolver.Resolve(ctx, reference)
 	if err != nil {
@@ -211,11 +205,9 @@ func (ds *DeletableStore) Resolve(ctx context.Context, reference string) (ocispe
 		}
 		return ocispec.Descriptor{}, err
 	}
-
 	if reference == desc.Digest.String() {
 		return descriptor.Plain(desc), nil
 	}
-
 	return desc, nil
 }
 
@@ -249,7 +241,6 @@ func (ds *DeletableStore) ensureOCILayoutFile() error {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to open OCI layout file: %w", err)
 		}
-
 		layout := ocispec.ImageLayout{
 			Version: ocispec.ImageLayoutVersion,
 		}
@@ -260,7 +251,6 @@ func (ds *DeletableStore) ensureOCILayoutFile() error {
 		return os.WriteFile(layoutFilePath, layoutJSON, 0666)
 	}
 	defer layoutFile.Close()
-
 	var layout ocispec.ImageLayout
 	err = json.NewDecoder(layoutFile).Decode(&layout)
 	if err != nil {
@@ -277,7 +267,6 @@ func (ds *DeletableStore) loadIndexFile(ctx context.Context) error {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to open index file: %w", err)
 		}
-
 		// write index.json if it does not exist
 		ds.index = &ocispec.Index{
 			Versioned: specs.Versioned{
@@ -288,7 +277,6 @@ func (ds *DeletableStore) loadIndexFile(ctx context.Context) error {
 		return ds.writeIndexFile()
 	}
 	defer indexFile.Close()
-
 	var index ocispec.Index
 	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
 		return fmt.Errorf("failed to decode index file: %w", err)
@@ -349,7 +337,7 @@ func (ds *DeletableStore) writeIndexFile() error {
 	return os.WriteFile(ds.indexPath, indexJSON, 0666)
 }
 
-// loadIndexInDeletableMemory loads index into memory.
+// loadIndexInDeletableMemory loads index into the memory.
 func loadIndexInDeletableMemory(ctx context.Context, index *ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.DeletableMemory) error {
 	for _, desc := range index.Manifests {
 		if err := tagger.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {

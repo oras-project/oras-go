@@ -114,7 +114,6 @@ func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		return fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrInvalidDigest)
 	}
 	targetPath := filepath.Join(s.root, path)
-
 	return os.Remove(targetPath)
 }
 

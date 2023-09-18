@@ -56,7 +56,6 @@ func (m *DeletableMemory) Index(ctx context.Context, fetcher content.Fetcher, no
 func (m *DeletableMemory) IndexAll(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
 	// track content status
 	tracker := status.NewTracker()
-
 	var fn syncutil.GoFunc[ocispec.Descriptor]
 	fn = func(ctx context.Context, region *syncutil.LimitedRegion, desc ocispec.Descriptor) error {
 		// skip the node if other go routine is working on it
@@ -64,7 +63,6 @@ func (m *DeletableMemory) IndexAll(ctx context.Context, fetcher content.Fetcher,
 		if !committed {
 			return nil
 		}
-
 		successors, err := m.index(ctx, fetcher, desc)
 		if err != nil {
 			if errors.Is(err, errdef.ErrNotFound) {
@@ -73,7 +71,6 @@ func (m *DeletableMemory) IndexAll(ctx context.Context, fetcher content.Fetcher,
 			}
 			return err
 		}
-
 		if len(successors) > 0 {
 			// traverse and index successors
 			return syncutil.Go(ctx, nil, fn, successors...)
@@ -92,7 +89,6 @@ func (m *DeletableMemory) IndexAll(ctx context.Context, fetcher content.Fetcher,
 func (m *DeletableMemory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
-
 	key := descriptor.FromOCI(node)
 	set, exists := m.predecessors[key]
 	if !exists {
@@ -134,7 +130,6 @@ func (m *DeletableMemory) index(ctx context.Context, fetcher content.Fetcher, no
 	// index the successors and predecessors
 	successorSet := set.New[descriptor.Descriptor]()
 	m.successors[nodeKey] = successorSet
-
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
 		successorSet.Add(successorKey)
