@@ -148,6 +148,85 @@ func TestWithScopes(t *testing.T) {
 	}
 }
 
+func TestWithScopesPerRegistry(t *testing.T) {
+	ctx := context.Background()
+	reg1 := "registry1.example.com"
+	reg2 := "registry2.example.com"
+
+	// with single scope
+	want1 := []string{
+		"repository:foo:pull",
+	}
+	want2 := []string{
+		"repository:foo:push",
+	}
+	ctx = WithScopesPerRegistry(ctx, reg1, want1...)
+	ctx = WithScopesPerRegistry(ctx, reg2, want2...)
+	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want1)
+	}
+	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want2)
+	}
+
+	// overwrite scopes
+	want1 = []string{
+		"repository:bar:push",
+	}
+	want2 = []string{
+		"repository:bar:pull",
+	}
+	ctx = WithScopesPerRegistry(ctx, reg1, want1...)
+	ctx = WithScopesPerRegistry(ctx, reg2, want2...)
+	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want1)
+	}
+	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want2)
+	}
+
+	// overwrite scopes with de-duplication
+	scopes1 := []string{
+		"repository:hello-world:push",
+		"repository:alpine:delete",
+		"repository:hello-world:pull",
+		"repository:alpine:delete",
+	}
+	want1 = []string{
+		"repository:alpine:delete",
+		"repository:hello-world:pull,push",
+	}
+	scopes2 := []string{
+		"repository:goodbye-world:push",
+		"repository:nginx:delete",
+		"repository:goodbye-world:pull",
+		"repository:nginx:delete",
+	}
+	want2 = []string{
+		"repository:goodbye-world:pull,push",
+		"repository:nginx:delete",
+	}
+	ctx = WithScopesPerRegistry(ctx, reg1, scopes1...)
+	ctx = WithScopesPerRegistry(ctx, reg2, scopes2...)
+	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want1)
+	}
+	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want2)
+	}
+
+	// clean scopes
+	var want []string
+	ctx = WithScopesPerRegistry(ctx, reg1, want...)
+	ctx = WithScopesPerRegistry(ctx, reg2, want...)
+	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want) {
+		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want)
+	}
+	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want) {
+		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want)
+	}
+}
+
 func TestAppendScopes(t *testing.T) {
 	ctx := context.Background()
 
