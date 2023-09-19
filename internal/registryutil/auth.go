@@ -25,5 +25,5 @@ import (
 // WithScopeHint adds a hinted scope to the context.
 func WithScopeHint(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
 	scope := auth.ScopeRepository(ref.Repository, actions...)
-	return auth.AppendScopes(ctx, scope)
+	return auth.AppendScopesPerRegistry(ctx, ref.Registry, scope)
 }
