@@ -147,7 +147,7 @@ type Repository struct {
 	//   - https://www.rfc-editor.org/rfc/rfc7234#section-5.5
 	HandleWarning func(warning Warning)
 
-	// NOTE: Must keep fields in sync with newRepositoryWithOptions function.
+	// NOTE: Must keep fields in sync with clone().
 
 	// referrersState represents that if the repository supports Referrers API.
 	// default: referrersStateUnknown
@@ -186,16 +186,24 @@ func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (
 	if err := ref.ValidateRepository(); err != nil {
 		return nil, err
 	}
+	repo := (*Repository)(opts).clone()
+	repo.Reference = ref
+	return repo, nil
+}
+
+// clone makes a copy of the Repository being careful not to copy non-copyable fields (sync.Mutex and syncutil.Pool types)
+func (r *Repository) clone() *Repository {
 	return &Repository{
-		Client:               opts.Client,
-		Reference:            ref,
-		PlainHTTP:            opts.PlainHTTP,
-		SkipReferrersGC:      opts.SkipReferrersGC,
-		ManifestMediaTypes:   slices.Clone(opts.ManifestMediaTypes),
-		TagListPageSize:      opts.TagListPageSize,
-		ReferrerListPageSize: opts.ReferrerListPageSize,
-		MaxMetadataBytes:     opts.MaxMetadataBytes,
-	}, nil
+		Client:               r.Client,
+		Reference:            r.Reference,
+		PlainHTTP:            r.PlainHTTP,
+		ManifestMediaTypes:   slices.Clone(r.ManifestMediaTypes),
+		TagListPageSize:      r.TagListPageSize,
+		ReferrerListPageSize: r.ReferrerListPageSize,
+		MaxMetadataBytes:     r.MaxMetadataBytes,
+		SkipReferrersGC:      r.SkipReferrersGC,
+		HandleWarning:        r.HandleWarning,
+	}
 }
 
 // SetReferrersCapability indicates the Referrers API capability of the remote
@@ -803,10 +811,10 @@ func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo
 // sibling returns a blob store for another repository in the same
 // registry.
 func (s *blobStore) sibling(otherRepoName string) *blobStore {
-	otherRepo := *s.repo
+	otherRepo := s.repo.clone()
 	otherRepo.Reference.Repository = otherRepoName
 	return &blobStore{
-		repo: &otherRepo,
+		repo: otherRepo,
 	}
 }
 
