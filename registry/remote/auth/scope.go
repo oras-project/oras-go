@@ -82,18 +82,6 @@ func WithScopes(ctx context.Context, scopes ...string) context.Context {
 	return context.WithValue(ctx, scopesContextKey{}, scopes)
 }
 
-func WithScopesPerRegistry(ctx context.Context, registry string, scopes ...string) context.Context {
-	var regMap map[string][]string
-	var ok bool
-	regMap, ok = ctx.Value(ScopesPerRegistryContextKey{}).(map[string][]string)
-	if !ok {
-		regMap = make(map[string][]string, 0)
-	}
-	scopes = CleanScopes(scopes)
-	regMap[registry] = scopes
-	return context.WithValue(ctx, ScopesPerRegistryContextKey{}, regMap)
-}
-
 // AppendScopes appends additional scopes to the existing scopes in the context
 // and returns a new context. The resulted scopes are de-duplicated.
 // The append operation does modify the existing scope in the context passed in.
@@ -110,6 +98,27 @@ func GetScopes(ctx context.Context) []string {
 		return append([]string(nil), scopes...)
 	}
 	return nil
+}
+
+func WithScopesPerRegistry(ctx context.Context, registry string, scopes ...string) context.Context {
+	var regMap map[string][]string
+	var ok bool
+	regMap, ok = ctx.Value(ScopesPerRegistryContextKey{}).(map[string][]string)
+	if !ok {
+		regMap = make(map[string][]string, 0)
+	}
+	scopes = CleanScopes(scopes)
+	regMap[registry] = scopes
+	return context.WithValue(ctx, ScopesPerRegistryContextKey{}, regMap)
+}
+
+func AppendScopesPerRegistry(ctx context.Context, registry string, scopes ...string) context.Context {
+	if len(scopes) == 0 {
+		return ctx
+	}
+
+	oldScopes := GetScopesPerRegistry(ctx, registry)
+	return WithScopesPerRegistry(ctx, registry, append(oldScopes, scopes...)...)
 }
 
 func GetScopesPerRegistry(ctx context.Context, registry string) []string {
