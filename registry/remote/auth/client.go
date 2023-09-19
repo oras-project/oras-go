@@ -177,6 +177,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	// attempt cached auth token
 	var attemptedKey string
 	cache := c.cache()
+	// TODO: handle docker.io?
 	registry := originalReq.Host
 	scheme, err := cache.GetScheme(ctx, registry)
 	if err == nil {
@@ -187,7 +188,11 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 				req.Header.Set("Authorization", "Basic "+token)
 			}
 		case SchemeBearer:
-			scopes := GetScopes(ctx)
+			scopes := GetScopesPerRegistry(ctx, registry)
+			if len(scopes) == 0 {
+				// fallback to get scopes
+				scopes = GetScopes(ctx)
+			}
 			attemptedKey = strings.Join(scopes, " ")
 			token, err := cache.GetToken(ctx, registry, SchemeBearer, attemptedKey)
 			if err == nil {
@@ -224,7 +229,11 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		resp.Body.Close()
 
 		// merge hinted scopes with challenged scopes
-		scopes := GetScopes(ctx)
+		scopes := GetScopesPerRegistry(ctx, registry)
+		if len(scopes) == 0 {
+			// fallback to get scopes
+			scopes = GetScopes(ctx)
+		}
 		if scope := params["scope"]; scope != "" {
 			scopes = append(scopes, strings.Split(scope, " ")...)
 			scopes = CleanScopes(scopes)
