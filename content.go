@@ -90,7 +90,7 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 			if err != nil {
 				return ocispec.Descriptor{}, err
 			}
-			ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull, auth.ActionPush)
+			ctx = auth.WithRepositoryScopes(ctx, ref, auth.ActionPull, auth.ActionPush)
 		}
 
 		desc, contentBytes, err := FetchBytes(ctx, target, srcReference, FetchBytesOptions{
@@ -148,7 +148,7 @@ func Tag(ctx context.Context, target Target, src, dst string) (ocispec.Descripto
 			if err != nil {
 				return ocispec.Descriptor{}, err
 			}
-			ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull, auth.ActionPush)
+			ctx = auth.WithRepositoryScopes(ctx, ref, auth.ActionPull, auth.ActionPush)
 		}
 		desc, rc, err := refFetcher.FetchReference(ctx, src)
 		if err != nil {

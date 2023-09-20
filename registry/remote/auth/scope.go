@@ -57,8 +57,8 @@ func ScopeRepository(repository string, actions ...string) string {
 	}, ":")
 }
 
-// WithScopeHints adds a hinted scope to the context.
-func WithScopeHints(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
+// WithRepositoryScopes adds a hinted scope to the context.
+func WithRepositoryScopes(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
 	if len(actions) == 0 {
 		return ctx
 	}

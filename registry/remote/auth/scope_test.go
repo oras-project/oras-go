@@ -123,8 +123,8 @@ func TestWithScopeHints(t *testing.T) {
 	want2 := []string{
 		"repository:foo:push",
 	}
-	ctx = WithScopeHints(ctx, ref1, ActionPull)
-	ctx = WithScopeHints(ctx, ref2, ActionPush)
+	ctx = WithRepositoryScopes(ctx, ref1, ActionPull)
+	ctx = WithRepositoryScopes(ctx, ref2, ActionPush)
 	if got := GetScopesPerHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
 		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want1)
 	}
@@ -149,8 +149,8 @@ func TestWithScopeHints(t *testing.T) {
 	want2 = []string{
 		"repository:foo:delete,push",
 	}
-	ctx = WithScopeHints(ctx, ref1, scopes1...)
-	ctx = WithScopeHints(ctx, ref2, scopes2...)
+	ctx = WithRepositoryScopes(ctx, ref1, scopes1...)
+	ctx = WithRepositoryScopes(ctx, ref2, scopes2...)
 	if got := GetScopesPerHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
 		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want1)
 	}
@@ -159,8 +159,8 @@ func TestWithScopeHints(t *testing.T) {
 	}
 
 	// append empty scopes
-	ctx = WithScopeHints(ctx, ref1)
-	ctx = WithScopeHints(ctx, ref2)
+	ctx = WithRepositoryScopes(ctx, ref1)
+	ctx = WithRepositoryScopes(ctx, ref2)
 	if got := GetScopesPerHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
 		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want1)
 	}
