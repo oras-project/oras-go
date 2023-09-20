@@ -449,6 +449,205 @@ func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 	}
 }
 
+func TestClient_Do_Bearer_AccessToken_Cached_PerHost(t *testing.T) {
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexecuted attempt of authorization service")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer as.Close()
+	// set up server 1
+	var requestCount1, wantRequestCount1 int64
+	var successCount1, wantSuccessCount1 int64
+	var service1 string
+	scope1 := "repository:test:pull"
+	accessToken1 := "test/access/token/1"
+	ts1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount1, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		header := "Bearer " + accessToken1
+		if auth := r.Header.Get("Authorization"); auth != header {
+			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service1, scope1)
+			w.Header().Set("Www-Authenticate", challenge)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		atomic.AddInt64(&successCount1, 1)
+	}))
+	defer ts1.Close()
+	uri1, err := url.Parse(ts1.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service1 = uri1.Host
+	client1 := &Client{
+		Credential: StaticCredential(uri1.Host, Credential{
+			AccessToken: accessToken1,
+		}),
+		Cache: NewCache(),
+	}
+
+	// set up server 2
+	var requestCount2, wantRequestCount2 int64
+	var successCount2, wantSuccessCount2 int64
+	var service2 string
+	scope2 := "repository:test:pull,push"
+	accessToken2 := "test/access/token/2"
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount2, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		header := "Bearer " + accessToken2
+		if auth := r.Header.Get("Authorization"); auth != header {
+			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service2, scope2)
+			w.Header().Set("Www-Authenticate", challenge)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		atomic.AddInt64(&successCount2, 1)
+	}))
+	defer ts2.Close()
+	uri2, err := url.Parse(ts2.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service2 = uri2.Host
+	client2 := &Client{
+		Credential: StaticCredential(uri2.Host, Credential{
+			AccessToken: accessToken2,
+		}),
+		Cache: NewCache(),
+	}
+
+	ctx := context.Background()
+	ctx = WithScopesPerHost(ctx, uri1.Host, scope1)
+	ctx = WithScopesPerHost(ctx, uri2.Host, scope2)
+	// first request to server 1
+	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp1, err := client1.Do(req1)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp1.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp1.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount1 += 2; requestCount1 != wantRequestCount1 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount1, wantRequestCount1)
+	}
+	if wantSuccessCount1++; successCount1 != wantSuccessCount1 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount1, wantSuccessCount1)
+	}
+	// first request to server 2
+	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, ts2.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp2, err := client2.Do(req2)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp2.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount2 += 2; requestCount1 != wantRequestCount2 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount1, wantRequestCount1)
+	}
+	if wantSuccessCount2++; successCount2 != wantSuccessCount2 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount2, wantSuccessCount2)
+	}
+
+	// repeated request to server 1
+	req1, err = http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp1, err = client1.Do(req1)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp1.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp1.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount1++; requestCount1 != wantRequestCount1 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount1, wantRequestCount1)
+	}
+	if wantSuccessCount1++; successCount1 != wantSuccessCount1 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount1, wantSuccessCount1)
+	}
+	// repeated request to server 2
+	req2, err = http.NewRequestWithContext(ctx, http.MethodGet, ts2.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp2, err = client2.Do(req2)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp2.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount2++; requestCount2 != wantRequestCount2 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount2, wantRequestCount2)
+	}
+	if wantSuccessCount2++; successCount2 != wantSuccessCount2 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount2, wantSuccessCount2)
+	}
+
+	// credential change for server 1
+	accessToken1 = "test/access/token/1/new"
+	req1, err = http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	client1.Credential = StaticCredential(uri1.Host, Credential{
+		AccessToken: accessToken1,
+	})
+	resp1, err = client1.Do(req1)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp1.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp1.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount1 += 2; requestCount1 != wantRequestCount1 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount1, wantRequestCount1)
+	}
+	if wantSuccessCount1++; successCount1 != wantSuccessCount1 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount1, wantSuccessCount1)
+	}
+	// credential change for server 2
+	accessToken2 = "test/access/token/2/new"
+	req2, err = http.NewRequestWithContext(ctx, http.MethodGet, ts2.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	client2.Credential = StaticCredential(uri2.Host, Credential{
+		AccessToken: accessToken2,
+	})
+	resp2, err = client2.Do(req2)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp2.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount2 += 2; requestCount2 != wantRequestCount2 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount2, wantRequestCount2)
+	}
+	if wantSuccessCount2++; successCount2 != wantSuccessCount2 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount2, wantSuccessCount2)
+	}
+}
+
 func TestClient_Do_Bearer_Auth(t *testing.T) {
 	username := "test_user"
 	password := "test_password"
@@ -722,6 +921,299 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 	}
 	if wantAuthCount++; authCount != wantAuthCount {
 		t.Errorf("unexpected number of auth requests: %d, want %d", authCount, wantAuthCount)
+	}
+}
+
+func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
+	// set up server 1
+	username1 := "test_user1"
+	password1 := "test_password1"
+	accessToken1 := "test/access/token/1"
+	var requestCount1, wantRequestCount1 int64
+	var successCount1, wantSuccessCount1 int64
+	var authCount1, wantAuthCount1 int64
+	var service1 string
+	scopes1 := []string{
+		"repository:dst:pull,push",
+		"repository:src:pull",
+	}
+	as1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Error("unexecuted attempt of authorization service")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username1+":"+password1))
+		if auth := r.Header.Get("Authorization"); auth != header {
+			t.Errorf("unexpected auth: got %s, want %s", auth, header)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.URL.Query().Get("service"); got != service1 {
+			t.Errorf("unexpected service: got %s, want %s", got, service1)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, scopes1) {
+			t.Errorf("unexpected scope: got %s, want %s", got, scopes1)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		atomic.AddInt64(&authCount1, 1)
+		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, accessToken1); err != nil {
+			t.Errorf("failed to write %q: %v", r.URL, err)
+		}
+	}))
+	defer as1.Close()
+	ts1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount1, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		header := "Bearer " + accessToken1
+		if auth := r.Header.Get("Authorization"); auth != header {
+			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as1.URL, service1, strings.Join(scopes1, " "))
+			w.Header().Set("Www-Authenticate", challenge)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		atomic.AddInt64(&successCount1, 1)
+	}))
+	defer ts1.Close()
+	uri1, err := url.Parse(ts1.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service1 = uri1.Host
+	client1 := &Client{
+		Credential: StaticCredential(uri1.Host, Credential{
+			Username: username1,
+			Password: password1,
+		}),
+		Cache: NewCache(),
+	}
+
+	// set up server 2
+	username2 := "test_user2"
+	password2 := "test_password2"
+	accessToken2 := "test/access/token/1"
+	var requestCount2, wantRequestCount2 int64
+	var successCount2, wantSuccessCount2 int64
+	var authCount2, wantAuthCount2 int64
+	var service2 string
+	scopes2 := []string{
+		"repository:dst2:pull,push",
+		"repository:src2:pull",
+	}
+	as2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Error("unexecuted attempt of authorization service")
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username2+":"+password2))
+		if auth := r.Header.Get("Authorization"); auth != header {
+			t.Errorf("unexpected auth: got %s, want %s", auth, header)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.URL.Query().Get("service"); got != service2 {
+			t.Errorf("unexpected service: got %s, want %s", got, service2)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, scopes2) {
+			t.Errorf("unexpected scope: got %s, want %s", got, scopes2)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		atomic.AddInt64(&authCount2, 1)
+		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, accessToken2); err != nil {
+			t.Errorf("failed to write %q: %v", r.URL, err)
+		}
+	}))
+	defer as1.Close()
+	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount2, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		header := "Bearer " + accessToken2
+		if auth := r.Header.Get("Authorization"); auth != header {
+			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as2.URL, service2, strings.Join(scopes2, " "))
+			w.Header().Set("Www-Authenticate", challenge)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		atomic.AddInt64(&successCount2, 1)
+	}))
+	defer ts2.Close()
+	uri2, err := url.Parse(ts2.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service2 = uri2.Host
+	client2 := &Client{
+		Credential: StaticCredential(uri2.Host, Credential{
+			Username: username2,
+			Password: password2,
+		}),
+		Cache: NewCache(),
+	}
+
+	ctx := context.Background()
+	ctx = WithScopesPerHost(ctx, uri1.Host, scopes1...)
+	ctx = WithScopesPerHost(ctx, uri2.Host, scopes2...)
+	// first request to server 1
+	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp1, err := client1.Do(req1)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp1.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp1.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount1 += 2; requestCount1 != wantRequestCount1 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount1, wantRequestCount1)
+	}
+	if wantSuccessCount1++; successCount1 != wantSuccessCount1 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount1, wantSuccessCount1)
+	}
+	if wantAuthCount1++; authCount1 != wantAuthCount1 {
+		t.Errorf("unexpected number of auth requests: %d, want %d", authCount1, wantAuthCount1)
+	}
+
+	// first request to server 2
+	req2, err := http.NewRequestWithContext(ctx, http.MethodGet, ts2.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp2, err := client2.Do(req2)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp2.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount2 += 2; requestCount2 != wantRequestCount2 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount2, wantRequestCount2)
+	}
+	if wantSuccessCount2++; successCount2 != wantSuccessCount2 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount2, wantSuccessCount2)
+	}
+	if wantAuthCount2++; authCount2 != wantAuthCount2 {
+		t.Errorf("unexpected number of auth requests: %d, want %d", authCount2, wantAuthCount2)
+	}
+
+	// repeated request to server 1
+	req1, err = http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp1, err = client1.Do(req1)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp1.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp1.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount1++; requestCount1 != wantRequestCount1 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount1, wantRequestCount1)
+	}
+	if wantSuccessCount1++; successCount1 != wantSuccessCount1 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount1, wantSuccessCount1)
+	}
+	if authCount1 != wantAuthCount1 {
+		t.Errorf("unexpected number of auth requests: %d, want %d", authCount1, wantAuthCount1)
+	}
+
+	// repeated request to server 2
+	req2, err = http.NewRequestWithContext(ctx, http.MethodGet, ts2.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp2, err = client2.Do(req2)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp2.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount2++; requestCount2 != wantRequestCount2 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount2, wantRequestCount2)
+	}
+	if wantSuccessCount2++; successCount2 != wantSuccessCount2 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount2, wantSuccessCount2)
+	}
+	if authCount2 != wantAuthCount2 {
+		t.Errorf("unexpected number of auth requests: %d, want %d", authCount2, wantAuthCount2)
+	}
+
+	// credential change for server 1
+	username1 = "test_user1_new"
+	password1 = "test_password1_new"
+	accessToken1 = "test/access/token/1/new"
+	req1, err = http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	client1.Credential = StaticCredential(uri1.Host, Credential{
+		Username: username1,
+		Password: password1,
+	})
+	resp1, err = client1.Do(req1)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp1.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp1.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount1 += 2; requestCount1 != wantRequestCount1 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount1, wantRequestCount1)
+	}
+	if wantSuccessCount1++; successCount1 != wantSuccessCount1 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount1, wantSuccessCount1)
+	}
+	if wantAuthCount1++; authCount1 != wantAuthCount1 {
+		t.Errorf("unexpected number of auth requests: %d, want %d", authCount1, wantAuthCount1)
+	}
+
+	// credential change for server 2
+	username2 = "test_user2_new"
+	password2 = "test_password2_new"
+	accessToken2 = "test/access/token/2/new"
+	req2, err = http.NewRequestWithContext(ctx, http.MethodGet, ts2.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	client2.Credential = StaticCredential(uri2.Host, Credential{
+		Username: username2,
+		Password: password2,
+	})
+	resp2, err = client2.Do(req2)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp2.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount2 += 2; requestCount2 != wantRequestCount2 {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount2, wantRequestCount2)
+	}
+	if wantSuccessCount2++; successCount2 != wantSuccessCount2 {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount2, wantSuccessCount2)
+	}
+	if wantAuthCount2++; authCount2 != wantAuthCount2 {
+		t.Errorf("unexpected number of auth requests: %d, want %d", authCount2, wantAuthCount2)
 	}
 }
 
