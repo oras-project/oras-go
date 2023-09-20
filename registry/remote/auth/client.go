@@ -177,24 +177,20 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	// attempt cached auth token
 	var attemptedKey string
 	cache := c.cache()
-	// TODO: handle docker.io?
-	registry := originalReq.Host
-	scheme, err := cache.GetScheme(ctx, registry)
+	host := originalReq.Host
+	scheme, err := cache.GetScheme(ctx, host)
 	if err == nil {
 		switch scheme {
 		case SchemeBasic:
-			token, err := cache.GetToken(ctx, registry, SchemeBasic, "")
+			token, err := cache.GetToken(ctx, host, SchemeBasic, "")
 			if err == nil {
 				req.Header.Set("Authorization", "Basic "+token)
 			}
 		case SchemeBearer:
-			scopes := GetScopesPerHost(ctx, registry)
-			if len(scopes) == 0 {
-				// fallback to get scopes
-				scopes = GetScopes(ctx)
-			}
+			// merge per-host scopes with generic scopes
+			scopes := append(GetScopesPerHost(ctx, host), GetScopes(ctx)...)
 			attemptedKey = strings.Join(scopes, " ")
-			token, err := cache.GetToken(ctx, registry, SchemeBearer, attemptedKey)
+			token, err := cache.GetToken(ctx, host, SchemeBearer, attemptedKey)
 			if err == nil {
 				req.Header.Set("Authorization", "Bearer "+token)
 			}
@@ -216,8 +212,8 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	case SchemeBasic:
 		resp.Body.Close()
 
-		token, err := cache.Set(ctx, registry, SchemeBasic, "", func(ctx context.Context) (string, error) {
-			return c.fetchBasicAuth(ctx, registry)
+		token, err := cache.Set(ctx, host, SchemeBasic, "", func(ctx context.Context) (string, error) {
+			return c.fetchBasicAuth(ctx, host)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
@@ -228,21 +224,18 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	case SchemeBearer:
 		resp.Body.Close()
 
+		// merge per-host scopes with generic scopes
+		scopes := append(GetScopesPerHost(ctx, host), GetScopes(ctx)...)
 		// merge hinted scopes with challenged scopes
-		scopes := GetScopesPerHost(ctx, registry)
-		if len(scopes) == 0 {
-			// fallback to get scopes
-			scopes = GetScopes(ctx)
-		}
-		if scope := params["scope"]; scope != "" {
-			scopes = append(scopes, strings.Split(scope, " ")...)
+		if paramScope := params["scope"]; paramScope != "" {
+			scopes = append(scopes, strings.Split(paramScope, " ")...)
 			scopes = CleanScopes(scopes)
 		}
 		key := strings.Join(scopes, " ")
 
 		// attempt the cache again if there is a scope change
 		if key != attemptedKey {
-			if token, err := cache.GetToken(ctx, registry, SchemeBearer, key); err == nil {
+			if token, err := cache.GetToken(ctx, host, SchemeBearer, key); err == nil {
 				req = originalReq.Clone(ctx)
 				req.Header.Set("Authorization", "Bearer "+token)
 				if err := rewindRequestBody(req); err != nil {
@@ -263,8 +256,8 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		// attempt with credentials
 		realm := params["realm"]
 		service := params["service"]
-		token, err := cache.Set(ctx, registry, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			return c.fetchBearerToken(ctx, registry, realm, service, scopes)
+		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
+			return c.fetchBearerToken(ctx, host, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)

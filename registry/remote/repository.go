@@ -37,7 +37,6 @@ import (
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/httputil"
 	"oras.land/oras-go/v2/internal/ioutil"
-	"oras.land/oras-go/v2/internal/registryutil"
 	"oras.land/oras-go/v2/internal/slices"
 	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/internal/syncutil"
@@ -392,7 +391,7 @@ func (r *Repository) ParseReference(reference string) (registry.Reference, error
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#content-discovery
 //   - https://docs.docker.com/registry/spec/api/#tags
 func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
-	ctx = registryutil.WithScopeHint(ctx, r.Reference, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, r.Reference, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
 	var err error
 	for err == nil {
@@ -509,7 +508,7 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 func (r *Repository) referrersByAPI(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
 	ref := r.Reference
 	ref.Reference = desc.Digest.String()
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull)
 
 	url := buildReferrersURL(r.PlainHTTP, ref, artifactType)
 	var err error
@@ -643,7 +642,7 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 
 	ref := r.Reference
 	ref.Reference = zeroDigest
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull)
 
 	url := buildReferrersURL(r.PlainHTTP, ref, "")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -677,7 +676,7 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isManifest bool) error {
 	ref := r.Reference
 	ref.Reference = target.Digest.String()
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionDelete)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionDelete)
 	buildURL := buildRepositoryBlobURL
 	if isManifest {
 		buildURL = buildRepositoryManifestURL
@@ -713,7 +712,7 @@ type blobStore struct {
 func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	ref := s.repo.Reference
 	ref.Reference = target.Digest.String()
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull)
 	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -755,12 +754,12 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo string, getContent func() (io.ReadCloser, error)) error {
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
-	ctx = registryutil.WithScopeHint(ctx, s.repo.Reference, auth.ActionPull, auth.ActionPush)
+	ctx = auth.WithScopeHints(ctx, s.repo.Reference, auth.ActionPull, auth.ActionPush)
 
 	// We also need pull access to the source repo.
 	fromRef := s.repo.Reference
 	fromRef.Repository = fromRepo
-	ctx = registryutil.WithScopeHint(ctx, fromRef, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, fromRef, auth.ActionPull)
 
 	url := buildRepositoryBlobMountURL(s.repo.PlainHTTP, s.repo.Reference, desc.Digest, fromRepo)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
@@ -833,7 +832,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	// start an upload
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
-	ctx = registryutil.WithScopeHint(ctx, s.repo.Reference, auth.ActionPull, auth.ActionPush)
+	ctx = auth.WithScopeHints(ctx, s.repo.Reference, auth.ActionPull, auth.ActionPush)
 	url := buildRepositoryBlobUploadURL(s.repo.PlainHTTP, s.repo.Reference)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
@@ -934,7 +933,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull)
 	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -969,7 +968,7 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull)
 	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -1044,7 +1043,7 @@ type manifestStore struct {
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	ref := s.repo.Reference
 	ref.Reference = target.Digest.String()
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull)
 	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -1170,7 +1169,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull)
 	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
@@ -1202,7 +1201,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull)
 	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -1245,7 +1244,7 @@ func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, refere
 		return err
 	}
 
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull, auth.ActionPush)
 	rc, err := s.Fetch(ctx, desc)
 	if err != nil {
 		return err
@@ -1270,7 +1269,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	ref.Reference = reference
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
-	ctx = registryutil.WithScopeHint(ctx, ref, auth.ActionPull, auth.ActionPush)
+	ctx = auth.WithScopeHints(ctx, ref, auth.ActionPull, auth.ActionPush)
 	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
 	// unwrap the content for optimizations of built-in types.
 	body := ioutil.UnwrapNopCloser(content)

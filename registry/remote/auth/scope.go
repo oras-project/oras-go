@@ -59,7 +59,7 @@ func ScopeRepository(repository string, actions ...string) string {
 // scopesContextKey is the context key for scopes.
 type scopesContextKey struct{}
 
-type ScopesPerRegistryContextKey struct{}
+type scopesPerHostContextKey struct{}
 
 // WithScopes returns a context with scopes added. Scopes are de-duplicated.
 // Scopes are used as hints for the auth client to fetch bearer tokens with
@@ -105,13 +105,13 @@ func GetScopes(ctx context.Context) []string {
 func WithScopesPerHost(ctx context.Context, host string, scopes ...string) context.Context {
 	var regMap map[string][]string
 	var ok bool
-	regMap, ok = ctx.Value(ScopesPerRegistryContextKey{}).(map[string][]string)
+	regMap, ok = ctx.Value(scopesPerHostContextKey{}).(map[string][]string)
 	if !ok {
 		regMap = make(map[string][]string)
 	}
 	scopes = CleanScopes(scopes)
 	regMap[host] = scopes
-	return context.WithValue(ctx, ScopesPerRegistryContextKey{}, regMap)
+	return context.WithValue(ctx, scopesPerHostContextKey{}, regMap)
 }
 
 func AppendScopesPerHost(ctx context.Context, host string, scopes ...string) context.Context {
@@ -124,7 +124,7 @@ func AppendScopesPerHost(ctx context.Context, host string, scopes ...string) con
 }
 
 func GetScopesPerHost(ctx context.Context, host string) []string {
-	if regMap, ok := ctx.Value(ScopesPerRegistryContextKey{}).(map[string][]string); ok {
+	if regMap, ok := ctx.Value(scopesPerHostContextKey{}).(map[string][]string); ok {
 		return append([]string(nil), regMap[host]...)
 	}
 	return nil
