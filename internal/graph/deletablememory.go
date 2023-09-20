@@ -108,7 +108,7 @@ func (m *DeletableMemory) Remove(ctx context.Context, node ocispec.Descriptor) e
 	defer m.lock.Unlock()
 	// remove the node from its successors' predecessor list
 	for successorKey := range m.successors[nodeKey] {
-		m.predecessors[successorKey].Delete(successorKey)
+		m.predecessors[successorKey].Delete(nodeKey)
 	}
 	delete(m.successors, nodeKey)
 	return nil
@@ -133,7 +133,7 @@ func (m *DeletableMemory) index(ctx context.Context, fetcher content.Fetcher, no
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
 		successorSet.Add(successorKey)
-		predecessorSet, exists := m.predecessors[nodeKey]
+		predecessorSet, exists := m.predecessors[successorKey]
 		if !exists {
 			predecessorSet = set.New[descriptor.Descriptor]()
 			m.predecessors[successorKey] = predecessorSet
