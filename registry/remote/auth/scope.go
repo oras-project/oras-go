@@ -105,7 +105,7 @@ func WithScopesPerRegistry(ctx context.Context, registry string, scopes ...strin
 	var ok bool
 	regMap, ok = ctx.Value(ScopesPerRegistryContextKey{}).(map[string][]string)
 	if !ok {
-		regMap = make(map[string][]string, 0)
+		regMap = make(map[string][]string)
 	}
 	scopes = CleanScopes(scopes)
 	regMap[registry] = scopes

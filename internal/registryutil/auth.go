@@ -22,6 +22,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
+// TODO: where to put this?
 // WithScopeHint adds a hinted scope to the context.
 func WithScopeHint(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
 	scope := auth.ScopeRepository(ref.Repository, actions...)
