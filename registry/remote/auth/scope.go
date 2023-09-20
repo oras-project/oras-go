@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"oras.land/oras-go/v2/internal/slices"
 	"oras.land/oras-go/v2/registry"
 )
 
@@ -56,10 +57,17 @@ func ScopeRepository(repository string, actions ...string) string {
 	}, ":")
 }
 
+// WithScopeHints adds a hinted scope to the context.
+func WithScopeHints(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
+	if len(actions) == 0 {
+		return ctx
+	}
+	scope := ScopeRepository(ref.Repository, actions...)
+	return AppendScopesPerHost(ctx, ref.Host(), scope)
+}
+
 // scopesContextKey is the context key for scopes.
 type scopesContextKey struct{}
-
-type scopesPerHostContextKey struct{}
 
 // WithScopes returns a context with scopes added. Scopes are de-duplicated.
 // Scopes are used as hints for the auth client to fetch bearer tokens with
@@ -97,10 +105,12 @@ func AppendScopes(ctx context.Context, scopes ...string) context.Context {
 // GetScopes returns the scopes in the context.
 func GetScopes(ctx context.Context) []string {
 	if scopes, ok := ctx.Value(scopesContextKey{}).([]string); ok {
-		return append([]string(nil), scopes...)
+		return slices.Clone(scopes)
 	}
 	return nil
 }
+
+type scopesPerHostContextKey struct{}
 
 func WithScopesPerHost(ctx context.Context, host string, scopes ...string) context.Context {
 	var regMap map[string][]string
@@ -118,23 +128,15 @@ func AppendScopesPerHost(ctx context.Context, host string, scopes ...string) con
 	if len(scopes) == 0 {
 		return ctx
 	}
-
 	oldScopes := GetScopesPerHost(ctx, host)
 	return WithScopesPerHost(ctx, host, append(oldScopes, scopes...)...)
 }
 
 func GetScopesPerHost(ctx context.Context, host string) []string {
 	if regMap, ok := ctx.Value(scopesPerHostContextKey{}).(map[string][]string); ok {
-		return append([]string(nil), regMap[host]...)
+		return slices.Clone(regMap[host])
 	}
 	return nil
-}
-
-// TODO: where to put this?
-// WithScopeHints adds a hinted scope to the context.
-func WithScopeHints(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
-	scope := ScopeRepository(ref.Repository, actions...)
-	return AppendScopesPerHost(ctx, ref.Host(), scope)
 }
 
 // CleanScopes merges and sort the actions in ascending order if the scopes have

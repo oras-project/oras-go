@@ -19,6 +19,8 @@ import (
 	"context"
 	"reflect"
 	"testing"
+
+	"oras.land/oras-go/v2/registry"
 )
 
 func TestScopeRepository(t *testing.T) {
@@ -103,6 +105,70 @@ func TestScopeRepository(t *testing.T) {
 	}
 }
 
+func TestWithScopeHints(t *testing.T) {
+	ctx := context.Background()
+	ref1, err := registry.ParseReference("registry.example.com/foo")
+	if err != nil {
+		t.Fatal("registry.ParseReference() error =", err)
+	}
+	ref2, err := registry.ParseReference("docker.io/foo")
+	if err != nil {
+		t.Fatal("registry.ParseReference() error =", err)
+	}
+
+	// with single scope
+	want1 := []string{
+		"repository:foo:pull",
+	}
+	want2 := []string{
+		"repository:foo:push",
+	}
+	ctx = WithScopeHints(ctx, ref1, ActionPull)
+	ctx = WithScopeHints(ctx, ref2, ActionPush)
+	if got := GetScopesPerHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want1)
+	}
+	if got := GetScopesPerHost(ctx, ref2.Host()); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want2)
+	}
+
+	// with duplicated scopes
+	scopes1 := []string{
+		ActionDelete,
+		ActionDelete,
+		ActionPull,
+	}
+	want1 = []string{
+		"repository:foo:delete,pull",
+	}
+	scopes2 := []string{
+		ActionPush,
+		ActionPush,
+		ActionDelete,
+	}
+	want2 = []string{
+		"repository:foo:delete,push",
+	}
+	ctx = WithScopeHints(ctx, ref1, scopes1...)
+	ctx = WithScopeHints(ctx, ref2, scopes2...)
+	if got := GetScopesPerHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want1)
+	}
+	if got := GetScopesPerHost(ctx, ref2.Host()); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want2)
+	}
+
+	// append empty scopes
+	ctx = WithScopeHints(ctx, ref1)
+	ctx = WithScopeHints(ctx, ref2)
+	if got := GetScopesPerHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want1)
+	}
+	if got := GetScopesPerHost(ctx, ref2.Host()); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want2)
+	}
+}
+
 func TestWithScopes(t *testing.T) {
 	ctx := context.Background()
 
@@ -184,7 +250,7 @@ func TestAppendScopes(t *testing.T) {
 	}
 }
 
-func TestWithScopesPerRegistry(t *testing.T) {
+func TestWithScopesPerHost(t *testing.T) {
 	ctx := context.Background()
 	reg1 := "registry1.example.com"
 	reg2 := "registry2.example.com"
@@ -263,7 +329,7 @@ func TestWithScopesPerRegistry(t *testing.T) {
 	}
 }
 
-func TestAppendScopesPerRegistry(t *testing.T) {
+func TestAppendScopesPerHost(t *testing.T) {
 	ctx := context.Background()
 	reg1 := "registry1.example.com"
 	reg2 := "registry2.example.com"
