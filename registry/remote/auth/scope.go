@@ -19,6 +19,8 @@ import (
 	"context"
 	"sort"
 	"strings"
+
+	"oras.land/oras-go/v2/registry"
 )
 
 // Actions used in scopes.
@@ -100,7 +102,7 @@ func GetScopes(ctx context.Context) []string {
 	return nil
 }
 
-func WithScopesPerRegistry(ctx context.Context, registry string, scopes ...string) context.Context {
+func WithScopesPerHost(ctx context.Context, host string, scopes ...string) context.Context {
 	var regMap map[string][]string
 	var ok bool
 	regMap, ok = ctx.Value(ScopesPerRegistryContextKey{}).(map[string][]string)
@@ -108,24 +110,31 @@ func WithScopesPerRegistry(ctx context.Context, registry string, scopes ...strin
 		regMap = make(map[string][]string)
 	}
 	scopes = CleanScopes(scopes)
-	regMap[registry] = scopes
+	regMap[host] = scopes
 	return context.WithValue(ctx, ScopesPerRegistryContextKey{}, regMap)
 }
 
-func AppendScopesPerRegistry(ctx context.Context, registry string, scopes ...string) context.Context {
+func AppendScopesPerHost(ctx context.Context, host string, scopes ...string) context.Context {
 	if len(scopes) == 0 {
 		return ctx
 	}
 
-	oldScopes := GetScopesPerRegistry(ctx, registry)
-	return WithScopesPerRegistry(ctx, registry, append(oldScopes, scopes...)...)
+	oldScopes := GetScopesPerHost(ctx, host)
+	return WithScopesPerHost(ctx, host, append(oldScopes, scopes...)...)
 }
 
-func GetScopesPerRegistry(ctx context.Context, registry string) []string {
+func GetScopesPerHost(ctx context.Context, host string) []string {
 	if regMap, ok := ctx.Value(ScopesPerRegistryContextKey{}).(map[string][]string); ok {
-		return append([]string(nil), regMap[registry]...)
+		return append([]string(nil), regMap[host]...)
 	}
 	return nil
+}
+
+// TODO: where to put this?
+// WithScopeHints adds a hinted scope to the context.
+func WithScopeHints(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
+	scope := ScopeRepository(ref.Repository, actions...)
+	return AppendScopesPerHost(ctx, ref.Host(), scope)
 }
 
 // CleanScopes merges and sort the actions in ascending order if the scopes have

@@ -196,12 +196,12 @@ func TestWithScopesPerRegistry(t *testing.T) {
 	want2 := []string{
 		"repository:foo:push",
 	}
-	ctx = WithScopesPerRegistry(ctx, reg1, want1...)
-	ctx = WithScopesPerRegistry(ctx, reg2, want2...)
-	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want1) {
+	ctx = WithScopesPerHost(ctx, reg1, want1...)
+	ctx = WithScopesPerHost(ctx, reg2, want2...)
+	if got := GetScopesPerHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
 		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want2) {
+	if got := GetScopesPerHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
 		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want2)
 	}
 
@@ -212,12 +212,12 @@ func TestWithScopesPerRegistry(t *testing.T) {
 	want2 = []string{
 		"repository:bar:pull",
 	}
-	ctx = WithScopesPerRegistry(ctx, reg1, want1...)
-	ctx = WithScopesPerRegistry(ctx, reg2, want2...)
-	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want1) {
+	ctx = WithScopesPerHost(ctx, reg1, want1...)
+	ctx = WithScopesPerHost(ctx, reg2, want2...)
+	if got := GetScopesPerHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
 		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want2) {
+	if got := GetScopesPerHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
 		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want2)
 	}
 
@@ -242,23 +242,23 @@ func TestWithScopesPerRegistry(t *testing.T) {
 		"repository:goodbye-world:pull,push",
 		"repository:nginx:delete",
 	}
-	ctx = WithScopesPerRegistry(ctx, reg1, scopes1...)
-	ctx = WithScopesPerRegistry(ctx, reg2, scopes2...)
-	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want1) {
+	ctx = WithScopesPerHost(ctx, reg1, scopes1...)
+	ctx = WithScopesPerHost(ctx, reg2, scopes2...)
+	if got := GetScopesPerHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
 		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want2) {
+	if got := GetScopesPerHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
 		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want2)
 	}
 
 	// clean scopes
 	var want []string
-	ctx = WithScopesPerRegistry(ctx, reg1, want...)
-	ctx = WithScopesPerRegistry(ctx, reg2, want...)
-	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want) {
+	ctx = WithScopesPerHost(ctx, reg1, want...)
+	ctx = WithScopesPerHost(ctx, reg2, want...)
+	if got := GetScopesPerHost(ctx, reg1); !reflect.DeepEqual(got, want) {
 		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want)
 	}
-	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want) {
+	if got := GetScopesPerHost(ctx, reg2); !reflect.DeepEqual(got, want) {
 		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want)
 	}
 }
@@ -275,12 +275,12 @@ func TestAppendScopesPerRegistry(t *testing.T) {
 	want2 := []string{
 		"repository:foo:push",
 	}
-	ctx = AppendScopesPerRegistry(ctx, reg1, want1...)
-	ctx = AppendScopesPerRegistry(ctx, reg2, want2...)
-	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want1) {
+	ctx = AppendScopesPerHost(ctx, reg1, want1...)
+	ctx = AppendScopesPerHost(ctx, reg2, want2...)
+	if got := GetScopesPerHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
 		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want2) {
+	if got := GetScopesPerHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
 		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want2)
 	}
 
@@ -307,22 +307,22 @@ func TestAppendScopesPerRegistry(t *testing.T) {
 		"repository:goodbye-world:pull,push",
 		"repository:nginx:delete",
 	}
-	ctx = AppendScopesPerRegistry(ctx, reg1, scopes1...)
-	ctx = AppendScopesPerRegistry(ctx, reg2, scopes2...)
-	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want1) {
+	ctx = AppendScopesPerHost(ctx, reg1, scopes1...)
+	ctx = AppendScopesPerHost(ctx, reg2, scopes2...)
+	if got := GetScopesPerHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
 		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want2) {
+	if got := GetScopesPerHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
 		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want2)
 	}
 
 	// append empty scopes
-	ctx = AppendScopesPerRegistry(ctx, reg1)
-	ctx = AppendScopesPerRegistry(ctx, reg2)
-	if got := GetScopesPerRegistry(ctx, reg1); !reflect.DeepEqual(got, want1) {
+	ctx = AppendScopesPerHost(ctx, reg1)
+	ctx = AppendScopesPerHost(ctx, reg2)
+	if got := GetScopesPerHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
 		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesPerRegistry(ctx, reg2); !reflect.DeepEqual(got, want2) {
+	if got := GetScopesPerHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
 		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want2)
 	}
 }

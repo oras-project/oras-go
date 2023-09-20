@@ -188,7 +188,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 				req.Header.Set("Authorization", "Basic "+token)
 			}
 		case SchemeBearer:
-			scopes := GetScopesPerRegistry(ctx, registry)
+			scopes := GetScopesPerHost(ctx, registry)
 			if len(scopes) == 0 {
 				// fallback to get scopes
 				scopes = GetScopes(ctx)
@@ -229,7 +229,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		resp.Body.Close()
 
 		// merge hinted scopes with challenged scopes
-		scopes := GetScopesPerRegistry(ctx, registry)
+		scopes := GetScopesPerHost(ctx, registry)
 		if len(scopes) == 0 {
 			// fallback to get scopes
 			scopes = GetScopes(ctx)
