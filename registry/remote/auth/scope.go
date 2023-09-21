@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"oras.land/oras-go/v2/internal/maps"
 	"oras.land/oras-go/v2/internal/slices"
 	"oras.land/oras-go/v2/registry"
 )
@@ -146,15 +147,16 @@ type scopesPerHostContextKey struct{}
 //
 // Reference: https://docs.docker.com/registry/spec/auth/scope/
 func WithScopesPerHost(ctx context.Context, host string, scopes ...string) context.Context {
-	var regMap map[string][]string
-	var ok bool
-	regMap, ok = ctx.Value(scopesPerHostContextKey{}).(map[string][]string)
-	if !ok {
-		regMap = make(map[string][]string)
+	var scopesByHost map[string][]string
+	if old, ok := ctx.Value(scopesPerHostContextKey{}).(map[string][]string); ok {
+		scopesByHost = make(map[string][]string, len(old))
+		maps.Copy(scopesByHost, old)
+	} else {
+		scopesByHost = make(map[string][]string, 1)
 	}
-	scopes = CleanScopes(scopes)
-	regMap[host] = scopes
-	return context.WithValue(ctx, scopesPerHostContextKey{}, regMap)
+
+	scopesByHost[host] = CleanScopes(scopes)
+	return context.WithValue(ctx, scopesPerHostContextKey{}, scopesByHost)
 }
 
 // AppendScopesPerHost appends additional scopes to the existing scopes
@@ -171,8 +173,8 @@ func AppendScopesPerHost(ctx context.Context, host string, scopes ...string) con
 
 // GetScopesPerHost returns the scopes in the context for the given host.
 func GetScopesPerHost(ctx context.Context, host string) []string {
-	if regMap, ok := ctx.Value(scopesPerHostContextKey{}).(map[string][]string); ok {
-		return slices.Clone(regMap[host])
+	if scopesByHost, ok := ctx.Value(scopesPerHostContextKey{}).(map[string][]string); ok {
+		return slices.Clone(scopesByHost[host])
 	}
 	return nil
 }
