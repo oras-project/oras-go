@@ -65,7 +65,7 @@ func ScopeRepository(repository string, actions ...string) string {
 // `repository:hello-world:pull`, and the auth client will fetch a token for
 // that challenge. Later, the POST request will return a challenge for scope
 // `repository:hello-world:push`, and the auth client will fetch a token for
-// that challenge again. By invoking `AppendScopeHints()` with the actions
+// that challenge again. By invoking AppendScopeHints with the actions
 // [ActionPull] and [ActionPush] for the repository `hello-world`,
 // the auth client with cache is hinted to fetch a token via a single token
 // fetch request for all the HEAD, POST, PUT requests.
@@ -89,7 +89,7 @@ type scopesContextKey struct{}
 // `repository:hello-world:pull`, and the auth client will fetch a token for
 // that challenge. Later, the POST request will return a challenge for scope
 // `repository:hello-world:push`, and the auth client will fetch a token for
-// that challenge again. By invoking `WithScopes()` with the scope
+// that challenge again. By invoking WithScopes with the scope
 // `repository:hello-world:pull,push`, the auth client with cache is hinted to
 // fetch a token via a single token fetch request for all the HEAD, POST, PUT
 // requests.
@@ -134,7 +134,7 @@ type scopesPerHostContextKey struct{}
 // `repository:hello-world:pull`, and the auth client will fetch a token for
 // that challenge. Later, the POST request will return a challenge for scope
 // `repository:hello-world:push`, and the auth client will fetch a token for
-// that challenge again. By invoking `WithScopes()` with the scope
+// that challenge again. By invoking WithScopesPerHost with the scope
 // `repository:hello-world:pull,push`, the auth client with cache is hinted to
 // fetch a token via a single token fetch request for all the HEAD, POST, PUT
 // requests.
