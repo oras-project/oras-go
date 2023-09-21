@@ -57,8 +57,10 @@ func ScopeRepository(repository string, actions ...string) string {
 	}, ":")
 }
 
-// AppendScopeHints appends repository scope hints with the given actions
-// for the auth client to fetch bearer tokens with larger scopes.
+// AppendScopeHints returns a new context containing scope hints for the auth
+// client to fetch bearer tokens with the given actions on the repository.
+// If called multiple times, the new scopes will be appended to the existing
+// scopes. The resulted scopes are de-duplicated.
 //
 // For example, uploading blob to the repository "hello-world" does HEAD request
 // first then POST and PUT. The HEAD request will return a challenge for scope
