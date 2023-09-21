@@ -57,9 +57,18 @@ func ScopeRepository(repository string, actions ...string) string {
 	}, ":")
 }
 
-// AppendScopeHints appends a repository scope with the given actions
-// to the existing scopes in the context for the given registry and returns
-// a new context.
+// AppendScopeHints appends repository scope hints with the given actions
+// for the auth client to fetch bearer tokens with larger scopes.
+//
+// For example, uploading blob to the repository "hello-world" does HEAD request
+// first then POST and PUT. The HEAD request will return a challenge for scope
+// `repository:hello-world:pull`, and the auth client will fetch a token for
+// that challenge. Later, the POST request will return a challenge for scope
+// `repository:hello-world:push`, and the auth client will fetch a token for
+// that challenge again. By invoking `AppendScopeHints()` with the actions
+// [ActionPull] and [ActionPush] for the repository `hello-world`,
+// the auth client with cache is hinted to fetch a token via a single token
+// fetch request for all the HEAD, POST, PUT requests.
 func AppendScopeHints(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
 	if len(actions) == 0 {
 		return ctx
