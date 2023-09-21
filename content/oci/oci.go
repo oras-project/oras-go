@@ -65,7 +65,7 @@ type Store struct {
 	index         *ocispec.Index
 	indexLock     sync.Mutex
 
-	storage     content.Storage
+	storage     content.DeletableStorage
 	tagResolver *resolver.Memory
 	graph       *graph.Memory
 }
@@ -81,6 +81,7 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", root, err)
 	}
+
 	storage, err := NewStorage(rootAbs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage: %w", err)
@@ -195,6 +196,27 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 	}
 
 	return desc, nil
+}
+
+
+// Delete removed a target descriptor from index and storage.
+func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	resolvers := s.tagResolver.Map()
+	for reference, desc := range resolvers {
+		if content.Equal(desc, target) {
+			s.tagResolver.Delete(reference)
+		}
+	}
+	if err := s.graph.RemoveFromIndex(ctx, s.storage, target); err != nil {
+		return err
+	}
+	if s.AutoSaveIndex {
+		err := s.SaveIndex()
+		if err != nil {
+			return err
+		}
+	}
+	return s.storage.Delete(ctx, target)
 }
 
 // Predecessors returns the nodes directly pointing to the current node.

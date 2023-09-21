@@ -402,6 +402,51 @@ func TestStorePredecessors(t *testing.T) {
 	}
 }
 
+func TestStoreDelete(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	s := New()
+	ctx := context.Background()
+
+	err := s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	ref := "foobar"
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	internalResolver := s.resolver.(*resolver.Memory)
+	if got := len(internalResolver.Map()); got != 1 {
+		t.Errorf("resolver.Map() = %v, want %v", got, 1)
+	}
+
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	err = s.Delete(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Delete() error =", err)
+	}
+
+	internalStorage := s.storage.(*cas.Memory)
+	if got := len(internalStorage.Map()); got != 0 {
+		t.Errorf("storage.Map() = %v, want %v", got, 0)
+	}
+}
+
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
 	if len(actual) != len(expected) {
 		return false

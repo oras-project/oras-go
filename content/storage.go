@@ -45,6 +45,12 @@ type Storage interface {
 	Pusher
 }
 
+// DeletableStorage represents an extension of the Storage interface that includes the Deleter.
+type DeletableStorage interface {
+	Storage
+	Deleter
+}
+
 // ReadOnlyStorage represents a read-only Storage.
 type ReadOnlyStorage interface {
 	Fetcher

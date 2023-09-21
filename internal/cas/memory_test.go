@@ -136,3 +136,66 @@ func TestMemoryBadPush(t *testing.T) {
 		t.Errorf("Memory.Push() error = %v, wantErr %v", err, true)
 	}
 }
+
+func TestMemoryDelete(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	s := NewMemory()
+	ctx := context.Background()
+
+	err := s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Memory.Push() error =", err)
+	}
+
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Memory.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Memory.Exists() = %v, want %v", exists, true)
+	}
+	if got := len(s.Map()); got != 1 {
+		t.Errorf("Memory.Map() = %v, want %v", got, 1)
+	}
+
+	err = s.Delete(ctx, desc)
+	if err != nil {
+		t.Fatal("Memory.Delete() error =", err)
+	}
+	if got := len(s.Map()); got != 0 {
+		t.Errorf("Memory.Map() = %v, want %v", got, 0)
+	}
+	exists, err = s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Memory.Exists() error =", err)
+	}
+	if exists {
+		t.Errorf("Memory.Exists() = %v, want %v", exists, false)
+	}
+}
+
+func TestMemoryBadDelete(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	s := NewMemory()
+	ctx := context.Background()
+
+	err := s.Delete(ctx, desc)
+	if err == nil {
+		t.Errorf("Memory.Delete() error = %v, wantErr %v", err, true)
+	}
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Memory.Delete() error = %v, want %v", err, errdef.ErrNotFound)
+	}
+}

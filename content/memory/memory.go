@@ -31,7 +31,7 @@ import (
 
 // Store represents a memory based store, which implements `oras.Target`.
 type Store struct {
-	storage  content.Storage
+	storage  content.DeletableStorage
 	resolver content.TagResolver
 	graph    *graph.Memory
 }
@@ -70,6 +70,18 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 // Resolve resolves a reference to a descriptor.
 func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
 	return s.resolver.Resolve(ctx, reference)
+}
+
+// Delete a target descriptor for storage.
+func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	exists, err := s.storage.Exists(ctx, target)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return errdef.ErrNotFound
+	}
+	return s.storage.Delete(ctx, target)
 }
 
 // Tag tags a descriptor with a reference string.

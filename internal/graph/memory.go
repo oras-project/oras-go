@@ -116,6 +116,25 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 	return res, nil
 }
 
+// RemoveFromIndex removes the node and all its predecessors from the index and predecessor maps.
+func (m *Memory) RemoveFromIndex(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
+	nodeKey := descriptor.FromOCI(node)
+	_, loaded := m.indexed.LoadAndDelete(nodeKey)
+	if loaded {
+		predecessors, err := m.Predecessors(ctx, node)
+		if err != nil {
+			return err
+		}
+		for _, predecessor := range predecessors {
+			if err = m.RemoveFromIndex(ctx, fetcher, predecessor); err != nil {
+				return err
+			}
+			m.predecessors.Delete(predecessor)
+		}
+	}
+	return nil
+}
+
 // index indexes predecessors for each direct successor of the given node.
 // There is no data consistency issue as long as deletion is not implemented
 // for the underlying storage.
