@@ -188,8 +188,11 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			}
 		case SchemeBearer:
 			// merge per-host scopes with generic scopes
-			scopes := append(GetScopesPerHost(ctx, host), GetScopes(ctx)...)
-			scopes = CleanScopes(scopes)
+			scopes := GetScopesPerHost(ctx, host)
+			if moreScopes := GetScopes(ctx); len(moreScopes) > 0 {
+				scopes = append(scopes, moreScopes...)
+				scopes = CleanScopes(scopes)
+			}
 			attemptedKey = strings.Join(scopes, " ")
 			token, err := cache.GetToken(ctx, host, SchemeBearer, attemptedKey)
 			if err == nil {
@@ -225,13 +228,20 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	case SchemeBearer:
 		resp.Body.Close()
 
-		// merge per-host scopes with generic scopes
-		scopes := append(GetScopesPerHost(ctx, host), GetScopes(ctx)...)
+		scopes := GetScopesPerHost(ctx, host)
+		cleanScopeLen := len(scopes)
+		if moreScopes := GetScopes(ctx); len(moreScopes) > 0 {
+			// merge per-host scopes with generic scopes
+			scopes = append(scopes, moreScopes...)
+		}
 		if paramScope := params["scope"]; paramScope != "" {
 			// merge hinted scopes with challenged scopes
 			scopes = append(scopes, strings.Split(paramScope, " ")...)
 		}
-		scopes = CleanScopes(scopes)
+		if len(scopes) > cleanScopeLen {
+			// re-clean the scopes
+			scopes = CleanScopes(scopes)
+		}
 		key := strings.Join(scopes, " ")
 
 		// attempt the cache again if there is a scope change
