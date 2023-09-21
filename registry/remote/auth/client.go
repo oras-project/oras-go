@@ -189,6 +189,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		case SchemeBearer:
 			// merge per-host scopes with generic scopes
 			scopes := append(GetScopesPerHost(ctx, host), GetScopes(ctx)...)
+			scopes = CleanScopes(scopes)
 			attemptedKey = strings.Join(scopes, " ")
 			token, err := cache.GetToken(ctx, host, SchemeBearer, attemptedKey)
 			if err == nil {
@@ -226,11 +227,11 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// merge per-host scopes with generic scopes
 		scopes := append(GetScopesPerHost(ctx, host), GetScopes(ctx)...)
-		// merge hinted scopes with challenged scopes
 		if paramScope := params["scope"]; paramScope != "" {
+			// merge hinted scopes with challenged scopes
 			scopes = append(scopes, strings.Split(paramScope, " ")...)
-			scopes = CleanScopes(scopes)
 		}
+		scopes = CleanScopes(scopes)
 		key := strings.Join(scopes, " ")
 
 		// attempt the cache again if there is a scope change
