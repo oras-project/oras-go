@@ -40,7 +40,7 @@ func TestMemoryStore_Get_notExistRecord(t *testing.T) {
 
 func TestMemoryStore_Get_validRecord(t *testing.T) {
 	ctx := context.Background()
-	ms := NewMemoryStore()
+	ms := NewMemoryStore().(*memoryStore)
 
 	serverAddress := "registry.example.com"
 	want := auth.Credential{
