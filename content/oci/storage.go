@@ -106,6 +106,17 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 	return nil
 }
 
+// Delete removes the target from the system. With Delete, Storage implements the
+// DeletableStorage interface.
+func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	path, err := blobPath(target.Digest)
+	if err != nil {
+		return fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrInvalidDigest)
+	}
+	targetPath := filepath.Join(s.root, path)
+	return os.Remove(targetPath)
+}
+
 // ingest write the content into a temporary ingest file.
 func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path string, ingestErr error) {
 	if err := ensureDir(s.ingestRoot); err != nil {
