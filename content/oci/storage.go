@@ -106,8 +106,7 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 	return nil
 }
 
-// Delete removes the target from the system. With Delete, Storage implements the
-// DeletableStorage interface.
+// Delete removes the target from the system.
 func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	path, err := blobPath(target.Digest)
 	if err != nil {
