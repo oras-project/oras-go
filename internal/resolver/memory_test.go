@@ -54,6 +54,15 @@ func TestMemorySuccess(t *testing.T) {
 	if got := len(s.Map()); got != 1 {
 		t.Errorf("Memory.Map() = %v, want %v", got, 1)
 	}
+
+	s.Delete(ref)
+	_, err = s.Resolve(ctx, ref)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Memory.Resolve() error = %v, want %v", err, errdef.ErrNotFound)
+	}
+	if got := len(s.Map()); got != 0 {
+		t.Errorf("Memory.Map() = %v, want %v", got, 0)
+	}
 }
 
 func TestMemoryNotFound(t *testing.T) {
