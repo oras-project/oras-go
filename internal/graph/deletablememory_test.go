@@ -185,6 +185,22 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 	}
 }
 
+/*
++---------A(index)--------+
+|             |           |
+|             |           |
+|             |           |
+|             |           |
+v             v           v
+B(manifest)   C(manifest) D(manifest)
+|             |           |
+|             |           |
+|             |           |
+|             |           |
+|             |           |
+|             |           v
++-->E(layer)<-+------->F(layer)
+*/
 func TestDeletableMemory_IndexAllAndPredecessors(t *testing.T) {
 	testFetcher := cas.NewMemory()
 	testDeletableMemory := NewDeletableMemory()
