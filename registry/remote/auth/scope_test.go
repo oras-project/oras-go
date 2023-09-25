@@ -658,3 +658,71 @@ func Test_cleanActions(t *testing.T) {
 		})
 	}
 }
+
+func Test_getAllScopesForHost(t *testing.T) {
+	host := "registry.example.com"
+	tests := []struct {
+		name         string
+		scopes       []string
+		globalScopes []string
+		want         []string
+	}{
+		{
+			name:   "Empty per-host scopes",
+			scopes: []string{},
+			globalScopes: []string{
+				"repository:hello-world:push",
+				"repository:alpine:delete",
+				"repository:hello-world:pull",
+				"repository:alpine:delete",
+			},
+			want: []string{
+				"repository:alpine:delete",
+				"repository:hello-world:pull,push",
+			},
+		},
+		{
+			name: "Empty global scopes",
+			scopes: []string{
+				"repository:hello-world:push",
+				"repository:alpine:delete",
+				"repository:hello-world:pull",
+				"repository:alpine:delete",
+			},
+			globalScopes: []string{},
+			want: []string{
+				"repository:alpine:delete",
+				"repository:hello-world:pull,push",
+			},
+		},
+		{
+			name: "Per-host scopes + global scopes",
+			scopes: []string{
+				"repository:hello-world:push",
+				"repository:alpine:delete",
+				"repository:hello-world:pull",
+				"repository:alpine:delete",
+			},
+			globalScopes: []string{
+				"repository:foo:pull",
+				"repository:hello-world:pull",
+				"repository:alpine:pull",
+			},
+			want: []string{
+				"repository:alpine:delete,pull",
+				"repository:foo:pull",
+				"repository:hello-world:pull,push",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			ctx = WithScopesForHost(ctx, host, tt.scopes...)
+			ctx = WithScopes(ctx, tt.globalScopes...)
+			if got := getAllScopesForHost(ctx, host); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getAllScopesForHost() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
