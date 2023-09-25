@@ -22,18 +22,18 @@ import (
 	"oras.land/oras-go/v2/registry/remote/auth"
 )
 
-// MemoryStore is a store that keeps credentials in memory.
-type MemoryStore struct {
+// memoryStore is a store that keeps credentials in memory.
+type memoryStore struct {
 	store sync.Map
 }
 
 // NewMemoryStore creates a new in-memory credentials store.
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{}
+func NewMemoryStore() Store {
+	return &memoryStore{}
 }
 
 // Get retrieves credentials from the store for the given server address.
-func (ms *MemoryStore) Get(_ context.Context, serverAddress string) (auth.Credential, error) {
+func (ms *memoryStore) Get(_ context.Context, serverAddress string) (auth.Credential, error) {
 	cred, found := ms.store.Load(serverAddress)
 	if !found {
 		return auth.EmptyCredential, nil
@@ -42,13 +42,13 @@ func (ms *MemoryStore) Get(_ context.Context, serverAddress string) (auth.Creden
 }
 
 // Put saves credentials into the store for the given server address.
-func (ms *MemoryStore) Put(_ context.Context, serverAddress string, cred auth.Credential) error {
+func (ms *memoryStore) Put(_ context.Context, serverAddress string, cred auth.Credential) error {
 	ms.store.Store(serverAddress, cred)
 	return nil
 }
 
 // Delete removes credentials from the store for the given server address.
-func (ms *MemoryStore) Delete(_ context.Context, serverAddress string) error {
+func (ms *memoryStore) Delete(_ context.Context, serverAddress string) error {
 	ms.store.Delete(serverAddress)
 	return nil
 }
