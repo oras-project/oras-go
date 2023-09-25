@@ -187,7 +187,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 				req.Header.Set("Authorization", "Basic "+token)
 			}
 		case SchemeBearer:
-			// merge per-host scopes with generic scopes
+			// merge per-host scopes with global scopes
 			scopes := GetScopesForHost(ctx, host)
 			if moreScopes := GetScopes(ctx); len(moreScopes) > 0 {
 				scopes = append(scopes, moreScopes...)
@@ -231,7 +231,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		scopes := GetScopesForHost(ctx, host)
 		cleanScopeLen := len(scopes)
 		if moreScopes := GetScopes(ctx); len(moreScopes) > 0 {
-			// merge per-host scopes with generic scopes
+			// merge per-host scopes with global scopes
 			scopes = append(scopes, moreScopes...)
 		}
 		if paramScope := params["scope"]; paramScope != "" {

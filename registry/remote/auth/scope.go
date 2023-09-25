@@ -162,7 +162,8 @@ func AppendScopesForHost(ctx context.Context, host string, scopes ...string) con
 	return WithScopesForHost(ctx, host, append(oldScopes, scopes...)...)
 }
 
-// GetScopesForHost returns the scopes in the context for the given host.
+// GetScopesForHost returns the scopes in the context for the given host,
+// excluding the global scopes added by [WithScopes] and [AppendScopes].
 func GetScopesForHost(ctx context.Context, host string) []string {
 	if scopes, ok := ctx.Value(scopesForHostContextKey(host)).([]string); ok {
 		return slices.Clone(scopes)
