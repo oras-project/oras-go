@@ -163,12 +163,30 @@ func AppendScopesForHost(ctx context.Context, host string, scopes ...string) con
 }
 
 // GetScopesForHost returns the scopes in the context for the given host,
-// excluding the global scopes added by [WithScopes] and [AppendScopes].
+// excluding global scopes added by [WithScopes] and [AppendScopes].
 func GetScopesForHost(ctx context.Context, host string) []string {
 	if scopes, ok := ctx.Value(scopesForHostContextKey(host)).([]string); ok {
 		return slices.Clone(scopes)
 	}
 	return nil
+}
+
+// getAllScopesForHost returns the scopes in the context for the given host,
+// including global scopes added by [WithScopes] and [AppendScopes].
+func getAllScopesForHost(ctx context.Context, host string) []string {
+	scopes := GetScopesForHost(ctx, host)
+	globalScopes := GetScopes(ctx)
+
+	switch {
+	case len(scopes) == 0:
+		return globalScopes
+	case len(globalScopes) == 0:
+		return scopes
+	default:
+		// re-clean the scopes
+		allScopes := append(scopes, globalScopes...)
+		return CleanScopes(allScopes)
+	}
 }
 
 // CleanScopes merges and sort the actions in ascending order if the scopes have
