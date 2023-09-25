@@ -52,4 +52,12 @@ func TestSet(t *testing.T) {
 	if got, want := len(set), 2; got != want {
 		t.Errorf("len(Set) = %v, want %v", got, want)
 	}
+	// test deleting a key
+	set.Delete(key1)
+	if got, want := set.Contains(key1), false; got != want {
+		t.Errorf("Set.Contains(%s) = %v, want %v", key1, got, want)
+	}
+	if got, want := len(set), 1; got != want {
+		t.Errorf("len(Set) = %v, want %v", got, want)
+	}
 }
