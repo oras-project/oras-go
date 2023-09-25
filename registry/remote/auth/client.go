@@ -188,7 +188,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			}
 		case SchemeBearer:
 			// merge per-host scopes with generic scopes
-			scopes := GetScopesPerHost(ctx, host)
+			scopes := GetScopesForHost(ctx, host)
 			if moreScopes := GetScopes(ctx); len(moreScopes) > 0 {
 				scopes = append(scopes, moreScopes...)
 				scopes = CleanScopes(scopes)
@@ -228,7 +228,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	case SchemeBearer:
 		resp.Body.Close()
 
-		scopes := GetScopesPerHost(ctx, host)
+		scopes := GetScopesForHost(ctx, host)
 		cleanScopeLen := len(scopes)
 		if moreScopes := GetScopes(ctx); len(moreScopes) > 0 {
 			// merge per-host scopes with generic scopes

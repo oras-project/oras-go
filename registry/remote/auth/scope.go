@@ -76,7 +76,7 @@ func AppendScopeHints(ctx context.Context, ref registry.Reference, actions ...st
 		return ctx
 	}
 	scope := ScopeRepository(ref.Repository, actions...)
-	return AppendScopesPerHost(ctx, ref.Host(), scope)
+	return AppendScopesForHost(ctx, ref.Host(), scope)
 }
 
 // scopesContextKey is the context key for scopes.
@@ -123,10 +123,10 @@ func GetScopes(ctx context.Context) []string {
 	return nil
 }
 
-// scopesPerHostContextKey is the context key for per-host scopes.
-type scopesPerHostContextKey string
+// scopesForHostContextKey is the context key for per-host scopes.
+type scopesForHostContextKey string
 
-// WithScopesPerHost returns a context with per-host scopes added.
+// WithScopesForHost returns a context with per-host scopes added.
 // Scopes are de-duplicated.
 // Scopes are used as hints for the auth client to fetch bearer tokens with
 // larger scopes.
@@ -136,7 +136,7 @@ type scopesPerHostContextKey string
 // `repository:hello-world:pull`, and the auth client will fetch a token for
 // that challenge. Later, the POST request will return a challenge for scope
 // `repository:hello-world:push`, and the auth client will fetch a token for
-// that challenge again. By invoking WithScopesPerHost with the scope
+// that challenge again. By invoking WithScopesForHost with the scope
 // `repository:hello-world:pull,push`, the auth client with cache is hinted to
 // fetch a token via a single token fetch request for all the HEAD, POST, PUT
 // requests.
@@ -145,26 +145,26 @@ type scopesPerHostContextKey string
 // context for the given host.
 //
 // Reference: https://docs.docker.com/registry/spec/auth/scope/
-func WithScopesPerHost(ctx context.Context, host string, scopes ...string) context.Context {
+func WithScopesForHost(ctx context.Context, host string, scopes ...string) context.Context {
 	scopes = CleanScopes(scopes)
-	return context.WithValue(ctx, scopesPerHostContextKey(host), scopes)
+	return context.WithValue(ctx, scopesForHostContextKey(host), scopes)
 }
 
-// AppendScopesPerHost appends additional scopes to the existing scopes
+// AppendScopesForHost appends additional scopes to the existing scopes
 // in the context for the given host and returns a new context.
 // The resulted scopes are de-duplicated.
 // The append operation does modify the existing scope in the context passed in.
-func AppendScopesPerHost(ctx context.Context, host string, scopes ...string) context.Context {
+func AppendScopesForHost(ctx context.Context, host string, scopes ...string) context.Context {
 	if len(scopes) == 0 {
 		return ctx
 	}
-	oldScopes := GetScopesPerHost(ctx, host)
-	return WithScopesPerHost(ctx, host, append(oldScopes, scopes...)...)
+	oldScopes := GetScopesForHost(ctx, host)
+	return WithScopesForHost(ctx, host, append(oldScopes, scopes...)...)
 }
 
-// GetScopesPerHost returns the scopes in the context for the given host.
-func GetScopesPerHost(ctx context.Context, host string) []string {
-	if scopes, ok := ctx.Value(scopesPerHostContextKey(host)).([]string); ok {
+// GetScopesForHost returns the scopes in the context for the given host.
+func GetScopesForHost(ctx context.Context, host string) []string {
+	if scopes, ok := ctx.Value(scopesForHostContextKey(host)).([]string); ok {
 		return slices.Clone(scopes)
 	}
 	return nil

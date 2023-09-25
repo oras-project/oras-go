@@ -127,7 +127,7 @@ func (r *Registry) Ping(ctx context.Context) error {
 //
 // Reference: https://docs.docker.com/registry/spec/api/#catalog
 func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos []string) error) error {
-	ctx = auth.AppendScopesPerHost(ctx, r.Reference.Host(), auth.ScopeRegistryCatalog)
+	ctx = auth.AppendScopesForHost(ctx, r.Reference.Host(), auth.ScopeRegistryCatalog)
 	url := buildRegistryCatalogURL(r.PlainHTTP, r.Reference)
 	var err error
 	for err == nil {

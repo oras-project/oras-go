@@ -526,8 +526,8 @@ func TestClient_Do_Bearer_AccessToken_Cached_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesPerHost(ctx, uri1.Host, scope1)
-	ctx = WithScopesPerHost(ctx, uri2.Host, scope2)
+	ctx = WithScopesForHost(ctx, uri1.Host, scope1)
+	ctx = WithScopesForHost(ctx, uri2.Host, scope2)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -1066,8 +1066,8 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesPerHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesPerHost(ctx, uri2.Host, scopes2...)
+	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -1716,8 +1716,8 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesPerHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesPerHost(ctx, uri2.Host, scopes2...)
+	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -2330,8 +2330,8 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesPerHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesPerHost(ctx, uri2.Host, scopes2...)
+	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -2779,8 +2779,8 @@ func TestClient_Do_Token_Expire_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesPerHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesPerHost(ctx, uri2.Host, scopes2...)
+	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -3212,8 +3212,8 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesPerHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesPerHost(ctx, uri2.Host, scopes2...)
+	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
