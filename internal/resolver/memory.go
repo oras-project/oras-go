@@ -48,8 +48,8 @@ func (m *Memory) Tag(_ context.Context, desc ocispec.Descriptor, reference strin
 	return nil
 }
 
-// Delete removes a reference from index map.
-func (m *Memory) Delete(reference string) {
+// Untag removes a reference from index map.
+func (m *Memory) Untag(reference string) {
 	m.index.Delete(reference)
 }
 
