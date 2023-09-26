@@ -171,9 +171,9 @@ func GetScopesForHost(ctx context.Context, host string) []string {
 	return nil
 }
 
-// getAllScopesForHost returns the scopes in the context for the given host,
+// GetAllScopesForHost returns the scopes in the context for the given host,
 // including global scopes added by [WithScopes] and [AppendScopes].
-func getAllScopesForHost(ctx context.Context, host string) []string {
+func GetAllScopesForHost(ctx context.Context, host string) []string {
 	scopes := GetScopesForHost(ctx, host)
 	globalScopes := GetScopes(ctx)
 
@@ -183,7 +183,6 @@ func getAllScopesForHost(ctx context.Context, host string) []string {
 	if len(globalScopes) == 0 {
 		return scopes
 	}
-
 	// re-clean the scopes
 	allScopes := append(scopes, globalScopes...)
 	return CleanScopes(allScopes)

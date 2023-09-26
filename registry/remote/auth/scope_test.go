@@ -720,7 +720,7 @@ func Test_getAllScopesForHost(t *testing.T) {
 			ctx := context.Background()
 			ctx = WithScopesForHost(ctx, host, tt.scopes...)
 			ctx = WithScopes(ctx, tt.globalScopes...)
-			if got := getAllScopesForHost(ctx, host); !reflect.DeepEqual(got, tt.want) {
+			if got := GetAllScopesForHost(ctx, host); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("getAllScopesForHost() = %v, want %v", got, tt.want)
 			}
 		})
