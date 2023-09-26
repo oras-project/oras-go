@@ -7447,3 +7447,24 @@ func TestRepository_do(t *testing.T) {
 		t.Errorf("Repository.do() = %v, want %v", gotWarnings, wantWarnings)
 	}
 }
+
+func TestRepository_clone(t *testing.T) {
+	repo, err := NewRepository("localhost:1234/repo/image")
+	if err != nil {
+		t.Fatalf("invalid repository: %v", err)
+	}
+
+	crepo := repo.clone()
+
+	if repo.Reference != crepo.Reference {
+		t.Fatal("references should be the same")
+	}
+
+	if !reflect.DeepEqual(&repo.referrersPingLock, &crepo.referrersPingLock) {
+		t.Fatal("referrersPingLock should be different")
+	}
+
+	if !reflect.DeepEqual(&repo.referrersMergePool, &crepo.referrersMergePool) {
+		t.Fatal("referrersMergePool should be different")
+	}
+}
