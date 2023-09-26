@@ -57,8 +57,8 @@ func ScopeRepository(repository string, actions ...string) string {
 	}, ":")
 }
 
-// AppendScopeHints returns a new context containing scope hints for the auth
-// client to fetch bearer tokens with the given actions on the repository.
+// AppendRepositoryScope returns a new context containing scope hints for the
+// auth client to fetch bearer tokens with the given actions on the repository.
 // If called multiple times, the new scopes will be appended to the existing
 // scopes. The resulted scopes are de-duplicated.
 //
@@ -67,11 +67,11 @@ func ScopeRepository(repository string, actions ...string) string {
 // `repository:hello-world:pull`, and the auth client will fetch a token for
 // that challenge. Later, the POST request will return a challenge for scope
 // `repository:hello-world:push`, and the auth client will fetch a token for
-// that challenge again. By invoking AppendScopeHints with the actions
+// that challenge again. By invoking AppendRepositoryScope with the actions
 // [ActionPull] and [ActionPush] for the repository `hello-world`,
 // the auth client with cache is hinted to fetch a token via a single token
 // fetch request for all the HEAD, POST, PUT requests.
-func AppendScopeHints(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
+func AppendRepositoryScope(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
 	if len(actions) == 0 {
 		return ctx
 	}
@@ -177,16 +177,16 @@ func getAllScopesForHost(ctx context.Context, host string) []string {
 	scopes := GetScopesForHost(ctx, host)
 	globalScopes := GetScopes(ctx)
 
-	switch {
-	case len(scopes) == 0:
+	if len(scopes) == 0 {
 		return globalScopes
-	case len(globalScopes) == 0:
-		return scopes
-	default:
-		// re-clean the scopes
-		allScopes := append(scopes, globalScopes...)
-		return CleanScopes(allScopes)
 	}
+	if len(globalScopes) == 0 {
+		return scopes
+	}
+
+	// re-clean the scopes
+	allScopes := append(scopes, globalScopes...)
+	return CleanScopes(allScopes)
 }
 
 // CleanScopes merges and sort the actions in ascending order if the scopes have
