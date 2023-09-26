@@ -103,9 +103,9 @@ func (m *DeletableMemory) Predecessors(_ context.Context, node ocispec.Descripto
 
 // Remove removes the node from its predecessors and successors.
 func (m *DeletableMemory) Remove(ctx context.Context, node ocispec.Descriptor) error {
-	nodeKey := descriptor.FromOCI(node)
 	m.lock.Lock()
 	defer m.lock.Unlock()
+	nodeKey := descriptor.FromOCI(node)
 	// remove the node from its successors' predecessor list
 	for successorKey := range m.successors[nodeKey] {
 		m.predecessors[successorKey].Delete(nodeKey)
