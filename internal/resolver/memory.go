@@ -48,6 +48,11 @@ func (m *Memory) Tag(_ context.Context, desc ocispec.Descriptor, reference strin
 	return nil
 }
 
+// Untag removes a reference from index map.
+func (m *Memory) Untag(reference string) {
+	m.index.Delete(reference)
+}
+
 // Map dumps the memory into a built-in map structure.
 // Like other operations, calling Map() is go-routine safe. However, it does not
 // necessarily correspond to any consistent snapshot of the storage contents.
