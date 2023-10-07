@@ -377,3 +377,39 @@ func TestStorage_Fetch_Concurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestStorage_Delete(t *testing.T) {
+	content := []byte("test delete")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	tempDir := t.TempDir()
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+	if err := s.Push(ctx, desc, bytes.NewReader(content)); err != nil {
+		t.Fatal("Storage.Push() error =", err)
+	}
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Storage.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Storage.Exists() = %v, want %v", exists, true)
+	}
+	err = s.Delete(ctx, desc)
+	if err != nil {
+		t.Fatal("Storage.Delete() error =", err)
+	}
+	exists, err = s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Storage.Exists() error =", err)
+	}
+	if exists {
+		t.Errorf("Storage.Exists() = %v, want %v", exists, false)
+	}
+}
