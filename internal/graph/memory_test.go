@@ -47,7 +47,7 @@ C(layer)                  D(layer)
 */
 func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 	testFetcher := cas.NewMemory()
-	testDeletableMemory := NewDeletableMemory()
+	testDeletableMemory := NewMemory()
 	ctx := context.Background()
 
 	// generate test content
@@ -203,7 +203,7 @@ B(manifest)   C(manifest) D(manifest)
 */
 func TestDeletableMemory_IndexAllAndPredecessors(t *testing.T) {
 	testFetcher := cas.NewMemory()
-	testDeletableMemory := NewDeletableMemory()
+	testDeletableMemory := NewMemory()
 	ctx := context.Background()
 
 	// generate test content
