@@ -123,11 +123,11 @@ func TestReadOnlyStore(t *testing.T) {
 	// build fs
 	fsys := fstest.MapFS{}
 	for i, desc := range descs {
-		path := strings.Join([]string{ociBlobsDir, desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
+		path := strings.Join([]string{"blobs", desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
 		fsys[path] = &fstest.MapFile{Data: blobs[i]}
 	}
 	fsys[ocispec.ImageLayoutFile] = &fstest.MapFile{Data: layoutJSON}
-	fsys[ociImageIndexFile] = &fstest.MapFile{Data: indexJSON}
+	fsys["index.json"] = &fstest.MapFile{Data: indexJSON}
 
 	// test read-only store
 	ctx := context.Background()
@@ -507,7 +507,7 @@ func TestReadOnlyStore_TarFS(t *testing.T) {
 func TestReadOnlyStore_BadIndex(t *testing.T) {
 	content := []byte("whatever")
 	fsys := fstest.MapFS{
-		ociImageIndexFile: &fstest.MapFile{Data: content},
+		"index.json": &fstest.MapFile{Data: content},
 	}
 
 	ctx := context.Background()
@@ -603,11 +603,11 @@ func TestReadOnlyStore_Copy_OCIToMemory(t *testing.T) {
 	// build fs
 	fsys := fstest.MapFS{}
 	for i, desc := range descs {
-		path := strings.Join([]string{ociBlobsDir, desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
+		path := strings.Join([]string{"blobs", desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
 		fsys[path] = &fstest.MapFile{Data: blobs[i]}
 	}
 	fsys[ocispec.ImageLayoutFile] = &fstest.MapFile{Data: layoutJSON}
-	fsys[ociImageIndexFile] = &fstest.MapFile{Data: indexJSON}
+	fsys["index.json"] = &fstest.MapFile{Data: indexJSON}
 
 	// test read-only store
 	ctx := context.Background()
@@ -717,11 +717,11 @@ func TestReadOnlyStore_Tags(t *testing.T) {
 	// build fs
 	fsys := fstest.MapFS{}
 	for i, desc := range descs {
-		path := strings.Join([]string{ociBlobsDir, desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
+		path := strings.Join([]string{"blobs", desc.Digest.Algorithm().String(), desc.Digest.Encoded()}, "/")
 		fsys[path] = &fstest.MapFile{Data: blobs[i]}
 	}
 	fsys[ocispec.ImageLayoutFile] = &fstest.MapFile{Data: layoutJSON}
-	fsys[ociImageIndexFile] = &fstest.MapFile{Data: indexJSON}
+	fsys["index.json"] = &fstest.MapFile{Data: indexJSON}
 
 	// test read-only store
 	ctx := context.Background()
