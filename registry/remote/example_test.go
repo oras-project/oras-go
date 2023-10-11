@@ -40,18 +40,20 @@ import (
 )
 
 const (
-	exampleRepositoryName                 = "example"
-	exampleTag                            = "latest"
-	exampleConfig                         = "Example config content"
-	exampleLayer                          = "Example layer content"
-	exampleUploadUUid                     = "0bc84d80-837c-41d9-824e-1907463c53b3"
-	ManifestDigest                        = "sha256:0b696106ecd0654e031f19e0a8cbd1aee4ad457d7c9cea881f07b12a930cd307"
-	ReferenceManifestDigest               = "sha256:6983f495f7ee70d43e571657ae8b39ca3d3ca1b0e77270fd4fbddfb19832a1cf"
+	_                     = ExampleUnplayable
+	exampleRepositoryName = "example"
+	exampleTag            = "latest"
+	exampleConfig         = "Example config content"
+	exampleLayer          = "Example layer content"
+	exampleUploadUUid     = "0bc84d80-837c-41d9-824e-1907463c53b3"
+	// For ExampleRepository_Push_artifactReferenceManifest:
+	ManifestDigest          = "sha256:a3f9d449466b9b7194c3a76ca4890d792e11eb4e62e59aa8b4c3cce0a56f129d"
+	ReferenceManifestDigest = "sha256:2d30397701742b04550891851529abe6b071e4fae920a91897d34612662a3bf6"
+	// For Example_pushAndIgnoreReferrersIndexError:
 	referrersAPIUnavailableRepositoryName = "no-referrers-api"
-	referrerDigest                        = "sha256:21c623eb8ccd273f2702efd74a0abb455dd06a99987f413c2114fb00961ebfe7"
+	referrerDigest                        = "sha256:4caba1e18385eb152bd92e9fee1dc01e47c436e594123b3c2833acfcad9883e2"
 	referrersTag                          = "sha256-c824a9aa7d2e3471306648c6d4baa1abbcb97ff0276181ab4722ca27127cdba0"
 	referrerIndexDigest                   = "sha256:7baac5147dd58d56fdbaad5a888fa919235a3a90cb71aaa8b56ee5d19f4cd838"
-	_                                     = ExampleUnplayable
 )
 
 var (
@@ -107,8 +109,10 @@ var (
 		Size:         int64(len(exampleManifestWithBlobs))}
 	subjectDescriptor          = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, []byte(`{"layers":[]}`))
 	referrerManifestContent, _ = json.Marshal(ocispec.Manifest{
+		Versioned: specs.Versioned{SchemaVersion: 2},
 		MediaType: ocispec.MediaTypeImageManifest,
 		Subject:   &subjectDescriptor,
+		Config:    ocispec.DescriptorEmptyJSON,
 	})
 	referrerDescriptor = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, referrerManifestContent)
 	referrerIndex, _   = json.Marshal(ocispec.Index{
@@ -304,7 +308,11 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 
 	// 1. assemble the referenced artifact manifest
 	manifest := ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
 		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, []byte("config bytes")),
 	}
 	manifestContent, err := json.Marshal(manifest)
 	if err != nil {
