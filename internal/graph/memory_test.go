@@ -29,25 +29,23 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 )
 
-/*
-A(manifest)-------------------+
-
-	|                         |
-	|                         |
-	|                         |
-	v                         |
-
-B(manifest)-----------------+ |
-
-	|                       | |
-	|                       | |
-	v                       v v
-
-C(layer)                  D(layer)
-*/
+// A(manifest)-------------------+
+//
+//	|                         |
+//	|                         |
+//	|                         |
+//	v                         |
+//
+// B(manifest)-----------------+ |
+//
+//	|                       | |
+//	|                       | |
+//	v                       v v
+//
+// C(layer)                  D(layer)
 func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 	testFetcher := cas.NewMemory()
-	testDeletableMemory := NewMemory()
+	testMemory := NewMemory()
 	ctx := context.Background()
 
 	// generate test content
@@ -64,6 +62,7 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 	}
 	generateManifest := func(layers ...ocispec.Descriptor) ocispec.Descriptor {
 		manifest := ocispec.Manifest{
+			Config: ocispec.Descriptor{MediaType: "test config"},
 			Layers: layers,
 		}
 		manifestJSON, err := json.Marshal(manifest)
@@ -76,10 +75,12 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 	descD := appendBlob("layer node D", []byte("Node D is a layer")) // blobs[1], layer "D"
 	descB := generateManifest(descs[0:2]...)                         // blobs[2], manifest "B"
 	descA := generateManifest(descs[1:3]...)                         // blobs[3], manifest "A"
-	testFetcher.Push(ctx, descA, bytes.NewReader(blobs[3]))
-	testFetcher.Push(ctx, descB, bytes.NewReader(blobs[2]))
-	testFetcher.Push(ctx, descC, bytes.NewReader(blobs[0]))
-	testFetcher.Push(ctx, descD, bytes.NewReader(blobs[1]))
+
+	// prepare the content in the fetcher, so that it can be used to test Index.
+	testContents := []ocispec.Descriptor{descC, descD, descB, descA}
+	for i := 0; i < len(blobs); i++ {
+		testFetcher.Push(ctx, testContents[i], bytes.NewReader(blobs[i]))
+	}
 
 	// make sure that testFetcher works
 	rc, err := testFetcher.Fetch(ctx, descA)
@@ -98,70 +99,97 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 		t.Errorf("testFetcher.Fetch() = %v, want %v", got, blobs[4])
 	}
 
-	// index test content into graph.DeletableMemory
-	testDeletableMemory.Index(ctx, testFetcher, descA)
-	testDeletableMemory.Index(ctx, testFetcher, descB)
-	testDeletableMemory.Index(ctx, testFetcher, descC)
-	testDeletableMemory.Index(ctx, testFetcher, descD)
-
-	// check that the content of testDeletableMemory.predecessors and successors
-	// are correct
 	nodeKeyA := descriptor.FromOCI(descA)
 	nodeKeyB := descriptor.FromOCI(descB)
 	nodeKeyC := descriptor.FromOCI(descC)
 	nodeKeyD := descriptor.FromOCI(descD)
 
-	// check the information of node A
-	predecessorsA := testDeletableMemory.predecessors[nodeKeyA]
-	successorsA := testDeletableMemory.successors[nodeKeyA]
-	for range predecessorsA {
-		t.Errorf("predecessors of %s should be empty", "A")
+	// index and check the information of node D
+	testMemory.Index(ctx, testFetcher, descD)
+	successorsD := testMemory.successors[nodeKeyD]
+	for range successorsD {
+		t.Errorf("successors of %s should be empty", "C")
 	}
+	// there should be no entry of D in testMemory.predecessors yet.
+	_, exist := testMemory.predecessors[nodeKeyD]
+	if exist {
+		t.Errorf("predecessor entry of %s should not exist yet", "D")
+	}
+
+	// index and check the information of node C
+	testMemory.Index(ctx, testFetcher, descC)
+	successorsC := testMemory.successors[nodeKeyC]
+	for range successorsC {
+		t.Errorf("successors of %s should be empty", "C")
+	}
+	// there should be no entry of C in testMemory.predecessors yet.
+	_, exist = testMemory.predecessors[nodeKeyC]
+	if exist {
+		t.Errorf("predecessor entry of %s should not exist yet", "C")
+	}
+
+	// index and check the information of node A
+	testMemory.Index(ctx, testFetcher, descA)
+	successorsA := testMemory.successors[nodeKeyA]
 	if !successorsA.Contains(nodeKeyB) {
 		t.Errorf("successors of %s should contain %s", "A", "B")
 	}
 	if !successorsA.Contains(nodeKeyD) {
 		t.Errorf("successors of %s should contain %s", "A", "D")
 	}
-
-	// check the information of node B
-	predecessorsB := testDeletableMemory.predecessors[nodeKeyB]
-	successorsB := testDeletableMemory.successors[nodeKeyB]
-	if !predecessorsB.Contains(nodeKeyA) {
-		t.Errorf("predecessors of %s should contain %s", "B", "A")
+	// there should be no entry of A in testMemory.predecessors.
+	_, exist = testMemory.predecessors[nodeKeyA]
+	if exist {
+		t.Errorf("predecessor entry of %s should not exist", "A")
 	}
+	// there should be an entry of D in testMemory.predecessors
+	// and it should contain A.
+	predecessorsD, exist := testMemory.predecessors[nodeKeyD]
+	if !exist {
+		t.Errorf("predecessor entry of %s should exist now", "D")
+	}
+	if !predecessorsD.Contains(nodeKeyA) {
+		t.Errorf("predecessors of %s should contain %s", "D", "A")
+	}
+
+	// index and check the information of node B
+	testMemory.Index(ctx, testFetcher, descB)
+	successorsB := testMemory.successors[nodeKeyB]
 	if !successorsB.Contains(nodeKeyC) {
 		t.Errorf("successors of %s should contain %s", "B", "C")
 	}
 	if !successorsB.Contains(nodeKeyD) {
 		t.Errorf("successors of %s should contain %s", "B", "D")
 	}
-
-	// check the information of node C
-	predecessorsC := testDeletableMemory.predecessors[nodeKeyC]
-	successorsC := testDeletableMemory.successors[nodeKeyC]
+	// there should be an entry of B in testMemory.predecessors
+	// and it should contain A.
+	predecessorsB, exist := testMemory.predecessors[nodeKeyB]
+	if !exist {
+		t.Errorf("predecessor entry of %s should exist already", "B")
+	}
+	if !predecessorsB.Contains(nodeKeyA) {
+		t.Errorf("predecessors of %s should contain %s", "B", "A")
+	}
+	// there should be an entry of C in testMemory.predecessors
+	// and it should contain B.
+	predecessorsC, exist := testMemory.predecessors[nodeKeyC]
+	if !exist {
+		t.Errorf("predecessor entry of %s should exist now", "C")
+	}
 	if !predecessorsC.Contains(nodeKeyB) {
 		t.Errorf("predecessors of %s should contain %s", "C", "B")
 	}
-	for range successorsC {
-		t.Errorf("successors of %s should be empty", "C")
-	}
 
-	// check the information of node D
-	predecessorsD := testDeletableMemory.predecessors[nodeKeyD]
-	successorsD := testDeletableMemory.successors[nodeKeyD]
+	// predecessors of D should have been updated now
 	if !predecessorsD.Contains(nodeKeyB) {
 		t.Errorf("predecessors of %s should contain %s", "D", "B")
 	}
 	if !predecessorsD.Contains(nodeKeyA) {
 		t.Errorf("predecessors of %s should contain %s", "D", "A")
 	}
-	for range successorsD {
-		t.Errorf("successors of %s should be empty", "C")
-	}
 
 	// remove node B and check the stored information
-	testDeletableMemory.Remove(ctx, descB)
+	testMemory.Remove(ctx, descB)
 	if predecessorsC.Contains(nodeKeyB) {
 		t.Errorf("predecessors of %s should not contain %s", "C", "B")
 	}
@@ -171,16 +199,16 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 	if !successorsA.Contains(nodeKeyB) {
 		t.Errorf("successors of %s should still contain %s", "A", "B")
 	}
-	if _, exists := testDeletableMemory.successors[nodeKeyB]; exists {
+	if _, exists := testMemory.successors[nodeKeyB]; exists {
 		t.Errorf("testDeletableMemory.successors should not contain the entry of %v", "B")
 	}
 
 	// remove node A and check the stored information
-	testDeletableMemory.Remove(ctx, descA)
+	testMemory.Remove(ctx, descA)
 	if predecessorsD.Contains(nodeKeyA) {
 		t.Errorf("predecessors of %s should not contain %s", "D", "A")
 	}
-	if _, exists := testDeletableMemory.successors[nodeKeyA]; exists {
+	if _, exists := testMemory.successors[nodeKeyA]; exists {
 		t.Errorf("testDeletableMemory.successors should not contain the entry of %v", "A")
 	}
 }
@@ -192,10 +220,7 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 |             |           |
 |             |           |
 v             v           v
-B(manifest)   C(manifest) D(manifest)
-|             |           |
-|             |           |
-|             |           |
+B(manifest)   C(manifest) D (manifest)
 |             |           |
 |             |           |
 |             |           v

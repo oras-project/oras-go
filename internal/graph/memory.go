@@ -89,6 +89,7 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
+
 	key := descriptor.FromOCI(node)
 	set, exists := m.predecessors[key]
 	if !exists {
@@ -105,6 +106,7 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
+
 	nodeKey := descriptor.FromOCI(node)
 	// remove the node from its successors' predecessor list
 	for successorKey := range m.successors[nodeKey] {
