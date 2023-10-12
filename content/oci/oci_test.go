@@ -109,7 +109,7 @@ func TestStore_Success(t *testing.T) {
 	}
 
 	// validate index.json
-	indexFilePath := filepath.Join(tempDir, ociImageIndexFile)
+	indexFilePath := filepath.Join(tempDir, "index.json")
 	indexFile, err := os.Open(indexFilePath)
 	if err != nil {
 		t.Errorf("error opening layout file, error = %v", err)
@@ -361,7 +361,7 @@ func TestStore_NotExistingRoot(t *testing.T) {
 	}
 
 	// validate index.json
-	indexFilePath := filepath.Join(root, ociImageIndexFile)
+	indexFilePath := filepath.Join(root, "index.json")
 	indexFile, err := os.Open(indexFilePath)
 	if err != nil {
 		t.Errorf("error opening layout file, error = %v", err)
@@ -930,7 +930,7 @@ func TestStore_TagByDigest(t *testing.T) {
 func TestStore_BadIndex(t *testing.T) {
 	tempDir := t.TempDir()
 	content := []byte("whatever")
-	path := filepath.Join(tempDir, ociImageIndexFile)
+	path := filepath.Join(tempDir, "index.json")
 	os.WriteFile(path, content, 0666)
 
 	_, err := New(tempDir)
