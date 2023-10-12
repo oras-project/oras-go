@@ -289,7 +289,7 @@ func TestStorage_Fetch_ExistingBlobs(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	path := filepath.Join(tempDir, ociBlobsDir, dgst.Algorithm().String(), dgst.Encoded())
+	path := filepath.Join(tempDir, "blobs", dgst.Algorithm().String(), dgst.Encoded())
 	if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
 		t.Fatal("error calling Mkdir(), error =", err)
 	}
