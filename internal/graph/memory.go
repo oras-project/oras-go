@@ -112,8 +112,11 @@ func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) error {
 	for successorKey := range m.successors[nodeKey] {
 		predecessorEntry := m.predecessors[successorKey]
 		predecessorEntry.Delete(nodeKey)
-		// remove the successorKey entry from predecessors, if it's an empty set
-		// i.e. if all its predecessors are already deleted
+		// remove the successorKey entry from m. predecessors, if it's an empty set.
+		// To it another way, if all its predecessors are already deleted, then we
+		// delete the entry in m.predecessors. In any of its predecessors still exists,
+		// the entry is NOT deleted. The presence of the predecessors entry depends on
+		// the status of all predecessors of the node.
 		if len(predecessorEntry) == 0 {
 			delete(m.predecessors, successorKey)
 		}
