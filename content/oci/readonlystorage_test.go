@@ -38,7 +38,7 @@ func TestReadOnlyStorage_Exists(t *testing.T) {
 	dgst := digest.FromBytes(blob)
 	desc := content.NewDescriptorFromBytes("", blob)
 	fsys := fstest.MapFS{
-		strings.Join([]string{ociBlobsDir, dgst.Algorithm().String(), dgst.Encoded()}, "/"): {},
+		strings.Join([]string{"blobs", dgst.Algorithm().String(), dgst.Encoded()}, "/"): {},
 	}
 	s := NewStorageFromFS(fsys)
 	ctx := context.Background()
@@ -76,7 +76,7 @@ func TestReadOnlyStorage_Fetch(t *testing.T) {
 	dgst := digest.FromBytes(blob)
 	desc := content.NewDescriptorFromBytes("", blob)
 	fsys := fstest.MapFS{
-		strings.Join([]string{ociBlobsDir, dgst.Algorithm().String(), dgst.Encoded()}, "/"): {
+		strings.Join([]string{"blobs", dgst.Algorithm().String(), dgst.Encoded()}, "/"): {
 			Data: blob,
 		},
 	}
@@ -123,7 +123,7 @@ func TestReadOnlyStorage_DirFS(t *testing.T) {
 	dgst := digest.FromBytes(blob)
 	desc := content.NewDescriptorFromBytes("test", blob)
 	// write blob to disk
-	path := filepath.Join(tempDir, ociBlobsDir, dgst.Algorithm().String(), dgst.Encoded())
+	path := filepath.Join(tempDir, "blobs", dgst.Algorithm().String(), dgst.Encoded())
 	if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
 		t.Fatal("error calling Mkdir(), error =", err)
 	}
