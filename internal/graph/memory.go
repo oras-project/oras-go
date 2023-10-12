@@ -119,6 +119,7 @@ func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) error {
 		}
 	}
 	delete(m.successors, nodeKey)
+	delete(m.nodes, nodeKey)
 	return nil
 }
 
