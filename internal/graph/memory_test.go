@@ -29,20 +29,25 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 )
 
-// A(manifest)-------------------+
-//
-//	|                         |
-//	|                         |
-//	|                         |
-//	v                         |
-//
-// B(manifest)-----------------+ |
-//
-//	|                       | |
-//	|                       | |
-//	v                       v v
-//
-// C(layer)                  D(layer)
+// +------------------------------+
+// |                              |
+// |  +-----------+               |
+// |  |A(manifest)|               |
+// |  +-----+-----+               |
+// |        |                     |
+// |        +------------+        |
+// |        |            |        |
+// |        v            v        |
+// |  +-----+-----+  +---+----+   |
+// |  |B(manifest)|  |C(layer)|   |
+// |  +-----+-----+  +--------+   |
+// |        |                     |
+// |        v                     |
+// |    +---+----+                |
+// |    |D(layer)|                |
+// |    +--------+                |
+// |                              |
+// |------------------------------+
 func TestMemory_IndexAndRemove(t *testing.T) {
 	testFetcher := cas.NewMemory()
 	testMemory := NewMemory()
@@ -300,19 +305,25 @@ func TestMemory_IndexAndRemove(t *testing.T) {
 	}
 }
 
-/*
-+---------A(index)--------+
-|             |           |
-|             |           |
-|             |           |
-|             |           |
-v             v           v
-B(manifest)   C(manifest) D (manifest)
-|             |           |
-|             |           |
-|             |           v
-+-->E(layer)<-+------->F(layer)
-*/
+// +-----------------------------------------------+
+// |                                               |
+// |                   +--------+                  |
+// |                   |A(index)|                  |
+// |                   +---+----+                  |
+// |                       |                       |
+// |       -+--------------+--------------+-       |
+// |        |              |              |        |
+// |  +-----v-----+  +-----v-----+  +-----v-----+  |
+// |  |B(manifest)|  |C(manifest)|  |D(manifest)|  |
+// |  +--------+--+  ++---------++  +--+--------+  |
+// |           |      |         |      |           |
+// |           |      |         |      |           |
+// |           v      v         v      v           |
+// |          ++------++       ++------++          |
+// |          |E(layer)|       |F(layer)|          |
+// |          +--------+       +--------+          |
+// |                                               |
+// +-----------------------------------------------+
 func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 	testFetcher := cas.NewMemory()
 	testMemory := NewMemory()
