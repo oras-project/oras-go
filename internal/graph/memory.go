@@ -110,7 +110,13 @@ func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) error {
 	nodeKey := descriptor.FromOCI(node)
 	// remove the node from its successors' predecessor list
 	for successorKey := range m.successors[nodeKey] {
-		m.predecessors[successorKey].Delete(nodeKey)
+		predecessorEntry := m.predecessors[successorKey]
+		predecessorEntry.Delete(nodeKey)
+		// remove the successorKey entry from predecessors, if it's an empty set
+		// i.e. if all its predecessors are already deleted
+		if len(predecessorEntry) == 0 {
+			delete(m.predecessors, successorKey)
+		}
 	}
 	delete(m.successors, nodeKey)
 	return nil
@@ -129,7 +135,8 @@ func (m *Memory) index(ctx context.Context, fetcher content.Fetcher, node ocispe
 	nodeKey := descriptor.FromOCI(node)
 	m.nodes[nodeKey] = node
 
-	// index the successors and predecessors
+	// for each successor, put it into the node's successors list, and
+	// put node into the succeesor's predecessors list
 	successorSet := set.New[descriptor.Descriptor]()
 	m.successors[nodeKey] = successorSet
 	for _, successor := range successors {

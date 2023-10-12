@@ -106,19 +106,31 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 
 	// index and check the information of node D
 	testMemory.Index(ctx, testFetcher, descD)
-	successorsD := testMemory.successors[nodeKeyD]
+	successorsD, exist := testMemory.successors[nodeKeyD]
+	if !exist {
+		t.Errorf("successor entry of %s should exist", "D")
+	}
+	if successorsD == nil {
+		t.Errorf("successors of %s should not be nil", "D")
+	}
 	for range successorsD {
 		t.Errorf("successors of %s should be empty", "C")
 	}
 	// there should be no entry of D in testMemory.predecessors yet.
-	_, exist := testMemory.predecessors[nodeKeyD]
+	_, exist = testMemory.predecessors[nodeKeyD]
 	if exist {
 		t.Errorf("predecessor entry of %s should not exist yet", "D")
 	}
 
 	// index and check the information of node C
 	testMemory.Index(ctx, testFetcher, descC)
-	successorsC := testMemory.successors[nodeKeyC]
+	successorsC, exist := testMemory.successors[nodeKeyC]
+	if !exist {
+		t.Errorf("successor entry of %s should exist", "C")
+	}
+	if successorsC == nil {
+		t.Errorf("successors of %s should not be nil", "C")
+	}
 	for range successorsC {
 		t.Errorf("successors of %s should be empty", "C")
 	}
@@ -142,14 +154,26 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 	if exist {
 		t.Errorf("predecessor entry of %s should not exist", "A")
 	}
-	// there should be an entry of D in testMemory.predecessors
-	// and it should contain A.
+	// there should be an entry of D in testMemory.predecessors by now
+	// and it should contain A but not B.
 	predecessorsD, exist := testMemory.predecessors[nodeKeyD]
 	if !exist {
-		t.Errorf("predecessor entry of %s should exist now", "D")
+		t.Errorf("predecessor entry of %s should exist by now", "D")
 	}
 	if !predecessorsD.Contains(nodeKeyA) {
 		t.Errorf("predecessors of %s should contain %s", "D", "A")
+	}
+	if predecessorsD.Contains(nodeKeyB) {
+		t.Errorf("predecessors of %s should not contain %s yet", "D", "B")
+	}
+	// there should be an entry of B in testMemory.predecessors now
+	// and it should contain A.
+	predecessorsB, exist := testMemory.predecessors[nodeKeyB]
+	if !exist {
+		t.Errorf("predecessor entry of %s should exist by now", "B")
+	}
+	if !predecessorsB.Contains(nodeKeyA) {
+		t.Errorf("predecessors of %s should contain %s", "B", "A")
 	}
 
 	// index and check the information of node B
@@ -161,26 +185,16 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 	if !successorsB.Contains(nodeKeyD) {
 		t.Errorf("successors of %s should contain %s", "B", "D")
 	}
-	// there should be an entry of B in testMemory.predecessors
-	// and it should contain A.
-	predecessorsB, exist := testMemory.predecessors[nodeKeyB]
-	if !exist {
-		t.Errorf("predecessor entry of %s should exist already", "B")
-	}
-	if !predecessorsB.Contains(nodeKeyA) {
-		t.Errorf("predecessors of %s should contain %s", "B", "A")
-	}
-	// there should be an entry of C in testMemory.predecessors
+	// there should be an entry of C in testMemory.predecessors by now
 	// and it should contain B.
 	predecessorsC, exist := testMemory.predecessors[nodeKeyC]
 	if !exist {
-		t.Errorf("predecessor entry of %s should exist now", "C")
+		t.Errorf("predecessor entry of %s should exist by now", "C")
 	}
 	if !predecessorsC.Contains(nodeKeyB) {
 		t.Errorf("predecessors of %s should contain %s", "C", "B")
 	}
-
-	// predecessors of D should have been updated now
+	// predecessors of D should have been updated now.
 	if !predecessorsD.Contains(nodeKeyB) {
 		t.Errorf("predecessors of %s should contain %s", "D", "B")
 	}
@@ -190,26 +204,51 @@ func TestDeletableMemory_IndexAndRemove(t *testing.T) {
 
 	// remove node B and check the stored information
 	testMemory.Remove(ctx, descB)
-	if predecessorsC.Contains(nodeKeyB) {
-		t.Errorf("predecessors of %s should not contain %s", "C", "B")
+	// verify B' predecessors info: B's entry in testMemory.predecessors should
+	// still exist, since its predecessor A still exists
+	predecessorsB, exists := testMemory.predecessors[nodeKeyB]
+	if !exists {
+		t.Errorf("testDeletableMemory.predecessors should still contain the entry of %v", "B")
+	}
+	if !predecessorsB.Contains(nodeKeyA) {
+		t.Errorf("predecessors of %s should still contain %s", "B", "A")
+	}
+	// verify B' successors info: B's entry in testMemory.successors should no
+	// longer exist
+	if _, exists := testMemory.successors[nodeKeyB]; exists {
+		t.Errorf("testDeletableMemory.successors should not contain the entry of %v", "B")
+	}
+	// verify B' predecessors' successors info: B should still exist in A's
+	// successors
+	if !successorsA.Contains(nodeKeyB) {
+		t.Errorf("successors of %s should still contain %s", "A", "B")
+	}
+	// verify B' successors' predecessors info: C's entry in testMemory.predecessors
+	// should no longer exist, since C's only predecessor B is already deleted.
+	// B should no longer exist in D's predecessors.
+	if _, exists = testMemory.predecessors[nodeKeyC]; exists {
+		t.Errorf("predecessor entry of %s should no longer exist by now, since all its predecessors have been deleted", "C")
 	}
 	if predecessorsD.Contains(nodeKeyB) {
 		t.Errorf("predecessors of %s should not contain %s", "D", "B")
 	}
-	if !successorsA.Contains(nodeKeyB) {
-		t.Errorf("successors of %s should still contain %s", "A", "B")
-	}
-	if _, exists := testMemory.successors[nodeKeyB]; exists {
-		t.Errorf("testDeletableMemory.successors should not contain the entry of %v", "B")
-	}
 
 	// remove node A and check the stored information
 	testMemory.Remove(ctx, descA)
-	if predecessorsD.Contains(nodeKeyA) {
-		t.Errorf("predecessors of %s should not contain %s", "D", "A")
-	}
+	// verify A' successors info: A's entry in testMemory.successors should no
+	// longer exist
 	if _, exists := testMemory.successors[nodeKeyA]; exists {
 		t.Errorf("testDeletableMemory.successors should not contain the entry of %v", "A")
+	}
+	// verify A' successors' predecessors info: D's entry in testMemory.predecessors
+	// should no longer exist, since all predecessors of D are already deleted.
+	// B's entry in testMemory.predecessors should no longer exist, since B's only
+	// predecessor A is already deleted.
+	if _, exists = testMemory.predecessors[nodeKeyD]; exists {
+		t.Errorf("predecessor entry of %s should no longer exist by now, since all its predecessors have been deleted", "D")
+	}
+	if _, exists = testMemory.predecessors[nodeKeyC]; exists {
+		t.Errorf("predecessor entry of %s should no longer exist by now, since all its predecessors have been deleted", "C")
 	}
 }
 
