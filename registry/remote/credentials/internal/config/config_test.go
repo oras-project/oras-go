@@ -180,6 +180,72 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 	}
 }
 
+func TestConfig_GetCredential_legacyConfig(t *testing.T) {
+	cfg, err := Load("../../testdata/legacy_auths_config.json")
+	if err != nil {
+		t.Fatal("Load() error =", err)
+	}
+
+	tests := []struct {
+		name          string
+		serverAddress string
+		want          auth.Credential
+		wantErr       bool
+	}{
+		{
+			serverAddress: "registry1.example.com",
+			want: auth.Credential{
+				Username: "username1",
+				Password: "password1",
+			},
+		},
+		{
+			serverAddress: "registry2.example.com",
+			want: auth.Credential{
+				Username: "username2",
+				Password: "password2",
+			},
+		},
+		{
+			serverAddress: "registry3.example.com",
+			want: auth.Credential{
+				Username: "username3",
+				Password: "password3",
+			},
+		},
+		{
+			serverAddress: "registry4.example.com",
+			want: auth.Credential{
+				Username: "username4",
+				Password: "password4",
+			},
+		},
+		{
+			serverAddress: "registry5.example.com",
+			want: auth.Credential{
+				Username: "username5",
+				Password: "password5",
+			},
+		},
+		{
+			serverAddress: "registry6.example.com",
+			want:          auth.EmptyCredential,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := cfg.GetCredential(tt.serverAddress)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Config.GetCredential() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Config.GetCredential() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestConfig_GetCredential_invalidConfig(t *testing.T) {
 	cfg, err := Load("../../testdata/invalid_auths_entry_config.json")
 	if err != nil {
