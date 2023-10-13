@@ -201,6 +201,19 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 			},
 		},
 		{
+			name:          "Another entry for the same address matched",
+			serverAddress: "https://registry1.example.com/",
+			want: auth.Credential{
+				Username: "foo",
+				Password: "bar",
+			},
+		},
+		{
+			name:          "Address with different scheme unmached",
+			serverAddress: "http://registry1.example.com/",
+			want:          auth.EmptyCredential,
+		},
+		{
 			name:          "Address with http prefix matched",
 			serverAddress: "registry2.example.com",
 			want: auth.Credential{
@@ -239,11 +252,6 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 				Username: "username6",
 				Password: "password6",
 			},
-		},
-		{
-			name:          "Reverse won't work",
-			serverAddress: "https://registry1.example.com/",
-			want:          auth.EmptyCredential,
 		},
 	}
 	for _, tt := range tests {
