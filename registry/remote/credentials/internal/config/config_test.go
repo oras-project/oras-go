@@ -193,6 +193,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 		wantErr       bool
 	}{
 		{
+			name:          "Regular address matched",
 			serverAddress: "registry1.example.com",
 			want: auth.Credential{
 				Username: "username1",
@@ -200,6 +201,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 			},
 		},
 		{
+			name:          "Address with http prefix matched",
 			serverAddress: "registry2.example.com",
 			want: auth.Credential{
 				Username: "username2",
@@ -207,6 +209,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 			},
 		},
 		{
+			name:          "Address with https prefix matched",
 			serverAddress: "registry3.example.com",
 			want: auth.Credential{
 				Username: "username3",
@@ -214,6 +217,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 			},
 		},
 		{
+			name:          "Address with http prefix and / suffix matched",
 			serverAddress: "registry4.example.com",
 			want: auth.Credential{
 				Username: "username4",
@@ -221,6 +225,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 			},
 		},
 		{
+			name:          "Address with https prefix and / suffix matched",
 			serverAddress: "registry5.example.com",
 			want: auth.Credential{
 				Username: "username5",
@@ -228,7 +233,16 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 			},
 		},
 		{
+			name:          "Address with https prefix and path suffix matched",
 			serverAddress: "registry6.example.com",
+			want: auth.Credential{
+				Username: "username6",
+				Password: "password6",
+			},
+		},
+		{
+			name:          "Reverse won't work",
+			serverAddress: "https://registry1.example.com/",
 			want:          auth.EmptyCredential,
 		},
 	}
@@ -1376,6 +1390,54 @@ func Test_decodeAuth(t *testing.T) {
 			}
 			if gotPassword != tt.password {
 				t.Errorf("decodeAuth() got1 = %v, want %v", gotPassword, tt.password)
+			}
+		})
+	}
+}
+
+func Test_toHostname(t *testing.T) {
+	tests := []struct {
+		name string
+		addr string
+		want string
+	}{
+		{
+			addr: "http://test.example.com",
+			want: "test.example.com",
+		},
+		{
+			addr: "http://test.example.com/",
+			want: "test.example.com",
+		},
+		{
+			addr: "http://test.example.com/foo/bar",
+			want: "test.example.com",
+		},
+		{
+			addr: "https://test.example.com",
+			want: "test.example.com",
+		},
+		{
+			addr: "https://test.example.com/",
+			want: "test.example.com",
+		},
+		{
+			addr: "http://test.example.com/foo/bar",
+			want: "test.example.com",
+		},
+		{
+			addr: "test.example.com",
+			want: "test.example.com",
+		},
+		{
+			addr: "test.example.com/foo/bar/",
+			want: "test.example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := toHostname(tt.addr); got != tt.want {
+				t.Errorf("toHostname() = %v, want %v", got, tt.want)
 			}
 		})
 	}

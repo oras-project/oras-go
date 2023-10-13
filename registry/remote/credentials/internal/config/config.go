@@ -162,9 +162,12 @@ func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) 
 
 	authCfgBytes, ok := cfg.authsCache[serverAddress]
 	if !ok {
+		// NOTE: the auth key for the server address may have been stored with
+		// a http/https prefix in legacy config files, e.g. "registry.example.com"
+		// can be stored as "https://registry.example.com/".
 		var matched bool
 		for addr, auth := range cfg.authsCache {
-			if normalizeAddress(addr) == serverAddress {
+			if toHostname(addr) == serverAddress {
 				matched = true
 				authCfgBytes = auth
 				break
@@ -311,13 +314,14 @@ func decodeAuth(authStr string) (username string, password string, err error) {
 	return username, password, nil
 }
 
-// normalizeAddress normalizes a server address which has "http://" or
-// "https://"" prepended to just its hostname.
-// It is used to match keys of the auths map, which may be either stored as
+// toHostname normalizes a server address to just its hostname, removing
+// the scheme and the path parts.
+// It is used to match keys in the auths map, which may be either stored as
 // hostname or as hostname including scheme (in legacy docker config files).
-func normalizeAddress(addr string) string {
+// Reference: https://github.com/docker/cli/blob/v24.0.6/cli/config/credentials/file_store.go#L71
+func toHostname(addr string) string {
 	addr = strings.TrimPrefix(addr, "http://")
 	addr = strings.TrimPrefix(addr, "https://")
-	addr = strings.TrimSuffix(addr, "/")
+	addr, _, _ = strings.Cut(addr, "/")
 	return addr
 }
