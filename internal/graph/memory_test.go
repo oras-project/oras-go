@@ -343,6 +343,7 @@ func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 	}
 	generateManifest := func(layers ...ocispec.Descriptor) ocispec.Descriptor {
 		manifest := ocispec.Manifest{
+			Config: ocispec.Descriptor{MediaType: "test config"},
 			Layers: layers,
 		}
 		manifestJSON, err := json.Marshal(manifest)
@@ -526,7 +527,7 @@ func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 		t.Errorf("successors of %s should be empty", "F")
 	}
 
-	// check the Predecessors of node C is node A
+	// check that the Predecessors of node C is node A
 	predsC, err := testMemory.Predecessors(ctx, descC)
 	if err != nil {
 		t.Errorf("testFetcher.Predecessors() error = %v", err)
@@ -539,7 +540,7 @@ func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 		t.Errorf("incorrect predecessor result")
 	}
 
-	// check the Predecessors of node F are node C and node D
+	// check that the Predecessors of node F are node C and node D
 	predsF, err := testMemory.Predecessors(ctx, descF)
 	if err != nil {
 		t.Errorf("testFetcher.Predecessors() error = %v", err)
@@ -550,7 +551,7 @@ func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 	}
 	for _, pred := range predsF {
 		if !reflect.DeepEqual(pred, descC) && !reflect.DeepEqual(pred, descD) {
-			t.Errorf("incorrect predecessor result")
+			t.Errorf("incorrect predecessor results")
 		}
 	}
 
@@ -566,21 +567,46 @@ func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 		t.Errorf("successors of %s should still contain %s", "A", "C")
 	}
 	if _, exists := testMemory.successors[nodeKeyC]; exists {
-		t.Errorf("testDeletableMemory.successors should not contain the entry of %v", "C")
+		t.Errorf("testMemory.successors should not contain the entry of %v", "C")
+	}
+	if _, exists := testMemory.predecessors[nodeKeyC]; !exists {
+		t.Errorf("entry %s in predecessors should still exists since it still has at least one predecessor node present", "C")
 	}
 
 	// remove node A and check the stored information
 	testMemory.Remove(ctx, descA)
-	if predecessorsD.Contains(nodeKeyA) {
-		t.Errorf("predecessors of %s should not contain %s", "D", "A")
-	}
-	if predecessorsB.Contains(nodeKeyA) {
-		t.Errorf("predecessors of %s should not contain %s", "B", "A")
+	if _, exists := testMemory.predecessors[nodeKeyB]; exists {
+		t.Errorf("entry %s in predecessors should no longer exists", "B")
 	}
 	if _, exists := testMemory.predecessors[nodeKeyC]; exists {
 		t.Errorf("entry %s in predecessors should no longer exists", "C")
 	}
+	if _, exists := testMemory.predecessors[nodeKeyD]; exists {
+		t.Errorf("entry %s in predecessors should no longer exists", "D")
+	}
 	if _, exists := testMemory.successors[nodeKeyA]; exists {
 		t.Errorf("testDeletableMemory.successors should not contain the entry of %v", "A")
+	}
+
+	// check that the Predecessors of node D is empty
+	predsD, err := testMemory.Predecessors(ctx, descD)
+	if err != nil {
+		t.Errorf("testFetcher.Predecessors() error = %v", err)
+	}
+	if predsD != nil {
+		t.Errorf("%s should be nil", "predsD")
+	}
+
+	// check that the Predecessors of node E is node B
+	predsE, err := testMemory.Predecessors(ctx, descE)
+	if err != nil {
+		t.Errorf("testFetcher.Predecessors() error = %v", err)
+	}
+	expectedLength = 1
+	if len(predsE) != expectedLength {
+		t.Errorf("%s should have length %d", "predsE", expectedLength)
+	}
+	if !reflect.DeepEqual(predsE[0], descB) {
+		t.Errorf("incorrect predecessor result")
 	}
 }
