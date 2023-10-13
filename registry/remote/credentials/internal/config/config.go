@@ -162,7 +162,17 @@ func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) 
 
 	authCfgBytes, ok := cfg.authsCache[serverAddress]
 	if !ok {
-		return auth.EmptyCredential, nil
+		var matched bool
+		for addr, auth := range cfg.authsCache {
+			if normalizeAddress(addr) == serverAddress {
+				matched = true
+				authCfgBytes = auth
+				break
+			}
+		}
+		if !matched {
+			return auth.EmptyCredential, nil
+		}
 	}
 	var authCfg AuthConfig
 	if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
@@ -299,4 +309,15 @@ func decodeAuth(authStr string) (username string, password string, err error) {
 		return "", "", fmt.Errorf("auth '%s' does not conform the base64(username:password) format", decodedStr)
 	}
 	return username, password, nil
+}
+
+// normalizeAddress normalizes a server address which has "http://" or
+// "https://"" prepended to just its hostname.
+// It is used to match keys of the auths map, which may be either stored as
+// hostname or as hostname including scheme (in legacy docker config files).
+func normalizeAddress(addr string) string {
+	addr = strings.TrimPrefix(addr, "http://")
+	addr = strings.TrimPrefix(addr, "https://")
+	addr = strings.TrimSuffix(addr, "/")
+	return addr
 }
