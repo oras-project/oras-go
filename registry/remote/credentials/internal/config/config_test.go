@@ -180,6 +180,94 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 	}
 }
 
+func TestConfig_GetCredential_legacyConfig(t *testing.T) {
+	cfg, err := Load("../../testdata/legacy_auths_config.json")
+	if err != nil {
+		t.Fatal("Load() error =", err)
+	}
+
+	tests := []struct {
+		name          string
+		serverAddress string
+		want          auth.Credential
+		wantErr       bool
+	}{
+		{
+			name:          "Regular address matched",
+			serverAddress: "registry1.example.com",
+			want: auth.Credential{
+				Username: "username1",
+				Password: "password1",
+			},
+		},
+		{
+			name:          "Another entry for the same address matched",
+			serverAddress: "https://registry1.example.com/",
+			want: auth.Credential{
+				Username: "foo",
+				Password: "bar",
+			},
+		},
+		{
+			name:          "Address with different scheme unmached",
+			serverAddress: "http://registry1.example.com/",
+			want:          auth.EmptyCredential,
+		},
+		{
+			name:          "Address with http prefix matched",
+			serverAddress: "registry2.example.com",
+			want: auth.Credential{
+				Username: "username2",
+				Password: "password2",
+			},
+		},
+		{
+			name:          "Address with https prefix matched",
+			serverAddress: "registry3.example.com",
+			want: auth.Credential{
+				Username: "username3",
+				Password: "password3",
+			},
+		},
+		{
+			name:          "Address with http prefix and / suffix matched",
+			serverAddress: "registry4.example.com",
+			want: auth.Credential{
+				Username: "username4",
+				Password: "password4",
+			},
+		},
+		{
+			name:          "Address with https prefix and / suffix matched",
+			serverAddress: "registry5.example.com",
+			want: auth.Credential{
+				Username: "username5",
+				Password: "password5",
+			},
+		},
+		{
+			name:          "Address with https prefix and path suffix matched",
+			serverAddress: "registry6.example.com",
+			want: auth.Credential{
+				Username: "username6",
+				Password: "password6",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := cfg.GetCredential(tt.serverAddress)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Config.GetCredential() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Config.GetCredential() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestConfig_GetCredential_invalidConfig(t *testing.T) {
 	cfg, err := Load("../../testdata/invalid_auths_entry_config.json")
 	if err != nil {
@@ -1310,6 +1398,54 @@ func Test_decodeAuth(t *testing.T) {
 			}
 			if gotPassword != tt.password {
 				t.Errorf("decodeAuth() got1 = %v, want %v", gotPassword, tt.password)
+			}
+		})
+	}
+}
+
+func Test_toHostname(t *testing.T) {
+	tests := []struct {
+		name string
+		addr string
+		want string
+	}{
+		{
+			addr: "http://test.example.com",
+			want: "test.example.com",
+		},
+		{
+			addr: "http://test.example.com/",
+			want: "test.example.com",
+		},
+		{
+			addr: "http://test.example.com/foo/bar",
+			want: "test.example.com",
+		},
+		{
+			addr: "https://test.example.com",
+			want: "test.example.com",
+		},
+		{
+			addr: "https://test.example.com/",
+			want: "test.example.com",
+		},
+		{
+			addr: "http://test.example.com/foo/bar",
+			want: "test.example.com",
+		},
+		{
+			addr: "test.example.com",
+			want: "test.example.com",
+		},
+		{
+			addr: "test.example.com/foo/bar/",
+			want: "test.example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := toHostname(tt.addr); got != tt.want {
+				t.Errorf("toHostname() = %v, want %v", got, tt.want)
 			}
 		})
 	}
