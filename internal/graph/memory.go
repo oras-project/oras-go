@@ -82,10 +82,9 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 
 // Predecessors returns the nodes directly pointing to the current node.
 // Predecessors returns nil without error if the node does not exists in the
-// store.
-// Like other operations, calling Predecessors() is go-routine safe. However,
-// it does not necessarily correspond to any consistent snapshot of the stored
-// contents.
+// store. Like other operations, calling Predecessors() is go-routine safe.
+// However, it does not necessarily correspond to any consistent snapshot of
+// the stored contents.
 func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
@@ -112,11 +111,9 @@ func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) error {
 	for successorKey := range m.successors[nodeKey] {
 		predecessorEntry := m.predecessors[successorKey]
 		predecessorEntry.Delete(nodeKey)
-		// remove the successorKey entry from m. predecessors, if it's an empty set.
-		// To it another way, if all its predecessors are already deleted, then we
-		// delete the entry in m.predecessors. In any of its predecessors still exists,
-		// the entry is NOT deleted. The presence of the predecessors entry depends on
-		// the status of all predecessors of the node.
+
+		// if none of the predecessors of the node still exists, we remove the
+		// predecessors entry. Otherwise, we do not remove the entry.
 		if len(predecessorEntry) == 0 {
 			delete(m.predecessors, successorKey)
 		}
