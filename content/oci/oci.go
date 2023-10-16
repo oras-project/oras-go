@@ -54,8 +54,9 @@ type Store struct {
 	indexPath     string
 	index         *ocispec.Index
 	indexLock     sync.Mutex
+	sync          sync.RWMutex
 
-	storage     content.Storage
+	storage     *Storage
 	tagResolver *resolver.Memory
 	graph       *graph.Memory
 }
@@ -98,13 +99,21 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	return store, nil
 }
 
-// Fetch fetches the content identified by the descriptor.
+// Fetch fetches the content identified by the descriptor. It returns an io.ReadCloser.
+// It's recommended to close the io.ReadCloser before a DeletableStore.Delete
+// operation, otherwise Delete may fail (for example on NTFS file systems).
 func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	return s.storage.Fetch(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
 func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io.Reader) error {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	if err := s.storage.Push(ctx, expected, reader); err != nil {
 		return err
 	}
@@ -120,13 +129,46 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 
 // Exists returns true if the described content exists.
 func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	return s.storage.Exists(ctx, target)
+}
+
+// Delete removes the content matching the descriptor from the store. Delete may
+// fail on some systems (i.e. Windows), if there is a process (i.e. an unclosed
+// Reader) using `target`.
+func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	s.sync.Lock()
+	defer s.sync.Unlock()
+
+	resolvers := s.tagResolver.Map()
+	untagged := false
+	for reference, desc := range resolvers {
+		if content.Equal(desc, target) {
+			s.tagResolver.Untag(reference)
+			untagged = true
+		}
+	}
+	if err := s.graph.Remove(ctx, target); err != nil {
+		return err
+	}
+	if untagged && s.AutoSaveIndex {
+		err := s.SaveIndex()
+		if err != nil {
+			return err
+		}
+	}
+	return s.storage.Delete(ctx, target)
 }
 
 // Tag tags a descriptor with a reference string.
 // reference should be a valid tag (e.g. "latest").
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md#indexjson-file
 func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	if err := validateReference(reference); err != nil {
 		return err
 	}
@@ -166,6 +208,9 @@ func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 // digest the returned descriptor will be a plain descriptor (containing only
 // the digest, media type and size).
 func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	if reference == "" {
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
@@ -191,6 +236,9 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 // Predecessors returns nil without error if the node does not exists in the
 // store.
 func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	return s.graph.Predecessors(ctx, node)
 }
 
@@ -202,6 +250,9 @@ func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]oc
 //
 // See also `Tags()` in the package `registry`.
 func (s *Store) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	return listTags(ctx, s.tagResolver, last, fn)
 }
 
@@ -267,6 +318,9 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
 //     to manually call this method when needed.
 func (s *Store) SaveIndex() error {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	s.indexLock.Lock()
 	defer s.indexLock.Unlock()
 

@@ -1975,6 +1975,107 @@ func TestStore_Tags(t *testing.T) {
 	}
 }
 
+func TestStore_BasicDelete(t *testing.T) {
+	content := []byte("test delete")
+	desc := ocispec.Descriptor{
+		MediaType: "test-delete",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	ref := "latest"
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("NewDeletableStore() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, desc)
+	}
+
+	err = s.Delete(ctx, desc)
+	if err != nil {
+		t.Errorf("Store.Delete() = %v, wantErr %v", err, nil)
+	}
+
+	exists, err = s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, false)
+	}
+}
+
+func TestStore_FetchAndDelete(t *testing.T) {
+	// create a store
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("error =", err)
+	}
+
+	// push a content
+	content := []byte("test delete")
+	desc := ocispec.Descriptor{
+		MediaType: "test-delete",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	err = s.Push(context.Background(), desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("error =", err)
+	}
+
+	// fetch a content
+	rc, err := s.Fetch(context.Background(), desc)
+	if err != nil {
+		t.Fatal("error =", err)
+	}
+
+	// read and verify the content
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		fmt.Println(got)
+		t.Fatal("wrong content")
+	}
+	rc.Close()
+
+	// delete. If rc is not closed, Delete would fail on some systems.
+	err = s.Delete(context.Background(), desc)
+	if err != nil {
+		t.Fatal("error =", err)
+	}
+}
+
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
 	if len(actual) != len(expected) {
 		return false
