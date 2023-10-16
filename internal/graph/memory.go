@@ -23,6 +23,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/container/set"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/status"
 	"oras.land/oras-go/v2/internal/syncutil"
@@ -30,35 +31,31 @@ import (
 
 // Memory is a memory based PredecessorFinder.
 type Memory struct {
-	predecessors sync.Map // map[descriptor.Descriptor]map[descriptor.Descriptor]ocispec.Descriptor
-	indexed      sync.Map // map[descriptor.Descriptor]any
+	nodes        map[descriptor.Descriptor]ocispec.Descriptor // nodes saves the map keys of ocispec.Descriptor
+	predecessors map[descriptor.Descriptor]set.Set[descriptor.Descriptor]
+	successors   map[descriptor.Descriptor]set.Set[descriptor.Descriptor]
+	lock         sync.RWMutex
 }
 
 // NewMemory creates a new memory PredecessorFinder.
 func NewMemory() *Memory {
-	return &Memory{}
+	return &Memory{
+		nodes:        make(map[descriptor.Descriptor]ocispec.Descriptor),
+		predecessors: make(map[descriptor.Descriptor]set.Set[descriptor.Descriptor]),
+		successors:   make(map[descriptor.Descriptor]set.Set[descriptor.Descriptor]),
+	}
 }
 
 // Index indexes predecessors for each direct successor of the given node.
-// There is no data consistency issue as long as deletion is not implemented
-// for the underlying storage.
 func (m *Memory) Index(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
-	successors, err := content.Successors(ctx, fetcher, node)
-	if err != nil {
-		return err
-	}
-
-	m.index(ctx, node, successors)
-	return nil
+	_, err := m.index(ctx, fetcher, node)
+	return err
 }
 
 // Index indexes predecessors for all the successors of the given node.
-// There is no data consistency issue as long as deletion is not implemented
-// for the underlying storage.
 func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
 	// track content status
 	tracker := status.NewTracker()
-
 	var fn syncutil.GoFunc[ocispec.Descriptor]
 	fn = func(ctx context.Context, region *syncutil.LimitedRegion, desc ocispec.Descriptor) error {
 		// skip the node if other go routine is working on it
@@ -66,15 +63,7 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 		if !committed {
 			return nil
 		}
-
-		// skip the node if it has been indexed
-		key := descriptor.FromOCI(desc)
-		_, exists := m.indexed.Load(key)
-		if exists {
-			return nil
-		}
-
-		successors, err := content.Successors(ctx, fetcher, desc)
+		successors, err := m.index(ctx, fetcher, desc)
 		if err != nil {
 			if errors.Is(err, errdef.ErrNotFound) {
 				// skip the node if it does not exist
@@ -82,9 +71,6 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 			}
 			return err
 		}
-		m.index(ctx, desc, successors)
-		m.indexed.Store(key, nil)
-
 		if len(successors) > 0 {
 			// traverse and index successors
 			return syncutil.Go(ctx, nil, fn, successors...)
@@ -96,39 +82,73 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 
 // Predecessors returns the nodes directly pointing to the current node.
 // Predecessors returns nil without error if the node does not exists in the
-// store.
-// Like other operations, calling Predecessors() is go-routine safe. However,
-// it does not necessarily correspond to any consistent snapshot of the stored
-// contents.
+// store. Like other operations, calling Predecessors() is go-routine safe.
+// However, it does not necessarily correspond to any consistent snapshot of
+// the stored contents.
 func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
 	key := descriptor.FromOCI(node)
-	value, exists := m.predecessors.Load(key)
+	set, exists := m.predecessors[key]
 	if !exists {
 		return nil, nil
 	}
-	predecessors := value.(*sync.Map)
-
 	var res []ocispec.Descriptor
-	predecessors.Range(func(key, value interface{}) bool {
-		res = append(res, value.(ocispec.Descriptor))
-		return true
-	})
+	for k := range set {
+		res = append(res, m.nodes[k])
+	}
 	return res, nil
 }
 
-// index indexes predecessors for each direct successor of the given node.
-// There is no data consistency issue as long as deletion is not implemented
-// for the underlying storage.
-func (m *Memory) index(ctx context.Context, node ocispec.Descriptor, successors []ocispec.Descriptor) {
-	if len(successors) == 0 {
-		return
-	}
+// Remove removes the node from its predecessors and successors.
+func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) error {
+	m.lock.Lock()
+	defer m.lock.Unlock()
 
-	predecessorKey := descriptor.FromOCI(node)
+	nodeKey := descriptor.FromOCI(node)
+	// remove the node from its successors' predecessor list
+	for successorKey := range m.successors[nodeKey] {
+		predecessorEntry := m.predecessors[successorKey]
+		predecessorEntry.Delete(nodeKey)
+
+		// if none of the predecessors of the node still exists, we remove the
+		// predecessors entry. Otherwise, we do not remove the entry.
+		if len(predecessorEntry) == 0 {
+			delete(m.predecessors, successorKey)
+		}
+	}
+	delete(m.successors, nodeKey)
+	delete(m.nodes, nodeKey)
+	return nil
+}
+
+// index indexes predecessors for each direct successor of the given node.
+func (m *Memory) index(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	successors, err := content.Successors(ctx, fetcher, node)
+	if err != nil {
+		return nil, err
+	}
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	// index the node
+	nodeKey := descriptor.FromOCI(node)
+	m.nodes[nodeKey] = node
+
+	// for each successor, put it into the node's successors list, and
+	// put node into the succeesor's predecessors list
+	successorSet := set.New[descriptor.Descriptor]()
+	m.successors[nodeKey] = successorSet
 	for _, successor := range successors {
 		successorKey := descriptor.FromOCI(successor)
-		value, _ := m.predecessors.LoadOrStore(successorKey, &sync.Map{})
-		predecessors := value.(*sync.Map)
-		predecessors.Store(predecessorKey, node)
+		successorSet.Add(successorKey)
+		predecessorSet, exists := m.predecessors[successorKey]
+		if !exists {
+			predecessorSet = set.New[descriptor.Descriptor]()
+			m.predecessors[successorKey] = predecessorSet
+		}
+		predecessorSet.Add(nodeKey)
 	}
+	return successors, nil
 }
