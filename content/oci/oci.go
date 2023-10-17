@@ -103,6 +103,11 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 	return s.storage.Fetch(ctx, target)
 }
 
+// Delete deletes the content identified by the descriptor.
+func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	return s.storage.(*Storage).Delete(ctx, target)
+}
+
 // Push pushes the content, matching the expected descriptor.
 func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io.Reader) error {
 	if err := s.storage.Push(ctx, expected, reader); err != nil {
