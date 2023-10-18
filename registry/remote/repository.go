@@ -1120,6 +1120,7 @@ func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.D
 		if err := limitSize(target, s.repo.MaxMetadataBytes); err != nil {
 			return err
 		}
+		ctx = auth.AppendRepositoryScope(ctx, s.repo.Reference, auth.ActionPull, auth.ActionDelete)
 		manifestJSON, err := content.FetchAll(ctx, s, target)
 		if err != nil {
 			return err
