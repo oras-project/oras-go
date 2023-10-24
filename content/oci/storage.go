@@ -108,6 +108,13 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 
 // Delete removes the target from the system.
 func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	exists, err := s.Exists(ctx, target)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("target to delete is not present in the storage: %w", errdef.ErrNotFound)
+	}
 	path, err := blobPath(target.Digest)
 	if err != nil {
 		return fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrInvalidDigest)
