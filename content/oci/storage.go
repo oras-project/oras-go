@@ -117,7 +117,7 @@ func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	err = os.Remove(targetPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("target to delete is not present in the storage: %w", errdef.ErrNotFound)
+			return fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrNotFound)
 		}
 		return err
 	}
