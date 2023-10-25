@@ -136,7 +136,7 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 }
 
 // Delete removes the content matching the descriptor from the store. Delete may
-// fail on some systems (i.e. Windows), if there is a process (i.e. an unclosed
+// fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
 // Reader) using `target`.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	s.sync.Lock()
@@ -318,9 +318,6 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
 //     to manually call this method when needed.
 func (s *Store) SaveIndex() error {
-	s.sync.RLock()
-	defer s.sync.RUnlock()
-
 	s.indexLock.Lock()
 	defer s.indexLock.Unlock()
 
