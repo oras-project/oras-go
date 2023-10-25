@@ -412,4 +412,8 @@ func TestStorage_Delete(t *testing.T) {
 	if exists {
 		t.Errorf("Storage.Exists() = %v, want %v", exists, false)
 	}
+	err = s.Delete(ctx, desc)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Fatalf("got error = %v, want %v", err, errdef.ErrNotFound)
+	}
 }

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -113,7 +114,14 @@ func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		return fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrInvalidDigest)
 	}
 	targetPath := filepath.Join(s.root, path)
-	return os.Remove(targetPath)
+	err = os.Remove(targetPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrNotFound)
+		}
+		return err
+	}
+	return nil
 }
 
 // ingest write the content into a temporary ingest file.
