@@ -14,7 +14,7 @@ limitations under the License.
 */
 
 // Package oci provides access to an OCI content store.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc5/image-layout.md
 package oci
 
 import (
@@ -40,7 +40,7 @@ import (
 
 // Store implements `oras.Target`, and represents a content store
 // based on file system with the OCI-Image layout.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc5/image-layout.md
 type Store struct {
 	// AutoSaveIndex controls if the OCI store will automatically save the index
 	// file on each Tag() call.
@@ -135,7 +135,7 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 	return s.storage.Exists(ctx, target)
 }
 
-// Delete removes the content matching the descriptor from the store. Delete may
+// Delete deletes the content matching the descriptor from the store. Delete may
 // fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
 // Reader) using `target`.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
@@ -164,7 +164,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 
 // Tag tags a descriptor with a reference string.
 // reference should be a valid tag (e.g. "latest").
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md#indexjson-file
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc5/image-layout.md#indexjson-file
 func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	s.sync.RLock()
 	defer s.sync.RUnlock()
