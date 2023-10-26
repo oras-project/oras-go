@@ -49,7 +49,6 @@ type Store struct {
 	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
 	//     to manually call SaveIndex() when needed.
 	//   - Default value: true.
-
 	AutoSaveIndex bool
 	root          string
 	indexPath     string
