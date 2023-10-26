@@ -43,12 +43,13 @@ import (
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc5/image-layout.md
 type Store struct {
 	// AutoSaveIndex controls if the OCI store will automatically save the index
-	// file on each Tag() call.
-	//   - If AutoSaveIndex is set to true, the OCI store will automatically call
-	//     this method on each Tag() call.
+	// file when needed.
+	//   - If AutoSaveIndex is set to true, the OCI store will automatically save the
+	//     changes to `index.json` on Tag() and Delete() calls, and when pushing a manifest.
 	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
 	//     to manually call SaveIndex() when needed.
 	//   - Default value: true.
+
 	AutoSaveIndex bool
 	root          string
 	indexPath     string
@@ -318,7 +319,8 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 
 // SaveIndex writes the `index.json` file to the file system.
 //   - If AutoSaveIndex is set to true (default value),
-//     the OCI store will automatically call this method on each Tag() call.
+//     the OCI store will automatically save the changes to `index.json`
+//     on Tag() and Delete() calls, and when pushing a manifest.
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
 //     to manually call this method when needed.
 func (s *Store) SaveIndex() error {
