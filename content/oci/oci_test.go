@@ -644,7 +644,7 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 	if got, want := len(s.index.Manifests), 0; got != want {
 		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
-	if err := s.SaveIndex(); err != nil {
+	if err := s.saveIndex(); err != nil {
 		t.Fatal("Store.SaveIndex() error =", err)
 	}
 	// test index file again

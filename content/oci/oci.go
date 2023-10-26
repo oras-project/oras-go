@@ -53,12 +53,16 @@ type Store struct {
 	root          string
 	indexPath     string
 	index         *ocispec.Index
-	indexLock     sync.Mutex
-	sync          sync.RWMutex
+	storage       *Storage
+	tagResolver   *resolver.Memory
+	graph         *graph.Memory
 
-	storage     *Storage
-	tagResolver *resolver.Memory
-	graph       *graph.Memory
+	// sync ensures that most operations can be done concurrently, while Delete
+	// has the exclusive access to Store if a delete operation is underway. Operations
+	// such as Fetch, Push use sync.RLock(), while Delete uses sync.Lock().
+	sync sync.RWMutex
+	// indexLock ensures that only one process is writing to the index.
+	indexLock sync.Mutex
 }
 
 // New creates a new OCI store with context.Background().
@@ -100,8 +104,8 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 }
 
 // Fetch fetches the content identified by the descriptor. It returns an io.ReadCloser.
-// It's recommended to close the io.ReadCloser before a DeletableStore.Delete
-// operation, otherwise Delete may fail (for example on NTFS file systems).
+// It's recommended to close the io.ReadCloser before a Delete operation, otherwise
+// Delete may fail (for example on NTFS file systems).
 func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
 	s.sync.RLock()
 	defer s.sync.RUnlock()
@@ -154,7 +158,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		return err
 	}
 	if untagged && s.AutoSaveIndex {
-		err := s.SaveIndex()
+		err := s.saveIndex()
 		if err != nil {
 			return err
 		}
@@ -197,7 +201,7 @@ func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		return err
 	}
 	if s.AutoSaveIndex {
-		return s.SaveIndex()
+		return s.saveIndex()
 	}
 	return nil
 }
@@ -318,6 +322,13 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
 //     to manually call this method when needed.
 func (s *Store) SaveIndex() error {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
+	return s.saveIndex()
+}
+
+func (s *Store) saveIndex() error {
 	s.indexLock.Lock()
 	defer s.indexLock.Unlock()
 
