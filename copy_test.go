@@ -1432,6 +1432,66 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 	if err := oras.CopyGraph(ctx, src, dst, root, opts); !errors.Is(err, errdef.ErrSizeExceedsLimit) {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
 	}
+
+	t.Run("ErrSkipDesc", func(t *testing.T) {
+		// test CopyGraph with PreCopy = 1
+		root = descs[6]
+		dst := &countingStorage{storage: cas.NewMemory()}
+		opts = oras.CopyGraphOptions{
+			PreCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
+				if descs[1].Digest == desc.Digest {
+					// blob 1 is handled by us (really this would be a Mount but )
+					rc, err := src.Fetch(ctx, desc)
+					if err != nil {
+						t.Fatalf("Failed to fetch: %v", err)
+					}
+					defer rc.Close()
+					err = dst.storage.Push(ctx, desc, rc) // bypass the counters
+					if err != nil {
+						t.Fatalf("Failed to fetch: %v", err)
+					}
+					return oras.ErrSkipDesc
+				}
+				return nil
+			},
+		}
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+			t.Fatalf("CopyGraph() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
+		}
+
+		if got, expected := dst.numExists.Load(), int64(7); got != expected {
+			t.Errorf("count(Exists()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numFetch.Load(), int64(0); got != expected {
+			t.Errorf("count(Fetch()) = %d, want %d", got, expected)
+		}
+		// 7 (exists) - 1 (skipped) = 6 pushes expected
+		if got, expected := dst.numPush.Load(), int64(6); got != expected {
+			// If we get >=7 then ErrSkipDesc did not short circuit the push like it is supposed to do.
+			t.Errorf("count(Push()) = %d, want %d", got, expected)
+		}
+	})
+}
+
+// countingStorage counts the calls to its content.Storage methods
+type countingStorage struct {
+	storage                      content.Storage
+	numExists, numFetch, numPush atomic.Int64
+}
+
+func (cs *countingStorage) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	cs.numExists.Add(1)
+	return cs.storage.Exists(ctx, target)
+}
+
+func (cs *countingStorage) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	cs.numFetch.Add(1)
+	return cs.storage.Fetch(ctx, target)
+}
+
+func (cs *countingStorage) Push(ctx context.Context, target ocispec.Descriptor, r io.Reader) error {
+	cs.numPush.Add(1)
+	return cs.storage.Push(ctx, target, r)
 }
 
 func TestCopyGraph_WithConcurrencyLimit(t *testing.T) {
