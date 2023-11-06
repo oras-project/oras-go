@@ -483,18 +483,12 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 
 	// The referrers state is unknown.
 	if err != nil {
-		var errResp *errcode.ErrorResponse
-		if !errors.As(err, &errResp) || errResp.StatusCode != http.StatusNotFound {
-			return err
+		if errors.Is(err, errdef.ErrUnsupported) {
+			// Referrers API is not supported, fallback to referrers tag schema.
+			r.SetReferrersCapability(false)
+			return r.referrersByTagSchema(ctx, desc, artifactType, fn)
 		}
-		if errutil.IsErrorCode(errResp, errcode.ErrorCodeNameUnknown) {
-			// The repository is not found, no fallback.
-			return err
-		}
-		// A 404 returned by Referrers API indicates that Referrers API is
-		// not supported. Fallback to referrers tag schema.
-		r.SetReferrersCapability(false)
-		return r.referrersByTagSchema(ctx, desc, artifactType, fn)
+		return err
 	}
 
 	r.SetReferrersCapability(true)
@@ -544,8 +538,22 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		if errResp := errutil.ParseErrorResponse(resp); errutil.IsErrorCode(errResp, errcode.ErrorCodeNameUnknown) {
+			// The repository is not found, Referrers API status is unknown
+			return "", errResp
+		}
+		// Referrers API is not supported.
+		return "", fmt.Errorf("failed to query referrers API: %w", errdef.ErrUnsupported)
+	default:
 		return "", errutil.ParseErrorResponse(resp)
+	}
+
+	// also check the content type
+	if ct := resp.Header.Get("Content-Type"); ct != ocispec.MediaTypeImageIndex {
+		return "", fmt.Errorf("unknown content returned (%s), expecting image index: %w", ct, errdef.ErrUnsupported)
 	}
 
 	var index ocispec.Index
@@ -657,8 +665,9 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		r.SetReferrersCapability(true)
-		return true, nil
+		supported := resp.Header.Get("Content-Type") == ocispec.MediaTypeImageIndex
+		r.SetReferrersCapability(supported)
+		return supported, nil
 	case http.StatusNotFound:
 		if err := errutil.ParseErrorResponse(resp); errutil.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
 			// repository not found

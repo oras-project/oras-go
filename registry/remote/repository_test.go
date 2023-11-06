@@ -1272,6 +1272,7 @@ func TestRepository_Predecessors(t *testing.T) {
 			MediaType: ocispec.MediaTypeImageIndex,
 			Manifests: referrers,
 		}
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
 		}
@@ -1384,6 +1385,7 @@ func TestRepository_Referrers(t *testing.T) {
 			MediaType: ocispec.MediaTypeImageIndex,
 			Manifests: referrers,
 		}
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
 		}
@@ -1680,6 +1682,58 @@ func TestRepository_Referrers_TagSchemaFallback_NotFound(t *testing.T) {
 	}
 }
 
+func TestRepository_Referrers_TagSchemaFallback_ContentType(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		referrersUrl := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		referrersTag := strings.Replace(manifestDesc.Digest.String(), ":", "-", 1)
+		tagSchemaUrl := "/v2/test/manifests/" + referrersTag
+		if r.URL.Path == referrersUrl {
+			w.Header().Set("Content-Type", "application/json") // not an OCI image index
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if r.Method == http.MethodGet ||
+			r.URL.Path == tagSchemaUrl {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	ctx := context.Background()
+
+	// test auto detect
+	// tag schema referrers not found, should be no error
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		return nil
+	}); err != nil {
+		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+}
+
 func TestRepository_Referrers_BadRequest(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
@@ -1944,6 +1998,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 				spec.AnnotationReferrersFiltersApplied: "artifactType",
 			},
 		}
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
 		}
@@ -2019,6 +2074,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 			MediaType: ocispec.MediaTypeImageIndex,
 			Manifests: referrers,
 		}
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 		// set filter header
 		w.Header().Set("OCI-Filters-Applied", "artifactType")
 		if err := json.NewEncoder(w).Encode(result); err != nil {
@@ -2100,6 +2156,7 @@ func TestRepository_Referrers_ServerFiltering(t *testing.T) {
 				spec.AnnotationReferrersFiltersApplied: "artifactType",
 			},
 		}
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 		// set filter header
 		w.Header().Set("OCI-Filters-Applied", "artifactType")
 		if err := json.NewEncoder(w).Encode(result); err != nil {
@@ -2241,6 +2298,7 @@ func TestRepository_Referrers_ClientFiltering(t *testing.T) {
 			MediaType: ocispec.MediaTypeImageIndex,
 			Manifests: referrers,
 		}
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 		if err := json.NewEncoder(w).Encode(result); err != nil {
 			t.Errorf("failed to write response: %v", err)
 		}
@@ -3502,6 +3560,7 @@ func Test_ManifestStore_Push_ReferrersAPIAvailable_NoSubjectHeader(t *testing.T)
 				MediaType: ocispec.MediaTypeImageIndex,
 				Manifests: []ocispec.Descriptor{},
 			}
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				t.Errorf("failed to write response: %v", err)
 			}
@@ -4503,6 +4562,7 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 				MediaType: ocispec.MediaTypeImageIndex,
 				Manifests: []ocispec.Descriptor{},
 			}
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				t.Errorf("failed to write response: %v", err)
 			}
@@ -5887,6 +5947,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable_NoSubjectHeader(t *t
 				MediaType: ocispec.MediaTypeImageIndex,
 				Manifests: []ocispec.Descriptor{},
 			}
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				t.Errorf("failed to write response: %v", err)
 			}
@@ -7076,129 +7137,171 @@ func Test_generateIndex(t *testing.T) {
 }
 
 func TestRepository_pingReferrers(t *testing.T) {
-	// referrers available
-	count := 0
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
-			count++
-			w.WriteHeader(http.StatusOK)
-		default:
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusNotFound)
+	t.Run("referrers available", func(t *testing.T) {
+		count := 0
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+				count++
+				w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
 		}
 
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
+		ctx := context.Background()
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
 
-	ctx := context.Background()
-	repo, err := NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-
-	// 1st call
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
-	}
-	got, err := repo.pingReferrers(ctx)
-	if err != nil {
-		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
-	}
-	if got != true {
-		t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
-	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
-	}
-	if count != 1 {
-		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
-	}
-
-	// 2nd call
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
-	}
-	got, err = repo.pingReferrers(ctx)
-	if err != nil {
-		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
-	}
-	if got != true {
-		t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
-	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
-	}
-	if count != 1 {
-		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
-	}
-
-	// referrers unavailable
-	count = 0
-	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
-			count++
-			w.WriteHeader(http.StatusNotFound)
-		default:
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusNotFound)
+		// 1st call
+		if state := repo.loadReferrersState(); state != referrersStateUnknown {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+		}
+		got, err := repo.pingReferrers(ctx)
+		if err != nil {
+			t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+		}
+		if got != true {
+			t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
+		}
+		if state := repo.loadReferrersState(); state != referrersStateSupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+		}
+		if count != 1 {
+			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 		}
 
-	}))
-	defer ts.Close()
-	uri, err = url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
+		// 2nd call
+		if state := repo.loadReferrersState(); state != referrersStateSupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+		}
+		got, err = repo.pingReferrers(ctx)
+		if err != nil {
+			t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+		}
+		if got != true {
+			t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
+		}
+		if state := repo.loadReferrersState(); state != referrersStateSupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+		}
+		if count != 1 {
+			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
+		}
+	})
 
-	ctx = context.Background()
-	repo, err = NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
+	t.Run("referrers unavailable", func(t *testing.T) {
+		count := 0
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+				count++
+				w.WriteHeader(http.StatusNotFound)
+			default:
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusNotFound)
+			}
 
-	// 1st call
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
-	}
-	got, err = repo.pingReferrers(ctx)
-	if err != nil {
-		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
-	}
-	if got != false {
-		t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
-	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
-	}
-	if count != 1 {
-		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
-	}
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
 
-	// 2nd call
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
-	}
-	got, err = repo.pingReferrers(ctx)
-	if err != nil {
-		t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
-	}
-	if got != false {
-		t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
-	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
-	}
-	if count != 1 {
-		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
-	}
+		ctx := context.Background()
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
+
+		// 1st call
+		if state := repo.loadReferrersState(); state != referrersStateUnknown {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+		}
+		got, err := repo.pingReferrers(ctx)
+		if err != nil {
+			t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+		}
+		if got != false {
+			t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
+		}
+		if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+		}
+		if count != 1 {
+			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
+		}
+
+		// 2nd call
+		if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+		}
+		got, err = repo.pingReferrers(ctx)
+		if err != nil {
+			t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+		}
+		if got != false {
+			t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
+		}
+		if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+		}
+		if count != 1 {
+			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
+		}
+	})
+
+	t.Run("referrers unavailable incorrect content type", func(t *testing.T) {
+		count := 0
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+				count++
+				w.Header().Set("Content-Type", "text/html") // can be anything except an OCI image index
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusNotFound)
+			}
+
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		ctx := context.Background()
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
+
+		got, err := repo.pingReferrers(ctx)
+		if err != nil {
+			t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+		}
+		if got != false {
+			t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
+		}
+		if count != 1 {
+			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
+		}
+	})
 }
 
 func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
@@ -7284,6 +7387,7 @@ func TestRepository_pingReferrers_Concurrent(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			atomic.AddInt32(&count, 1)
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.WriteHeader(http.StatusOK)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)

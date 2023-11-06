@@ -144,6 +144,7 @@ func TestMain(m *testing.M) {
 				MediaType: ocispec.MediaTypeImageIndex,
 				Manifests: referrers,
 			}
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				panic(err)
 			}
