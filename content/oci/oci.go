@@ -44,8 +44,10 @@ import (
 type Store struct {
 	// AutoSaveIndex controls if the OCI store will automatically save the index
 	// file when needed.
-	//   - If AutoSaveIndex is set to true, the OCI store will automatically save the
-	//     changes to `index.json` on Tag() and Delete() calls, and when pushing a manifest.
+	//   - If AutoSaveIndex is set to true, the OCI store will automatically save
+	//     the changes to `index.json` when
+	//      1. pushing a manifest
+	//      2. calling Tag() or Delete()
 	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
 	//     to manually call SaveIndex() when needed.
 	//   - Default value: true.
@@ -61,7 +63,7 @@ type Store struct {
 	// has the exclusive access to Store if a delete operation is underway. Operations
 	// such as Fetch, Push use sync.RLock(), while Delete uses sync.Lock().
 	sync sync.RWMutex
-	// indexLock ensures that only one process is writing to the index.
+	// indexLock ensures that only one go-routine is writing to the index.
 	indexLock sync.Mutex
 }
 
@@ -141,7 +143,7 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 
 // Delete deletes the content matching the descriptor from the store. Delete may
 // fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
-// Reader) using `target`.
+// Reader) using target.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
