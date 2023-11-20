@@ -14,7 +14,7 @@ limitations under the License.
 */
 
 // Package oci provides access to an OCI content store.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc5/image-layout.md
 package oci
 
 import (
@@ -40,12 +40,14 @@ import (
 
 // Store implements `oras.Target`, and represents a content store
 // based on file system with the OCI-Image layout.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc5/image-layout.md
 type Store struct {
 	// AutoSaveIndex controls if the OCI store will automatically save the index
-	// file on each Tag() call.
-	//   - If AutoSaveIndex is set to true, the OCI store will automatically call
-	//     this method on each Tag() call.
+	// file when needed.
+	//   - If AutoSaveIndex is set to true, the OCI store will automatically save
+	//     the changes to `index.json` when
+	//      1. pushing a manifest
+	//      2. calling Tag() or Delete()
 	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
 	//     to manually call SaveIndex() when needed.
 	//   - Default value: true.
@@ -53,11 +55,16 @@ type Store struct {
 	root          string
 	indexPath     string
 	index         *ocispec.Index
-	indexLock     sync.Mutex
+	storage       *Storage
+	tagResolver   *resolver.Memory
+	graph         *graph.Memory
 
-	storage     content.Storage
-	tagResolver *resolver.Memory
-	graph       *graph.Memory
+	// sync ensures that most operations can be done concurrently, while Delete
+	// has the exclusive access to Store if a delete operation is underway. Operations
+	// such as Fetch, Push use sync.RLock(), while Delete uses sync.Lock().
+	sync sync.RWMutex
+	// indexLock ensures that only one go-routine is writing to the index.
+	indexLock sync.Mutex
 }
 
 // New creates a new OCI store with context.Background().
@@ -98,13 +105,21 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	return store, nil
 }
 
-// Fetch fetches the content identified by the descriptor.
+// Fetch fetches the content identified by the descriptor. It returns an io.ReadCloser.
+// It's recommended to close the io.ReadCloser before a Delete operation, otherwise
+// Delete may fail (for example on NTFS file systems).
 func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	return s.storage.Fetch(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
 func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io.Reader) error {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	if err := s.storage.Push(ctx, expected, reader); err != nil {
 		return err
 	}
@@ -120,13 +135,46 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 
 // Exists returns true if the described content exists.
 func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	return s.storage.Exists(ctx, target)
+}
+
+// Delete deletes the content matching the descriptor from the store. Delete may
+// fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
+// Reader) using target.
+func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	s.sync.Lock()
+	defer s.sync.Unlock()
+
+	resolvers := s.tagResolver.Map()
+	untagged := false
+	for reference, desc := range resolvers {
+		if content.Equal(desc, target) {
+			s.tagResolver.Untag(reference)
+			untagged = true
+		}
+	}
+	if err := s.graph.Remove(ctx, target); err != nil {
+		return err
+	}
+	if untagged && s.AutoSaveIndex {
+		err := s.saveIndex()
+		if err != nil {
+			return err
+		}
+	}
+	return s.storage.Delete(ctx, target)
 }
 
 // Tag tags a descriptor with a reference string.
 // reference should be a valid tag (e.g. "latest").
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md#indexjson-file
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc5/image-layout.md#indexjson-file
 func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	if err := validateReference(reference); err != nil {
 		return err
 	}
@@ -155,7 +203,7 @@ func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 		return err
 	}
 	if s.AutoSaveIndex {
-		return s.SaveIndex()
+		return s.saveIndex()
 	}
 	return nil
 }
@@ -166,6 +214,9 @@ func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 // digest the returned descriptor will be a plain descriptor (containing only
 // the digest, media type and size).
 func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	if reference == "" {
 		return ocispec.Descriptor{}, errdef.ErrMissingReference
 	}
@@ -191,6 +242,9 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 // Predecessors returns nil without error if the node does not exists in the
 // store.
 func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	return s.graph.Predecessors(ctx, node)
 }
 
@@ -202,6 +256,9 @@ func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]oc
 //
 // See also `Tags()` in the package `registry`.
 func (s *Store) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
 	return listTags(ctx, s.tagResolver, last, fn)
 }
 
@@ -263,10 +320,18 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 
 // SaveIndex writes the `index.json` file to the file system.
 //   - If AutoSaveIndex is set to true (default value),
-//     the OCI store will automatically call this method on each Tag() call.
+//     the OCI store will automatically save the changes to `index.json`
+//     on Tag() and Delete() calls, and when pushing a manifest.
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
 //     to manually call this method when needed.
 func (s *Store) SaveIndex() error {
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
+	return s.saveIndex()
+}
+
+func (s *Store) saveIndex() error {
 	s.indexLock.Lock()
 	defer s.indexLock.Unlock()
 
