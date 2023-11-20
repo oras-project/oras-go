@@ -37,9 +37,9 @@ import (
 // defaultConcurrency is the default value of CopyGraphOptions.Concurrency.
 const defaultConcurrency int = 3 // This value is consistent with dockerd and containerd.
 
-// SkipNode signals to stop copying a descriptor.  When returned from PreCopy the blob must exist in the target.
+// SkipNode signals to stop copying a descriptor. When returned from PreCopy the blob must exist in the target.
 // This can be used to signal that a blob has been made available in the target repository by "Mount()" or some other technique.
-var SkipNode = errors.New("skip descriptor")
+var SkipNode = errors.New("skip node")
 
 // DefaultCopyOptions provides the default CopyOptions.
 var DefaultCopyOptions CopyOptions = CopyOptions{
@@ -96,7 +96,10 @@ type CopyGraphOptions struct {
 	// cached in the memory.
 	// If less than or equal to 0, a default (currently 4 MiB) is used.
 	MaxMetadataBytes int64
-	// PreCopy handles the current descriptor before copying it.
+	// PreCopy handles the current descriptor before copying it. It returns an
+	// oras.SkipNode error if a blob already exists in the target, this means
+	// a blob may has been made available in the target repository by "Mount()"
+	// or some other technique.
 	PreCopy func(ctx context.Context, desc ocispec.Descriptor) error
 	// PostCopy handles the current descriptor after copying it.
 	PostCopy func(ctx context.Context, desc ocispec.Descriptor) error
