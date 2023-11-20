@@ -168,6 +168,43 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	return s.storage.Delete(ctx, target)
 }
 
+// DeleteTree deletes the content matching the descriptor as well as its
+// children from the store.
+// Children will be deleted only if they do not any other predecessors than the
+// given root.
+// DeleteTree may fail on certain systems (i.e. NTFS), if there is a process
+// (i.e. an unclosed Reader) using any of root children.
+func (s *Store) DeleteTree(ctx context.Context, root ocispec.Descriptor) error {
+	predecessors, err := s.Predecessors(ctx, root)
+	if err != nil {
+		return fmt.Errorf("getting predecessors: %w", err)
+	}
+
+	// We need to check if there are more than 1 predecessor as the current tree
+	// is counted in.
+	if len(predecessors) > 1 {
+		return nil
+	}
+
+	descriptors, err := content.Successors(ctx, s, root)
+	if err != nil {
+		return fmt.Errorf("getting successors: %w", err)
+	}
+
+	for _, descriptor := range descriptors {
+		if content.Equal(descriptor, ocispec.DescriptorEmptyJSON) {
+			continue
+		}
+
+		err := s.DeleteTree(ctx, descriptor)
+		if err != nil {
+			return err
+		}
+	}
+
+	return s.Delete(ctx, root)
+}
+
 // Tag tags a descriptor with a reference string.
 // reference should be a valid tag (e.g. "latest").
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc5/image-layout.md#indexjson-file

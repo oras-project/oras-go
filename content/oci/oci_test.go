@@ -2237,6 +2237,103 @@ func TestStore_PredecessorsAndDelete(t *testing.T) {
 	}
 }
 
+func TestStore_PredecessorsAndDeleteTree(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 1
+	generateManifest(ocispec.DescriptorEmptyJSON, descs[0])    // Blob 2
+	generateManifest(ocispec.DescriptorEmptyJSON, descs[1])    // Blob 3
+	generateIndex(descs[2:4]...)                               // Blob 4
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	for i := range blobs {
+		eg.Go(func(i int) func() error {
+			return func() error {
+				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
+				if err != nil {
+					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
+				}
+				return nil
+			}
+		}(i))
+	}
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify predecessors
+	wants := [][]ocispec.Descriptor{
+		{descs[2]}, // Blob 0
+		{descs[3]}, // Blob 1
+		{descs[4]}, // Blob 2
+		{descs[4]}, // Blob 3
+		nil,        // Blob 4
+	}
+	for i, want := range wants {
+		predecessors, err := s.Predecessors(ctx, descs[i])
+		if err != nil {
+			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
+		}
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
+		}
+	}
+
+	// delete the tree and verify the result
+	err = s.DeleteTree(egCtx, descs[4])
+	if err != nil {
+		t.Errorf("failed deleting tree: %v", err)
+	}
+	for i, desc := range descs {
+		ok, err := s.Exists(ctx, desc)
+		if err != nil {
+			t.Errorf("failed testing Store.Exists(%d): %v", i, err)
+		}
+		if ok {
+			t.Errorf("Store.Exists(%d) should have been deleted", i)
+		}
+	}
+}
+
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
 	if len(actual) != len(expected) {
 		return false
