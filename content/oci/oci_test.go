@@ -2064,7 +2064,7 @@ func TestStore_FetchAndDelete(t *testing.T) {
 		t.Fatal("error =", err)
 	}
 	if !bytes.Equal(got, content) {
-				t.Errorf("Store.Fetch() = %v, want %v", string(got), string(content))
+		t.Errorf("Store.Fetch() = %v, want %v", string(got), string(content))
 	}
 	rc.Close()
 
