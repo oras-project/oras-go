@@ -100,7 +100,7 @@ type CopyGraphOptions struct {
 	// return a SkipNode to signal that desc should be skipped when it already
 	// exists in the target.
 	PreCopy func(ctx context.Context, desc ocispec.Descriptor) error
-	// PostCopy handles the current descriptor after copying it.
+	// PostCopy handles the current descriptor after it is copied.
 	PostCopy func(ctx context.Context, desc ocispec.Descriptor) error
 	// OnCopySkipped will be called when the sub-DAG rooted by the current node
 	// is skipped.
