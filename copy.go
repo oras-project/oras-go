@@ -37,9 +37,9 @@ import (
 // defaultConcurrency is the default value of CopyGraphOptions.Concurrency.
 const defaultConcurrency int = 3 // This value is consistent with dockerd and containerd.
 
-// ErrSkipDesc signals to stop copying a descriptor.  When returned from PreCopy the blob must exist in the target.
+// SkipNode signals to stop copying a node. When returned from PreCopy the blob must exist in the target.
 // This can be used to signal that a blob has been made available in the target repository by "Mount()" or some other technique.
-var ErrSkipDesc = errors.New("skip descriptor")
+var SkipNode = errors.New("skip node")
 
 // DefaultCopyOptions provides the default CopyOptions.
 var DefaultCopyOptions CopyOptions = CopyOptions{
@@ -96,9 +96,11 @@ type CopyGraphOptions struct {
 	// cached in the memory.
 	// If less than or equal to 0, a default (currently 4 MiB) is used.
 	MaxMetadataBytes int64
-	// PreCopy handles the current descriptor before copying it.
+	// PreCopy handles the current descriptor before it is copied. PreCopy can
+	// return a SkipNode to signal that desc should be skipped when it already
+	// exists in the target.
 	PreCopy func(ctx context.Context, desc ocispec.Descriptor) error
-	// PostCopy handles the current descriptor after copying it.
+	// PostCopy handles the current descriptor after it is copied.
 	PostCopy func(ctx context.Context, desc ocispec.Descriptor) error
 	// OnCopySkipped will be called when the sub-DAG rooted by the current node
 	// is skipped.
@@ -282,7 +284,7 @@ func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.St
 func copyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor, opts CopyGraphOptions) error {
 	if opts.PreCopy != nil {
 		if err := opts.PreCopy(ctx, desc); err != nil {
-			if err == ErrSkipDesc {
+			if err == SkipNode {
 				return nil
 			}
 			return err
@@ -374,7 +376,7 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 				}
 			}
 			// skip the regular copy workflow
-			return ErrSkipDesc
+			return SkipNode
 		}
 	} else {
 		postCopy := opts.PostCopy

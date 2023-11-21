@@ -1433,7 +1433,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		t.Fatalf("CopyGraph() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
 	}
 
-	t.Run("ErrSkipDesc", func(t *testing.T) {
+	t.Run("SkipNode", func(t *testing.T) {
 		// test CopyGraph with PreCopy = 1
 		root = descs[6]
 		dst := &countingStorage{storage: cas.NewMemory()}
@@ -1450,7 +1450,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 					if err != nil {
 						t.Fatalf("Failed to fetch: %v", err)
 					}
-					return oras.ErrSkipDesc
+					return oras.SkipNode
 				}
 				return nil
 			},
@@ -1467,7 +1467,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		}
 		// 7 (exists) - 1 (skipped) = 6 pushes expected
 		if got, expected := dst.numPush.Load(), int64(6); got != expected {
-			// If we get >=7 then ErrSkipDesc did not short circuit the push like it is supposed to do.
+			// If we get >=7 then SkipNode did not short circuit the push like it is supposed to do.
 			t.Errorf("count(Push()) = %d, want %d", got, expected)
 		}
 	})
