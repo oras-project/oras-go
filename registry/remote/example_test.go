@@ -174,6 +174,17 @@ func TestMain(m *testing.M) {
 			w.Header().Set("Content-Digest", string(blobDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobContent)))
 			w.Write([]byte(blobContent))
+		case p == fmt.Sprintf("/v2/%s/referrers/%s", exampleRepositoryName, "sha256:0000000000000000000000000000000000000000000000000000000000000000"):
+			result := ocispec.Index{
+				Versioned: specs.Versioned{
+					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+				},
+				MediaType: ocispec.MediaTypeImageIndex,
+			}
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				panic(err)
+			}
 		case p == fmt.Sprintf("/v2/%s/referrers/%s", exampleRepositoryName, exampleManifestDescriptor.Digest.String()):
 			q := r.URL.Query()
 			var referrers []ocispec.Descriptor
@@ -191,6 +202,7 @@ func TestMain(m *testing.M) {
 				MediaType: ocispec.MediaTypeImageIndex,
 				Manifests: referrers,
 			}
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				panic(err)
 			}

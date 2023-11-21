@@ -1031,15 +1031,20 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex_Referrers(t *testin
 	// set up test server
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
+		var manifests []ocispec.Descriptor
 		switch {
 		case p == "/v2/test/referrers/"+descs[0].Digest.String():
+			manifests = descs[1:]
+			fallthrough
+		case strings.HasPrefix(p, "/v2/test/referrers/"):
 			result := ocispec.Index{
 				Versioned: specs.Versioned{
 					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
 				},
 				MediaType: ocispec.MediaTypeImageIndex,
-				Manifests: descs[1:],
+				Manifests: manifests,
 			}
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				t.Errorf("failed to write response: %v", err)
 			}
@@ -1076,7 +1081,6 @@ func TestExtendedCopyGraph_FilterAnnotationWithMultipleRegex_Referrers(t *testin
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
-			return
 		}
 	}))
 	defer ts.Close()
@@ -1454,15 +1458,20 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex_Referrers(t *test
 	// set up test server
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
+		var manifests []ocispec.Descriptor
 		switch {
 		case p == "/v2/test/referrers/"+descs[0].Digest.String():
+			manifests = descs[1:]
+			fallthrough
+		case strings.HasPrefix(p, "/v2/test/referrers/"):
 			result := ocispec.Index{
 				Versioned: specs.Versioned{
 					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
 				},
 				MediaType: ocispec.MediaTypeImageIndex,
-				Manifests: descs[1:],
+				Manifests: manifests,
 			}
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				t.Errorf("failed to write response: %v", err)
 			}
@@ -1695,15 +1704,20 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex_Refe
 	// set up test server
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
+		var manifests []ocispec.Descriptor
 		switch {
 		case p == "/v2/test/referrers/"+descs[0].Digest.String():
+			manifests = descs[1:]
+			fallthrough
+		case strings.HasPrefix(p, "/v2/test/referrers/"):
 			result := ocispec.Index{
 				Versioned: specs.Versioned{
 					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
 				},
 				MediaType: ocispec.MediaTypeImageIndex,
-				Manifests: descs[1:],
+				Manifests: manifests,
 			}
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				t.Errorf("failed to write response: %v", err)
 			}
