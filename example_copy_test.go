@@ -35,6 +35,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/internal/spec"
+	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 )
 
@@ -213,6 +214,37 @@ func ExampleCopy_remoteToRemote() {
 
 	// Output:
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
+}
+
+func ExampleCopy_remoteToRemoteWithMount() {
+	reg, err := remote.NewRegistry(remoteHost)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	ctx := context.Background()
+	src, err := reg.Repository(ctx, "source")
+	if err != nil {
+		panic(err) // Handle error
+	}
+	dst, err := reg.Repository(ctx, "target")
+	if err != nil {
+		panic(err) // Handle error
+	}
+
+	tagName := "latest"
+
+	opts := oras.CopyOptions{}
+	// Enable cross-repository blob mounting
+	opts.WithMount("source", dst.(registry.Mounter), nil)
+
+	desc, err := oras.Copy(ctx, src, tagName, dst, tagName, opts)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	fmt.Println("Final", desc.Digest)
+
+	// Output:
+	// Final sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
 func ExampleCopy_remoteToLocal() {

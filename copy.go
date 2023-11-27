@@ -114,6 +114,66 @@ type CopyGraphOptions struct {
 	FindSuccessors func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
+// WithMount enabled cross repository blob mounting.
+// sourceReference is the repository to use for mounting (the mount point).
+// mounter is the destination for the mount (a well-known implementation of this is *registry.Repository representing the target).
+// onMounted is called (if provided) when the blob is mounted.
+// The original PreCopy hook is called only on copy, and therefore not when the blob is mounted.
+func (opts *CopyGraphOptions) WithMount(sourceRepository string, mounter registry.Mounter, onMounted func(context.Context, ocispec.Descriptor) error) {
+	preCopy := opts.PreCopy
+	opts.PreCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+		// Only care to mount blobs
+		if descriptor.IsManifest(desc) {
+			// still want to call PreCopy if it is a manifest
+			if preCopy != nil {
+				return preCopy(ctx, desc)
+			}
+			return nil
+		}
+
+		var mountFailed bool
+		getContent := func() (io.ReadCloser, error) {
+			// call the original PreCopy function if it exists
+			if preCopy != nil {
+				if err := preCopy(ctx, desc); err != nil {
+					return nil, err
+				}
+			}
+			// the invocation of getContent indicates that mounting has failed
+			mountFailed = true
+
+			// To avoid needing a content.Fetcher as an input argument we simply fall back to the default behavior
+			// as if getContent was nil
+			return nil, errdef.ErrUnsupported
+		}
+
+		// Mount or copy
+		if err := mounter.Mount(ctx, desc, sourceRepository, getContent); err != nil {
+			return err
+		}
+
+		if !mountFailed {
+			// mounted
+			if onMounted != nil {
+				if err := onMounted(ctx, desc); err != nil {
+					return err
+				}
+			}
+			// signal that the descriptor now exists
+			return SkipNode
+		}
+
+		// we copied it
+		if opts.PostCopy != nil {
+			if err := opts.PostCopy(ctx, desc); err != nil {
+				return err
+			}
+		}
+		// signal that the descriptor now exists
+		return SkipNode
+	}
+}
+
 // Copy copies a rooted directed acyclic graph (DAG) with the tagged root node
 // in the source Target to the destination Target.
 // The destination reference will be the same as the source reference if the
