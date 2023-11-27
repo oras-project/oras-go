@@ -1456,7 +1456,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 			},
 		}
 		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
-			t.Fatalf("CopyGraph() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
+			t.Fatalf("CopyGraph() error = %v", err)
 		}
 
 		if got, expected := dst.numExists.Load(), int64(7); got != expected {
@@ -1471,11 +1471,418 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 			t.Errorf("count(Push()) = %d, want %d", got, expected)
 		}
 	})
+
+	t.Run("MountFrom mounted", func(t *testing.T) {
+		root = descs[6]
+		dst := &countingStorage{storage: cas.NewMemory()}
+		var numMount atomic.Int64
+		dst.mount = func(ctx context.Context,
+			desc ocispec.Descriptor,
+			fromRepo string,
+			getContent func() (io.ReadCloser, error),
+		) error {
+			numMount.Add(1)
+			if expected := "source"; fromRepo != expected {
+				t.Fatalf("fromRepo = %v, want %v", fromRepo, expected)
+			}
+			rc, err := src.Fetch(ctx, desc)
+			if err != nil {
+				t.Fatalf("Failed to fetch content: %v", err)
+			}
+			defer rc.Close()
+			err = dst.storage.Push(ctx, desc, rc) // bypass the counters
+			if err != nil {
+				t.Fatalf("Failed to push content: %v", err)
+			}
+			return nil
+		}
+		opts = oras.CopyGraphOptions{}
+		var numPreCopy, numPostCopy, numOnMounted, numMountFrom atomic.Int64
+		opts.PreCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPreCopy.Add(1)
+			return nil
+		}
+		opts.PostCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPostCopy.Add(1)
+			return nil
+		}
+		opts.OnMounted = func(ctx context.Context, d ocispec.Descriptor) error {
+			numOnMounted.Add(1)
+			return nil
+		}
+		opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+			numMountFrom.Add(1)
+			return []string{"source"}, nil
+		}
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+			t.Fatalf("CopyGraph() error = %v", err)
+		}
+
+		if got, expected := dst.numExists.Load(), int64(7); got != expected {
+			t.Errorf("count(Exists()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numFetch.Load(), int64(0); got != expected {
+			t.Errorf("count(Fetch()) = %d, want %d", got, expected)
+		}
+		// 7 (exists) - 1 (skipped) = 6 pushes expected
+		if got, expected := dst.numPush.Load(), int64(3); got != expected {
+			// If we get >=7 then ErrSkipDesc did not short circuit the push like it is supposed to do.
+			t.Errorf("count(Push()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMount.Load(), int64(4); got != expected {
+			t.Errorf("count(Mount()) = %d, want %d", got, expected)
+		}
+		if got, expected := numOnMounted.Load(), int64(4); got != expected {
+			t.Errorf("count(OnMounted()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMountFrom.Load(), int64(4); got != expected {
+			t.Errorf("count(MountFrom()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPreCopy.Load(), int64(3); got != expected {
+			t.Errorf("count(PreCopy()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPostCopy.Load(), int64(3); got != expected {
+			t.Errorf("count(PostCopy()) = %d, want %d", got, expected)
+		}
+	})
+
+	t.Run("MountFrom copied", func(t *testing.T) {
+		root = descs[6]
+		dst := &countingStorage{storage: cas.NewMemory()}
+		var numMount atomic.Int64
+		dst.mount = func(ctx context.Context,
+			desc ocispec.Descriptor,
+			fromRepo string,
+			getContent func() (io.ReadCloser, error),
+		) error {
+			numMount.Add(1)
+			if expected := "source"; fromRepo != expected {
+				t.Fatalf("fromRepo = %v, want %v", fromRepo, expected)
+			}
+
+			rc, err := getContent()
+			if err != nil {
+				t.Fatalf("Failed to fetch content: %v", err)
+			}
+			defer rc.Close()
+			err = dst.storage.Push(ctx, desc, rc) // bypass the counters
+			if err != nil {
+				t.Fatalf("Failed to push content: %v", err)
+			}
+			return nil
+		}
+		opts = oras.CopyGraphOptions{}
+		var numPreCopy, numPostCopy, numOnMounted, numMountFrom atomic.Int64
+		opts.PreCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPreCopy.Add(1)
+			return nil
+		}
+		opts.PostCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPostCopy.Add(1)
+			return nil
+		}
+		opts.OnMounted = func(ctx context.Context, d ocispec.Descriptor) error {
+			numOnMounted.Add(1)
+			return nil
+		}
+		opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+			numMountFrom.Add(1)
+			return []string{"source"}, nil
+		}
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+			t.Fatalf("CopyGraph() error = %v", err)
+		}
+
+		if got, expected := dst.numExists.Load(), int64(7); got != expected {
+			t.Errorf("count(Exists()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numFetch.Load(), int64(0); got != expected {
+			t.Errorf("count(Fetch()) = %d, want %d", got, expected)
+		}
+		// 7 (exists) - 1 (skipped) = 6 pushes expected
+		if got, expected := dst.numPush.Load(), int64(3); got != expected {
+			// If we get >=7 then ErrSkipDesc did not short circuit the push like it is supposed to do.
+			t.Errorf("count(Push()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMount.Load(), int64(4); got != expected {
+			t.Errorf("count(Mount()) = %d, want %d", got, expected)
+		}
+		if got, expected := numOnMounted.Load(), int64(0); got != expected {
+			t.Errorf("count(OnMounted()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMountFrom.Load(), int64(4); got != expected {
+			t.Errorf("count(MountFrom()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPreCopy.Load(), int64(7); got != expected {
+			t.Errorf("count(PreCopy()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPostCopy.Load(), int64(7); got != expected {
+			t.Errorf("count(PostCopy()) = %d, want %d", got, expected)
+		}
+	})
+
+	t.Run("MountFrom mounted second try", func(t *testing.T) {
+		root = descs[6]
+		dst := &countingStorage{storage: cas.NewMemory()}
+		var numMount atomic.Int64
+		dst.mount = func(ctx context.Context,
+			desc ocispec.Descriptor,
+			fromRepo string,
+			getContent func() (io.ReadCloser, error),
+		) error {
+			numMount.Add(1)
+			switch fromRepo {
+			case "source":
+				rc, err := src.Fetch(ctx, desc)
+				if err != nil {
+					t.Fatalf("Failed to fetch content: %v", err)
+				}
+				defer rc.Close()
+				err = dst.storage.Push(ctx, desc, rc) // bypass the counters
+				if err != nil {
+					t.Fatalf("Failed to push content: %v", err)
+				}
+				return nil
+			case "missing/the/data":
+				// simulate a registry mount will fail, so it will request the content to start the copy.
+				rc, err := getContent()
+				if err != nil {
+					return fmt.Errorf("getContent failed: %w", err)
+				}
+				defer rc.Close()
+				err = dst.storage.Push(ctx, desc, rc) // bypass the counters
+				if err != nil {
+					t.Fatalf("Failed to push content: %v", err)
+				}
+				return nil
+			default:
+				t.Fatalf("fromRepo = %v, want either %v or %v", fromRepo, "missing/the/data", "source")
+				return nil
+			}
+		}
+		opts = oras.CopyGraphOptions{}
+		var numPreCopy, numPostCopy, numOnMounted, numMountFrom atomic.Int64
+		opts.PreCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPreCopy.Add(1)
+			return nil
+		}
+		opts.PostCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPostCopy.Add(1)
+			return nil
+		}
+		opts.OnMounted = func(ctx context.Context, d ocispec.Descriptor) error {
+			numOnMounted.Add(1)
+			return nil
+		}
+		opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+			numMountFrom.Add(1)
+			return []string{"missing/the/data", "source"}, nil
+		}
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+			t.Fatalf("CopyGraph() error = %v", err)
+		}
+
+		if got, expected := dst.numExists.Load(), int64(7); got != expected {
+			t.Errorf("count(Exists()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numFetch.Load(), int64(0); got != expected {
+			t.Errorf("count(Fetch()) = %d, want %d", got, expected)
+		}
+		// 7 (exists) - 1 (skipped) = 6 pushes expected
+		if got, expected := dst.numPush.Load(), int64(3); got != expected {
+			// If we get >=7 then ErrSkipDesc did not short circuit the push like it is supposed to do.
+			t.Errorf("count(Push()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMount.Load(), int64(4*2); got != expected {
+			t.Errorf("count(Mount()) = %d, want %d", got, expected)
+		}
+		if got, expected := numOnMounted.Load(), int64(4); got != expected {
+			t.Errorf("count(OnMounted()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMountFrom.Load(), int64(4); got != expected {
+			t.Errorf("count(MountFrom()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPreCopy.Load(), int64(3); got != expected {
+			t.Errorf("count(PreCopy()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPostCopy.Load(), int64(3); got != expected {
+			t.Errorf("count(PostCopy()) = %d, want %d", got, expected)
+		}
+	})
+
+	t.Run("MountFrom copied dst not a Mounter", func(t *testing.T) {
+		root = descs[6]
+		dst := cas.NewMemory()
+		opts = oras.CopyGraphOptions{}
+		var numPreCopy, numPostCopy, numOnMounted, numMountFrom atomic.Int64
+		opts.PreCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPreCopy.Add(1)
+			return nil
+		}
+		opts.PostCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPostCopy.Add(1)
+			return nil
+		}
+		opts.OnMounted = func(ctx context.Context, d ocispec.Descriptor) error {
+			numOnMounted.Add(1)
+			return nil
+		}
+		opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+			numMountFrom.Add(1)
+			return []string{"source"}, nil
+		}
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+			t.Fatalf("CopyGraph() error = %v", err)
+		}
+
+		if got, expected := numOnMounted.Load(), int64(0); got != expected {
+			t.Errorf("count(OnMounted()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMountFrom.Load(), int64(0); got != expected {
+			t.Errorf("count(MountFrom()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPreCopy.Load(), int64(7); got != expected {
+			t.Errorf("count(PreCopy()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPostCopy.Load(), int64(7); got != expected {
+			t.Errorf("count(PostCopy()) = %d, want %d", got, expected)
+		}
+	})
+
+	t.Run("MountFrom empty sourceRepositories", func(t *testing.T) {
+		root = descs[6]
+		dst := &countingStorage{storage: cas.NewMemory()}
+		opts = oras.CopyGraphOptions{}
+		var numMountFrom atomic.Int64
+		opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+			numMountFrom.Add(1)
+			return nil, nil
+		}
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+			t.Fatalf("CopyGraph() error = %v", err)
+		}
+
+		if got, expected := dst.numExists.Load(), int64(7); got != expected {
+			t.Errorf("count(Exists()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numFetch.Load(), int64(0); got != expected {
+			t.Errorf("count(Fetch()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numPush.Load(), int64(7); got != expected {
+			t.Errorf("count(Push()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMountFrom.Load(), int64(4); got != expected {
+			t.Errorf("count(MountFrom()) = %d, want %d", got, expected)
+		}
+	})
+
+	t.Run("MountFrom error", func(t *testing.T) {
+		root = descs[6]
+		dst := &countingStorage{storage: cas.NewMemory()}
+		opts = oras.CopyGraphOptions{}
+		var numMountFrom atomic.Int64
+		e := errors.New("mountFrom error")
+		opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+			numMountFrom.Add(1)
+			return nil, e
+		}
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); !errors.Is(err, e) {
+			t.Fatalf("CopyGraph() error = %v, wantErr %v", err, e)
+		}
+
+		if got, expected := dst.numExists.Load(), int64(7); got != expected {
+			t.Errorf("count(Exists()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numFetch.Load(), int64(0); got != expected {
+			t.Errorf("count(Fetch()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numPush.Load(), int64(0); got != expected {
+			t.Errorf("count(Push()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMountFrom.Load(), int64(4); got != expected {
+			t.Errorf("count(MountFrom()) = %d, want %d", got, expected)
+		}
+	})
+
+	t.Run("MountFrom OnMounted error", func(t *testing.T) {
+		root = descs[6]
+		dst := &countingStorage{storage: cas.NewMemory()}
+		var numMount atomic.Int64
+		dst.mount = func(ctx context.Context,
+			desc ocispec.Descriptor,
+			fromRepo string,
+			getContent func() (io.ReadCloser, error),
+		) error {
+			numMount.Add(1)
+			if expected := "source"; fromRepo != expected {
+				t.Fatalf("fromRepo = %v, want %v", fromRepo, expected)
+			}
+			rc, err := src.Fetch(ctx, desc)
+			if err != nil {
+				t.Fatalf("Failed to fetch content: %v", err)
+			}
+			defer rc.Close()
+			err = dst.storage.Push(ctx, desc, rc) // bypass the counters
+			if err != nil {
+				t.Fatalf("Failed to push content: %v", err)
+			}
+			return nil
+		}
+		opts = oras.CopyGraphOptions{}
+		var numPreCopy, numPostCopy, numOnMounted, numMountFrom atomic.Int64
+		opts.PreCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPreCopy.Add(1)
+			return nil
+		}
+		opts.PostCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+			numPostCopy.Add(1)
+			return nil
+		}
+		e := errors.New("onMounted error")
+		opts.OnMounted = func(ctx context.Context, d ocispec.Descriptor) error {
+			numOnMounted.Add(1)
+			return e
+		}
+		opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+			numMountFrom.Add(1)
+			return []string{"source"}, nil
+		}
+		if err := oras.CopyGraph(ctx, src, dst, root, opts); !errors.Is(err, e) {
+			t.Fatalf("CopyGraph() error = %v, wantErr %v", err, e)
+		}
+
+		if got, expected := dst.numExists.Load(), int64(7); got != expected {
+			t.Errorf("count(Exists()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numFetch.Load(), int64(0); got != expected {
+			t.Errorf("count(Fetch()) = %d, want %d", got, expected)
+		}
+		if got, expected := dst.numPush.Load(), int64(0); got != expected {
+			t.Errorf("count(Push()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMount.Load(), int64(4); got != expected {
+			t.Errorf("count(Mount()) = %d, want %d", got, expected)
+		}
+		if got, expected := numOnMounted.Load(), int64(4); got != expected {
+			t.Errorf("count(OnMounted()) = %d, want %d", got, expected)
+		}
+		if got, expected := numMountFrom.Load(), int64(4); got != expected {
+			t.Errorf("count(MountFrom()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPreCopy.Load(), int64(0); got != expected {
+			t.Errorf("count(PreCopy()) = %d, want %d", got, expected)
+		}
+		if got, expected := numPostCopy.Load(), int64(0); got != expected {
+			t.Errorf("count(PostCopy()) = %d, want %d", got, expected)
+		}
+	})
 }
 
 // countingStorage counts the calls to its content.Storage methods
 type countingStorage struct {
-	storage                      content.Storage
+	storage content.Storage
+	mount   mountFunc
+
 	numExists, numFetch, numPush atomic.Int64
 }
 
@@ -1492,6 +1899,16 @@ func (cs *countingStorage) Fetch(ctx context.Context, target ocispec.Descriptor)
 func (cs *countingStorage) Push(ctx context.Context, target ocispec.Descriptor, r io.Reader) error {
 	cs.numPush.Add(1)
 	return cs.storage.Push(ctx, target, r)
+}
+
+type mountFunc func(context.Context, ocispec.Descriptor, string, func() (io.ReadCloser, error)) error
+
+func (cs *countingStorage) Mount(ctx context.Context,
+	desc ocispec.Descriptor,
+	fromRepo string,
+	getContent func() (io.ReadCloser, error),
+) error {
+	return cs.mount(ctx, desc, fromRepo, getContent)
 }
 
 func TestCopyGraph_WithConcurrencyLimit(t *testing.T) {
