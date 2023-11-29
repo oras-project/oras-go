@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -452,6 +453,50 @@ func (s *Store) writeIndexFile() error {
 		return fmt.Errorf("failed to marshal index file: %w", err)
 	}
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
+}
+
+// GC removes garbage from Store. The garbage to be cleaned are:
+//   - unreferenced (dangling) blobs in Store which have no predecessors
+//   - garbage blobs in the storage whose metadata is not stored in Store
+func (s *Store) GC(ctx context.Context) error {
+	s.sync.Lock()
+	defer s.sync.Unlock()
+
+	// clean up dangling layers in Store
+	danglings := s.graph.GetDanglingLayers()
+	for _, desc := range danglings {
+		// do not remove existing manifests in the index
+		if _, err := s.tagResolver.Resolve(ctx, string(desc.Digest)); err == errdef.ErrNotFound {
+			// remove the blob and its metadata from the Store
+			// TODO: s.delete returns 2 variables, a dangling tree is not deleted properly
+			if _, err := s.delete(ctx, desc); err != nil {
+				return err
+			}
+		}
+	}
+
+	// clean up garbage blobs in the storage
+	rootpath := filepath.Join(s.root, "blobs")
+	return filepath.Walk(rootpath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		// skip the directories
+		if !info.IsDir() {
+			alg := filepath.Base(filepath.Dir(path))
+			blobDigest, err := digest.Parse(fmt.Sprintf("%s:%s", alg, info.Name()))
+			if err != nil {
+				return err
+			}
+			if exists := s.graph.Exists(blobDigest); !exists {
+				// remove the blob from storage if it does not exist in Store
+				if err := s.storage.deleteByDigest(ctx, blobDigest); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 
 // unsafeStore is used to bypass lock restrictions in Delete.

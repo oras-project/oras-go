@@ -2844,6 +2844,99 @@ func TestStore_UntagErrorPath(t *testing.T) {
 	}
 }
 
+func TestStore_GC(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config"))         // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob"))            // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer"))  // Blob 2, dangling layer
+	generateManifest(descs[0], descs[1])                               // Blob 3, valid manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 1")) // Blob 4, garbage layer 1
+	generateManifest(descs[0], descs[4])                               // Blob 5, garbage manifest 1
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("garbage config")) // Blob 6, garbage config
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 2")) // Blob 7, garbage layer 2
+	generateManifest(descs[6], descs[7])                               // Blob 8, garbage manifest 2
+
+	// push blobs[0] - blobs[3] into s
+	eg, egCtx := errgroup.WithContext(ctx)
+	for i := 0; i <= 3; i++ {
+		eg.Go(func(i int) func() error {
+			return func() error {
+				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
+				if err != nil {
+					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
+				}
+				return nil
+			}
+		}(i))
+	}
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	// push blobs[4] - blobs[8] into s.storage, making them garbage as their metadata
+	// doesn't exist in s
+	for i := 4; i < len(blobs); i++ {
+		eg.Go(func(i int) func() error {
+			return func() error {
+				err := s.storage.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
+				if err != nil {
+					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
+				}
+				return nil
+			}
+		}(i))
+	}
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	// perform GC
+	if err = s.GC(egCtx); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify existence
+	wantExistence := []bool{true, true, false, true, false, false, false, false, false}
+	for i, wantValue := range wantExistence {
+		exists, err := s.Exists(egCtx, descs[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exists != wantValue {
+			t.Fatalf("want existence %d to be %v, got %v", i, wantValue, exists)
+		}
+	}
+}
+
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
 	if len(actual) != len(expected) {
 		return false

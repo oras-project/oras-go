@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/ioutil"
@@ -109,15 +110,19 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 
 // Delete removes the target from the system.
 func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	path, err := blobPath(target.Digest)
+	return s.deleteByDigest(ctx, target.Digest)
+}
+
+func (s *Storage) deleteByDigest(ctx context.Context, digest digest.Digest) error {
+	path, err := blobPath(digest)
 	if err != nil {
-		return fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrInvalidDigest)
+		return fmt.Errorf("%s: %w", digest, errdef.ErrInvalidDigest)
 	}
 	targetPath := filepath.Join(s.root, path)
 	err = os.Remove(targetPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("%s: %s: %w", target.Digest, target.MediaType, errdef.ErrNotFound)
+			return fmt.Errorf("%s: %w", digest, errdef.ErrNotFound)
 		}
 		return err
 	}

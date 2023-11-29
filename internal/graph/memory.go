@@ -20,11 +20,11 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/container/set"
-	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/status"
 	"oras.land/oras-go/v2/internal/syncutil"
 )
@@ -35,7 +35,7 @@ type Memory struct {
 	//  1. a node exists in Memory.nodes if and only if it exists in the memory
 	//  2. Memory.nodes saves the ocispec.Descriptor map keys, which are used by
 	//    the other fields.
-	nodes map[descriptor.Descriptor]ocispec.Descriptor
+	nodes map[digest.Digest]ocispec.Descriptor
 
 	// predecessors has the following properties and behaviors:
 	//  1. a node exists in Memory.predecessors if it has at least one predecessor
@@ -43,14 +43,14 @@ type Memory struct {
 	//    the memory.
 	//  2. a node does not exist in Memory.predecessors, if it doesn't have any predecessors
 	//    in the memory.
-	predecessors map[descriptor.Descriptor]set.Set[descriptor.Descriptor]
+	predecessors map[digest.Digest]set.Set[digest.Digest]
 
 	// successors has the following properties and behaviors:
 	//  1. a node exists in Memory.successors if and only if it exists in the memory.
 	//  2. a node's entry in Memory.successors is always consistent with the actual
 	//    content of the node, regardless of whether or not each successor exists
 	//    in the memory.
-	successors map[descriptor.Descriptor]set.Set[descriptor.Descriptor]
+	successors map[digest.Digest]set.Set[digest.Digest]
 
 	lock sync.RWMutex
 }
@@ -58,9 +58,9 @@ type Memory struct {
 // NewMemory creates a new memory PredecessorFinder.
 func NewMemory() *Memory {
 	return &Memory{
-		nodes:        make(map[descriptor.Descriptor]ocispec.Descriptor),
-		predecessors: make(map[descriptor.Descriptor]set.Set[descriptor.Descriptor]),
-		successors:   make(map[descriptor.Descriptor]set.Set[descriptor.Descriptor]),
+		nodes:        make(map[digest.Digest]ocispec.Descriptor),
+		predecessors: make(map[digest.Digest]set.Set[digest.Digest]),
+		successors:   make(map[digest.Digest]set.Set[digest.Digest]),
 	}
 }
 
@@ -107,7 +107,7 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	key := descriptor.FromOCI(node)
+	key := node.Digest
 	set, exists := m.predecessors[key]
 	if !exists {
 		return nil, nil
@@ -125,7 +125,7 @@ func (m *Memory) Remove(node ocispec.Descriptor) []ocispec.Descriptor {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	nodeKey := descriptor.FromOCI(node)
+	nodeKey := node.Digest
 	var danglings []ocispec.Descriptor
 	// remove the node from its successors' predecessor list
 	for successorKey := range m.successors[nodeKey] {
@@ -157,22 +157,39 @@ func (m *Memory) index(ctx context.Context, fetcher content.Fetcher, node ocispe
 	defer m.lock.Unlock()
 
 	// index the node
-	nodeKey := descriptor.FromOCI(node)
+	nodeKey := node.Digest
 	m.nodes[nodeKey] = node
 
 	// for each successor, put it into the node's successors list, and
 	// put node into the succeesor's predecessors list
-	successorSet := set.New[descriptor.Descriptor]()
+	successorSet := set.New[digest.Digest]()
 	m.successors[nodeKey] = successorSet
 	for _, successor := range successors {
-		successorKey := descriptor.FromOCI(successor)
+		successorKey := successor.Digest
 		successorSet.Add(successorKey)
 		predecessorSet, exists := m.predecessors[successorKey]
 		if !exists {
-			predecessorSet = set.New[descriptor.Descriptor]()
+			predecessorSet = set.New[digest.Digest]()
 			m.predecessors[successorKey] = predecessorSet
 		}
 		predecessorSet.Add(nodeKey)
 	}
 	return successors, nil
+}
+
+// Exists returns if a blob denoted by its digest exists in the memory.
+func (m *Memory) Exists(dgst digest.Digest) bool {
+	_, exists := m.nodes[dgst]
+	return exists
+}
+
+// GetDanglingLayers returns the dangling (unreferenced) layer nodes in the memory.
+func (m *Memory) GetDanglingLayers() []ocispec.Descriptor {
+	var danglings []ocispec.Descriptor
+	for key, desc := range m.nodes {
+		if _, exist := m.predecessors[key]; !exist {
+			danglings = append(danglings, desc)
+		}
+	}
+	return danglings
 }
