@@ -630,7 +630,7 @@ func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 // |                                               |
 // |                                               |
 // +-----------------------------------------------+
-func TestMemory_isDanglingNode(t *testing.T) {
+func TestMemory_trackDanglingNodes(t *testing.T) {
 	testFetcher := cas.NewMemory()
 	testMemory := NewMemory()
 	ctx := context.Background()
