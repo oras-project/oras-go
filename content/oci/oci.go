@@ -156,9 +156,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 			untagged = true
 		}
 	}
-	if err := s.graph.Remove(ctx, target); err != nil {
-		return err
-	}
+	s.graph.Remove(ctx, target)
 	if untagged && s.AutoSaveIndex {
 		err := s.saveIndex()
 		if err != nil {
