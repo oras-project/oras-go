@@ -156,14 +156,29 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 			untagged = true
 		}
 	}
-	s.graph.Remove(ctx, target)
+	danglings := s.graph.Remove(ctx, target)
 	if untagged && s.AutoSaveIndex {
 		err := s.saveIndex()
 		if err != nil {
 			return err
 		}
 	}
-	return s.storage.Delete(ctx, target)
+	if err := s.storage.Delete(ctx, target); err != nil {
+		return err
+	}
+	return s.doGarbageCollection(ctx, danglings)
+}
+
+func (s *Store) doGarbageCollection(ctx context.Context, danglings []ocispec.Descriptor) error {
+	// for each item in dangling, if it exists and it is dangling, remove it
+	for _, node := range danglings {
+		if s.graph.IsDanglingNode(node) {
+			if err := s.Delete(ctx, node); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Tag tags a descriptor with a reference string.
