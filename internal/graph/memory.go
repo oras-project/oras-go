@@ -175,7 +175,7 @@ func (m *Memory) index(ctx context.Context, fetcher content.Fetcher, node ocispe
 	return successors, nil
 }
 
-func (m *Memory) isDanglingNode(desc ocispec.Descriptor) bool {
+func (m *Memory) IsDanglingNode(desc ocispec.Descriptor) bool {
 	key := descriptor.FromOCI(desc)
 	_, existsInMemory := m.nodes[key]
 	_, existsInPredecessors := m.predecessors[key]

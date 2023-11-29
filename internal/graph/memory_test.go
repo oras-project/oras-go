@@ -662,7 +662,6 @@ func TestMemory_trackDanglingNodes(t *testing.T) {
 		}
 		return appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
 	}
-
 	descA := generateManifest(descs[1:3]...) // blobs[3], manifest "A"
 
 	// prepare the content in the fetcher, so that it can be used to test Index
@@ -731,7 +730,7 @@ func TestMemory_trackDanglingNodes(t *testing.T) {
 
 	// check that B,C,D are all garbage
 	for i := 1; i < len(nodeKeys); i++ {
-		if isGarbage := testMemory.isDanglingNode(testMemory.nodes[nodeKeys[i]]); !isGarbage {
+		if isGarbage := testMemory.IsDanglingNode(testMemory.nodes[nodeKeys[i]]); !isGarbage {
 			t.Errorf("%v should be considered a dangling node", nodeKeys[i])
 		}
 	}
@@ -752,7 +751,7 @@ func TestMemory_trackDanglingNodes(t *testing.T) {
 		if !reflect.DeepEqual(danglings, expectedDanglings) {
 			t.Errorf("danglings[i] = %v, want %v", danglings[i], expectedDanglings[i])
 		}
-		if isGarbage := testMemory.isDanglingNode(danglings[i]); !isGarbage {
+		if isGarbage := testMemory.IsDanglingNode(danglings[i]); !isGarbage {
 			t.Errorf("%v should be considered a dangling node", danglings[i])
 		}
 	}
