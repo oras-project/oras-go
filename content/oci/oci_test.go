@@ -2346,6 +2346,28 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 			t.Errorf("%v should exist in store", node)
 		}
 	}
+
+	// verify predecessors information
+	wants := [][]ocispec.Descriptor{
+		{descs[6]}, // Blob 0
+		{descs[6]}, // Blob 1
+		{descs[6]}, // Blob 2
+		{descs[6]}, // Blob 3
+		nil,        // Blob 4
+		nil,        // Blob 5
+		{descs[8]}, // Blob 6
+		nil,        // Blob 7
+		nil,        // Blob 8
+	}
+	for i, want := range wants {
+		predecessors, err := s.Predecessors(ctx, descs[i])
+		if err != nil {
+			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
+		}
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
+		}
+	}
 }
 
 func TestStore_Untag(t *testing.T) {
