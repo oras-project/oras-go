@@ -131,10 +131,13 @@ func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) []ocispec.
 		predecessorEntry.Delete(nodeKey)
 
 		// if none of the predecessors of the node still exists, we remove the
-		// predecessors entry. Otherwise, we do not remove the entry.
+		// predecessors entry and return it as a dangling node. Otherwise, we do
+		// not remove the entry.
 		if len(predecessorEntry) == 0 {
 			delete(m.predecessors, successorKey)
-			danglings = append(danglings, m.nodes[successorKey])
+			if _, exists := m.nodes[successorKey]; exists {
+				danglings = append(danglings, m.nodes[successorKey])
+			}
 		}
 	}
 	delete(m.successors, nodeKey)
