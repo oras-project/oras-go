@@ -148,6 +148,10 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
+	return s.doDelete(ctx, target)
+}
+
+func (s *Store) doDelete(ctx context.Context, target ocispec.Descriptor) error {
 	resolvers := s.tagResolver.Map()
 	untagged := false
 	for reference, desc := range resolvers {
@@ -173,7 +177,7 @@ func (s *Store) doGarbageCollection(ctx context.Context, danglings []ocispec.Des
 	// for each item in dangling, if it exists and it is dangling, remove it
 	for _, node := range danglings {
 		if s.graph.IsDanglingNode(node) {
-			if err := s.Delete(ctx, node); err != nil {
+			if err := s.doDelete(ctx, node); err != nil {
 				return err
 			}
 		}

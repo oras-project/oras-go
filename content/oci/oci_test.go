@@ -2328,10 +2328,24 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// // delete a node and verify the result
-	// if err := s.Delete(egCtx, descs[7]); err != nil {
-	// 	t.Fatal(err)
-	// }
+	// delete blob 7 and verify the result
+	if err := s.Delete(egCtx, descs[7]); err != nil {
+		t.Fatal(err)
+	}
+
+	// node 7, 4 and 5 are now deleted, and other nodes are still present
+	notPresent := []ocispec.Descriptor{descs[4], descs[5], descs[7]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent := []ocispec.Descriptor{descs[0], descs[1], descs[2], descs[3], descs[6], descs[8]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
 }
 
 func TestStore_Untag(t *testing.T) {
