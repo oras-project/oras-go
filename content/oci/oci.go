@@ -52,12 +52,20 @@ type Store struct {
 	//     to manually call SaveIndex() when needed.
 	//   - Default value: true.
 	AutoSaveIndex bool
-	root          string
-	indexPath     string
-	index         *ocispec.Index
-	storage       *Storage
-	tagResolver   *resolver.Memory
-	graph         *graph.Memory
+
+	// AutoGarbageCollection controls if the OCI store will automatically clean
+	// dangling nodes during Delete() operation.
+	//   - If AutoGarbageCollection is set to false, it's the user's responsibility
+	//     to manually delete the dangling nodes.
+	//   - Default value: true.
+	AutoGarbageCollection bool
+
+	root        string
+	indexPath   string
+	index       *ocispec.Index
+	storage     *Storage
+	tagResolver *resolver.Memory
+	graph       *graph.Memory
 
 	// sync ensures that most operations can be done concurrently, while Delete
 	// has the exclusive access to Store if a delete operation is underway. Operations
@@ -84,12 +92,13 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	}
 
 	store := &Store{
-		AutoSaveIndex: true,
-		root:          rootAbs,
-		indexPath:     filepath.Join(rootAbs, ocispec.ImageIndexFile),
-		storage:       storage,
-		tagResolver:   resolver.NewMemory(),
-		graph:         graph.NewMemory(),
+		AutoSaveIndex:         true,
+		AutoGarbageCollection: true,
+		root:                  rootAbs,
+		indexPath:             filepath.Join(rootAbs, ocispec.ImageIndexFile),
+		storage:               storage,
+		tagResolver:           resolver.NewMemory(),
+		graph:                 graph.NewMemory(),
 	}
 
 	if err := ensureDir(filepath.Join(rootAbs, ocispec.ImageBlobsDir)); err != nil {
@@ -170,7 +179,10 @@ func (s *Store) doDelete(ctx context.Context, target ocispec.Descriptor) error {
 	if err := s.storage.Delete(ctx, target); err != nil {
 		return err
 	}
-	return s.doGarbageCollection(ctx, danglings)
+	if s.AutoGarbageCollection {
+		return s.doGarbageCollection(ctx, danglings)
+	}
+	return nil
 }
 
 func (s *Store) doGarbageCollection(ctx context.Context, danglings []ocispec.Descriptor) error {
