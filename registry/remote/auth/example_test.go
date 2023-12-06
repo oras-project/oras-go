@@ -160,7 +160,7 @@ func ExampleClient_Do_minimalClient() {
 // ExampleClient_Do_basicAuth gives an example of using client with credentials.
 func ExampleClient_Do_basicAuth() {
 	client := &auth.Client{
-		// expectedHostAddress is of form ipaddr:port
+		// expectedHostAddress is of form ipaddr:port (without "port" the default is unencrypted http)
 		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
 			Username: username,
 			Password: password,
@@ -185,7 +185,7 @@ func ExampleClient_Do_basicAuth() {
 // including using cache, setting user agent and configuring OAuth2.
 func ExampleClient_Do_clientConfigurations() {
 	client := &auth.Client{
-		// expectedHostAddress is of form ipaddr:port
+		// expectedHostAddress is of form ipaddr:port (without "port" the default is unencrypted http)
 		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
 			Username: username,
 			Password: password,
@@ -225,7 +225,7 @@ func ExampleClient_Do_clientConfigurations() {
 // ExampleClient_Do_withAccessToken gives an example of using client with an access token.
 func ExampleClient_Do_withAccessToken() {
 	client := &auth.Client{
-		// expectedHostAddress is of form ipaddr:port
+		// expectedHostAddress is of form ipaddr:port (without "port" the default is unencrypted http)
 		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
 			AccessToken: accessToken,
 		}),
@@ -248,7 +248,7 @@ func ExampleClient_Do_withAccessToken() {
 // ExampleClient_Do_withRefreshToken gives an example of using client with a refresh token.
 func ExampleClient_Do_withRefreshToken() {
 	client := &auth.Client{
-		// expectedHostAddress is of form ipaddr:port
+		// expectedHostAddress is of form ipaddr:port (without "port" the default is unencrypted http)
 		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
 			RefreshToken: refreshToken,
 		}),

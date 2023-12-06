@@ -41,7 +41,7 @@ func Example_pullFilesFromRemoteRepository() {
 
 	// 1. Connect to a remote repository
 	ctx := context.Background()
-	reg := "myregistry.example.com"
+	reg := "myregistry.example.com:443"
 	repo, err := remote.NewRepository(reg + "/myrepo")
 	if err != nil {
 		panic(err)
@@ -76,7 +76,7 @@ func Example_pullImageFromRemoteRepository() {
 
 	// 1. Connect to a remote repository
 	ctx := context.Background()
-	reg := "myregistry.example.com"
+	reg := "myregistry.example.com:443"
 	repo, err := remote.NewRepository(reg + "/myrepo")
 	if err != nil {
 		panic(err)
@@ -181,7 +181,7 @@ func Example_pushFilesToRemoteRepository() {
 	}
 
 	// 3. Connect to a remote repository
-	reg := "myregistry.example.com"
+	reg := "myregistry.example.com:443"
 	repo, err := remote.NewRepository(reg + "/myrepo")
 	if err != nil {
 		panic(err)
