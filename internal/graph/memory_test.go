@@ -711,7 +711,10 @@ func TestMemory_trackDanglingNodes(t *testing.T) {
 	}
 
 	// remove node A and verify the information
-	danglings := testMemory.Remove(ctx, descA)
+	danglings, err := testMemory.Remove(ctx, descA)
+	if err != nil {
+		t.Errorf("the erorr should be %v", nil)
+	}
 
 	// check that A is no longer in the memory, while B,C,D still exist in memory
 	if _, exists := testMemory.nodes[nodeKeyA]; exists {
