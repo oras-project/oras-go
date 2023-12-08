@@ -180,10 +180,7 @@ func (s *Store) deleteNode(ctx context.Context, target ocispec.Descriptor) ([]oc
 			untagged = true
 		}
 	}
-	danglings, err := s.graph.Remove(ctx, target)
-	if err != nil {
-		return nil, err
-	}
+	danglings := s.graph.Remove(target)
 	if untagged && s.AutoSaveIndex {
 		err := s.saveIndex()
 		if err != nil {

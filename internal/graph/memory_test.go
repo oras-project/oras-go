@@ -245,7 +245,7 @@ func TestMemory_IndexAndRemove(t *testing.T) {
 	}
 
 	// remove node B and check the stored information
-	testMemory.Remove(ctx, descB)
+	testMemory.Remove(descB)
 	// 1. verify that node B no longer exists in testMemory.nodes
 	if _, exists := testMemory.nodes[nodeKeyB]; exists {
 		t.Errorf("nodes entry of %s should no longer exist", "B")
@@ -284,7 +284,7 @@ func TestMemory_IndexAndRemove(t *testing.T) {
 	}
 
 	// remove node A and check the stored information
-	testMemory.Remove(ctx, descA)
+	testMemory.Remove(descA)
 	// 1. verify that node A no longer exists in testMemory.nodes
 	if _, exists := testMemory.nodes[nodeKeyA]; exists {
 		t.Errorf("nodes entry of %s should no longer exist", "A")
@@ -557,7 +557,7 @@ func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 	}
 
 	// remove node C and check the stored information
-	testMemory.Remove(ctx, descC)
+	testMemory.Remove(descC)
 	if predecessorsE.Contains(nodeKeyC) {
 		t.Errorf("predecessors of %s should not contain %s", "E", "C")
 	}
@@ -575,7 +575,7 @@ func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 	}
 
 	// remove node A and check the stored information
-	testMemory.Remove(ctx, descA)
+	testMemory.Remove(descA)
 	if _, exists := testMemory.predecessors[nodeKeyB]; exists {
 		t.Errorf("entry %s in predecessors should no longer exists", "B")
 	}
@@ -711,10 +711,7 @@ func TestMemory_trackDanglingNodes(t *testing.T) {
 	}
 
 	// remove node A and verify the information
-	danglings, err := testMemory.Remove(ctx, descA)
-	if err != nil {
-		t.Errorf("the erorr should be %v", nil)
-	}
+	danglings := testMemory.Remove(descA)
 
 	// check that A is no longer in the memory, while B,C,D still exist in memory
 	if _, exists := testMemory.nodes[nodeKeyA]; exists {
