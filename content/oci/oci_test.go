@@ -2105,7 +2105,7 @@ func TestStore_PredecessorsAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal("New() error =", err)
 	}
-	s.AutoGarbageCollection = false
+	s.AutoGC = false
 	ctx := context.Background()
 
 	// generate test content

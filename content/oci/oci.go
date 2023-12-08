@@ -53,12 +53,12 @@ type Store struct {
 	//   - Default value: true.
 	AutoSaveIndex bool
 
-	// AutoGarbageCollection controls if the OCI store will automatically clean
+	// AutoGC controls if the OCI store will automatically clean newly produced
 	// dangling nodes during Delete() operation.
-	//   - If AutoGarbageCollection is set to false, it's the user's responsibility
-	//     to manually delete the dangling nodes.
+	//   - If AutoGC is set to false, it's the user's responsibility to manually
+	//     delete the dangling nodes.
 	//   - Default value: true.
-	AutoGarbageCollection bool
+	AutoGC bool
 
 	root        string
 	indexPath   string
@@ -92,13 +92,13 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	}
 
 	store := &Store{
-		AutoSaveIndex:         true,
-		AutoGarbageCollection: true,
-		root:                  rootAbs,
-		indexPath:             filepath.Join(rootAbs, ocispec.ImageIndexFile),
-		storage:               storage,
-		tagResolver:           resolver.NewMemory(),
-		graph:                 graph.NewMemory(),
+		AutoSaveIndex: true,
+		AutoGC:        true,
+		root:          rootAbs,
+		indexPath:     filepath.Join(rootAbs, ocispec.ImageIndexFile),
+		storage:       storage,
+		tagResolver:   resolver.NewMemory(),
+		graph:         graph.NewMemory(),
 	}
 
 	if err := ensureDir(filepath.Join(rootAbs, ocispec.ImageBlobsDir)); err != nil {
@@ -157,10 +157,21 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
-	return s.doDelete(ctx, target)
+	// delete one node
+	danglings, err := s.deleteNode(ctx, target)
+	if err != nil {
+		return err
+	}
+
+	// delete the dangling nodes caused by the delete
+	if s.AutoGC {
+		return s.autoGCInDelete(ctx, danglings)
+	}
+	return nil
 }
 
-func (s *Store) doDelete(ctx context.Context, target ocispec.Descriptor) error {
+// deleteNode deletes one node and returns the dangling nodes created by the delete.
+func (s *Store) deleteNode(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	resolvers := s.tagResolver.Map()
 	untagged := false
 	for reference, desc := range resolvers {
@@ -169,30 +180,36 @@ func (s *Store) doDelete(ctx context.Context, target ocispec.Descriptor) error {
 			untagged = true
 		}
 	}
-	danglings := s.graph.Remove(ctx, target)
+	danglings, err := s.graph.Remove(ctx, target)
+	if err != nil {
+		return nil, err
+	}
 	if untagged && s.AutoSaveIndex {
 		err := s.saveIndex()
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := s.storage.Delete(ctx, target); err != nil {
-		return err
+		return nil, err
 	}
-	if s.AutoGarbageCollection {
-		return s.doGarbageCollection(ctx, danglings)
-	}
-	return nil
+	return danglings, nil
 }
 
-func (s *Store) doGarbageCollection(ctx context.Context, danglings []ocispec.Descriptor) error {
-	// for each item in dangling, if it exists and it is dangling, remove it
-	for _, node := range danglings {
+func (s *Store) autoGCInDelete(ctx context.Context, danglings []ocispec.Descriptor) error {
+	// for each item in dangling, if it exists and it is dangling, remove it and
+	// add new dangling nodes into dangling
+	i := 0
+	for i < len(danglings) {
+		node := danglings[i]
 		if s.graph.IsDanglingNode(node) {
-			if err := s.doDelete(ctx, node); err != nil {
+			descs, err := s.deleteNode(ctx, node)
+			if err != nil {
 				return err
 			}
+			danglings = append(danglings, descs...)
 		}
+		i++
 	}
 	return nil
 }

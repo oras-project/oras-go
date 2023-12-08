@@ -119,7 +119,7 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 
 // Remove removes the node from its predecessors and successors, and returns the
 // dangling nodes caused by the deletion.
-func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) []ocispec.Descriptor {
+func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -142,7 +142,7 @@ func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) []ocispec.
 	}
 	delete(m.successors, nodeKey)
 	delete(m.nodes, nodeKey)
-	return danglings
+	return danglings, nil
 }
 
 // index indexes predecessors for each direct successor of the given node.
