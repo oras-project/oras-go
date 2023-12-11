@@ -158,7 +158,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	defer s.sync.Unlock()
 
 	// delete one node
-	danglings, err := s.deleteNode(ctx, target)
+	danglings, err := s.delete(ctx, target)
 	if err != nil {
 		return err
 	}
@@ -170,8 +170,8 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	return nil
 }
 
-// deleteNode deletes one node and returns the dangling nodes created by the delete.
-func (s *Store) deleteNode(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+// delete deletes one node and returns the dangling nodes created by the delete.
+func (s *Store) delete(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	resolvers := s.tagResolver.Map()
 	untagged := false
 	for reference, desc := range resolvers {
@@ -196,17 +196,17 @@ func (s *Store) deleteNode(ctx context.Context, target ocispec.Descriptor) ([]oc
 func (s *Store) autoGCInDelete(ctx context.Context, danglings []ocispec.Descriptor) error {
 	// for each item in dangling, if it exists and it is dangling, remove it and
 	// add new dangling nodes into dangling
-	i := 0
-	for i < len(danglings) {
-		node := danglings[i]
+
+	for len(danglings) > 0 {
+		node := danglings[0]
+		danglings = danglings[1:]
 		if s.graph.IsDanglingNode(node) {
-			descs, err := s.deleteNode(ctx, node)
+			descs, err := s.delete(ctx, node)
 			if err != nil {
 				return err
 			}
 			danglings = append(danglings, descs...)
 		}
-		i++
 	}
 	return nil
 }

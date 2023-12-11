@@ -118,13 +118,13 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 }
 
 // Remove removes the node from its predecessors and successors, and returns the
-// dangling nodes caused by the deletion.
+// dangling root nodes caused by the deletion.
 func (m *Memory) Remove(node ocispec.Descriptor) []ocispec.Descriptor {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	nodeKey := descriptor.FromOCI(node)
-	danglings := []ocispec.Descriptor{}
+	var danglings []ocispec.Descriptor
 	// remove the node from its successors' predecessor list
 	for successorKey := range m.successors[nodeKey] {
 		predecessorEntry := m.predecessors[successorKey]
