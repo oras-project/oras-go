@@ -174,12 +174,3 @@ func (m *Memory) index(ctx context.Context, fetcher content.Fetcher, node ocispe
 	}
 	return successors, nil
 }
-
-// IsDanglingNode decides whether a node is dangling. A node is considered
-// dangling if it is present and has no predecessors.
-func (m *Memory) IsDanglingNode(desc ocispec.Descriptor) bool {
-	key := descriptor.FromOCI(desc)
-	_, existsInMemory := m.nodes[key]
-	_, existsInPredecessors := m.predecessors[key]
-	return existsInMemory && !existsInPredecessors
-}

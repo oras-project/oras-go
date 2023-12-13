@@ -165,7 +165,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 
 	// delete the dangling nodes caused by the delete
 	if s.AutoGC {
-		return s.autoGCInDelete(ctx, danglings)
+		return s.cleanGraphs(ctx, danglings)
 	}
 	return nil
 }
@@ -193,14 +193,14 @@ func (s *Store) delete(ctx context.Context, target ocispec.Descriptor) ([]ocispe
 	return danglings, nil
 }
 
-func (s *Store) autoGCInDelete(ctx context.Context, danglings []ocispec.Descriptor) error {
+func (s *Store) cleanGraphs(ctx context.Context, danglings []ocispec.Descriptor) error {
 	// for each item in dangling, if it exists and it is dangling, remove it and
 	// add new dangling nodes into dangling
-
 	for len(danglings) > 0 {
 		node := danglings[0]
 		danglings = danglings[1:]
-		if s.graph.IsDanglingNode(node) {
+		// don't delete the node if it exists in index.json
+		if _, err := s.tagResolver.Resolve(ctx, string(node.Digest)); err != nil {
 			descs, err := s.delete(ctx, node)
 			if err != nil {
 				return err

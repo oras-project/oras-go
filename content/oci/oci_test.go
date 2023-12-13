@@ -2307,9 +2307,9 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))   // Blob 3
-	generateManifest(descs[0], descs[1:3]...)                  // Blob 4
-	generateManifest(descs[0], descs[3])                       // Blob 5
-	generateManifest(descs[0], descs[1:4]...)                  // Blob 6
+	generateManifest(descs[0], descs[1])                       // Blob 4
+	generateManifest(descs[0], descs[2])                       // Blob 5
+	generateManifest(descs[0], descs[3])                       // Blob 6
 	generateIndex(descs[4:6]...)                               // Blob 7
 	generateIndex(descs[6])                                    // Blob 8
 
@@ -2329,19 +2329,57 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// delete blob 7 and verify the result
-	if err := s.Delete(egCtx, descs[7]); err != nil {
+	// delete blob 4 and verify the result
+	if err := s.Delete(egCtx, descs[4]); err != nil {
 		t.Fatal(err)
 	}
 
-	// node 7, 4 and 5 are now deleted, and other nodes are still present
-	notPresent := []ocispec.Descriptor{descs[4], descs[5], descs[7]}
+	// blob 1 and 4 are now deleted, and other blobs are still present
+	notPresent := []ocispec.Descriptor{descs[1], descs[4]}
 	for _, node := range notPresent {
 		if exists, _ := s.Exists(egCtx, node); exists {
 			t.Errorf("%v should not exist in store", node)
 		}
 	}
-	stillPresent := []ocispec.Descriptor{descs[0], descs[1], descs[2], descs[3], descs[6], descs[8]}
+	stillPresent := []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7], descs[8]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// delete blob 8 and verify the result
+	if err := s.Delete(egCtx, descs[8]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 1, 4 and 8 are now deleted, and other blobs are still present
+	notPresent = []ocispec.Descriptor{descs[1], descs[4], descs[8]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// delete blob 6 and verify the result
+	if err := s.Delete(egCtx, descs[6]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 1, 3, 4, 6 and 8 are now deleted, and other blobs are still present
+	notPresent = []ocispec.Descriptor{descs[1], descs[3], descs[4], descs[6], descs[8]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[5], descs[7]}
 	for _, node := range stillPresent {
 		if exists, _ := s.Exists(egCtx, node); !exists {
 			t.Errorf("%v should exist in store", node)
@@ -2350,13 +2388,13 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 
 	// verify predecessors information
 	wants := [][]ocispec.Descriptor{
-		{descs[6]}, // Blob 0
-		{descs[6]}, // Blob 1
-		{descs[6]}, // Blob 2
-		{descs[6]}, // Blob 3
-		nil,        // Blob 4
-		nil,        // Blob 5
-		{descs[8]}, // Blob 6
+		{descs[5]}, // Blob 0
+		nil,        // Blob 1
+		{descs[5]}, // Blob 2
+		nil,        // Blob 3
+		{descs[7]}, // Blob 4's predecessor is descs[7], even though blob 4 no longer exist
+		{descs[7]}, // Blob 5
+		nil,        // Blob 6
 		nil,        // Blob 7
 		nil,        // Blob 8
 	}
@@ -2367,29 +2405,6 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 		}
 		if !equalDescriptorSet(predecessors, want) {
 			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
-		}
-	}
-
-	// delete blob 8 and verify the result
-	if err := s.Delete(egCtx, descs[8]); err != nil {
-		t.Fatal(err)
-	}
-
-	// all nodes should have been deleted
-	for i := 0; i <= 8; i++ {
-		if exists, _ := s.Exists(egCtx, descs[i]); exists {
-			t.Errorf("%v should not exist in store", descs[i])
-		}
-	}
-
-	// verify predecessors information
-	for i := 0; i <= 8; i++ {
-		predecessors, err := s.Predecessors(ctx, descs[i])
-		if err != nil {
-			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
-		}
-		if predecessors != nil {
-			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, nil)
 		}
 	}
 }
