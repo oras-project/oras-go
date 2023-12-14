@@ -40,7 +40,7 @@ type Memory struct {
 	//  1. a node exists in Memory.predecessors if it has at least one predecessor
 	//    in the memory, regardless of whether or not the node itself exists in
 	//    the memory.
-	//  2. a node does not exist in Memory.nodes, if it doesn't have any predecessors
+	//  2. a node does not exist in Memory.predecessors, if it doesn't have any predecessors
 	//    in the memory.
 	// - Memory.successors:
 	//  1. a node exists in Memory.successors if and only if it exists in the memory.

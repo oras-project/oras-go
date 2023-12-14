@@ -54,9 +54,10 @@ type Store struct {
 	AutoSaveIndex bool
 
 	// AutoGC controls if the OCI store will automatically clean newly produced
-	// dangling nodes during Delete() operation.
-	//   - If AutoGC is set to false, it's the user's responsibility to manually
-	//     delete the dangling nodes.
+	// dangling nodes during Delete() operation. Dangling nodes are those without
+	// any predecessors, such as blobs whose manifests have been deleted.
+	//   - If AutoGC is set to false, then new dangling nodes are not automatically
+	// cleaned up during Delete().
 	//   - Default value: true.
 	AutoGC bool
 
@@ -157,7 +158,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
-	// delete one node
+	// delete the node itself
 	danglings, err := s.delete(ctx, target)
 	if err != nil {
 		return err
