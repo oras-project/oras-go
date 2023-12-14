@@ -2281,10 +2281,11 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 			Size:      int64(len(blob)),
 		})
 	}
-	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+	generateManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
 		manifest := ocispec.Manifest{
-			Config: config,
-			Layers: layers,
+			Config:  config,
+			Subject: subject,
+			Layers:  layers,
 		}
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
@@ -2307,11 +2308,12 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))   // Blob 3
-	generateManifest(descs[0], descs[1])                       // Blob 4
-	generateManifest(descs[0], descs[2])                       // Blob 5
-	generateManifest(descs[0], descs[3])                       // Blob 6
+	generateManifest(descs[0], nil, descs[1])                  // Blob 4
+	generateManifest(descs[0], nil, descs[2])                  // Blob 5
+	generateManifest(descs[0], nil, descs[3])                  // Blob 6
 	generateIndex(descs[4:6]...)                               // Blob 7
 	generateIndex(descs[6])                                    // Blob 8
+	generateManifest(descs[0], &descs[6], descs[2])            // Blob 9
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	for i := range blobs {
@@ -2341,7 +2343,7 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 			t.Errorf("%v should not exist in store", node)
 		}
 	}
-	stillPresent := []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7], descs[8]}
+	stillPresent := []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7], descs[8], descs[9]}
 	for _, node := range stillPresent {
 		if exists, _ := s.Exists(egCtx, node); !exists {
 			t.Errorf("%v should exist in store", node)
@@ -2360,7 +2362,7 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 			t.Errorf("%v should not exist in store", node)
 		}
 	}
-	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7]}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7], descs[9]}
 	for _, node := range stillPresent {
 		if exists, _ := s.Exists(egCtx, node); !exists {
 			t.Errorf("%v should exist in store", node)
@@ -2379,7 +2381,7 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 			t.Errorf("%v should not exist in store", node)
 		}
 	}
-	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[5], descs[7]}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[5], descs[7], descs[9]}
 	for _, node := range stillPresent {
 		if exists, _ := s.Exists(egCtx, node); !exists {
 			t.Errorf("%v should exist in store", node)
@@ -2388,15 +2390,16 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 
 	// verify predecessors information
 	wants := [][]ocispec.Descriptor{
-		{descs[5]}, // Blob 0
-		nil,        // Blob 1
-		{descs[5]}, // Blob 2
-		nil,        // Blob 3
-		{descs[7]}, // Blob 4's predecessor is descs[7], even though blob 4 no longer exist
-		{descs[7]}, // Blob 5
-		nil,        // Blob 6
-		nil,        // Blob 7
-		nil,        // Blob 8
+		{descs[5], descs[9]}, // Blob 0
+		nil,                  // Blob 1
+		{descs[5], descs[9]}, // Blob 2
+		nil,                  // Blob 3
+		{descs[7]},           // Blob 4's predecessor is descs[7], even though blob 4 no longer exist
+		{descs[7]},           // Blob 5
+		{descs[9]},           // Blob 6's predecessor is descs[9], even though blob 6 no longer exist
+		nil,                  // Blob 7
+		nil,                  // Blob 8
+		nil,                  // Blob 9
 	}
 	for i, want := range wants {
 		predecessors, err := s.Predecessors(ctx, descs[i])
