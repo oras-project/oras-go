@@ -112,6 +112,25 @@ type CopyGraphOptions struct {
 	// source storage to fetch large blobs.
 	// If FindSuccessors is nil, content.Successors will be used.
 	FindSuccessors func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
+
+	// UpdateChannel is an optional channel to receive progress updates.
+	// Each update will include the number of bytes copied for a particular blob
+	// or manifest, the expected total size, and the descriptor of the blob or
+	// manifest. It is up to the consumer of the channel to differentiate
+	// between updates among different blobs and manifests; no mechanism is
+	// provided for distinguishing between them, other than the descriptor
+	// passed with each update. The total size of downloads of all blobs and
+	// manifests is not provided, as it is not known. You can calculate the
+	// percentage downloaded for a particular blob in an individual update
+	// based on the total size of that blob, which is provided in the
+	// descriptor, and the number of bytes copied, which is provided in the
+	// update.
+	// Updates are sent each time a block is copied. The number of bytes copied
+	// depends upon whatever calls the io.ReadCloser of the source Target.
+	// This may be io.Copy, which, by default, is 32KB, or it may be some other
+	// implementation.
+	// The caller is responsible for closing the channel.
+	UpdateChannel chan<- CopyUpdate
 }
 
 // Copy copies a rooted directed acyclic graph (DAG) with the tagged root node
@@ -266,10 +285,16 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 }
 
 // doCopyNode copies a single content from the source CAS to the destination CAS.
-func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor) error {
+func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor, ch chan<- CopyUpdate) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
 		return err
+	}
+	if ch != nil {
+		rc = &progressReader{
+			c: ch,
+			r: rc,
+		}
 	}
 	defer rc.Close()
 	err = dst.Push(ctx, desc, rc)
@@ -291,7 +316,7 @@ func copyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Stor
 		}
 	}
 
-	if err := doCopyNode(ctx, src, dst, desc); err != nil {
+	if err := doCopyNode(ctx, src, dst, desc, opts.UpdateChannel); err != nil {
 		return err
 	}
 
