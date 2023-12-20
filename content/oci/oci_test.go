@@ -2505,7 +2505,7 @@ func TestStore_Referrers(t *testing.T) {
 	for i := 4; i < len(wantedReferrers); i++ {
 		want := wantedReferrers[i]
 		var results []ocispec.Descriptor
-		err := s.Referrers(ctx, descs[i], "", func(referrers []ocispec.Descriptor) error {
+		err := registry.Referrers(ctx, s, descs[i], "", func(referrers []ocispec.Descriptor) error {
 			results = append(results, referrers...)
 			return nil
 		})
@@ -2532,7 +2532,7 @@ func TestStore_Referrers(t *testing.T) {
 	for i := 4; i < len(wantedReferrers); i++ {
 		want := wantedReferrers[i]
 		var results []ocispec.Descriptor
-		err := s.Referrers(ctx, descs[i], "image manifest", func(referrers []ocispec.Descriptor) error {
+		err := registry.Referrers(ctx, s, descs[i], "image manifest", func(referrers []ocispec.Descriptor) error {
 			results = append(results, referrers...)
 			return nil
 		})
@@ -2542,13 +2542,6 @@ func TestStore_Referrers(t *testing.T) {
 		if !equalDescriptorSet(results, want) {
 			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, results, want)
 		}
-	}
-}
-
-func TestStore_ReferrersInterface(t *testing.T) {
-	var store interface{} = &Store{}
-	if _, ok := store.(registry.ReferrerLister); !ok {
-		t.Error("&Store{} does not conform to registry.ReferrerLister")
 	}
 }
 

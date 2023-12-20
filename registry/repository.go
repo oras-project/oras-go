@@ -17,10 +17,14 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/descriptor"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 // Repository is an ORAS target and an union of the blob and the manifest CASs.
@@ -133,4 +137,82 @@ func Tags(ctx context.Context, repo TagLister) ([]string, error) {
 		return nil, err
 	}
 	return res, nil
+}
+
+// Referrers lists the descriptors of image or artifact manifests directly
+// referencing the given manifest descriptor.
+//
+// fn is called on the referrer results. If artifactType is not empty, only
+// referrers of the same artifact type are fed to fn.
+//
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
+func Referrers(ctx context.Context, store content.ReadOnlyGraphStorage, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
+	if !descriptor.IsManifest(desc) {
+		return fmt.Errorf("the descriptor %v is not a manifest", desc)
+	}
+	// use the Referrer API if it is available
+	if rf, ok := store.(ReferrerLister); ok {
+		return rf.Referrers(ctx, desc, artifactType, fn)
+	}
+	var results []ocispec.Descriptor
+	predecessors, err := store.Predecessors(ctx, desc)
+	if err != nil {
+		return err
+	}
+	for _, node := range predecessors {
+		switch node.MediaType {
+		case ocispec.MediaTypeImageManifest:
+			fetched, err := content.FetchAll(ctx, store, node)
+			if err != nil {
+				return err
+			}
+			var manifest ocispec.Manifest
+			if err := json.Unmarshal(fetched, &manifest); err != nil {
+				return err
+			}
+			if manifest.Subject == nil || !content.Equal(*manifest.Subject, desc) {
+				continue
+			}
+			if manifest.ArtifactType != "" {
+				node.ArtifactType = manifest.ArtifactType
+			} else {
+				node.ArtifactType = manifest.Config.MediaType
+			}
+			node.Annotations = manifest.Annotations
+		case ocispec.MediaTypeImageIndex:
+			fetched, err := content.FetchAll(ctx, store, node)
+			if err != nil {
+				return err
+			}
+			var index ocispec.Index
+			if err := json.Unmarshal(fetched, &index); err != nil {
+				return err
+			}
+			if index.Subject == nil || !content.Equal(*index.Subject, desc) {
+				continue
+			}
+			node.ArtifactType = index.ArtifactType
+			node.Annotations = index.Annotations
+		case spec.MediaTypeArtifactManifest:
+			fetched, err := content.FetchAll(ctx, store, node)
+			if err != nil {
+				return err
+			}
+			var artifact spec.Artifact
+			if err := json.Unmarshal(fetched, &artifact); err != nil {
+				return err
+			}
+			if artifact.Subject == nil || !content.Equal(*artifact.Subject, desc) {
+				continue
+			}
+			node.ArtifactType = artifact.ArtifactType
+			node.Annotations = artifact.Annotations
+		default:
+			continue
+		}
+		if artifactType == "" || artifactType == node.ArtifactType {
+			results = append(results, node)
+		}
+	}
+	return fn(results)
 }
