@@ -23,6 +23,7 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/spec"
 )
@@ -148,7 +149,7 @@ func Tags(ctx context.Context, repo TagLister) ([]string, error) {
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
 func Referrers(ctx context.Context, store content.ReadOnlyGraphStorage, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
 	if !descriptor.IsManifest(desc) {
-		return fmt.Errorf("the descriptor %v is not a manifest", desc)
+		return fmt.Errorf("the descriptor %v is not a manifest: %w", desc, errdef.ErrUnsupported)
 	}
 	// use the Referrer API if it is available
 	if rf, ok := store.(ReferrerLister); ok {
