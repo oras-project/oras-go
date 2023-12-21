@@ -238,6 +238,29 @@ func (s *Store) Resolve(ctx context.Context, reference string) (ocispec.Descript
 	return desc, nil
 }
 
+func (s *Store) Untag(ctx context.Context, reference string) error {
+	if reference == "" {
+		return errdef.ErrMissingReference
+	}
+
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
+	desc, err := s.tagResolver.Resolve(ctx, reference)
+	if err != nil {
+		return fmt.Errorf("resolving reference %q: %w", reference, err)
+	}
+	if reference == desc.Digest.String() {
+		return fmt.Errorf("reference %q is a digest and not a tag: %w", reference, errdef.ErrInvalidReference)
+	}
+
+	s.tagResolver.Untag(reference)
+	if s.AutoSaveIndex {
+		return s.saveIndex()
+	}
+	return nil
+}
+
 // Predecessors returns the nodes directly pointing to the current node.
 // Predecessors returns nil without error if the node does not exists in the
 // store.

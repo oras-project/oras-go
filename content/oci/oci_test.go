@@ -575,7 +575,8 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)),
 	}
-	ref := "foobar"
+	ref0 := "foobar"
+	ref1 := "barfoo"
 
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
@@ -623,16 +624,20 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 	}
 
 	// test tag
-	err = s.Tag(ctx, desc, ref)
+	err = s.Tag(ctx, desc, ref0)
 	if err != nil {
 		t.Fatal("Store.Tag() error =", err)
 	}
-	if got, want := len(internalResolver.Map()), 2; got != want {
+	err = s.Tag(ctx, desc, ref1)
+	if err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 3; got != want {
 		t.Errorf("resolver.Map() = %v, want %v", got, want)
 	}
 
 	// test resolving by digest
-	gotDesc, err = s.Resolve(ctx, ref)
+	gotDesc, err = s.Resolve(ctx, ref0)
 	if err != nil {
 		t.Fatal("Store.Resolve() error =", err)
 	}
@@ -648,11 +653,30 @@ func TestStore_DisableAutoSaveIndex(t *testing.T) {
 		t.Fatal("Store.SaveIndex() error =", err)
 	}
 	// test index file again
-	if got, want := len(s.index.Manifests), 1; got != want {
+	if got, want := len(s.index.Manifests), 2; got != want {
 		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 	if _, err := os.Stat(s.indexPath); err != nil {
 		t.Errorf("error: %s does not exist", s.indexPath)
+	}
+
+	// test untag
+	err = s.Untag(ctx, ref0)
+	if err != nil {
+		t.Fatal("Store.Untag() error =", err)
+	}
+	if got, want := len(internalResolver.Map()), 2; got != want {
+		t.Errorf("resolver.Map() = %v, want %v", got, want)
+	}
+	if got, want := len(s.index.Manifests), 2; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
+	}
+	if err := s.saveIndex(); err != nil {
+		t.Fatal("Store.SaveIndex() error =", err)
+	}
+	// test index file again
+	if got, want := len(s.index.Manifests), 1; got != want {
+		t.Errorf("len(index.Manifests) = %v, want %v", got, want)
 	}
 }
 
@@ -2234,6 +2258,123 @@ func TestStore_PredecessorsAndDelete(t *testing.T) {
 		if !equalDescriptorSet(predecessors, want) {
 			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
 		}
+	}
+}
+
+func TestStore_Untag(t *testing.T) {
+	content := []byte("test delete")
+	desc := ocispec.Descriptor{
+		MediaType: "test-delete",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	ref := "latest"
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("NewDeletableStore() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	if !reflect.DeepEqual(resolvedDescr, desc) {
+		t.Errorf("Store.Resolve() = %v, want %v", resolvedDescr, desc)
+	}
+
+	err = s.Untag(ctx, ref)
+	if err != nil {
+		t.Errorf("Store.Untag() = %v, wantErr %v", err, nil)
+	}
+
+	_, err = s.Resolve(ctx, ref)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	exists, err = s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+}
+
+func TestStore_UntagErrorPath(t *testing.T) {
+	content := []byte("test delete")
+	desc := ocispec.Descriptor{
+		MediaType: "test-delete",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	ref := "latest"
+
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("NewDeletableStore() error =", err)
+	}
+	ctx := context.Background()
+
+	err = s.Untag(ctx, "")
+	if !errors.Is(err, errdef.ErrMissingReference) {
+		t.Errorf("Store.Untag() error = %v, wantErr %v", err, errdef.ErrMissingReference)
+	}
+
+	err = s.Untag(ctx, "foobar")
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Store.Untag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Errorf("Store.Push() error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Tag(ctx, desc, ref)
+	if err != nil {
+		t.Errorf("error tagging descriptor error = %v, wantErr %v", err, false)
+	}
+
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Store.Exists() = %v, want %v", exists, true)
+	}
+
+	resolvedDescr, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Errorf("error resolving descriptor error = %v, wantErr %v", err, false)
+	}
+
+	err = s.Untag(ctx, resolvedDescr.Digest.String())
+	if !errors.Is(err, errdef.ErrInvalidReference) {
+		t.Errorf("Store.Untag() error = %v, wantErr %v", err, errdef.ErrInvalidReference)
 	}
 }
 
