@@ -143,51 +143,57 @@ func Tags(ctx context.Context, repo TagLister) ([]string, error) {
 // Referrers lists the descriptors of image or artifact manifests directly
 // referencing the given manifest descriptor.
 //
-// fn is called on the referrer results. If artifactType is not empty, only
-// referrers of the same artifact type are fed to fn.
-//
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
-func Referrers(ctx context.Context, store content.ReadOnlyGraphStorage, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
+
+func Referrers(ctx context.Context, store content.ReadOnlyGraphStorage, desc ocispec.Descriptor, artifactType string) ([]ocispec.Descriptor, error) {
 	if !descriptor.IsManifest(desc) {
-		return fmt.Errorf("the descriptor %v is not a manifest: %w", desc, errdef.ErrUnsupported)
+		return nil, fmt.Errorf("the descriptor %v is not a manifest: %w", desc, errdef.ErrUnsupported)
 	}
+
+	var results []ocispec.Descriptor
+
 	// use the Referrer API if it is available
 	if rf, ok := store.(ReferrerLister); ok {
-		return rf.Referrers(ctx, desc, artifactType, fn)
+		if err := rf.Referrers(ctx, desc, artifactType, func(referrers []ocispec.Descriptor) error {
+			results = append(results, referrers...)
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+		return results, nil
 	}
-	var results []ocispec.Descriptor
+
 	predecessors, err := store.Predecessors(ctx, desc)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, node := range predecessors {
 		switch node.MediaType {
 		case ocispec.MediaTypeImageManifest:
 			fetched, err := content.FetchAll(ctx, store, node)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			var manifest ocispec.Manifest
 			if err := json.Unmarshal(fetched, &manifest); err != nil {
-				return err
+				return nil, err
 			}
 			if manifest.Subject == nil || !content.Equal(*manifest.Subject, desc) {
 				continue
 			}
-			if manifest.ArtifactType != "" {
-				node.ArtifactType = manifest.ArtifactType
-			} else {
+			node.ArtifactType = manifest.ArtifactType
+			if node.ArtifactType == "" {
 				node.ArtifactType = manifest.Config.MediaType
 			}
 			node.Annotations = manifest.Annotations
 		case ocispec.MediaTypeImageIndex:
 			fetched, err := content.FetchAll(ctx, store, node)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			var index ocispec.Index
 			if err := json.Unmarshal(fetched, &index); err != nil {
-				return err
+				return nil, err
 			}
 			if index.Subject == nil || !content.Equal(*index.Subject, desc) {
 				continue
@@ -197,11 +203,11 @@ func Referrers(ctx context.Context, store content.ReadOnlyGraphStorage, desc oci
 		case spec.MediaTypeArtifactManifest:
 			fetched, err := content.FetchAll(ctx, store, node)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			var artifact spec.Artifact
 			if err := json.Unmarshal(fetched, &artifact); err != nil {
-				return err
+				return nil, err
 			}
 			if artifact.Subject == nil || !content.Equal(*artifact.Subject, desc) {
 				continue
@@ -212,8 +218,10 @@ func Referrers(ctx context.Context, store content.ReadOnlyGraphStorage, desc oci
 			continue
 		}
 		if artifactType == "" || artifactType == node.ArtifactType {
+			// the field artifactType in referrers descriptor is allowed to be empty
+			// https://github.com/opencontainers/distribution-spec/issues/458
 			results = append(results, node)
 		}
 	}
-	return fn(results)
+	return results, nil
 }

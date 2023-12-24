@@ -176,11 +176,7 @@ func TestReferrers(t *testing.T) {
 	}
 	for i := 4; i < len(wantedReferrers); i++ {
 		want := wantedReferrers[i]
-		var results []ocispec.Descriptor
-		err := Referrers(ctx, &s, descs[i], "", func(referrers []ocispec.Descriptor) error {
-			results = append(results, referrers...)
-			return nil
-		})
+		results, err := Referrers(ctx, &s, descs[i], "")
 		if err != nil {
 			t.Errorf("Store.Referrers(%d) error = %v", i, err)
 		}
@@ -203,11 +199,7 @@ func TestReferrers(t *testing.T) {
 	}
 	for i := 4; i < len(wantedReferrers); i++ {
 		want := wantedReferrers[i]
-		var results []ocispec.Descriptor
-		err := Referrers(ctx, &s, descs[i], "image manifest", func(referrers []ocispec.Descriptor) error {
-			results = append(results, referrers...)
-			return nil
-		})
+		results, err := Referrers(ctx, &s, descs[i], "image manifest")
 		if err != nil {
 			t.Errorf("Store.Referrers(%d) error = %v", i, err)
 		}
