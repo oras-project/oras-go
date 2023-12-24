@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -28,6 +29,8 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2/content/memory"
+	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/spec"
 )
 
@@ -50,6 +53,16 @@ func (s *testStorage) Exists(ctx context.Context, target ocispec.Descriptor) (bo
 
 func (s *testStorage) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	return s.store.Predecessors(ctx, node)
+}
+
+// TestReferrerLister implements content.ReadOnlyGraphStorage and registry.ReferrerLister
+type TestReferrerLister struct {
+	*testStorage
+}
+
+func (rl *TestReferrerLister) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
+	results := []ocispec.Descriptor{desc}
+	return fn(results)
 }
 
 func TestReferrers(t *testing.T) {
@@ -113,6 +126,17 @@ func TestReferrers(t *testing.T) {
 		}
 		appendBlob(ocispec.MediaTypeImageIndex, index.ArtifactType, indexJSON)
 	}
+	generateManifestList := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			ArtifactType: "manifest list",
+			Manifests:    manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(docker.MediaTypeManifestList, index.ArtifactType, indexJSON)
+	}
 
 	appendBlob("image manifest", "image config", []byte("config"))    // Blob 0
 	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("foo"))   // Blob 1
@@ -123,6 +147,7 @@ func TestReferrers(t *testing.T) {
 	generateImageManifest(descs[0], &descs[5], descs[3])              // Blob 6
 	generateIndex(&descs[6], descs[4:6]...)                           // Blob 7
 	generateIndex(&descs[4], descs[5:8]...)                           // Blob 8
+	generateManifestList(descs[4:7]...)                               // blob 9
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	for i := range blobs {
@@ -142,15 +167,16 @@ func TestReferrers(t *testing.T) {
 
 	// verify predecessors
 	wantedPredecessors := [][]ocispec.Descriptor{
-		{descs[4], descs[6]},           // Blob 0
-		{descs[4]},                     // Blob 1
-		{descs[5]},                     // Blob 2
-		{descs[6]},                     // Blob 3
-		{descs[5], descs[7], descs[8]}, // Blob 4
-		{descs[6], descs[7], descs[8]}, // Blob 5
-		{descs[7], descs[8]},           // Blob 6
-		{descs[8]},                     // Blob 7
-		nil,                            // Blob 8
+		{descs[4], descs[6]},                     // Blob 0
+		{descs[4]},                               // Blob 1
+		{descs[5]},                               // Blob 2
+		{descs[6]},                               // Blob 3
+		{descs[5], descs[7], descs[8], descs[9]}, // Blob 4
+		{descs[6], descs[7], descs[8], descs[9]}, // Blob 5
+		{descs[7], descs[8], descs[9]},           // Blob 6
+		{descs[8]},                               // Blob 7
+		nil,                                      // Blob 8
+		nil,                                      // Blob 9
 	}
 	for i, want := range wantedPredecessors {
 		predecessors, err := s.Predecessors(ctx, descs[i])
@@ -173,6 +199,13 @@ func TestReferrers(t *testing.T) {
 		{descs[7]},           // Blob 6
 		nil,                  // Blob 7
 		nil,                  // Blob 8
+		nil,                  // Blob 9
+	}
+	for i := 0; i <= 3; i++ {
+		_, err := Referrers(ctx, &s, descs[i], "")
+		if !errors.Is(err, errdef.ErrUnsupported) {
+			t.Errorf("Store.Referrers(%d) error = %v, want %v", i, err, errdef.ErrUnsupported)
+		}
 	}
 	for i := 4; i < len(wantedReferrers); i++ {
 		want := wantedReferrers[i]
@@ -196,10 +229,36 @@ func TestReferrers(t *testing.T) {
 		nil,        // Blob 6
 		nil,        // Blob 7
 		nil,        // Blob 8
+		nil,        // Blob 9
 	}
 	for i := 4; i < len(wantedReferrers); i++ {
 		want := wantedReferrers[i]
 		results, err := Referrers(ctx, &s, descs[i], "image manifest")
+		if err != nil {
+			t.Errorf("Store.Referrers(%d) error = %v", i, err)
+		}
+		if !equalDescriptorSet(results, want) {
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, results, want)
+		}
+	}
+
+	// test ReferrerLister
+	rl := TestReferrerLister{testStorage: &s}
+	wantedReferrers = [][]ocispec.Descriptor{
+		nil,        // Blob 0
+		nil,        // Blob 1
+		nil,        // Blob 2
+		nil,        // Blob 3
+		{descs[4]}, // Blob 4
+		{descs[5]}, // Blob 5
+		{descs[6]}, // Blob 6
+		{descs[7]}, // Blob 7
+		{descs[8]}, // Blob 8
+		{descs[9]}, // Blob 9
+	}
+	for i := 4; i < len(wantedReferrers); i++ {
+		want := wantedReferrers[i]
+		results, err := Referrers(ctx, &rl, descs[i], "")
 		if err != nil {
 			t.Errorf("Store.Referrers(%d) error = %v", i, err)
 		}
