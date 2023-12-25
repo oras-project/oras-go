@@ -144,7 +144,6 @@ func Tags(ctx context.Context, repo TagLister) ([]string, error) {
 // referencing the given manifest descriptor.
 //
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#listing-referrers
-
 func Referrers(ctx context.Context, store content.ReadOnlyGraphStorage, desc ocispec.Descriptor, artifactType string) ([]ocispec.Descriptor, error) {
 	if !descriptor.IsManifest(desc) {
 		return nil, fmt.Errorf("the descriptor %v is not a manifest: %w", desc, errdef.ErrUnsupported)
