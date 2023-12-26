@@ -149,6 +149,7 @@ func TestReferrers(t *testing.T) {
 	generateIndex(&descs[4], descs[5:8]...)                           // Blob 8
 	generateManifestList(descs[4:7]...)                               // blob 9
 	generateImageManifest(descs[0], nil, descs[4])                    // Blob 10
+	generateArtifactManifest(nil, descs[5])                           // Blob 11
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	for i := range blobs {
@@ -173,7 +174,7 @@ func TestReferrers(t *testing.T) {
 		{descs[5]},                      // Blob 2
 		{descs[6]},                      // Blob 3
 		{descs[5], descs[7], descs[8], descs[9], descs[10]}, // Blob 4
-		{descs[6], descs[7], descs[8], descs[9]},            // Blob 5
+		{descs[6], descs[7], descs[8], descs[9], descs[11]}, // Blob 5
 		{descs[7], descs[8], descs[9]},                      // Blob 6
 		{descs[8]},                                          // Blob 7
 		nil,                                                 // Blob 8
