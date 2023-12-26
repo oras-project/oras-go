@@ -30,13 +30,17 @@ import (
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/container/set"
 	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/spec"
 )
 
+var ErrBadFetch = errors.New("bad fetch error")
+
 // testStorage implements content.ReadOnlyGraphStorage
 type testStorage struct {
-	store *memory.Store
+	store     *memory.Store
+	badValues set.Set[digest.Digest]
 }
 
 func (s *testStorage) Push(ctx context.Context, expected ocispec.Descriptor, reader io.Reader) error {
@@ -44,6 +48,9 @@ func (s *testStorage) Push(ctx context.Context, expected ocispec.Descriptor, rea
 }
 
 func (s *testStorage) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	if s.badValues.Contains(target.Digest) {
+		return nil, ErrBadFetch
+	}
 	return s.store.Fetch(ctx, target)
 }
 
@@ -67,7 +74,8 @@ func (rl *TestReferrerLister) Referrers(ctx context.Context, desc ocispec.Descri
 
 func TestReferrers(t *testing.T) {
 	s := testStorage{
-		store: memory.New(),
+		store:     memory.New(),
+		badValues: set.New[digest.Digest](),
 	}
 	ctx := context.Background()
 
@@ -179,6 +187,8 @@ func TestReferrers(t *testing.T) {
 		{descs[8]},                                          // Blob 7
 		nil,                                                 // Blob 8
 		nil,                                                 // Blob 9
+		nil,                                                 // Blob 10
+		nil,                                                 // Blob 11
 	}
 	for i, want := range wantedPredecessors {
 		predecessors, err := s.Predecessors(ctx, descs[i])
@@ -202,6 +212,8 @@ func TestReferrers(t *testing.T) {
 		nil,                  // Blob 7
 		nil,                  // Blob 8
 		nil,                  // Blob 9
+		nil,                  // Blob 10
+		nil,                  // Blob 11
 	}
 	for i := 0; i <= 3; i++ {
 		_, err := Referrers(ctx, &s, descs[i], "")
@@ -232,6 +244,8 @@ func TestReferrers(t *testing.T) {
 		nil,        // Blob 7
 		nil,        // Blob 8
 		nil,        // Blob 9
+		nil,        // Blob 10
+		nil,        // Blob 11
 	}
 	for i := 4; i < len(wantedReferrers); i++ {
 		want := wantedReferrers[i]
@@ -247,16 +261,18 @@ func TestReferrers(t *testing.T) {
 	// test ReferrerLister
 	rl := TestReferrerLister{testStorage: &s}
 	wantedReferrers = [][]ocispec.Descriptor{
-		nil,        // Blob 0
-		nil,        // Blob 1
-		nil,        // Blob 2
-		nil,        // Blob 3
-		{descs[4]}, // Blob 4
-		{descs[5]}, // Blob 5
-		{descs[6]}, // Blob 6
-		{descs[7]}, // Blob 7
-		{descs[8]}, // Blob 8
-		{descs[9]}, // Blob 9
+		nil,         // Blob 0
+		nil,         // Blob 1
+		nil,         // Blob 2
+		nil,         // Blob 3
+		{descs[4]},  // Blob 4
+		{descs[5]},  // Blob 5
+		{descs[6]},  // Blob 6
+		{descs[7]},  // Blob 7
+		{descs[8]},  // Blob 8
+		{descs[9]},  // Blob 9
+		{descs[10]}, // Blob 10
+		{descs[11]}, // Blob 11
 	}
 	for i := 4; i < len(wantedReferrers); i++ {
 		want := wantedReferrers[i]
@@ -266,6 +282,104 @@ func TestReferrers(t *testing.T) {
 		}
 		if !equalDescriptorSet(results, want) {
 			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, results, want)
+		}
+	}
+}
+
+func TestReferrers_BadFetch(t *testing.T) {
+	s := testStorage{
+		store:     memory.New(),
+		badValues: set.New[digest.Digest](),
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, artifactType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType:    mediaType,
+			ArtifactType: artifactType,
+			Annotations:  map[string]string{"test": "content"},
+			Digest:       digest.FromBytes(blob),
+			Size:         int64(len(blob)),
+		})
+	}
+	generateImageManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			MediaType:   ocispec.MediaTypeImageManifest,
+			Config:      config,
+			Subject:     subject,
+			Layers:      layers,
+			Annotations: map[string]string{"test": "content"},
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifest.Config.MediaType, manifestJSON)
+	}
+	generateArtifactManifest := func(subject *ocispec.Descriptor, blobs ...ocispec.Descriptor) {
+		artifact := spec.Artifact{
+			MediaType:    spec.MediaTypeArtifactManifest,
+			ArtifactType: "artifact",
+			Subject:      subject,
+			Blobs:        blobs,
+			Annotations:  map[string]string{"test": "content"},
+		}
+		manifestJSON, err := json.Marshal(artifact)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(spec.MediaTypeArtifactManifest, artifact.ArtifactType, manifestJSON)
+	}
+	generateIndex := func(subject *ocispec.Descriptor, manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			MediaType:    ocispec.MediaTypeImageIndex,
+			ArtifactType: "index",
+			Subject:      subject,
+			Manifests:    manifests,
+			Annotations:  map[string]string{"test": "content"},
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, index.ArtifactType, indexJSON)
+	}
+	appendBlob("image manifest", "image config", []byte("config"))    // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("foo"))   // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("bar"))   // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("hello")) // Blob 3
+	generateImageManifest(descs[0], nil, descs[1])                    // Blob 4
+	generateImageManifest(descs[0], &descs[4], descs[2])              // Blob 5
+	generateArtifactManifest(&descs[5], descs[3])                     // Blob 6
+	generateIndex(&descs[6], descs[5:8]...)                           // Blob 7
+	s.badValues.Add(descs[5].Digest)
+	s.badValues.Add(descs[6].Digest)
+	s.badValues.Add(descs[7].Digest)
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	for i := range blobs {
+		eg.Go(func(i int) func() error {
+			return func() error {
+				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
+				if err != nil {
+					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
+				}
+				return nil
+			}
+		}(i))
+	}
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 4; i < 7; i++ {
+		_, err := Referrers(ctx, &s, descs[i], "")
+		if !errors.Is(err, ErrBadFetch) {
+			t.Errorf("Store.Referrers(%d) error = %v, want %v", i, err, ErrBadFetch)
 		}
 	}
 }
