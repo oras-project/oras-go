@@ -41,7 +41,6 @@ var ErrBadFetch = errors.New("bad fetch error")
 type testStorage struct {
 	store    *memory.Store
 	badFetch set.Set[digest.Digest]
-	badJson  set.Set[digest.Digest]
 }
 
 func (s *testStorage) Push(ctx context.Context, expected ocispec.Descriptor, reader io.Reader) error {
@@ -51,9 +50,6 @@ func (s *testStorage) Push(ctx context.Context, expected ocispec.Descriptor, rea
 func (s *testStorage) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
 	if s.badFetch.Contains(target.Digest) {
 		return nil, ErrBadFetch
-	}
-	if s.badJson.Contains(target.Digest) {
-		return io.NopCloser(bytes.NewReader([]byte("bad json"))), nil
 	}
 	return s.store.Fetch(ctx, target)
 }
@@ -80,7 +76,6 @@ func TestReferrers(t *testing.T) {
 	s := testStorage{
 		store:    memory.New(),
 		badFetch: set.New[digest.Digest](),
-		badJson:  set.New[digest.Digest](),
 	}
 	ctx := context.Background()
 
@@ -295,7 +290,6 @@ func TestReferrers_BadFetch(t *testing.T) {
 	s := testStorage{
 		store:    memory.New(),
 		badFetch: set.New[digest.Digest](),
-		badJson:  set.New[digest.Digest](),
 	}
 	ctx := context.Background()
 
@@ -389,105 +383,6 @@ func TestReferrers_BadFetch(t *testing.T) {
 		}
 	}
 }
-
-// func TestReferrers_BadJson(t *testing.T) {
-// 	s := testStorage{
-// 		store:    memory.New(),
-// 		badFetch: set.New[digest.Digest](),
-// 		badJson:  set.New[digest.Digest](),
-// 	}
-// 	ctx := context.Background()
-
-// 	// generate test content
-// 	var blobs [][]byte
-// 	var descs []ocispec.Descriptor
-// 	appendBlob := func(mediaType string, artifactType string, blob []byte) {
-// 		blobs = append(blobs, blob)
-// 		descs = append(descs, ocispec.Descriptor{
-// 			MediaType:    mediaType,
-// 			ArtifactType: artifactType,
-// 			Annotations:  map[string]string{"test": "content"},
-// 			Digest:       digest.FromBytes(blob),
-// 			Size:         int64(len(blob)),
-// 		})
-// 	}
-// 	generateImageManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
-// 		manifest := ocispec.Manifest{
-// 			MediaType:   ocispec.MediaTypeImageManifest,
-// 			Config:      config,
-// 			Subject:     subject,
-// 			Layers:      layers,
-// 			Annotations: map[string]string{"test": "content"},
-// 		}
-// 		manifestJSON, err := json.Marshal(manifest)
-// 		if err != nil {
-// 			t.Fatal(err)
-// 		}
-// 		appendBlob(ocispec.MediaTypeImageManifest, manifest.Config.MediaType, manifestJSON)
-// 	}
-// 	generateArtifactManifest := func(subject *ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-// 		artifact := spec.Artifact{
-// 			MediaType:    spec.MediaTypeArtifactManifest,
-// 			ArtifactType: "artifact",
-// 			Subject:      subject,
-// 			Blobs:        blobs,
-// 			Annotations:  map[string]string{"test": "content"},
-// 		}
-// 		manifestJSON, err := json.Marshal(artifact)
-// 		if err != nil {
-// 			t.Fatal(err)
-// 		}
-// 		appendBlob(spec.MediaTypeArtifactManifest, artifact.ArtifactType, manifestJSON)
-// 	}
-// 	generateIndex := func(subject *ocispec.Descriptor, manifests ...ocispec.Descriptor) {
-// 		index := ocispec.Index{
-// 			MediaType:    ocispec.MediaTypeImageIndex,
-// 			ArtifactType: "index",
-// 			Subject:      subject,
-// 			Manifests:    manifests,
-// 			Annotations:  map[string]string{"test": "content"},
-// 		}
-// 		indexJSON, err := json.Marshal(index)
-// 		if err != nil {
-// 			t.Fatal(err)
-// 		}
-// 		appendBlob(ocispec.MediaTypeImageIndex, index.ArtifactType, indexJSON)
-// 	}
-// 	appendBlob("image manifest", "image config", []byte("config"))    // Blob 0
-// 	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("foo"))   // Blob 1
-// 	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("bar"))   // Blob 2
-// 	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("hello")) // Blob 3
-// 	generateImageManifest(descs[0], nil, descs[1])                    // Blob 4
-// 	generateImageManifest(descs[0], &descs[4], descs[2])              // Blob 5
-// 	generateArtifactManifest(&descs[5], descs[3])                     // Blob 6
-// 	generateIndex(&descs[6], descs[5:8]...)                           // Blob 7
-// 	s.badJson.Add(descs[5].Digest)
-// 	s.badJson.Add(descs[6].Digest)
-// 	s.badJson.Add(descs[7].Digest)
-
-// 	eg, egCtx := errgroup.WithContext(ctx)
-// 	for i := range blobs {
-// 		eg.Go(func(i int) func() error {
-// 			return func() error {
-// 				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
-// 				if err != nil {
-// 					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
-// 				}
-// 				return nil
-// 			}
-// 		}(i))
-// 	}
-// 	if err := eg.Wait(); err != nil {
-// 		t.Fatal(err)
-// 	}
-
-// 	for i := 4; i < 7; i++ {
-// 		_, err := Referrers(ctx, &s, descs[i], "")
-// 		if err != nil {
-// 			t.Errorf("Store.Referrers(%d) error = %v, want Json Unmarshall error", i, err)
-// 		}
-// 	}
-// }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
 	if len(actual) != len(expected) {
