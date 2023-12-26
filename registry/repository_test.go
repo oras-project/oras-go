@@ -148,6 +148,7 @@ func TestReferrers(t *testing.T) {
 	generateIndex(&descs[6], descs[4:6]...)                           // Blob 7
 	generateIndex(&descs[4], descs[5:8]...)                           // Blob 8
 	generateManifestList(descs[4:7]...)                               // blob 9
+	generateImageManifest(descs[0], nil, descs[4])                    // Blob 10
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	for i := range blobs {
@@ -167,16 +168,16 @@ func TestReferrers(t *testing.T) {
 
 	// verify predecessors
 	wantedPredecessors := [][]ocispec.Descriptor{
-		{descs[4], descs[6]},                     // Blob 0
-		{descs[4]},                               // Blob 1
-		{descs[5]},                               // Blob 2
-		{descs[6]},                               // Blob 3
-		{descs[5], descs[7], descs[8], descs[9]}, // Blob 4
-		{descs[6], descs[7], descs[8], descs[9]}, // Blob 5
-		{descs[7], descs[8], descs[9]},           // Blob 6
-		{descs[8]},                               // Blob 7
-		nil,                                      // Blob 8
-		nil,                                      // Blob 9
+		{descs[4], descs[6], descs[10]}, // Blob 0
+		{descs[4]},                      // Blob 1
+		{descs[5]},                      // Blob 2
+		{descs[6]},                      // Blob 3
+		{descs[5], descs[7], descs[8], descs[9], descs[10]}, // Blob 4
+		{descs[6], descs[7], descs[8], descs[9]},            // Blob 5
+		{descs[7], descs[8], descs[9]},                      // Blob 6
+		{descs[8]},                                          // Blob 7
+		nil,                                                 // Blob 8
+		nil,                                                 // Blob 9
 	}
 	for i, want := range wantedPredecessors {
 		predecessors, err := s.Predecessors(ctx, descs[i])
