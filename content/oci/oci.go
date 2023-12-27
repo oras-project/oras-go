@@ -57,8 +57,6 @@ type Store struct {
 	// AutoGC controls if the OCI store will automatically clean newly produced
 	// dangling nodes during Delete() operation. Dangling nodes are those without
 	// any predecessors, such as blobs whose manifests have been deleted.
-	//   - If AutoGC is set to false, then new dangling nodes are not automatically
-	// cleaned up during Delete().
 	//   - Default value: true.
 	AutoGC bool
 
@@ -160,7 +158,10 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 
 // Delete deletes the content matching the descriptor from the store. Delete may
 // fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
-// Reader) using target.
+// Reader) using target. If s.AutoGC is set to true, Delete will recursively
+// remove the dangling nodes caused by the current delete. If s.AutoRemoveReferrers
+// is set to true, Delete will recursively remove the referrers of the manifests
+// being deleted.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	var deleteQueue []ocispec.Descriptor
 	var alwaysDelete []bool
@@ -177,20 +178,22 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		var referrers []ocispec.Descriptor
 		if descriptor.IsManifest(node) && s.AutoRemoveReferrers {
 			res, err := registry.Referrers(ctx, s, node, "")
-			referrers = append(referrers, res...)
 			if err != nil {
 				return err
 			}
+			referrers = append(referrers, res...)
 		}
 		for _, ref := range referrers {
+			// referrers must be deleted if s.AutoRemoveReferrers is true
 			deleteQueue = append(deleteQueue, ref)
 			alwaysDelete = append(alwaysDelete, true)
 		}
 
-		// delete the node if applicable
+		// delete the head of queue if applicable
 		s.sync.Lock()
+		// do not delete existing manifests in tagResolver
 		_, err := s.tagResolver.Resolve(ctx, string(node.Digest))
-		if mustDelete || err != nil {
+		if mustDelete || err == errdef.ErrNotFound {
 			danglings, err := s.delete(ctx, node)
 			if err != nil {
 				return err
@@ -199,6 +202,8 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 				deleteQueue = append(deleteQueue, danglings...)
 				alwaysDelete = append(alwaysDelete, false)
 			}
+		} else if err != nil {
+			return err
 		}
 		s.sync.Unlock()
 	}
@@ -206,7 +211,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	return nil
 }
 
-// delete deletes one node and returns the dangling nodes created by the delete.
+// delete deletes one node and returns the dangling nodes caused by the delete.
 func (s *Store) delete(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	resolvers := s.tagResolver.Map()
 	untagged := false

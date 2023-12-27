@@ -2262,7 +2262,7 @@ func TestStore_PredecessorsAndDelete(t *testing.T) {
 	}
 }
 
-func TestStore_DeleteWithGarbageCollection(t *testing.T) {
+func TestStore_DeleteWithAutoGC(t *testing.T) {
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
 	if err != nil {
