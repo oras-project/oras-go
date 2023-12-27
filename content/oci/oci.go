@@ -36,6 +36,7 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/resolver"
+	"oras.land/oras-go/v2/registry"
 )
 
 // Store implements `oras.Target`, and represents a content store
@@ -60,6 +61,11 @@ type Store struct {
 	// cleaned up during Delete().
 	//   - Default value: true.
 	AutoGC bool
+
+	// AutoRemoveReferrers controls if the OCI store will automatically delete its
+	// referrers when a manifest is deleted.
+	//   - Default value: true.
+	AutoRemoveReferrers bool
 
 	root        string
 	indexPath   string
@@ -93,13 +99,14 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	}
 
 	store := &Store{
-		AutoSaveIndex: true,
-		AutoGC:        true,
-		root:          rootAbs,
-		indexPath:     filepath.Join(rootAbs, ocispec.ImageIndexFile),
-		storage:       storage,
-		tagResolver:   resolver.NewMemory(),
-		graph:         graph.NewMemory(),
+		AutoSaveIndex:       true,
+		AutoGC:              true,
+		AutoRemoveReferrers: true,
+		root:                rootAbs,
+		indexPath:           filepath.Join(rootAbs, ocispec.ImageIndexFile),
+		storage:             storage,
+		tagResolver:         resolver.NewMemory(),
+		graph:               graph.NewMemory(),
 	}
 
 	if err := ensureDir(filepath.Join(rootAbs, ocispec.ImageBlobsDir)); err != nil {
@@ -155,6 +162,16 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 // fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
 // Reader) using target.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	// get referrers first to avoid deadlock
+	var referrers []ocispec.Descriptor
+	if descriptor.IsManifest(target) && s.AutoRemoveReferrers {
+		res, err := registry.Referrers(ctx, s, target, "")
+		referrers = append(referrers, res...)
+		if err != nil {
+			return err
+		}
+	}
+
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
@@ -166,8 +183,24 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 
 	// delete the dangling nodes caused by the delete
 	if s.AutoGC {
-		return s.cleanGraphs(ctx, danglings)
+		if err := s.cleanGraphs(ctx, danglings); err != nil {
+			return err
+		}
 	}
+
+	// delete the referrers
+	for _, desc := range referrers {
+		danglings, err := s.delete(ctx, desc)
+		if err != nil {
+			return err
+		}
+		if s.AutoGC {
+			if err := s.cleanGraphs(ctx, danglings); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -195,8 +228,7 @@ func (s *Store) delete(ctx context.Context, target ocispec.Descriptor) ([]ocispe
 }
 
 func (s *Store) cleanGraphs(ctx context.Context, danglings []ocispec.Descriptor) error {
-	// for each item in dangling, if it exists and it is dangling, remove it and
-	// add new dangling nodes into dangling
+	// for each item in danglings, remove it and add new dangling nodes into danglings
 	for len(danglings) > 0 {
 		node := danglings[0]
 		danglings = danglings[1:]

@@ -2375,13 +2375,13 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 	}
 
 	// blob 1, 3, 4, 6 and 8 are now deleted, and other blobs are still present
-	notPresent = []ocispec.Descriptor{descs[1], descs[3], descs[4], descs[6], descs[8]}
+	notPresent = []ocispec.Descriptor{descs[1], descs[3], descs[4], descs[6], descs[8], descs[9]}
 	for _, node := range notPresent {
 		if exists, _ := s.Exists(egCtx, node); exists {
 			t.Errorf("%v should not exist in store", node)
 		}
 	}
-	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[5], descs[7], descs[9]}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[5], descs[7]}
 	for _, node := range stillPresent {
 		if exists, _ := s.Exists(egCtx, node); !exists {
 			t.Errorf("%v should exist in store", node)
@@ -2390,16 +2390,16 @@ func TestStore_DeleteWithGarbageCollection(t *testing.T) {
 
 	// verify predecessors information
 	wants := [][]ocispec.Descriptor{
-		{descs[5], descs[9]}, // Blob 0
-		nil,                  // Blob 1
-		{descs[5], descs[9]}, // Blob 2
-		nil,                  // Blob 3
-		{descs[7]},           // Blob 4's predecessor is descs[7], even though blob 4 no longer exist
-		{descs[7]},           // Blob 5
-		{descs[9]},           // Blob 6's predecessor is descs[9], even though blob 6 no longer exist
-		nil,                  // Blob 7
-		nil,                  // Blob 8
-		nil,                  // Blob 9
+		{descs[5]}, // Blob 0
+		nil,        // Blob 1
+		{descs[5]}, // Blob 2
+		nil,        // Blob 3
+		{descs[7]}, // Blob 4's predecessor is descs[7], even though blob 4 no longer exist
+		{descs[7]}, // Blob 5
+		nil,        // Blob 6
+		nil,        // Blob 7
+		nil,        // Blob 8
+		nil,        // Blob 9
 	}
 	for i, want := range wants {
 		predecessors, err := s.Predecessors(ctx, descs[i])
