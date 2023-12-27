@@ -162,43 +162,45 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 // fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
 // Reader) using target.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	// get referrers first to avoid deadlock
-	var referrers []ocispec.Descriptor
-	if descriptor.IsManifest(target) && s.AutoRemoveReferrers {
-		res, err := registry.Referrers(ctx, s, target, "")
-		referrers = append(referrers, res...)
-		if err != nil {
-			return err
-		}
-	}
+	var deleteQueue []ocispec.Descriptor
+	var alwaysDelete []bool
+	deleteQueue = append(deleteQueue, target)
+	alwaysDelete = append(alwaysDelete, true)
 
-	s.sync.Lock()
-	defer s.sync.Unlock()
+	for len(deleteQueue) > 0 {
+		node := deleteQueue[0]
+		mustDelete := alwaysDelete[0]
+		deleteQueue = deleteQueue[1:]
+		alwaysDelete = alwaysDelete[1:]
 
-	// delete the node itself
-	danglings, err := s.delete(ctx, target)
-	if err != nil {
-		return err
-	}
-
-	// delete the dangling nodes caused by the delete
-	if s.AutoGC {
-		if err := s.cleanGraphs(ctx, danglings); err != nil {
-			return err
-		}
-	}
-
-	// delete the referrers
-	for _, desc := range referrers {
-		danglings, err := s.delete(ctx, desc)
-		if err != nil {
-			return err
-		}
-		if s.AutoGC {
-			if err := s.cleanGraphs(ctx, danglings); err != nil {
+		// get referrers if applicable
+		var referrers []ocispec.Descriptor
+		if descriptor.IsManifest(node) && s.AutoRemoveReferrers {
+			res, err := registry.Referrers(ctx, s, node, "")
+			referrers = append(referrers, res...)
+			if err != nil {
 				return err
 			}
 		}
+		for _, ref := range referrers {
+			deleteQueue = append(deleteQueue, ref)
+			alwaysDelete = append(alwaysDelete, true)
+		}
+
+		// delete the node if applicable
+		s.sync.Lock()
+		_, err := s.tagResolver.Resolve(ctx, string(node.Digest))
+		if mustDelete || err != nil {
+			danglings, err := s.delete(ctx, node)
+			if err != nil {
+				return err
+			}
+			if s.AutoGC {
+				deleteQueue = append(deleteQueue, danglings...)
+				alwaysDelete = append(alwaysDelete, false)
+			}
+		}
+		s.sync.Unlock()
 	}
 
 	return nil
@@ -225,23 +227,6 @@ func (s *Store) delete(ctx context.Context, target ocispec.Descriptor) ([]ocispe
 		return nil, err
 	}
 	return danglings, nil
-}
-
-func (s *Store) cleanGraphs(ctx context.Context, danglings []ocispec.Descriptor) error {
-	// for each item in danglings, remove it and add new dangling nodes into danglings
-	for len(danglings) > 0 {
-		node := danglings[0]
-		danglings = danglings[1:]
-		// don't delete the node if it exists in index.json
-		if _, err := s.tagResolver.Resolve(ctx, string(node.Digest)); err != nil {
-			descs, err := s.delete(ctx, node)
-			if err != nil {
-				return err
-			}
-			danglings = append(danglings, descs...)
-		}
-	}
-	return nil
 }
 
 // Tag tags a descriptor with a reference string.
