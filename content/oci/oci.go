@@ -196,9 +196,6 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
 				if err == errdef.ErrNotFound {
 					deleteQueue = append(deleteQueue, d)
-				} else if err != nil {
-					s.sync.Unlock()
-					return err
 				}
 			}
 		}
