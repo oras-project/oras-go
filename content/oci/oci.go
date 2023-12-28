@@ -180,7 +180,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 			deleteQueue = append(deleteQueue, referrers...)
 		}
 
-		// delete the head of queue if applicable
+		// delete the head of queue
 		if err := func() error {
 			s.sync.Lock()
 			defer s.sync.Unlock()
