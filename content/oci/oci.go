@@ -181,25 +181,27 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		}
 
 		// delete the head of queue if applicable
-		s.sync.Lock()
+		if err := func() error {
+			s.sync.Lock()
+			defer s.sync.Unlock()
 
-		danglings, err := s.delete(ctx, head)
-		if err != nil {
-			s.sync.Unlock()
-			return err
-		}
-
-		if s.AutoGC {
-			for _, d := range danglings {
-				// do not delete existing manifests in tagResolver
-				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
-				if errors.Is(err, errdef.ErrNotFound) {
-					deleteQueue = append(deleteQueue, d)
+			danglings, err := s.delete(ctx, head)
+			if err != nil {
+				return err
+			}
+			if s.AutoGC {
+				for _, d := range danglings {
+					// do not delete existing manifests in tagResolver
+					_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
+					if errors.Is(err, errdef.ErrNotFound) {
+						deleteQueue = append(deleteQueue, d)
+					}
 				}
 			}
+			return nil
+		}(); err != nil {
+			return err
 		}
-
-		s.sync.Unlock()
 	}
 
 	return nil
