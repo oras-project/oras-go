@@ -31,13 +31,13 @@ import (
 
 // Memory is a memory based PredecessorFinder.
 type Memory struct {
-	// properties and behaviors of Memory.nodes:
+	// nodes has the following properties and behaviors:
 	//  1. a node exists in Memory.nodes if and only if it exists in the memory
 	//  2. Memory.nodes saves the ocispec.Descriptor map keys, which are used by
 	//    the other fields.
 	nodes map[descriptor.Descriptor]ocispec.Descriptor
 
-	// properties and behaviors of Memory.predecessors:
+	// predecessors has the following properties and behaviors:
 	//  1. a node exists in Memory.predecessors if it has at least one predecessor
 	//    in the memory, regardless of whether or not the node itself exists in
 	//    the memory.
@@ -45,7 +45,7 @@ type Memory struct {
 	//    in the memory.
 	predecessors map[descriptor.Descriptor]set.Set[descriptor.Descriptor]
 
-	// properties and behaviors of Memory.successors:
+	// successors has the following properties and behaviors:
 	//  1. a node exists in Memory.successors if and only if it exists in the memory.
 	//  2. a node's entry in Memory.successors is always consistent with the actual
 	//    content of the node, regardless of whether or not each successor exists

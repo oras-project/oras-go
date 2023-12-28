@@ -2422,7 +2422,7 @@ func TestStore_DeleteDisableAutoRemoveReferrers(t *testing.T) {
 	if err != nil {
 		t.Fatal("New() error =", err)
 	}
-	s.AutoRemoveReferrers = false
+	s.AutoDeleteReferrers = false
 	ctx := context.Background()
 
 	// generate test content
@@ -2577,7 +2577,7 @@ func TestStore_DeleteDisableAutoGCAndAutoRemoveReferrers(t *testing.T) {
 	if err != nil {
 		t.Fatal("New() error =", err)
 	}
-	s.AutoRemoveReferrers = false
+	s.AutoDeleteReferrers = false
 	s.AutoGC = false
 	ctx := context.Background()
 

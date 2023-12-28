@@ -55,15 +55,17 @@ type Store struct {
 	AutoSaveIndex bool
 
 	// AutoGC controls if the OCI store will automatically clean newly produced
-	// dangling nodes during Delete() operation. Dangling nodes are those without
-	// any predecessors, such as blobs whose manifests have been deleted.
+	// dangling (unreferenced) blobs during Delete() operation. For example the
+	// blobs whose manifests have been deleted. Manifests in the index will not
+	// be deleted.
 	//   - Default value: true.
 	AutoGC bool
 
-	// AutoRemoveReferrers controls if the OCI store will automatically delete its
-	// referrers when a manifest is deleted.
+	// AutoDeleteReferrers controls if the OCI store will automatically delete its
+	// referrers when a manifest is deleted. When set to true, the referrers will
+	// be deleted even if they exist in the index.
 	//   - Default value: true.
-	AutoRemoveReferrers bool
+	AutoDeleteReferrers bool
 
 	root        string
 	indexPath   string
@@ -99,7 +101,7 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	store := &Store{
 		AutoSaveIndex:       true,
 		AutoGC:              true,
-		AutoRemoveReferrers: true,
+		AutoDeleteReferrers: true,
 		root:                rootAbs,
 		indexPath:           filepath.Join(rootAbs, ocispec.ImageIndexFile),
 		storage:             storage,
@@ -163,23 +165,20 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 // is set to true, Delete will recursively remove the referrers of the manifests
 // being deleted.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	var deleteQueue []ocispec.Descriptor
-	deleteQueue = append(deleteQueue, target)
+	deleteQueue := []ocispec.Descriptor{target}
 
 	for len(deleteQueue) > 0 {
 		head := deleteQueue[0]
 		deleteQueue = deleteQueue[1:]
 
 		// get referrers if applicable
-		var referrers []ocispec.Descriptor
-		var err error
-		if s.AutoRemoveReferrers && descriptor.IsManifest(head) {
-			referrers, err = registry.Referrers(ctx, s, head, "")
+		if s.AutoDeleteReferrers && descriptor.IsManifest(head) {
+			referrers, err := registry.Referrers(ctx, s, head, "")
 			if err != nil {
 				return err
 			}
+			deleteQueue = append(deleteQueue, referrers...)
 		}
-		deleteQueue = append(deleteQueue, referrers...)
 
 		// delete the head of queue if applicable
 		s.sync.Lock()
@@ -194,7 +193,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 			for _, d := range danglings {
 				// do not delete existing manifests in tagResolver
 				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
-				if err == errdef.ErrNotFound {
+				if errors.Is(err, errdef.ErrNotFound) {
 					deleteQueue = append(deleteQueue, d)
 				}
 			}
