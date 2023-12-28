@@ -173,7 +173,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		// get referrers if applicable
 		var referrers []ocispec.Descriptor
 		var err error
-		if descriptor.IsManifest(head) && s.AutoRemoveReferrers {
+		if s.AutoRemoveReferrers && descriptor.IsManifest(head) {
 			referrers, err = registry.Referrers(ctx, s, head, "")
 			if err != nil {
 				return err
