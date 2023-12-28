@@ -164,47 +164,45 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 // being deleted.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	var deleteQueue []ocispec.Descriptor
-	var alwaysDelete []bool
 	deleteQueue = append(deleteQueue, target)
-	alwaysDelete = append(alwaysDelete, true)
 
 	for len(deleteQueue) > 0 {
-		node := deleteQueue[0]
-		mustDelete := alwaysDelete[0]
+		head := deleteQueue[0]
 		deleteQueue = deleteQueue[1:]
-		alwaysDelete = alwaysDelete[1:]
 
 		// get referrers if applicable
 		var referrers []ocispec.Descriptor
-		if descriptor.IsManifest(node) && s.AutoRemoveReferrers {
-			res, err := registry.Referrers(ctx, s, node, "")
+		var err error
+		if descriptor.IsManifest(head) && s.AutoRemoveReferrers {
+			referrers, err = registry.Referrers(ctx, s, head, "")
 			if err != nil {
 				return err
 			}
-			referrers = append(referrers, res...)
 		}
-		for _, ref := range referrers {
-			// referrers must be deleted if s.AutoRemoveReferrers is true
-			deleteQueue = append(deleteQueue, ref)
-			alwaysDelete = append(alwaysDelete, true)
-		}
+		deleteQueue = append(deleteQueue, referrers...)
 
 		// delete the head of queue if applicable
 		s.sync.Lock()
-		// do not delete existing manifests in tagResolver
-		_, err := s.tagResolver.Resolve(ctx, string(node.Digest))
-		if mustDelete || err == errdef.ErrNotFound {
-			danglings, err := s.delete(ctx, node)
-			if err != nil {
-				return err
-			}
-			if s.AutoGC {
-				deleteQueue = append(deleteQueue, danglings...)
-				alwaysDelete = append(alwaysDelete, false)
-			}
-		} else if err != nil {
+
+		danglings, err := s.delete(ctx, head)
+		if err != nil {
+			s.sync.Unlock()
 			return err
 		}
+
+		if s.AutoGC {
+			for _, d := range danglings {
+				// do not delete existing manifests in tagResolver
+				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
+				if err == errdef.ErrNotFound {
+					deleteQueue = append(deleteQueue, d)
+				} else if err != nil {
+					s.sync.Unlock()
+					return err
+				}
+			}
+		}
+
 		s.sync.Unlock()
 	}
 
