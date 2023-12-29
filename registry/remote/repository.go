@@ -806,7 +806,7 @@ func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo
 	var r io.ReadCloser
 	if getContent != nil {
 		r, err = getContent()
-		if errors.Is(err, errdef.ErrUnsupported) {
+		if errors.Is(err, registry.UseSourceRepository) {
 			// getContent can return a ErrUnsupported to fallback to the default copy operation
 			r, err = s.sibling(fromRepo).Fetch(ctx, desc)
 		}

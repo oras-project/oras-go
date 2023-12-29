@@ -436,11 +436,11 @@ func TestRepository_Mount_Fallback(t *testing.T) {
 		}
 	})
 
-	t.Run("getContent is ErrUnsupported", func(t *testing.T) {
+	t.Run("getContent is UseSourceRepository", func(t *testing.T) {
 		sequence = ""
 
 		err = repo.Mount(ctx, blobDesc, "test", func() (io.ReadCloser, error) {
-			return nil, errdef.ErrUnsupported
+			return nil, registry.UseSourceRepository
 		})
 		if err != nil {
 			t.Fatalf("Repository.Push() error = %v", err)

@@ -37,6 +37,7 @@ import (
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/spec"
+	"oras.land/oras-go/v2/registry"
 )
 
 // storageTracker tracks storage API counts.
@@ -1549,8 +1550,8 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 			}
 
 			_, err := getContent()
-			if !errors.Is(err, errdef.ErrUnsupported) {
-				t.Fatalf("Expected error %v", errdef.ErrUnsupported)
+			if !errors.Is(err, registry.UseSourceRepository) {
+				t.Fatalf("Expected error %v", registry.UseSourceRepository)
 			}
 			rc, err := src.Fetch(ctx, desc)
 			if err != nil {

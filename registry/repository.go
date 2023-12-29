@@ -18,6 +18,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
@@ -127,6 +128,10 @@ type Mounter interface {
 		getContent func() (io.ReadCloser, error),
 	) error
 }
+
+// UseSourceRepository signals to Mount implementations that the content from the source repository should be used.  This may be returned from the getContent function of the Mounter.Mount method.
+// This is useful to avoid having to know that source repository in the definition of getContent.
+var UseSourceRepository = errors.New("use source repository")
 
 // Tags lists the tags available in the repository.
 func Tags(ctx context.Context, repo TagLister) ([]string, error) {

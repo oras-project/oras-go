@@ -144,7 +144,7 @@ func (opts *CopyGraphOptions) WithMount(sourceRepository string, mounter registr
 
 			// To avoid needing a content.Fetcher as an input argument we simply fall back to the default behavior
 			// as if getContent was nil
-			return nil, errdef.ErrUnsupported
+			return nil, registry.UseSourceRepository
 		}
 
 		// Mount or copy
