@@ -56,14 +56,14 @@ type Store struct {
 
 	// AutoGC controls if the OCI store will automatically clean newly produced
 	// dangling (unreferenced) blobs during Delete() operation. For example the
-	// blobs whose manifests have been deleted. Manifests in the index will not
+	// blobs whose manifests have been deleted. Manifests in index.json will not
 	// be deleted.
 	//   - Default value: true.
 	AutoGC bool
 
 	// AutoDeleteReferrers controls if the OCI store will automatically delete its
 	// referrers when a manifest is deleted. When set to true, the referrers will
-	// be deleted even if they exist in the index.
+	// be deleted even if they exist in index.json.
 	//   - Default value: true.
 	AutoDeleteReferrers bool
 
@@ -80,6 +80,19 @@ type Store struct {
 	sync sync.RWMutex
 	// indexLock ensures that only one go-routine is writing to the index.
 	indexLock sync.Mutex
+}
+
+// unsafeStore is used to bypass lock restrictions in Delete.
+type unsafeStore struct {
+	*Store
+}
+
+func (s *unsafeStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	return s.storage.Fetch(ctx, target)
+}
+
+func (s *unsafeStore) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return s.graph.Predecessors(ctx, node)
 }
 
 // New creates a new OCI store with context.Background().
@@ -161,19 +174,21 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 // Delete deletes the content matching the descriptor from the store. Delete may
 // fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
 // Reader) using target. If s.AutoGC is set to true, Delete will recursively
-// remove the dangling nodes caused by the current delete. If s.AutoRemoveReferrers
+// remove the dangling blobs caused by the current delete. If s.AutoDeleteReferrers
 // is set to true, Delete will recursively remove the referrers of the manifests
 // being deleted.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	deleteQueue := []ocispec.Descriptor{target}
+	s.sync.Lock()
+	defer s.sync.Unlock()
 
+	deleteQueue := []ocispec.Descriptor{target}
 	for len(deleteQueue) > 0 {
 		head := deleteQueue[0]
 		deleteQueue = deleteQueue[1:]
 
 		// get referrers if applicable
 		if s.AutoDeleteReferrers && descriptor.IsManifest(head) {
-			referrers, err := registry.Referrers(ctx, s, head, "")
+			referrers, err := registry.Referrers(ctx, &unsafeStore{s}, head, "")
 			if err != nil {
 				return err
 			}
@@ -181,26 +196,18 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		}
 
 		// delete the head of queue
-		if err := func() error {
-			s.sync.Lock()
-			defer s.sync.Unlock()
-
-			danglings, err := s.delete(ctx, head)
-			if err != nil {
-				return err
-			}
-			if s.AutoGC {
-				for _, d := range danglings {
-					// do not delete existing manifests in tagResolver
-					_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
-					if errors.Is(err, errdef.ErrNotFound) {
-						deleteQueue = append(deleteQueue, d)
-					}
+		danglings, err := s.delete(ctx, head)
+		if err != nil {
+			return err
+		}
+		if s.AutoGC {
+			for _, d := range danglings {
+				// do not delete existing manifests in tagResolver
+				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
+				if errors.Is(err, errdef.ErrNotFound) {
+					deleteQueue = append(deleteQueue, d)
 				}
 			}
-			return nil
-		}(); err != nil {
-			return err
 		}
 	}
 
