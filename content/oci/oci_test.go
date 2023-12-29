@@ -2105,6 +2105,7 @@ func TestStore_PredecessorsAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal("New() error =", err)
 	}
+	s.AutoGC = false
 	ctx := context.Background()
 
 	// generate test content
@@ -2249,6 +2250,471 @@ func TestStore_PredecessorsAndDelete(t *testing.T) {
 		nil,        // Blob 6
 		nil,        // Blob 7
 		nil,        // Blob 8
+	}
+	for i, want := range wants {
+		predecessors, err := s.Predecessors(ctx, descs[i])
+		if err != nil {
+			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
+		}
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
+		}
+	}
+}
+
+func TestStore_DeleteWithAutoGCAndAutoRemoveReferrers(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config:  config,
+			Subject: subject,
+			Layers:  layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))   // Blob 3
+	generateManifest(descs[0], nil, descs[1])                  // Blob 4
+	generateManifest(descs[0], nil, descs[2])                  // Blob 5
+	generateManifest(descs[0], nil, descs[3])                  // Blob 6
+	generateIndex(descs[4:6]...)                               // Blob 7
+	generateIndex(descs[6])                                    // Blob 8
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("world"))   // Blob 9
+	generateManifest(descs[0], &descs[6], descs[9])            // Blob 10
+	generateManifest(descs[0], &descs[10], descs[2])           // Blob 11
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	for i := range blobs {
+		eg.Go(func(i int) func() error {
+			return func() error {
+				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
+				if err != nil {
+					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
+				}
+				return nil
+			}
+		}(i))
+	}
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	// delete blob 4 and verify the result
+	if err := s.Delete(egCtx, descs[4]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 1 and 4 are now deleted, and other blobs are still present
+	notPresent := []ocispec.Descriptor{descs[1], descs[4]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent := []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7], descs[8], descs[9], descs[10], descs[11]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// delete blob 8 and verify the result
+	if err := s.Delete(egCtx, descs[8]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 1, 4 and 8 are now deleted, and other blobs are still present
+	notPresent = []ocispec.Descriptor{descs[1], descs[4], descs[8]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7], descs[9], descs[10], descs[11]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// delete blob 6 and verify the result
+	if err := s.Delete(egCtx, descs[6]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 1, 3, 4, 6, 8, 9, 10, 11 are now deleted, and other blobs are still present
+	notPresent = []ocispec.Descriptor{descs[1], descs[3], descs[4], descs[6], descs[8], descs[9], descs[10], descs[11]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[5], descs[7]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// verify predecessors information
+	wants := [][]ocispec.Descriptor{
+		{descs[5]}, // Blob 0
+		nil,        // Blob 1
+		{descs[5]}, // Blob 2
+		nil,        // Blob 3
+		{descs[7]}, // Blob 4's predecessor is descs[7], even though blob 4 no longer exist
+		{descs[7]}, // Blob 5
+		nil,        // Blob 6
+		nil,        // Blob 7
+		nil,        // Blob 8
+		nil,        // Blob 9
+		nil,        // Blob 10
+		nil,        // Blob 11
+	}
+	for i, want := range wants {
+		predecessors, err := s.Predecessors(ctx, descs[i])
+		if err != nil {
+			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
+		}
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
+		}
+	}
+}
+
+func TestStore_DeleteDisableAutoRemoveReferrers(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	s.AutoDeleteReferrers = false
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config:  config,
+			Subject: subject,
+			Layers:  layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))   // Blob 3
+	generateManifest(descs[0], nil, descs[1])                  // Blob 4
+	generateManifest(descs[0], nil, descs[2])                  // Blob 5
+	generateManifest(descs[0], nil, descs[3])                  // Blob 6
+	generateIndex(descs[4:6]...)                               // Blob 7
+	generateIndex(descs[6])                                    // Blob 8
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("world"))   // Blob 9
+	generateManifest(descs[0], &descs[6], descs[9])            // Blob 10
+	generateManifest(descs[0], &descs[10], descs[2])           // Blob 11
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	for i := range blobs {
+		eg.Go(func(i int) func() error {
+			return func() error {
+				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
+				if err != nil {
+					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
+				}
+				return nil
+			}
+		}(i))
+	}
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	// delete blob 4 and verify the result
+	if err := s.Delete(egCtx, descs[4]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 1 and 4 are now deleted, and other blobs are still present
+	notPresent := []ocispec.Descriptor{descs[1], descs[4]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent := []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7], descs[8], descs[9], descs[10], descs[11]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// delete blob 8 and verify the result
+	if err := s.Delete(egCtx, descs[8]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 1, 4 and 8 are now deleted, and other blobs are still present
+	notPresent = []ocispec.Descriptor{descs[1], descs[4], descs[8]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[3], descs[5], descs[6], descs[7], descs[9], descs[10], descs[11]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// delete blob 6 and verify the result
+	if err := s.Delete(egCtx, descs[6]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 1, 3, 4, 6, 8 are now deleted, and other blobs are still present
+	notPresent = []ocispec.Descriptor{descs[1], descs[3], descs[4], descs[6], descs[8]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[2], descs[5], descs[7], descs[9], descs[10], descs[11]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// verify predecessors information
+	wants := [][]ocispec.Descriptor{
+		{descs[5], descs[10], descs[11]}, // Blob 0
+		nil,                              // Blob 1
+		{descs[5], descs[11]},            // Blob 2
+		nil,                              // Blob 3
+		{descs[7]},                       // Blob 4's predecessor is descs[7], even though blob 4 no longer exist
+		{descs[7]},                       // Blob 5
+		{descs[10]},                      // Blob 6's predecessor is descs[10], even though blob 6 no longer exist
+		nil,                              // Blob 7
+		nil,                              // Blob 8
+		{descs[10]},                      // Blob 9
+		{descs[11]},                      // Blob 10
+		nil,                              // Blob 11
+	}
+	for i, want := range wants {
+		predecessors, err := s.Predecessors(ctx, descs[i])
+		if err != nil {
+			t.Errorf("Store.Predecessors(%d) error = %v", i, err)
+		}
+		if !equalDescriptorSet(predecessors, want) {
+			t.Errorf("Store.Predecessors(%d) = %v, want %v", i, predecessors, want)
+		}
+	}
+}
+
+func TestStore_DeleteDisableAutoGCAndAutoRemoveReferrers(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	s.AutoDeleteReferrers = false
+	s.AutoGC = false
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config:  config,
+			Subject: subject,
+			Layers:  layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello"))   // Blob 3
+	generateManifest(descs[0], nil, descs[1])                  // Blob 4
+	generateManifest(descs[0], nil, descs[2])                  // Blob 5
+	generateManifest(descs[0], nil, descs[3])                  // Blob 6
+	generateIndex(descs[4:6]...)                               // Blob 7
+	generateIndex(descs[6])                                    // Blob 8
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("world"))   // Blob 9
+	generateManifest(descs[0], &descs[6], descs[9])            // Blob 10
+	generateManifest(descs[0], &descs[10], descs[2])           // Blob 11
+
+	eg, egCtx := errgroup.WithContext(ctx)
+	for i := range blobs {
+		eg.Go(func(i int) func() error {
+			return func() error {
+				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
+				if err != nil {
+					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
+				}
+				return nil
+			}
+		}(i))
+	}
+	if err := eg.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	// delete blob 4 and verify the result
+	if err := s.Delete(egCtx, descs[4]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 4 is now deleted, and other blobs are still present
+	notPresent := []ocispec.Descriptor{descs[4]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent := []ocispec.Descriptor{descs[0], descs[1], descs[2], descs[3], descs[5], descs[6], descs[7], descs[8], descs[9], descs[10], descs[11]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// delete blob 8 and verify the result
+	if err := s.Delete(egCtx, descs[8]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 4 and 8 are now deleted, and other blobs are still present
+	notPresent = []ocispec.Descriptor{descs[4], descs[8]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[1], descs[2], descs[3], descs[5], descs[6], descs[7], descs[9], descs[10], descs[11]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// delete blob 6 and verify the result
+	if err := s.Delete(egCtx, descs[6]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 4, 6, 8 are now deleted, and other blobs are still present
+	notPresent = []ocispec.Descriptor{descs[4], descs[6], descs[8]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(egCtx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent = []ocispec.Descriptor{descs[0], descs[1], descs[2], descs[3], descs[5], descs[7], descs[9], descs[10], descs[11]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(egCtx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+
+	// verify predecessors information
+	wants := [][]ocispec.Descriptor{
+		{descs[5], descs[10], descs[11]}, // Blob 0
+		nil,                              // Blob 1
+		{descs[5], descs[11]},            // Blob 2
+		nil,                              // Blob 3
+		{descs[7]},                       // Blob 4's predecessor is descs[7], even though blob 4 no longer exist
+		{descs[7]},                       // Blob 5
+		{descs[10]},                      // Blob 6's predecessor is descs[10], even though blob 6 no longer exist
+		nil,                              // Blob 7
+		nil,                              // Blob 8
+		{descs[10]},                      // Blob 9
+		{descs[11]},                      // Blob 10
+		nil,                              // Blob 11
 	}
 	for i, want := range wants {
 		predecessors, err := s.Predecessors(ctx, descs[i])

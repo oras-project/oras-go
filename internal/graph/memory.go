@@ -31,10 +31,28 @@ import (
 
 // Memory is a memory based PredecessorFinder.
 type Memory struct {
-	nodes        map[descriptor.Descriptor]ocispec.Descriptor // nodes saves the map keys of ocispec.Descriptor
+	// nodes has the following properties and behaviors:
+	//  1. a node exists in Memory.nodes if and only if it exists in the memory
+	//  2. Memory.nodes saves the ocispec.Descriptor map keys, which are used by
+	//    the other fields.
+	nodes map[descriptor.Descriptor]ocispec.Descriptor
+
+	// predecessors has the following properties and behaviors:
+	//  1. a node exists in Memory.predecessors if it has at least one predecessor
+	//    in the memory, regardless of whether or not the node itself exists in
+	//    the memory.
+	//  2. a node does not exist in Memory.predecessors, if it doesn't have any predecessors
+	//    in the memory.
 	predecessors map[descriptor.Descriptor]set.Set[descriptor.Descriptor]
-	successors   map[descriptor.Descriptor]set.Set[descriptor.Descriptor]
-	lock         sync.RWMutex
+
+	// successors has the following properties and behaviors:
+	//  1. a node exists in Memory.successors if and only if it exists in the memory.
+	//  2. a node's entry in Memory.successors is always consistent with the actual
+	//    content of the node, regardless of whether or not each successor exists
+	//    in the memory.
+	successors map[descriptor.Descriptor]set.Set[descriptor.Descriptor]
+
+	lock sync.RWMutex
 }
 
 // NewMemory creates a new memory PredecessorFinder.
@@ -101,26 +119,32 @@ func (m *Memory) Predecessors(_ context.Context, node ocispec.Descriptor) ([]oci
 	return res, nil
 }
 
-// Remove removes the node from its predecessors and successors.
-func (m *Memory) Remove(ctx context.Context, node ocispec.Descriptor) error {
+// Remove removes the node from its predecessors and successors, and returns the
+// dangling root nodes caused by the deletion.
+func (m *Memory) Remove(node ocispec.Descriptor) []ocispec.Descriptor {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
 	nodeKey := descriptor.FromOCI(node)
+	var danglings []ocispec.Descriptor
 	// remove the node from its successors' predecessor list
 	for successorKey := range m.successors[nodeKey] {
 		predecessorEntry := m.predecessors[successorKey]
 		predecessorEntry.Delete(nodeKey)
 
 		// if none of the predecessors of the node still exists, we remove the
-		// predecessors entry. Otherwise, we do not remove the entry.
+		// predecessors entry and return it as a dangling node. Otherwise, we do
+		// not remove the entry.
 		if len(predecessorEntry) == 0 {
 			delete(m.predecessors, successorKey)
+			if _, exists := m.nodes[successorKey]; exists {
+				danglings = append(danglings, m.nodes[successorKey])
+			}
 		}
 	}
 	delete(m.successors, nodeKey)
 	delete(m.nodes, nodeKey)
-	return nil
+	return danglings
 }
 
 // index indexes predecessors for each direct successor of the given node.

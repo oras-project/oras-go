@@ -36,6 +36,7 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/graph"
 	"oras.land/oras-go/v2/internal/resolver"
+	"oras.land/oras-go/v2/registry"
 )
 
 // Store implements `oras.Target`, and represents a content store
@@ -52,12 +53,26 @@ type Store struct {
 	//     to manually call SaveIndex() when needed.
 	//   - Default value: true.
 	AutoSaveIndex bool
-	root          string
-	indexPath     string
-	index         *ocispec.Index
-	storage       *Storage
-	tagResolver   *resolver.Memory
-	graph         *graph.Memory
+
+	// AutoGC controls if the OCI store will automatically clean newly produced
+	// dangling (unreferenced) blobs during Delete() operation. For example the
+	// blobs whose manifests have been deleted. Manifests in index.json will not
+	// be deleted.
+	//   - Default value: true.
+	AutoGC bool
+
+	// AutoDeleteReferrers controls if the OCI store will automatically delete its
+	// referrers when a manifest is deleted. When set to true, the referrers will
+	// be deleted even if they exist in index.json.
+	//   - Default value: true.
+	AutoDeleteReferrers bool
+
+	root        string
+	indexPath   string
+	index       *ocispec.Index
+	storage     *Storage
+	tagResolver *resolver.Memory
+	graph       *graph.Memory
 
 	// sync ensures that most operations can be done concurrently, while Delete
 	// has the exclusive access to Store if a delete operation is underway. Operations
@@ -84,12 +99,14 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	}
 
 	store := &Store{
-		AutoSaveIndex: true,
-		root:          rootAbs,
-		indexPath:     filepath.Join(rootAbs, ocispec.ImageIndexFile),
-		storage:       storage,
-		tagResolver:   resolver.NewMemory(),
-		graph:         graph.NewMemory(),
+		AutoSaveIndex:       true,
+		AutoGC:              true,
+		AutoDeleteReferrers: true,
+		root:                rootAbs,
+		indexPath:           filepath.Join(rootAbs, ocispec.ImageIndexFile),
+		storage:             storage,
+		tagResolver:         resolver.NewMemory(),
+		graph:               graph.NewMemory(),
 	}
 
 	if err := ensureDir(filepath.Join(rootAbs, ocispec.ImageBlobsDir)); err != nil {
@@ -143,11 +160,49 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 
 // Delete deletes the content matching the descriptor from the store. Delete may
 // fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
-// Reader) using target.
+// Reader) using target. If s.AutoGC is set to true, Delete will recursively
+// remove the dangling blobs caused by the current delete. If s.AutoDeleteReferrers
+// is set to true, Delete will recursively remove the referrers of the manifests
+// being deleted.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
+	deleteQueue := []ocispec.Descriptor{target}
+	for len(deleteQueue) > 0 {
+		head := deleteQueue[0]
+		deleteQueue = deleteQueue[1:]
+
+		// get referrers if applicable
+		if s.AutoDeleteReferrers && descriptor.IsManifest(head) {
+			referrers, err := registry.Referrers(ctx, &unsafeStore{s}, head, "")
+			if err != nil {
+				return err
+			}
+			deleteQueue = append(deleteQueue, referrers...)
+		}
+
+		// delete the head of queue
+		danglings, err := s.delete(ctx, head)
+		if err != nil {
+			return err
+		}
+		if s.AutoGC {
+			for _, d := range danglings {
+				// do not delete existing manifests in tagResolver
+				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
+				if errors.Is(err, errdef.ErrNotFound) {
+					deleteQueue = append(deleteQueue, d)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// delete deletes one node and returns the dangling nodes caused by the delete.
+func (s *Store) delete(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	resolvers := s.tagResolver.Map()
 	untagged := false
 	for reference, desc := range resolvers {
@@ -156,16 +211,17 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 			untagged = true
 		}
 	}
-	if err := s.graph.Remove(ctx, target); err != nil {
-		return err
-	}
+	danglings := s.graph.Remove(target)
 	if untagged && s.AutoSaveIndex {
 		err := s.saveIndex()
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return s.storage.Delete(ctx, target)
+	if err := s.storage.Delete(ctx, target); err != nil {
+		return nil, err
+	}
+	return danglings, nil
 }
 
 // Tag tags a descriptor with a reference string.
@@ -396,6 +452,19 @@ func (s *Store) writeIndexFile() error {
 		return fmt.Errorf("failed to marshal index file: %w", err)
 	}
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
+}
+
+// unsafeStore is used to bypass lock restrictions in Delete.
+type unsafeStore struct {
+	*Store
+}
+
+func (s *unsafeStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	return s.storage.Fetch(ctx, target)
+}
+
+func (s *unsafeStore) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return s.graph.Predecessors(ctx, node)
 }
 
 // validateReference validates ref.
