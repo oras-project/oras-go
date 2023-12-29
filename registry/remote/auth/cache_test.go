@@ -540,3 +540,136 @@ func Test_concurrentCache_Set_Fetch_Failure(t *testing.T) {
 		}
 	}
 }
+
+func Test_hostCache(t *testing.T) {
+	base := NewCache()
+
+	// no entry in the cache
+	ctx := context.Background()
+
+	hc := hostCache{base}
+
+	fetch := func(i int) func(context.Context) (string, error) {
+		return func(context.Context) (string, error) {
+			return strconv.Itoa(i), nil
+		}
+	}
+
+	// The key is ignored in the hostCache implementation.
+
+	{ // Set the token to 100
+		gotToken, err := hc.Set(ctx, "reg.example.com", SchemeBearer, "key1", fetch(100))
+		if err != nil {
+			t.Fatalf("hostCache.Set() error = %v", err)
+		}
+		if want := strconv.Itoa(100); gotToken != want {
+			t.Errorf("hostCache.Set() = %v, want %v", gotToken, want)
+		}
+	}
+
+	{ // Overwrite the token entry to 101
+		gotToken, err := hc.Set(ctx, "reg.example.com", SchemeBearer, "key2", fetch(101))
+		if err != nil {
+			t.Fatalf("hostCache.Set() error = %v", err)
+		}
+		if want := strconv.Itoa(101); gotToken != want {
+			t.Errorf("hostCache.Set() = %v, want %v", gotToken, want)
+		}
+	}
+
+	{ // Add entry for another host
+		gotToken, err := hc.Set(ctx, "reg2.example.com", SchemeBearer, "key3", fetch(102))
+		if err != nil {
+			t.Fatalf("hostCache.Set() error = %v", err)
+		}
+		if want := strconv.Itoa(102); gotToken != want {
+			t.Errorf("hostCache.Set() = %v, want %v", gotToken, want)
+		}
+	}
+
+	{ // Ensure the token for key1 is 101 now
+		gotToken, err := hc.GetToken(ctx, "reg.example.com", SchemeBearer, "key1")
+		if err != nil {
+			t.Fatalf("hostCache.GetToken() error = %v", err)
+		}
+		if want := strconv.Itoa(101); gotToken != want {
+			t.Errorf("hostCache.GetToken() = %v, want %v", gotToken, want)
+		}
+	}
+
+	{ // Make sure GetScheme still works
+		gotScheme, err := hc.GetScheme(ctx, "reg.example.com")
+		if err != nil {
+			t.Fatalf("hostCache.GetScheme() error = %v", err)
+		}
+		if want := SchemeBearer; gotScheme != want {
+			t.Errorf("hostCache.GetScheme() = %v, want %v", gotScheme, want)
+		}
+	}
+}
+
+func Test_fallbackCache(t *testing.T) {
+	// no entry in the cache
+	ctx := context.Background()
+
+	scc := NewSingleContextCache()
+
+	fetch := func(i int) func(context.Context) (string, error) {
+		return func(context.Context) (string, error) {
+			return strconv.Itoa(i), nil
+		}
+	}
+
+	// Test that fallback works
+
+	{ // Set the token to 100
+		gotToken, err := scc.Set(ctx, "reg.example.com", SchemeBearer, "key1", fetch(100))
+		if err != nil {
+			t.Fatalf("hostCache.Set() error = %v", err)
+		}
+		if want := strconv.Itoa(100); gotToken != want {
+			t.Errorf("hostCache.Set() = %v, want %v", gotToken, want)
+		}
+	}
+
+	{ // Ensure the token for key2 falls back to 100
+		gotToken, err := scc.GetToken(ctx, "reg.example.com", SchemeBearer, "key2")
+		if err != nil {
+			t.Fatalf("hostCache.GetToken() error = %v", err)
+		}
+		if want := strconv.Itoa(100); gotToken != want {
+			t.Errorf("hostCache.GetToken() = %v, want %v", gotToken, want)
+		}
+	}
+
+	{ // Make sure GetScheme works as expected
+		gotScheme, err := scc.GetScheme(ctx, "reg.example.com")
+		if err != nil {
+			t.Fatalf("hostCache.GetScheme() error = %v", err)
+		}
+		if want := SchemeBearer; gotScheme != want {
+			t.Errorf("hostCache.GetScheme() = %v, want %v", gotScheme, want)
+		}
+	}
+
+	{ // Make sure GetScheme falls back
+		gotScheme, err := scc.GetScheme(ctx, "reg.example.com")
+		if err != nil {
+			t.Fatalf("hostCache.GetScheme() error = %v", err)
+		}
+		if want := SchemeBearer; gotScheme != want {
+			t.Errorf("hostCache.GetScheme() = %v, want %v", gotScheme, want)
+		}
+	}
+
+	{ // Check GetScheme fallback
+		// scc.(*fallbackCache).primary = NewCache()
+		gotScheme, err := scc.GetScheme(ctx, "reg2.example.com")
+		if !errors.Is(err, errdef.ErrNotFound) {
+			t.Fatalf("hostCache.GetScheme() error = %v", err)
+		}
+		if want := SchemeUnknown; gotScheme != want {
+			t.Errorf("hostCache.GetScheme() = %v, want %v", gotScheme, want)
+		}
+	}
+}
