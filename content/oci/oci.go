@@ -82,19 +82,6 @@ type Store struct {
 	indexLock sync.Mutex
 }
 
-// unsafeStore is used to bypass lock restrictions in Delete.
-type unsafeStore struct {
-	*Store
-}
-
-func (s *unsafeStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	return s.storage.Fetch(ctx, target)
-}
-
-func (s *unsafeStore) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	return s.graph.Predecessors(ctx, node)
-}
-
 // New creates a new OCI store with context.Background().
 func New(root string) (*Store, error) {
 	return NewWithContext(context.Background(), root)
@@ -465,6 +452,19 @@ func (s *Store) writeIndexFile() error {
 		return fmt.Errorf("failed to marshal index file: %w", err)
 	}
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
+}
+
+// unsafeStore is used to bypass lock restrictions in Delete.
+type unsafeStore struct {
+	*Store
+}
+
+func (s *unsafeStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	return s.storage.Fetch(ctx, target)
+}
+
+func (s *unsafeStore) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return s.graph.Predecessors(ctx, node)
 }
 
 // validateReference validates ref.
