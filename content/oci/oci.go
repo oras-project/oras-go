@@ -169,13 +169,17 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
+	return s.delete(ctx, target, s.AutoGC, s.AutoDeleteReferrers)
+}
+
+func (s *Store) delete(ctx context.Context, target ocispec.Descriptor, autoGC bool, autoDeleteReferrers bool) error {
 	deleteQueue := []ocispec.Descriptor{target}
 	for len(deleteQueue) > 0 {
 		head := deleteQueue[0]
 		deleteQueue = deleteQueue[1:]
 
 		// get referrers if applicable
-		if s.AutoDeleteReferrers && descriptor.IsManifest(head) {
+		if autoDeleteReferrers && descriptor.IsManifest(head) {
 			referrers, err := registry.Referrers(ctx, &unsafeStore{s}, head, "")
 			if err != nil {
 				return err
@@ -184,11 +188,11 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		}
 
 		// delete the head of queue
-		danglings, err := s.delete(ctx, head)
+		danglings, err := s.deleteNode(ctx, head)
 		if err != nil {
 			return err
 		}
-		if s.AutoGC {
+		if autoGC {
 			for _, d := range danglings {
 				// do not delete existing manifests in tagResolver
 				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
@@ -202,8 +206,8 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	return nil
 }
 
-// delete deletes one node and returns the dangling nodes caused by the delete.
-func (s *Store) delete(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+// deleteNode deletes one node and returns the dangling nodes caused by the delete.
+func (s *Store) deleteNode(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	resolvers := s.tagResolver.Map()
 	untagged := false
 	for reference, desc := range resolvers {
@@ -468,8 +472,7 @@ func (s *Store) GC(ctx context.Context) error {
 		// do not remove existing manifests in the index
 		if _, err := s.tagResolver.Resolve(ctx, string(desc.Digest)); err == errdef.ErrNotFound {
 			// remove the blob and its metadata from the Store
-			// TODO: s.delete returns 2 variables, a dangling tree is not deleted properly
-			if _, err := s.delete(ctx, desc); err != nil {
+			if err := s.delete(ctx, desc, true, true); err != nil {
 				return err
 			}
 		}

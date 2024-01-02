@@ -2874,20 +2874,44 @@ func TestStore_GC(t *testing.T) {
 		}
 		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
 	}
+	generateImageIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+	generateArtifactManifest := func(blobs ...ocispec.Descriptor) {
+		var manifest spec.Artifact
+		manifest.Blobs = append(manifest.Blobs, blobs...)
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
+	}
 
-	appendBlob(ocispec.MediaTypeImageConfig, []byte("config"))         // Blob 0
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob"))            // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer"))  // Blob 2, dangling layer
-	generateManifest(descs[0], descs[1])                               // Blob 3, valid manifest
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 1")) // Blob 4, garbage layer 1
-	generateManifest(descs[0], descs[4])                               // Blob 5, garbage manifest 1
-	appendBlob(ocispec.MediaTypeImageConfig, []byte("garbage config")) // Blob 6, garbage config
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 2")) // Blob 7, garbage layer 2
-	generateManifest(descs[6], descs[7])                               // Blob 8, garbage manifest 2
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config"))          // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob"))             // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer"))   // Blob 2, dangling layer
+	generateManifest(descs[0], descs[1])                                // Blob 3, valid manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 2")) // Blob 4, dangling layer
+	generateArtifactManifest(descs[4])                                  // blob 5, dangling artifact
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 3")) // Blob 6, dangling layer
+	generateArtifactManifest(descs[6])                                  // blob 7, dangling artifact
+	generateImageIndex(descs[7], descs[5])                              // blob 8, dangling image index
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 1"))  // Blob 9, garbage layer 1
+	generateManifest(descs[0], descs[4])                                // Blob 10, garbage manifest 1
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("garbage config"))  // Blob 11, garbage config
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 2"))  // Blob 12, garbage layer 2
+	generateManifest(descs[6], descs[7])                                // Blob 13, garbage manifest 2
 
-	// push blobs[0] - blobs[3] into s
+	// push blobs 0 - blobs 8 into s
 	eg, egCtx := errgroup.WithContext(ctx)
-	for i := 0; i <= 3; i++ {
+	for i := 0; i <= 8; i++ {
 		eg.Go(func(i int) func() error {
 			return func() error {
 				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
@@ -2902,9 +2926,15 @@ func TestStore_GC(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// push blobs[4] - blobs[8] into s.storage, making them garbage as their metadata
+	// remove blobs 4 - blobs 8 from index, making them a dangling tree
+	for i := 4; i <= 8; i++ {
+		s.tagResolver.Untag(string(descs[i].Digest))
+	}
+	s.SaveIndex()
+
+	// push blobs 9 - blobs 13 into s.storage, making them garbage as their metadata
 	// doesn't exist in s
-	for i := 4; i < len(blobs); i++ {
+	for i := 9; i < len(blobs); i++ {
 		eg.Go(func(i int) func() error {
 			return func() error {
 				err := s.storage.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
@@ -2925,7 +2955,7 @@ func TestStore_GC(t *testing.T) {
 	}
 
 	// verify existence
-	wantExistence := []bool{true, true, false, true, false, false, false, false, false}
+	wantExistence := []bool{true, true, false, true, false, false, false, false, false, false, false, false, false, false}
 	for i, wantValue := range wantExistence {
 		exists, err := s.Exists(egCtx, descs[i])
 		if err != nil {
