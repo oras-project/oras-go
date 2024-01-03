@@ -2863,10 +2863,11 @@ func TestStore_GC(t *testing.T) {
 			Size:      int64(len(blob)),
 		})
 	}
-	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+	generateManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
 		manifest := ocispec.Manifest{
-			Config: config,
-			Layers: layers,
+			Config:  config,
+			Subject: subject,
+			Layers:  layers,
 		}
 		manifestJSON, err := json.Marshal(manifest)
 		if err != nil {
@@ -2897,21 +2898,24 @@ func TestStore_GC(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageConfig, []byte("config"))          // Blob 0
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob"))             // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer"))   // Blob 2, dangling layer
-	generateManifest(descs[0], descs[1])                                // Blob 3, valid manifest
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 2")) // Blob 4, dangling layer
-	generateArtifactManifest(descs[4])                                  // blob 5, dangling artifact
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 3")) // Blob 6, dangling layer
-	generateArtifactManifest(descs[6])                                  // blob 7, dangling artifact
-	generateImageIndex(descs[7], descs[5])                              // blob 8, dangling image index
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 1"))  // Blob 9, garbage layer 1
-	generateManifest(descs[0], descs[4])                                // Blob 10, garbage manifest 1
-	appendBlob(ocispec.MediaTypeImageConfig, []byte("garbage config"))  // Blob 11, garbage config
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 2"))  // Blob 12, garbage layer 2
-	generateManifest(descs[6], descs[7])                                // Blob 13, garbage manifest 2
+	generateManifest(descs[0], nil, descs[1])                           // Blob 3, valid manifest
+	generateManifest(descs[0], &descs[3], descs[1])                     // Blob 4, referrer of a valid manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 2")) // Blob 5, dangling layer
+	generateArtifactManifest(descs[4])                                  // blob 6, dangling artifact
+	generateManifest(descs[0], &descs[5], descs[1])                     // Blob 7, referrer of a dangling manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 3")) // Blob 8, dangling layer
+	generateArtifactManifest(descs[6])                                  // blob 9, dangling artifact
+	generateImageIndex(descs[7], descs[5])                              // blob 10, dangling image index
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 1"))  // Blob 11, garbage layer 1
+	generateManifest(descs[0], nil, descs[4])                           // Blob 12, garbage manifest 1
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("garbage config"))  // Blob 13, garbage config
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 2"))  // Blob 14, garbage layer 2
+	generateManifest(descs[6], nil, descs[7])                           // Blob 15, garbage manifest 2
+	generateManifest(descs[0], &descs[13], descs[1])                    // Blob 16, referrer of a garbage manifest
 
-	// push blobs 0 - blobs 8 into s
+	// push blobs 0 - blobs 10 into s
 	eg, egCtx := errgroup.WithContext(ctx)
-	for i := 0; i <= 8; i++ {
+	for i := 0; i <= 10; i++ {
 		eg.Go(func(i int) func() error {
 			return func() error {
 				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
@@ -2926,15 +2930,15 @@ func TestStore_GC(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// remove blobs 4 - blobs 8 from index, making them a dangling tree
-	for i := 4; i <= 8; i++ {
+	// remove blobs 5 - blobs 10 from index, making them a dangling tree
+	for i := 5; i <= 10; i++ {
 		s.tagResolver.Untag(string(descs[i].Digest))
 	}
 	s.SaveIndex()
 
-	// push blobs 9 - blobs 13 into s.storage, making them garbage as their metadata
+	// push blobs 11 - blobs 16 into s.storage, making them garbage as their metadata
 	// doesn't exist in s
-	for i := 9; i < len(blobs); i++ {
+	for i := 11; i < len(blobs); i++ {
 		eg.Go(func(i int) func() error {
 			return func() error {
 				err := s.storage.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
@@ -2955,7 +2959,7 @@ func TestStore_GC(t *testing.T) {
 	}
 
 	// verify existence
-	wantExistence := []bool{true, true, false, true, false, false, false, false, false, false, false, false, false, false}
+	wantExistence := []bool{true, true, false, true, true, false, false, false, false, false, false, false, false, false, false, false, false}
 	for i, wantValue := range wantExistence {
 		exists, err := s.Exists(egCtx, descs[i])
 		if err != nil {
