@@ -183,8 +183,8 @@ func (m *Memory) Exists(dgst digest.Digest) bool {
 	return exists
 }
 
-// GetDanglingLayers returns the dangling (unreferenced) layer nodes in the memory.
-func (m *Memory) GetDanglingLayers() []ocispec.Descriptor {
+// GetUnreferencedRootNodes returns the dangling (unreferenced) layer nodes in the memory.
+func (m *Memory) GetUnreferencedRootNodes() []ocispec.Descriptor {
 	var danglings []ocispec.Descriptor
 	for key, desc := range m.nodes {
 		if _, exist := m.predecessors[key]; !exist {

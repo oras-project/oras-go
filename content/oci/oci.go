@@ -467,7 +467,7 @@ func (s *Store) GC(ctx context.Context) error {
 	defer s.sync.Unlock()
 
 	// clean up dangling layers in Store
-	danglings := s.graph.GetDanglingLayers()
+	danglings := s.graph.GetUnreferencedRootNodes()
 	for _, desc := range danglings {
 		// do not remove existing manifests in the index
 		if _, err := s.tagResolver.Resolve(ctx, string(desc.Digest)); err == errdef.ErrNotFound {
