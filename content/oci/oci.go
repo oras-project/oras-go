@@ -485,17 +485,22 @@ func (s *Store) GC(ctx context.Context) error {
 			return err
 		}
 		// skip the directories
-		if !info.IsDir() {
-			alg := filepath.Base(filepath.Dir(path))
-			blobDigest, err := digest.Parse(fmt.Sprintf("%s:%s", alg, info.Name()))
+		if info.IsDir() {
+			return nil
+		}
+		alg := filepath.Base(filepath.Dir(path))
+		blobDigest, err := digest.Parse(fmt.Sprintf("%s:%s", alg, info.Name()))
+		if err != nil {
+			return err
+		}
+		if exists := s.graph.Exists(blobDigest); !exists {
+			// remove the blob from storage if it does not exist in Store
+			err = os.Remove(path)
 			if err != nil {
-				return err
-			}
-			if exists := s.graph.Exists(blobDigest); !exists {
-				// remove the blob from storage if it does not exist in Store
-				if err := s.storage.deleteByDigest(ctx, blobDigest); err != nil {
-					return err
+				if errors.Is(err, fs.ErrNotExist) {
+					return fmt.Errorf("%s: %w", blobDigest, errdef.ErrNotFound)
 				}
+				return err
 			}
 		}
 		return nil
