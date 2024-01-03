@@ -66,12 +66,19 @@ const (
 	// PackManifestVersion1_0 represents the OCI Image Manifest defined in
 	// image-spec v1.0.2.
 	// Reference: https://github.com/opencontainers/image-spec/blob/v1.0.2/manifest.md
-	PackManifestVersion1_0 PackManifestVersion = 1
+	PackManifestVersion1_0 PackManifestVersion = iota + 1
 
 	// PackManifestVersion1_1_RC4 represents the OCI Image Manifest defined
 	// in image-spec v1.1.0-rc4.
 	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md
-	PackManifestVersion1_1_RC4 PackManifestVersion = 2
+	PackManifestVersion1_1_RC4
+
+	// PackManifestVersion1_1_RC2 represents the OCI Image Manifest defined
+	// in image-spec v1.1.0-rc2.
+	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/manifest.md
+	// Note: The project may maintain deprecated release candidate versions for expanded
+	//       test coverage during specification development; to be removed when spec is GA.
+	PackManifestVersion1_1_RC2
 )
 
 // PackManifestOptions contains optional parameters for [PackManifest].
