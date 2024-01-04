@@ -3028,6 +3028,20 @@ func TestStore_GCErrorPath(t *testing.T) {
 	if err = s.GC(ctx); err == nil {
 		t.Fatal("expect an error when os.ReadDir()")
 	}
+	os.Remove(path.Join(algPath, "sha384"))
+
+	// test os.Remove() error
+	badDigest := digest.FromBytes([]byte("bad digest")).Encoded()
+	badPath := path.Join(algPath, "sha256", badDigest)
+	if err := os.Mkdir(badPath, 0444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path.Join(badPath, "whatever"), []byte("extra content"), 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	if err = s.GC(ctx); err == nil {
+		t.Fatal("expect an error when os.Remove()")
+	}
 }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
