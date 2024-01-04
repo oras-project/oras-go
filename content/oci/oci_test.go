@@ -3007,6 +3007,27 @@ func TestStore_GCErrorPath(t *testing.T) {
 	if err = s.GC(ctx); err != nil {
 		t.Fatal(err)
 	}
+
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("valid blob 2")) // Blob 1
+
+	// push the valid blob
+	err = s.Push(ctx, descs[1], bytes.NewReader(blobs[1]))
+	if err != nil {
+		t.Error("failed to push test content to src")
+	}
+
+	// test os.ReadDir() errors
+	s.root = "random dir"
+	if err = s.GC(ctx); err == nil {
+		t.Fatal("expect an error when os.ReadDir()")
+	}
+	s.root = tempDir
+	if err := os.WriteFile(path.Join(algPath, "sha384"), []byte("not a dir"), 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	if err = s.GC(ctx); err == nil {
+		t.Fatal("expect an error when os.ReadDir()")
+	}
 }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {

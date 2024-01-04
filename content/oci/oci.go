@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -500,7 +499,7 @@ func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
-	//traverse index.json to find all reachable nodes
+	// traverse index.json to find all reachable nodes
 	reachableNodes, err := s.traverseIndex(ctx)
 	if err != nil {
 		return err
@@ -538,9 +537,6 @@ func (s *Store) GC(ctx context.Context) error {
 				// remove the blob from storage if it does not exist in Store
 				err = os.Remove(path.Join(algPath, dgst))
 				if err != nil {
-					if errors.Is(err, fs.ErrNotExist) {
-						return fmt.Errorf("%s: %w", blobDigest, errdef.ErrNotFound)
-					}
 					return err
 				}
 			}
