@@ -176,20 +176,3 @@ func (m *Memory) index(ctx context.Context, fetcher content.Fetcher, node ocispe
 	}
 	return successors, nil
 }
-
-// Exists returns if a blob denoted by its digest exists in the memory.
-func (m *Memory) Exists(dgst digest.Digest) bool {
-	_, exists := m.nodes[dgst]
-	return exists
-}
-
-// GetUnreferencedRootNodes returns the dangling (unreferenced) layer nodes in the memory.
-func (m *Memory) GetUnreferencedRootNodes() []ocispec.Descriptor {
-	var danglings []ocispec.Descriptor
-	for key, desc := range m.nodes {
-		if _, exist := m.predecessors[key]; !exist {
-			danglings = append(danglings, desc)
-		}
-	}
-	return danglings
-}

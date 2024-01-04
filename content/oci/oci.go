@@ -460,6 +460,39 @@ func (s *Store) writeIndexFile() error {
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
 }
 
+// draft
+func (s *Store) traverseIndex(ctx context.Context) (set.Set[digest.Digest], error) {
+	manifests := s.index.Manifests
+	visited := set.New[digest.Digest]()
+	result := set.New[digest.Digest]()
+	queue := []ocispec.Descriptor{}
+	queue = append(queue, manifests...)
+	for len(queue) > 0 {
+		head := queue[0]
+		queue = queue[1:]
+		if visited.Contains(head.Digest) {
+			continue
+		}
+		result.Add(head.Digest)
+		visited.Add(head.Digest)
+		// find successors
+		succ, err := content.Successors(ctx, &unsafeStore{s}, head)
+		if err != nil {
+			return nil, err
+		}
+		queue = append(queue, succ...)
+		// find referrers
+		if descriptor.IsManifest(head) {
+			refs, err := registry.Referrers(ctx, &unsafeStore{s}, head, "")
+			if err != nil {
+				return nil, err
+			}
+			queue = append(queue, refs...)
+		}
+	}
+	return result, nil
+}
+
 // GC removes garbage from Store. The garbage to be cleaned are:
 //   - unreferenced (dangling) blobs in Store which have no predecessors
 //   - garbage blobs in the storage whose metadata is not stored in Store
@@ -467,16 +500,10 @@ func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
-	// clean up dangling layers in Store
-	danglings := s.graph.GetUnreferencedRootNodes()
-	for _, desc := range danglings {
-		// do not remove existing manifests in the index
-		if _, err := s.tagResolver.Resolve(ctx, string(desc.Digest)); err == errdef.ErrNotFound {
-			// remove the blob and its metadata from the Store
-			if err := s.delete(ctx, desc, true, true); err != nil {
-				return err
-			}
-		}
+	//traverse index
+	mySet, err := s.traverseIndex(ctx)
+	if err != nil {
+		return err
 	}
 
 	// clean up garbage blobs in the storage
@@ -504,7 +531,7 @@ func (s *Store) GC(ctx context.Context) error {
 			if err != nil {
 				continue
 			}
-			if exists := s.graph.Exists(blobDigest); !exists {
+			if exists := mySet.Contains(blobDigest); !exists {
 				// remove the blob from storage if it does not exist in Store
 				err = os.Remove(path.Join(algPath, dgst))
 				if err != nil {

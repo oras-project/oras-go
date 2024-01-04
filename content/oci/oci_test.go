@@ -2930,8 +2930,8 @@ func TestStore_GC(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// remove blobs 5 - blobs 10 from index, making them a dangling tree
-	for i := 5; i <= 10; i++ {
+	// remove blobs 4 - blobs 10 from index, making them a dangling tree
+	for i := 4; i <= 10; i++ {
 		s.tagResolver.Untag(string(descs[i].Digest))
 	}
 	s.SaveIndex()
