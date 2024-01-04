@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -2962,6 +2963,49 @@ func TestStore_GC(t *testing.T) {
 		if exists != wantValue {
 			t.Fatalf("want existence %d to be %v, got %v", i, wantValue, exists)
 		}
+	}
+}
+
+func TestStore_GCErrorPath(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("valid blob")) // Blob 0
+
+	// push the valid blob
+	err = s.Push(ctx, descs[0], bytes.NewReader(blobs[0]))
+	if err != nil {
+		t.Error("failed to push test content to src")
+	}
+
+	// write random contents
+	algPath := path.Join(tempDir, "blobs")
+	dgstPath := path.Join(algPath, "sha256")
+	if err := os.WriteFile(path.Join(algPath, "other"), []byte("random"), 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	if err := os.WriteFile(path.Join(dgstPath, "other2"), []byte("random2"), 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	// perform GC
+	if err = s.GC(ctx); err != nil {
+		t.Fatal(err)
 	}
 }
 
