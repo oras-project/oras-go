@@ -25,6 +25,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sync"
 
@@ -480,31 +481,42 @@ func (s *Store) GC(ctx context.Context) error {
 
 	// clean up garbage blobs in the storage
 	rootpath := filepath.Join(s.root, "blobs")
-	return filepath.Walk(rootpath, func(path string, info fs.FileInfo, err error) error {
+	algDirs, err := os.ReadDir(rootpath)
+	if err != nil {
+		return err
+	}
+	for _, algDir := range algDirs {
+		alg := algDir.Name()
+		// skip unsupported directories
+		if !isValidAlgorithm(alg) {
+			continue
+		}
+		algPath := path.Join(rootpath, alg)
+		dgstDirs, err := os.ReadDir(algPath)
 		if err != nil {
 			return err
 		}
-		// skip the directories
-		if info.IsDir() {
-			return nil
-		}
-		alg := filepath.Base(filepath.Dir(path))
-		blobDigest, err := digest.Parse(fmt.Sprintf("%s:%s", alg, info.Name()))
-		if err != nil {
-			return err
-		}
-		if exists := s.graph.Exists(blobDigest); !exists {
-			// remove the blob from storage if it does not exist in Store
-			err = os.Remove(path)
+		for _, dgstDir := range dgstDirs {
+			dgst := dgstDir.Name()
+			blobDigest := digest.NewDigestFromEncoded(digest.Algorithm(alg), dgst)
+			err := blobDigest.Validate()
+			// skip unsupported directories
 			if err != nil {
-				if errors.Is(err, fs.ErrNotExist) {
-					return fmt.Errorf("%s: %w", blobDigest, errdef.ErrNotFound)
+				continue
+			}
+			if exists := s.graph.Exists(blobDigest); !exists {
+				// remove the blob from storage if it does not exist in Store
+				err = os.Remove(path.Join(algPath, dgst))
+				if err != nil {
+					if errors.Is(err, fs.ErrNotExist) {
+						return fmt.Errorf("%s: %w", blobDigest, errdef.ErrNotFound)
+					}
+					return err
 				}
-				return err
 			}
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // unsafeStore is used to bypass lock restrictions in Delete.
@@ -528,4 +540,9 @@ func validateReference(ref string) error {
 
 	// TODO: may enforce more strict validation if needed.
 	return nil
+}
+
+// isValidAlgorithm checks is a string is a supported hash algorithm
+func isValidAlgorithm(alg string) bool {
+	return alg == string(digest.SHA256) || alg == string(digest.SHA512) || alg == string(digest.SHA384)
 }
