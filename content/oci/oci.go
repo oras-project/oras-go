@@ -170,17 +170,13 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
-	return s.delete(ctx, target, s.AutoGC, s.AutoDeleteReferrers)
-}
-
-func (s *Store) delete(ctx context.Context, target ocispec.Descriptor, autoGC bool, autoDeleteReferrers bool) error {
 	deleteQueue := []ocispec.Descriptor{target}
 	for len(deleteQueue) > 0 {
 		head := deleteQueue[0]
 		deleteQueue = deleteQueue[1:]
 
 		// get referrers if applicable
-		if autoDeleteReferrers && descriptor.IsManifest(head) {
+		if s.AutoDeleteReferrers && descriptor.IsManifest(head) {
 			referrers, err := registry.Referrers(ctx, &unsafeStore{s}, head, "")
 			if err != nil {
 				return err
@@ -189,11 +185,11 @@ func (s *Store) delete(ctx context.Context, target ocispec.Descriptor, autoGC bo
 		}
 
 		// delete the head of queue
-		danglings, err := s.deleteNode(ctx, head)
+		danglings, err := s.delete(ctx, head)
 		if err != nil {
 			return err
 		}
-		if autoGC {
+		if s.AutoGC {
 			for _, d := range danglings {
 				// do not delete existing manifests in tagResolver
 				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
@@ -207,8 +203,8 @@ func (s *Store) delete(ctx context.Context, target ocispec.Descriptor, autoGC bo
 	return nil
 }
 
-// deleteNode deletes one node and returns the dangling nodes caused by the delete.
-func (s *Store) deleteNode(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+// delete deletes one node and returns the dangling nodes caused by the delete.
+func (s *Store) delete(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	resolvers := s.tagResolver.Map()
 	untagged := false
 	for reference, desc := range resolvers {
