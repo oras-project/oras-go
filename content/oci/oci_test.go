@@ -3033,7 +3033,7 @@ func TestStore_GCErrorPath(t *testing.T) {
 	// test os.Remove() error
 	badDigest := digest.FromBytes([]byte("bad digest")).Encoded()
 	badPath := path.Join(algPath, "sha256", badDigest)
-	if err := os.Mkdir(badPath, 0444); err != nil {
+	if err := os.Mkdir(badPath, 0777); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path.Join(badPath, "whatever"), []byte("extra content"), 0444); err != nil {
