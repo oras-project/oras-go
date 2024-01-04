@@ -465,6 +465,9 @@ func (s *Store) traverseIndex(ctx context.Context) (set.Set[digest.Digest], erro
 	queue := []ocispec.Descriptor{}
 	queue = append(queue, manifests...)
 	for len(queue) > 0 {
+		if err := isContextDone(ctx); err != nil {
+			return nil, err
+		}
 		head := queue[0]
 		queue = queue[1:]
 		if visited.Contains(head.Digest) {
@@ -521,6 +524,9 @@ func (s *Store) GC(ctx context.Context) error {
 			return err
 		}
 		for _, dgstDir := range dgstDirs {
+			if err := isContextDone(ctx); err != nil {
+				return err
+			}
 			dgst := dgstDir.Name()
 			blobDigest := digest.NewDigestFromEncoded(digest.Algorithm(alg), dgst)
 			err := blobDigest.Validate()

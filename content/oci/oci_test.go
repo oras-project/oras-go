@@ -2914,20 +2914,11 @@ func TestStore_GC(t *testing.T) {
 	generateManifest(descs[0], &descs[13], descs[1])                    // Blob 16, referrer of a garbage manifest
 
 	// push blobs 0 - blobs 10 into s
-	eg, egCtx := errgroup.WithContext(ctx)
 	for i := 0; i <= 10; i++ {
-		eg.Go(func(i int) func() error {
-			return func() error {
-				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
-				if err != nil {
-					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
-				}
-				return nil
-			}
-		}(i))
-	}
-	if err := eg.Wait(); err != nil {
-		t.Fatal(err)
+		err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Errorf("failed to push test content to src: %d: %v", i, err)
+		}
 	}
 
 	// remove blobs 4 - blobs 10 from index.json
@@ -2939,23 +2930,15 @@ func TestStore_GC(t *testing.T) {
 	// push blobs 11 - blobs 16 into s.storage, making them garbage as their metadata
 	// doesn't exist in s
 	for i := 11; i < len(blobs); i++ {
-		eg.Go(func(i int) func() error {
-			return func() error {
-				err := s.storage.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
-				if err != nil {
-					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
-				}
-				return nil
-			}
-		}(i))
-	}
-	if err := eg.Wait(); err != nil {
-		t.Fatal(err)
+		err := s.storage.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Errorf("failed to push test content to src: %d: %v", i, err)
+		}
 	}
 
 	// confirm that all the blobs are in the storage
 	for i := 11; i < len(blobs); i++ {
-		exists, err := s.Exists(egCtx, descs[i])
+		exists, err := s.Exists(ctx, descs[i])
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2965,14 +2948,14 @@ func TestStore_GC(t *testing.T) {
 	}
 
 	// perform GC
-	if err = s.GC(egCtx); err != nil {
+	if err = s.GC(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	// verify existence
 	wantExistence := []bool{true, true, false, true, true, false, false, false, false, false, false, false, false, false, false, false, false}
 	for i, wantValue := range wantExistence {
-		exists, err := s.Exists(egCtx, descs[i])
+		exists, err := s.Exists(ctx, descs[i])
 		if err != nil {
 			t.Fatal(err)
 		}
