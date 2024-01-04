@@ -3028,7 +3028,9 @@ func TestStore_GCErrorPath(t *testing.T) {
 	if err = s.GC(ctx); err == nil {
 		t.Fatal("expect an error when os.ReadDir()")
 	}
-	os.Remove(path.Join(algPath, "sha384"))
+	if err := os.Remove(path.Join(algPath, "sha384")); err != nil {
+		t.Fatal(err)
+	}
 
 	// test os.Remove() error
 	badDigest := digest.FromBytes([]byte("bad digest")).Encoded()

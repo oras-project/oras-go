@@ -459,7 +459,6 @@ func (s *Store) writeIndexFile() error {
 // successor and referrer relations. It returns a set of digest of visited nodes.
 func (s *Store) traverseIndex(ctx context.Context) (set.Set[digest.Digest], error) {
 	manifests := s.index.Manifests
-	visited := set.New[digest.Digest]()
 	results := set.New[digest.Digest]()
 	queue := []ocispec.Descriptor{}
 	queue = append(queue, manifests...)
@@ -469,11 +468,10 @@ func (s *Store) traverseIndex(ctx context.Context) (set.Set[digest.Digest], erro
 		}
 		head := queue[0]
 		queue = queue[1:]
-		if visited.Contains(head.Digest) {
+		if results.Contains(head.Digest) {
 			continue
 		}
 		results.Add(head.Digest)
-		visited.Add(head.Digest)
 		// find successors
 		succ, err := content.Successors(ctx, &unsafeStore{s}, head)
 		if err != nil {
