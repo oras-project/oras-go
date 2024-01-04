@@ -250,6 +250,8 @@ func (r Reference) ReferenceOrDefault() string {
 }
 
 // Digest returns the reference as a digest.
+// Make sure you import the appropriate hash implementations as described
+// in https://pkg.go.dev/github.com/opencontainers/go-digest#readme-usage
 func (r Reference) Digest() (digest.Digest, error) {
 	return digest.Parse(r.Reference)
 }
