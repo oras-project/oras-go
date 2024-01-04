@@ -456,20 +456,24 @@ func (s *Store) writeIndexFile() error {
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
 }
 
-// draft
+// traverseIndex starts from index.json and visits every node reachable by the
+// successor and referrer relations. It returns a set of digest of visited nodes.
 func (s *Store) traverseIndex(ctx context.Context) (set.Set[digest.Digest], error) {
 	manifests := s.index.Manifests
 	visited := set.New[digest.Digest]()
-	result := set.New[digest.Digest]()
+	results := set.New[digest.Digest]()
 	queue := []ocispec.Descriptor{}
 	queue = append(queue, manifests...)
 	for len(queue) > 0 {
+		if err := isContextDone(ctx); err != nil {
+			return nil, err
+		}
 		head := queue[0]
 		queue = queue[1:]
 		if visited.Contains(head.Digest) {
 			continue
 		}
-		result.Add(head.Digest)
+		results.Add(head.Digest)
 		visited.Add(head.Digest)
 		// find successors
 		succ, err := content.Successors(ctx, &unsafeStore{s}, head)
@@ -486,7 +490,7 @@ func (s *Store) traverseIndex(ctx context.Context) (set.Set[digest.Digest], erro
 			queue = append(queue, refs...)
 		}
 	}
-	return result, nil
+	return results, nil
 }
 
 // GC removes garbage from Store. The garbage to be cleaned are:
@@ -496,8 +500,8 @@ func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
-	//traverse index
-	mySet, err := s.traverseIndex(ctx)
+	//traverse index.json to find all reachable nodes
+	reachableNodes, err := s.traverseIndex(ctx)
 	if err != nil {
 		return err
 	}
@@ -520,6 +524,10 @@ func (s *Store) GC(ctx context.Context) error {
 			return err
 		}
 		for _, dgstDir := range dgstDirs {
+			if err := isContextDone(ctx); err != nil {
+				return err
+			}
+
 			dgst := dgstDir.Name()
 			blobDigest := digest.NewDigestFromEncoded(digest.Algorithm(alg), dgst)
 			err := blobDigest.Validate()
@@ -527,7 +535,7 @@ func (s *Store) GC(ctx context.Context) error {
 			if err != nil {
 				continue
 			}
-			if exists := mySet.Contains(blobDigest); !exists {
+			if !reachableNodes.Contains(blobDigest) {
 				// remove the blob from storage if it does not exist in Store
 				err = os.Remove(path.Join(algPath, dgst))
 				if err != nil {
@@ -553,6 +561,17 @@ func (s *unsafeStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.
 
 func (s *unsafeStore) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
 	return s.graph.Predecessors(ctx, node)
+}
+
+// isContextDone returns an error if the context is done.
+// Reference: https://pkg.go.dev/context#Context
+func isContextDone(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
 }
 
 // validateReference validates ref.

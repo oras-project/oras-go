@@ -2899,7 +2899,7 @@ func TestStore_GC(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob"))             // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer"))   // Blob 2, dangling layer
 	generateManifest(descs[0], nil, descs[1])                           // Blob 3, valid manifest
-	generateManifest(descs[0], &descs[3], descs[1])                     // Blob 4, referrer of a valid manifest
+	generateManifest(descs[0], &descs[3], descs[1])                     // Blob 4, referrer of a valid manifest, not in index.json
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 2")) // Blob 5, dangling layer
 	generateArtifactManifest(descs[4])                                  // blob 6, dangling artifact
 	generateManifest(descs[0], &descs[5], descs[1])                     // Blob 7, referrer of a dangling manifest
@@ -2930,7 +2930,7 @@ func TestStore_GC(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// remove blobs 4 - blobs 10 from index, making them a dangling tree
+	// remove blobs 4 - blobs 10 from index.json
 	for i := 4; i <= 10; i++ {
 		s.tagResolver.Untag(string(descs[i].Digest))
 	}
@@ -2951,6 +2951,17 @@ func TestStore_GC(t *testing.T) {
 	}
 	if err := eg.Wait(); err != nil {
 		t.Fatal(err)
+	}
+
+	// confirm that all the blobs are in the storage
+	for i := 11; i < len(blobs); i++ {
+		exists, err := s.Exists(egCtx, descs[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			t.Fatalf("descs[%d] should exist", i)
+		}
 	}
 
 	// perform GC
