@@ -3025,8 +3025,8 @@ func TestStore_GCErrorPath(t *testing.T) {
 	if err := os.WriteFile(path.Join(algPath, "sha384"), []byte("not a dir"), 0444); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
-	if err = s.GC(ctx); err == nil {
-		t.Fatal("expect an error when os.ReadDir()")
+	if err = s.GC(ctx); err != nil {
+		t.Fatal("this error should be silently ignored")
 	}
 	if err := os.Remove(path.Join(algPath, "sha384")); err != nil {
 		t.Fatal(err)

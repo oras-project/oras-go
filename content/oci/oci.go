@@ -512,13 +512,13 @@ func (s *Store) GC(ctx context.Context) error {
 	for _, algDir := range algDirs {
 		alg := algDir.Name()
 		// skip unsupported directories
-		if !isValidAlgorithm(alg) {
+		if !isKnownAlgorithm(alg) {
 			continue
 		}
 		algPath := path.Join(rootpath, alg)
 		dgstDirs, err := os.ReadDir(algPath)
 		if err != nil {
-			return err
+			continue
 		}
 		for _, dgstDir := range dgstDirs {
 			if err := isContextDone(ctx); err != nil {
@@ -577,7 +577,12 @@ func validateReference(ref string) error {
 	return nil
 }
 
-// isValidAlgorithm checks is a string is a supported hash algorithm
-func isValidAlgorithm(alg string) bool {
-	return alg == string(digest.SHA256) || alg == string(digest.SHA512) || alg == string(digest.SHA384)
+// isKnownAlgorithm checks is a string is a supported hash algorithm
+func isKnownAlgorithm(alg string) bool {
+	switch digest.Algorithm(alg) {
+	case digest.SHA256, digest.SHA512, digest.SHA384:
+		return true
+	default:
+		return false
+	}
 }
