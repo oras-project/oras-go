@@ -878,7 +878,7 @@ func Test_getDockerConfigPath_env(t *testing.T) {
 	}
 	t.Setenv("DOCKER_CONFIG", dir)
 
-	got, err := getDockerConfigPath()
+	got, err := GetDockerConfigPath()
 	if err != nil {
 		t.Fatal("getDockerConfigPath() error =", err)
 	}
@@ -890,7 +890,7 @@ func Test_getDockerConfigPath_env(t *testing.T) {
 func Test_getDockerConfigPath_homeDir(t *testing.T) {
 	t.Setenv("DOCKER_CONFIG", "")
 
-	got, err := getDockerConfigPath()
+	got, err := GetDockerConfigPath()
 	if err != nil {
 		t.Fatal("getDockerConfigPath() error =", err)
 	}

@@ -121,7 +121,7 @@ func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
 //   - https://docs.docker.com/engine/reference/commandline/cli/#configuration-files
 //   - https://docs.docker.com/engine/reference/commandline/cli/#change-the-docker-directory
 func NewStoreFromDocker(opt StoreOptions) (*DynamicStore, error) {
-	configPath, err := getDockerConfigPath()
+	configPath, err := GetDockerConfigPath()
 	if err != nil {
 		return nil, err
 	}
@@ -193,8 +193,8 @@ func (ds *DynamicStore) getStore(serverAddress string) Store {
 	return fs
 }
 
-// getDockerConfigPath returns the path to the default docker config file.
-func getDockerConfigPath() (string, error) {
+// GetDockerConfigPath returns the path to the default docker config file.
+func GetDockerConfigPath() (string, error) {
 	// first try the environment variable
 	configDir := os.Getenv(dockerConfigDirEnv)
 	if configDir == "" {
