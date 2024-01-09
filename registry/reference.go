@@ -64,6 +64,9 @@ type Reference struct {
 }
 
 // ParseReference parses a string (artifact) into an `artifact reference`.
+// Corresponding cryptographic hash implementations are required to be imported
+// as specified by https://pkg.go.dev/github.com/opencontainers/go-digest#readme-usage
+// if the string contains a digest.
 //
 // Note: An "image" is an "artifact", however, an "artifact" is not necessarily
 // an "image".
@@ -250,6 +253,8 @@ func (r Reference) ReferenceOrDefault() string {
 }
 
 // Digest returns the reference as a digest.
+// Corresponding cryptographic hash implementations are required to be imported
+// as specified by https://pkg.go.dev/github.com/opencontainers/go-digest#readme-usage
 func (r Reference) Digest() (digest.Digest, error) {
 	return digest.Parse(r.Reference)
 }
