@@ -455,39 +455,17 @@ func (s *Store) writeIndexFile() error {
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
 }
 
-// traverseIndex starts from index.json and visits every node reachable by the
-// successor and referrer relations. It returns a set of digest of visited nodes.
-func (s *Store) traverseIndex(ctx context.Context) (set.Set[digest.Digest], error) {
-	manifests := s.index.Manifests
-	results := set.New[digest.Digest]()
-	queue := []ocispec.Descriptor{}
-	queue = append(queue, manifests...)
-	for len(queue) > 0 {
-		if err := isContextDone(ctx); err != nil {
-			return nil, err
-		}
-		head := queue[0]
-		queue = queue[1:]
-		if results.Contains(head.Digest) {
-			continue
-		}
-		results.Add(head.Digest)
-		// find successors
-		succ, err := content.Successors(ctx, &unsafeStore{s}, head)
-		if err != nil {
-			return nil, err
-		}
-		queue = append(queue, succ...)
-		// find referrers
-		if descriptor.IsManifest(head) {
-			refs, err := registry.Referrers(ctx, &unsafeStore{s}, head, "")
-			if err != nil {
-				return nil, err
-			}
-			queue = append(queue, refs...)
-		}
+// reloadIndex reloads the index and updates metadata by creating a new store.
+func (s *Store) reloadIndex(ctx context.Context) error {
+	newStore, err := NewWithContext(ctx, s.root)
+	if err != nil {
+		return err
 	}
-	return results, nil
+	s.index = newStore.index
+	s.storage = newStore.storage
+	s.tagResolver = newStore.tagResolver
+	s.graph = newStore.graph
+	return nil
 }
 
 // GC removes garbage from Store. The garbage to be cleaned are:
@@ -497,11 +475,12 @@ func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
-	// traverse index.json to find all reachable nodes
-	reachableNodes, err := s.traverseIndex(ctx)
+	// get reachable nodes by reloading the index
+	err := s.reloadIndex(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to reload index: %w", err)
 	}
+	reachableNodes := s.graph.DigestSet()
 
 	// clean up garbage blobs in the storage
 	rootpath := filepath.Join(s.root, "blobs")
@@ -510,6 +489,10 @@ func (s *Store) GC(ctx context.Context) error {
 		return err
 	}
 	for _, algDir := range algDirs {
+		// if !algDir.IsDir() {
+		// 	fmt.Println("got here")
+		// 	continue
+		// }
 		alg := algDir.Name()
 		// skip unsupported directories
 		if !isKnownAlgorithm(alg) {
