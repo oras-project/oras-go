@@ -468,7 +468,9 @@ func (s *Store) reloadIndex(ctx context.Context) error {
 	return nil
 }
 
-// GC removes garbage from Store. The garbage to be cleaned are:
+// GC removes garbage from Store. Unsaved index will be lost. To prevent unexpected
+// loss, call SaveIndex() before GC or set AutoSaveIndex to true.
+// The garbage to be cleaned are:
 //   - unreferenced (dangling) blobs in Store which have no predecessors
 //   - garbage blobs in the storage whose metadata is not stored in Store
 func (s *Store) GC(ctx context.Context) error {
@@ -498,15 +500,15 @@ func (s *Store) GC(ctx context.Context) error {
 			continue
 		}
 		algPath := path.Join(rootpath, alg)
-		dgstDirs, err := os.ReadDir(algPath)
+		digestEntries, err := os.ReadDir(algPath)
 		if err != nil {
 			return err
 		}
-		for _, dgstDir := range dgstDirs {
+		for _, digestEntry := range digestEntries {
 			if err := isContextDone(ctx); err != nil {
 				return err
 			}
-			dgst := dgstDir.Name()
+			dgst := digestEntry.Name()
 			blobDigest := digest.NewDigestFromEncoded(digest.Algorithm(alg), dgst)
 			err := blobDigest.Validate()
 			// skip irrelevant content

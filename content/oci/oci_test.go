@@ -3057,3 +3057,15 @@ func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descript
 	}
 	return true
 }
+
+func Test_isContextDone(t *testing.T) {
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	if err := isContextDone(ctx); err != nil {
+		t.Errorf("expect error = %v, got %v", nil, err)
+	}
+	cancel()
+	if err := isContextDone(ctx); err != context.Canceled {
+		t.Errorf("expect error = %v, got %v", context.Canceled, err)
+	}
+}
