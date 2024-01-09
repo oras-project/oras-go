@@ -216,7 +216,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			return c.fetchBasicAuth(ctx, host)
 		})
 		if err != nil {
-			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
+			return nil, err
 		}
 
 		req = originalReq.Clone(ctx)
