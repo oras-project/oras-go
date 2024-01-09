@@ -3016,7 +3016,7 @@ func TestStore_GCErrorPath(t *testing.T) {
 		t.Error("failed to push test content to src")
 	}
 
-	// test os.ReadDir() error
+	// unknown algorithm
 	if err := os.Mkdir(path.Join(algPath, "sha666"), 0777); err != nil {
 		t.Fatal(err)
 	}
@@ -3024,7 +3024,7 @@ func TestStore_GCErrorPath(t *testing.T) {
 		t.Fatal("this error should be silently ignored")
 	}
 
-	// test os.Remove() error
+	// os.Remove() error
 	badDigest := digest.FromBytes([]byte("bad digest")).Encoded()
 	badPath := path.Join(algPath, "sha256", badDigest)
 	if err := os.Mkdir(badPath, 0777); err != nil {

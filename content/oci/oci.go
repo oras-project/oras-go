@@ -509,7 +509,7 @@ func (s *Store) GC(ctx context.Context) error {
 			dgst := dgstDir.Name()
 			blobDigest := digest.NewDigestFromEncoded(digest.Algorithm(alg), dgst)
 			err := blobDigest.Validate()
-			// skip unsupported directories
+			// skip irrelevant content
 			if err != nil {
 				continue
 			}
