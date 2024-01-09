@@ -3008,15 +3008,15 @@ func TestStore_GCErrorPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// appendBlob(ocispec.MediaTypeImageLayer, []byte("valid blob 2")) // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("valid blob 2")) // Blob 1
 
-	// // push the valid blob
-	// err = s.Push(ctx, descs[1], bytes.NewReader(blobs[1]))
-	// if err != nil {
-	// 	t.Error("failed to push test content to src")
-	// }
+	// push the valid blob
+	err = s.Push(ctx, descs[1], bytes.NewReader(blobs[1]))
+	if err != nil {
+		t.Error("failed to push test content to src")
+	}
 
-	// // test os.ReadDir() errors
+	// test os.ReadDir() errors
 	// s.root = "random dir"
 	// if err = s.GC(ctx); err == nil {
 	// 	t.Fatal("expect an error when os.ReadDir()")
@@ -3032,18 +3032,18 @@ func TestStore_GCErrorPath(t *testing.T) {
 	// 	t.Fatal(err)
 	// }
 
-	// // test os.Remove() error
-	// badDigest := digest.FromBytes([]byte("bad digest")).Encoded()
-	// badPath := path.Join(algPath, "sha256", badDigest)
-	// if err := os.Mkdir(badPath, 0777); err != nil {
-	// 	t.Fatal(err)
-	// }
-	// if err := os.WriteFile(path.Join(badPath, "whatever"), []byte("extra content"), 0444); err != nil {
-	// 	t.Fatal("error calling WriteFile(), error =", err)
-	// }
-	// if err = s.GC(ctx); err == nil {
-	// 	t.Fatal("expect an error when os.Remove()")
-	// }
+	// test os.Remove() error
+	badDigest := digest.FromBytes([]byte("bad digest")).Encoded()
+	badPath := path.Join(algPath, "sha256", badDigest)
+	if err := os.Mkdir(badPath, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path.Join(badPath, "whatever"), []byte("extra content"), 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	if err = s.GC(ctx); err == nil {
+		t.Fatal("expect an error when os.Remove()")
+	}
 }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
