@@ -489,10 +489,9 @@ func (s *Store) GC(ctx context.Context) error {
 		return err
 	}
 	for _, algDir := range algDirs {
-		// if !algDir.IsDir() {
-		// 	fmt.Println("got here")
-		// 	continue
-		// }
+		if !algDir.IsDir() {
+			continue
+		}
 		alg := algDir.Name()
 		// skip unsupported directories
 		if !isKnownAlgorithm(alg) {
@@ -501,7 +500,7 @@ func (s *Store) GC(ctx context.Context) error {
 		algPath := path.Join(rootpath, alg)
 		dgstDirs, err := os.ReadDir(algPath)
 		if err != nil {
-			continue
+			return err
 		}
 		for _, dgstDir := range dgstDirs {
 			if err := isContextDone(ctx); err != nil {
