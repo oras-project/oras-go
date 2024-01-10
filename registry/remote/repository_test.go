@@ -421,16 +421,37 @@ func TestRepository_Mount_Fallback(t *testing.T) {
 	repo.PlainHTTP = true
 	ctx := context.Background()
 
-	err = repo.Mount(ctx, blobDesc, "test", nil)
-	if err != nil {
-		t.Fatalf("Repository.Push() error = %v", err)
-	}
-	if !bytes.Equal(gotBlob, blob) {
-		t.Errorf("Repository.Mount() = %v, want %v", gotBlob, blob)
-	}
-	if got, want := sequence, "post get put "; got != want {
-		t.Errorf("unexpected request sequence; got %q want %q", got, want)
-	}
+	t.Run("getContent is nil", func(t *testing.T) {
+		sequence = ""
+
+		err = repo.Mount(ctx, blobDesc, "test", nil)
+		if err != nil {
+			t.Fatalf("Repository.Push() error = %v", err)
+		}
+		if !bytes.Equal(gotBlob, blob) {
+			t.Errorf("Repository.Mount() = %v, want %v", gotBlob, blob)
+		}
+		if got, want := sequence, "post get put "; got != want {
+			t.Errorf("unexpected request sequence; got %q want %q", got, want)
+		}
+	})
+
+	t.Run("getContent is non nil", func(t *testing.T) {
+		sequence = ""
+
+		err = repo.Mount(ctx, blobDesc, "test", func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(blob)), nil
+		})
+		if err != nil {
+			t.Fatalf("Repository.Push() error = %v", err)
+		}
+		if !bytes.Equal(gotBlob, blob) {
+			t.Errorf("Repository.Mount() = %v, want %v", gotBlob, blob)
+		}
+		if got, want := sequence, "post put "; got != want {
+			t.Errorf("unexpected request sequence; got %q want %q", got, want)
+		}
+	})
 }
 
 func TestRepository_Mount_Error(t *testing.T) {
