@@ -27,7 +27,6 @@ import (
 	"net/url"
 	"strings"
 
-	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
@@ -281,7 +280,7 @@ func (c *Client) fetchBasicAuth(ctx context.Context, registry string) (string, e
 		return "", fmt.Errorf("failed to resolve credential: %w", err)
 	}
 	if cred == EmptyCredential {
-		return "", errdef.ErrBasicCredNotFound
+		return "", ErrBasicCredNotFound
 	}
 	if cred.Username == "" || cred.Password == "" {
 		return "", errors.New("missing username or password for basic auth")

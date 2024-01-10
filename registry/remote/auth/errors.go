@@ -13,19 +13,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package errdef
+package auth
 
 import "errors"
 
 // Common errors used in ORAS
 var (
-	ErrAlreadyExists      = errors.New("already exists")
-	ErrInvalidDigest      = errors.New("invalid digest")
-	ErrInvalidReference   = errors.New("invalid reference")
-	ErrInvalidMediaType   = errors.New("invalid media type")
-	ErrMissingReference   = errors.New("missing reference")
-	ErrNotFound           = errors.New("not found")
-	ErrSizeExceedsLimit   = errors.New("size exceeds limit")
-	ErrUnsupported        = errors.New("unsupported")
-	ErrUnsupportedVersion = errors.New("unsupported version")
+	ErrBasicCredNotFound = errors.New("basic credential not found")
 )
