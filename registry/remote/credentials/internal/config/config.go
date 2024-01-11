@@ -158,7 +158,7 @@ func Load(configPath string) (*Config, error) {
 // Path returns the path to the config file.
 func (cfg *Config) Path() (string, error) {
 	if cfg == nil {
-		errors.New("config file is nil")
+		return "", errors.New("config file is nil")
 	}
 	return cfg.path, nil
 }
