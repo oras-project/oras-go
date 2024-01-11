@@ -20,6 +20,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
@@ -145,6 +146,15 @@ func (m *Memory) Remove(node ocispec.Descriptor) []ocispec.Descriptor {
 	delete(m.successors, nodeKey)
 	delete(m.nodes, nodeKey)
 	return danglings
+}
+
+// DigestSet returns the set of node digest in memory.
+func (m *Memory) DigestSet() set.Set[digest.Digest] {
+	s := set.New[digest.Digest]()
+	for desc := range m.nodes {
+		s.Add(desc.Digest)
+	}
+	return s
 }
 
 // index indexes predecessors for each direct successor of the given node.
