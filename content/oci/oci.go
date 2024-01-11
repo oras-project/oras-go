@@ -485,7 +485,7 @@ func (s *Store) GC(ctx context.Context) error {
 	reachableNodes := s.graph.DigestSet()
 
 	// clean up garbage blobs in the storage
-	rootpath := filepath.Join(s.root, "blobs")
+	rootpath := filepath.Join(s.root, ocispec.ImageBlobsDir)
 	algDirs, err := os.ReadDir(rootpath)
 	if err != nil {
 		return err
@@ -510,9 +510,8 @@ func (s *Store) GC(ctx context.Context) error {
 			}
 			dgst := digestEntry.Name()
 			blobDigest := digest.NewDigestFromEncoded(digest.Algorithm(alg), dgst)
-			err := blobDigest.Validate()
-			// skip irrelevant content
-			if err != nil {
+			if err := blobDigest.Validate(); err != nil {
+				// skip irrelevant content
 				continue
 			}
 			if !reachableNodes.Contains(blobDigest) {
