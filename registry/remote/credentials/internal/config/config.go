@@ -155,6 +155,14 @@ func Load(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
+// Path returns the path to the config file.
+func (cfg *Config) Path() (string, error) {
+	if cfg == nil {
+		errors.New("config file is nil")
+	}
+	return cfg.path, nil
+}
+
 // GetAuthConfig returns an auth.Credential for serverAddress.
 func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) {
 	cfg.rwLock.RLock()

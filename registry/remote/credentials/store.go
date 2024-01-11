@@ -121,7 +121,7 @@ func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
 //   - https://docs.docker.com/engine/reference/commandline/cli/#configuration-files
 //   - https://docs.docker.com/engine/reference/commandline/cli/#change-the-docker-directory
 func NewStoreFromDocker(opt StoreOptions) (*DynamicStore, error) {
-	configPath, err := GetDockerConfigPath()
+	configPath, err := getDockerConfigPath()
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +167,11 @@ func (ds *DynamicStore) IsAuthConfigured() bool {
 	return ds.config.IsAuthConfigured()
 }
 
+// GetConfigPath returns the path to the config file.
+func (ds *DynamicStore) GetConfigPath() (string, error) {
+	return ds.config.Path()
+}
+
 // getHelperSuffix returns the credential helper suffix for the given server
 // address.
 func (ds *DynamicStore) getHelperSuffix(serverAddress string) string {
@@ -193,8 +198,8 @@ func (ds *DynamicStore) getStore(serverAddress string) Store {
 	return fs
 }
 
-// GetDockerConfigPath returns the path to the default docker config file.
-func GetDockerConfigPath() (string, error) {
+// getDockerConfigPath returns the path to the default docker config file.
+func getDockerConfigPath() (string, error) {
 	// first try the environment variable
 	configDir := os.Getenv(dockerConfigDirEnv)
 	if configDir == "" {

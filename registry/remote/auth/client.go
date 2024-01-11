@@ -31,6 +31,10 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
+var (
+	ErrBasicCredentialNotFound = errors.New("basic credential not found")
+)
+
 // DefaultClient is the default auth-decorated client.
 var DefaultClient = &Client{
 	Client: retry.DefaultClient,
@@ -215,7 +219,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			return c.fetchBasicAuth(ctx, host)
 		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 
 		req = originalReq.Clone(ctx)
@@ -280,7 +284,7 @@ func (c *Client) fetchBasicAuth(ctx context.Context, registry string) (string, e
 		return "", fmt.Errorf("failed to resolve credential: %w", err)
 	}
 	if cred == EmptyCredential {
-		return "", ErrBasicCredNotFound
+		return "", ErrBasicCredentialNotFound
 	}
 	if cred.Username == "" || cred.Password == "" {
 		return "", errors.New("missing username or password for basic auth")
