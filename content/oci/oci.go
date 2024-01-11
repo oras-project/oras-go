@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sync"
 
@@ -454,6 +455,77 @@ func (s *Store) writeIndexFile() error {
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
 }
 
+// reloadIndex reloads the index and updates metadata by creating a new store.
+func (s *Store) reloadIndex(ctx context.Context) error {
+	newStore, err := NewWithContext(ctx, s.root)
+	if err != nil {
+		return err
+	}
+	s.index = newStore.index
+	s.storage = newStore.storage
+	s.tagResolver = newStore.tagResolver
+	s.graph = newStore.graph
+	return nil
+}
+
+// GC removes garbage from Store. Unsaved index will be lost. To prevent unexpected
+// loss, call SaveIndex() before GC or set AutoSaveIndex to true.
+// The garbage to be cleaned are:
+//   - unreferenced (dangling) blobs in Store which have no predecessors
+//   - garbage blobs in the storage whose metadata is not stored in Store
+func (s *Store) GC(ctx context.Context) error {
+	s.sync.Lock()
+	defer s.sync.Unlock()
+
+	// get reachable nodes by reloading the index
+	err := s.reloadIndex(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to reload index: %w", err)
+	}
+	reachableNodes := s.graph.DigestSet()
+
+	// clean up garbage blobs in the storage
+	rootpath := filepath.Join(s.root, ocispec.ImageBlobsDir)
+	algDirs, err := os.ReadDir(rootpath)
+	if err != nil {
+		return err
+	}
+	for _, algDir := range algDirs {
+		if !algDir.IsDir() {
+			continue
+		}
+		alg := algDir.Name()
+		// skip unsupported directories
+		if !isKnownAlgorithm(alg) {
+			continue
+		}
+		algPath := path.Join(rootpath, alg)
+		digestEntries, err := os.ReadDir(algPath)
+		if err != nil {
+			return err
+		}
+		for _, digestEntry := range digestEntries {
+			if err := isContextDone(ctx); err != nil {
+				return err
+			}
+			dgst := digestEntry.Name()
+			blobDigest := digest.NewDigestFromEncoded(digest.Algorithm(alg), dgst)
+			if err := blobDigest.Validate(); err != nil {
+				// skip irrelevant content
+				continue
+			}
+			if !reachableNodes.Contains(blobDigest) {
+				// remove the blob from storage if it does not exist in Store
+				err = os.Remove(path.Join(algPath, dgst))
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // unsafeStore is used to bypass lock restrictions in Delete.
 type unsafeStore struct {
 	*Store
@@ -467,6 +539,17 @@ func (s *unsafeStore) Predecessors(ctx context.Context, node ocispec.Descriptor)
 	return s.graph.Predecessors(ctx, node)
 }
 
+// isContextDone returns an error if the context is done.
+// Reference: https://pkg.go.dev/context#Context
+func isContextDone(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
 // validateReference validates ref.
 func validateReference(ref string) error {
 	if ref == "" {
@@ -475,4 +558,14 @@ func validateReference(ref string) error {
 
 	// TODO: may enforce more strict validation if needed.
 	return nil
+}
+
+// isKnownAlgorithm checks is a string is a supported hash algorithm
+func isKnownAlgorithm(alg string) bool {
+	switch digest.Algorithm(alg) {
+	case digest.SHA256, digest.SHA512, digest.SHA384:
+		return true
+	default:
+		return false
+	}
 }

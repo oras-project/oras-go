@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -2844,6 +2845,199 @@ func TestStore_UntagErrorPath(t *testing.T) {
 	}
 }
 
+func TestStore_GC(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config:  config,
+			Subject: subject,
+			Layers:  layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateImageIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+	generateArtifactManifest := func(blobs ...ocispec.Descriptor) {
+		var manifest spec.Artifact
+		manifest.Blobs = append(manifest.Blobs, blobs...)
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(spec.MediaTypeArtifactManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config"))          // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob"))             // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer"))   // Blob 2, dangling layer
+	generateManifest(descs[0], nil, descs[1])                           // Blob 3, valid manifest
+	generateManifest(descs[0], &descs[3], descs[1])                     // Blob 4, referrer of a valid manifest, not in index.json, should be cleaned with current implementation
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 2")) // Blob 5, dangling layer
+	generateArtifactManifest(descs[4])                                  // blob 6, dangling artifact
+	generateManifest(descs[0], &descs[5], descs[1])                     // Blob 7, referrer of a dangling manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 3")) // Blob 8, dangling layer
+	generateArtifactManifest(descs[6])                                  // blob 9, dangling artifact
+	generateImageIndex(descs[7], descs[5])                              // blob 10, dangling image index
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 1"))  // Blob 11, garbage layer 1
+	generateManifest(descs[0], nil, descs[4])                           // Blob 12, garbage manifest 1
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("garbage config"))  // Blob 13, garbage config
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 2"))  // Blob 14, garbage layer 2
+	generateManifest(descs[6], nil, descs[7])                           // Blob 15, garbage manifest 2
+	generateManifest(descs[0], &descs[13], descs[1])                    // Blob 16, referrer of a garbage manifest
+
+	// push blobs 0 - blobs 10 into s
+	for i := 0; i <= 10; i++ {
+		err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Errorf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// remove blobs 4 - blobs 10 from index.json
+	for i := 4; i <= 10; i++ {
+		s.tagResolver.Untag(string(descs[i].Digest))
+	}
+	s.SaveIndex()
+
+	// push blobs 11 - blobs 16 into s.storage, making them garbage as their metadata
+	// doesn't exist in s
+	for i := 11; i < len(blobs); i++ {
+		err := s.storage.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Errorf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// confirm that all the blobs are in the storage
+	for i := 11; i < len(blobs); i++ {
+		exists, err := s.Exists(ctx, descs[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			t.Fatalf("descs[%d] should exist", i)
+		}
+	}
+
+	// perform GC
+	if err = s.GC(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify existence
+	wantExistence := []bool{true, true, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false}
+	for i, wantValue := range wantExistence {
+		exists, err := s.Exists(ctx, descs[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exists != wantValue {
+			t.Fatalf("want existence %d to be %v, got %v", i, wantValue, exists)
+		}
+	}
+}
+
+func TestStore_GCErrorPath(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("valid blob")) // Blob 0
+
+	// push the valid blob
+	err = s.Push(ctx, descs[0], bytes.NewReader(blobs[0]))
+	if err != nil {
+		t.Error("failed to push test content to src")
+	}
+
+	// write random contents
+	algPath := path.Join(tempDir, "blobs")
+	dgstPath := path.Join(algPath, "sha256")
+	if err := os.WriteFile(path.Join(algPath, "other"), []byte("random"), 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	if err := os.WriteFile(path.Join(dgstPath, "other2"), []byte("random2"), 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	// perform GC
+	if err = s.GC(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("valid blob 2")) // Blob 1
+
+	// push the valid blob
+	err = s.Push(ctx, descs[1], bytes.NewReader(blobs[1]))
+	if err != nil {
+		t.Error("failed to push test content to src")
+	}
+
+	// unknown algorithm
+	if err := os.Mkdir(path.Join(algPath, "sha666"), 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.GC(ctx); err != nil {
+		t.Fatal("this error should be silently ignored")
+	}
+
+	// os.Remove() error
+	badDigest := digest.FromBytes([]byte("bad digest")).Encoded()
+	badPath := path.Join(algPath, "sha256", badDigest)
+	if err := os.Mkdir(badPath, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path.Join(badPath, "whatever"), []byte("extra content"), 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	if err = s.GC(ctx); err == nil {
+		t.Fatal("expect an error when os.Remove()")
+	}
+}
+
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
 	if len(actual) != len(expected) {
 		return false
@@ -2862,4 +3056,16 @@ func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descript
 		}
 	}
 	return true
+}
+
+func Test_isContextDone(t *testing.T) {
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	if err := isContextDone(ctx); err != nil {
+		t.Errorf("expect error = %v, got %v", nil, err)
+	}
+	cancel()
+	if err := isContextDone(ctx); err != context.Canceled {
+		t.Errorf("expect error = %v, got %v", context.Canceled, err)
+	}
 }

@@ -215,6 +215,46 @@ func ExampleCopy_remoteToRemote() {
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
+func ExampleCopy_remoteToRemoteWithMount() {
+	reg, err := remote.NewRegistry(remoteHost)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	ctx := context.Background()
+	src, err := reg.Repository(ctx, "source")
+	if err != nil {
+		panic(err) // Handle error
+	}
+	dst, err := reg.Repository(ctx, "target")
+	if err != nil {
+		panic(err) // Handle error
+	}
+
+	tagName := "latest"
+
+	opts := oras.CopyOptions{}
+	// optionally be notified that a mount occurred.
+	opts.OnMounted = func(ctx context.Context, desc ocispec.Descriptor) error {
+		// log.Println("Mounted", desc.Digest)
+		return nil
+	}
+
+	// Enable cross-repository blob mounting
+	opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+		// the slice of source repositores may also come from a database of known locations of blobs
+		return []string{"source/repository/name"}, nil
+	}
+
+	desc, err := oras.Copy(ctx, src, tagName, dst, tagName, opts)
+	if err != nil {
+		panic(err) // Handle error
+	}
+	fmt.Println("Final", desc.Digest)
+
+	// Output:
+	// Final sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
+}
+
 func ExampleCopy_remoteToLocal() {
 	reg, err := remote.NewRegistry(remoteHost)
 	if err != nil {
