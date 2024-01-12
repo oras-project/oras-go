@@ -170,11 +170,8 @@ func (ds *DynamicStore) IsAuthConfigured() bool {
 }
 
 // ConfigPath returns the path to the config file.
-func (ds *DynamicStore) ConfigPath() (string, error) {
-	if ds == nil || ds.config == nil {
-		return "", fmt.Errorf("config is not loaded")
-	}
-	return ds.configPath, nil
+func (ds *DynamicStore) ConfigPath() string {
+	return ds.configPath
 }
 
 // getHelperSuffix returns the credential helper suffix for the given server

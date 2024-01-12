@@ -611,27 +611,16 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 		})
 	}
 }
-func Test_DynamicStore_GetConfigPath(t *testing.T) {
+func Test_DynamicStore_ConfigPath(t *testing.T) {
 	path := "../../testdata/credsStore_config.json"
 	var err error
 	store, err := NewStore(path, StoreOptions{})
 	if err != nil {
 		t.Fatal("NewFileStore() error =", err)
 	}
-	got, err := store.ConfigPath()
-	if err != nil {
-		t.Errorf("Config.GetPath() error = %v", err)
-	}
+	got := store.ConfigPath()
 	if got != path {
 		t.Errorf("Config.GetPath() = %v, want %v", got, path)
-	}
-}
-
-func Test_DynamicStore_Path_nil(t *testing.T) {
-	var store DynamicStore
-	_, err := store.ConfigPath()
-	if err == nil {
-		t.Error("expecting error, got nil")
 	}
 }
 
