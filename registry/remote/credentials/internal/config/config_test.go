@@ -925,28 +925,6 @@ func TestConfig_GetCredentialHelper(t *testing.T) {
 	}
 }
 
-func TestConfig_Path(t *testing.T) {
-	cfg := Config{
-		path: "/path/to/config.json",
-	}
-	got, err := cfg.Path()
-
-	if err != nil {
-		t.Errorf("Config.GetPath() error = %v", err)
-	}
-	if got != cfg.path {
-		t.Errorf("Config.GetPath() = %v, want %v", got, cfg.path)
-	}
-}
-
-func TestConfig_Path_nil(t *testing.T) {
-	var cfg *Config
-	_, err := cfg.Path()
-	if err == nil {
-		t.Error("expecting error, got nil")
-	}
-}
-
 func TestConfig_CredentialsStore(t *testing.T) {
 	tests := []struct {
 		name       string

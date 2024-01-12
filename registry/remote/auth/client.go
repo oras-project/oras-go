@@ -31,9 +31,7 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
-var (
-	ErrBasicCredentialNotFound = errors.New("basic credential not found")
-)
+var ErrBasicCredentialNotFound = errors.New("basic credential not found")
 
 // DefaultClient is the default auth-decorated client.
 var DefaultClient = &Client{

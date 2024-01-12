@@ -25,7 +25,6 @@ import (
 	"testing"
 
 	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/config"
 	"oras.land/oras-go/v2/registry/remote/credentials/internal/config/configtest"
 )
 
@@ -613,14 +612,13 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 	}
 }
 func Test_DynamicStore_GetConfigPath(t *testing.T) {
-	var store DynamicStore
-	var err error
 	path := "../../testdata/credsStore_config.json"
-	store.config, err = config.Load(path)
+	var err error
+	store, err := NewStore(path, StoreOptions{})
 	if err != nil {
-		t.Fatal("config.Load() error =", err)
+		t.Fatal("NewFileStore() error =", err)
 	}
-	got, err := store.GetConfigPath()
+	got, err := store.ConfigPath()
 	if err != nil {
 		t.Errorf("Config.GetPath() error = %v", err)
 	}
@@ -631,7 +629,7 @@ func Test_DynamicStore_GetConfigPath(t *testing.T) {
 
 func Test_DynamicStore_Path_nil(t *testing.T) {
 	var store DynamicStore
-	_, err := store.GetConfigPath()
+	_, err := store.ConfigPath()
 	if err == nil {
 		t.Error("expecting error, got nil")
 	}
