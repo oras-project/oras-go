@@ -171,7 +171,7 @@ func (ds *DynamicStore) IsAuthConfigured() bool {
 
 // ConfigPath returns the path to the config file.
 func (ds *DynamicStore) ConfigPath() (string, error) {
-	if ds.config == nil {
+	if ds == nil {
 		return "", fmt.Errorf("config is not loaded")
 	}
 	return ds.configPath, nil
