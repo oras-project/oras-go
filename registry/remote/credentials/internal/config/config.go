@@ -224,6 +224,11 @@ func (cfg *Config) CredentialsStore() string {
 	return cfg.credentialsStore
 }
 
+// Path returns the path to the config file.
+func (cfg *Config) Path() string {
+	return cfg.path
+}
+
 // SetCredentialsStore puts the configured credentials store.
 func (cfg *Config) SetCredentialsStore(credsStore string) error {
 	cfg.rwLock.Lock()

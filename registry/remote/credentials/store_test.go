@@ -611,6 +611,7 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 		})
 	}
 }
+
 func Test_DynamicStore_ConfigPath(t *testing.T) {
 	path := "../../testdata/credsStore_config.json"
 	var err error

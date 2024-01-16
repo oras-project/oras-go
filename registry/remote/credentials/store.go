@@ -51,7 +51,6 @@ type Store interface {
 // in the config file.
 type DynamicStore struct {
 	config             *config.Config
-	configPath         string
 	options            StoreOptions
 	detectedCredsStore string
 	setCredsStoreOnce  sync.Once
@@ -101,9 +100,8 @@ func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
 		return nil, err
 	}
 	ds := &DynamicStore{
-		config:     cfg,
-		configPath: configPath,
-		options:    opts,
+		config:  cfg,
+		options: opts,
 	}
 	if opts.DetectDefaultNativeStore && !cfg.IsAuthConfigured() {
 		// no authentication configured, detect the default credentials store
@@ -171,7 +169,7 @@ func (ds *DynamicStore) IsAuthConfigured() bool {
 
 // ConfigPath returns the path to the config file.
 func (ds *DynamicStore) ConfigPath() string {
-	return ds.configPath
+	return ds.config.Path()
 }
 
 // getHelperSuffix returns the credential helper suffix for the given server
