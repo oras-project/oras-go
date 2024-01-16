@@ -104,6 +104,9 @@ type Store struct {
 	// manifest and config file, while leaving only named layer files.
 	// Default value: false.
 	IgnoreNoName bool
+	// AutoExtract controls if push operations should extract files automatically.
+	// Default value: true.
+	AutoExtract bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -150,6 +153,7 @@ func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) 
 	}
 
 	return &Store{
+		AutoExtract:     true,
 		workingDir:      workingDirAbs,
 		fallbackStorage: fallbackStorage,
 		resolver:        resolver.NewMemory(),
@@ -482,12 +486,15 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 		return fmt.Errorf("failed to save gzip to %s: %w", gzPath, err)
 	}
 
-	checksum := expected.Annotations[AnnotationDigest]
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := extractTarGzip(target, name, gzPath, checksum, *buf); err != nil {
-		return fmt.Errorf("failed to extract tar to %s: %w", target, err)
+	if s.AutoExtract {
+		checksum := expected.Annotations[AnnotationDigest]
+		if err := extractTarGzip(target, name, gzPath, checksum, *buf); err != nil {
+			return fmt.Errorf("failed to extract tar to %s: %w", target, err)
+		}
 	}
+
 	return nil
 }
 
