@@ -31,8 +31,8 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
-// ErrBasicCredentialNotFound is returned when the basic credential is not
-// found.
+// ErrBasicCredentialNotFound is returned  when the credential is not found for
+// basic auth.
 var ErrBasicCredentialNotFound = errors.New("basic credential not found")
 
 // DefaultClient is the default auth-decorated client.
