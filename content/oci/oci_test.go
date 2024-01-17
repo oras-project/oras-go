@@ -2948,6 +2948,9 @@ func TestStore_GC(t *testing.T) {
 		}
 	}
 
+	// tag manifest blob 3
+	s.Tag(ctx, descs[3], "blob 3 is tagged")
+
 	// perform GC
 	if err = s.GC(ctx); err != nil {
 		t.Fatal(err)

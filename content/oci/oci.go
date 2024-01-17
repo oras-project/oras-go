@@ -190,9 +190,8 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		}
 		if s.AutoGC {
 			for _, d := range danglings {
-				// do not delete existing manifests in tagResolver
-				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
-				if errors.Is(err, errdef.ErrNotFound) {
+				// do not delete existing tagged manifests
+				if !s.isTagged(d) {
 					deleteQueue = append(deleteQueue, d)
 				}
 			}
@@ -455,19 +454,6 @@ func (s *Store) writeIndexFile() error {
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
 }
 
-// reloadIndex reloads the index and updates metadata by creating a new store.
-func (s *Store) reloadIndex(ctx context.Context) error {
-	newStore, err := NewWithContext(ctx, s.root)
-	if err != nil {
-		return err
-	}
-	s.index = newStore.index
-	s.storage = newStore.storage
-	s.tagResolver = newStore.tagResolver
-	s.graph = newStore.graph
-	return nil
-}
-
 // GC removes garbage from Store. Unsaved index will be lost. To prevent unexpected
 // loss, call SaveIndex() before GC or set AutoSaveIndex to true.
 // The garbage to be cleaned are:
@@ -478,7 +464,7 @@ func (s *Store) GC(ctx context.Context) error {
 	defer s.sync.Unlock()
 
 	// get reachable nodes by reloading the index
-	err := s.reloadIndex(ctx)
+	err := s.reloadIndexforGC(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to reload index: %w", err)
 	}
@@ -524,6 +510,40 @@ func (s *Store) GC(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// reloadIndexforGC reloads the index and updates metadata by creating a new
+// store.
+func (s *Store) reloadIndexforGC(ctx context.Context) error {
+	refMap := s.tagResolver.Map()
+
+	s.tagResolver = resolver.NewMemory()
+	s.graph = graph.NewMemory()
+	for ref, desc := range refMap {
+		if ref == desc.Digest.String() {
+			continue
+		}
+		if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
+			return err
+		}
+		if err := s.tagResolver.Tag(ctx, desc, ref); err != nil {
+			return err
+		}
+		plain := descriptor.Plain(desc)
+		if err := s.graph.IndexAll(ctx, s.storage, plain); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) isTagged(desc ocispec.Descriptor) bool {
+	tagSet := s.tagResolver.ReverseSearch(desc)
+	if tagSet.Contains(string(desc.Digest)) {
+		return len(tagSet) > 1
+	}
+	return len(tagSet) > 0
 }
 
 // unsafeStore is used to bypass lock restrictions in Delete.
