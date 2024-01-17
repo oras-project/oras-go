@@ -612,6 +612,19 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 	}
 }
 
+func Test_DynamicStore_ConfigPath(t *testing.T) {
+	path := "../../testdata/credsStore_config.json"
+	var err error
+	store, err := NewStore(path, StoreOptions{})
+	if err != nil {
+		t.Fatal("NewFileStore() error =", err)
+	}
+	got := store.ConfigPath()
+	if got != path {
+		t.Errorf("Config.GetPath() = %v, want %v", got, path)
+	}
+}
+
 func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 	tests := []struct {
 		name          string

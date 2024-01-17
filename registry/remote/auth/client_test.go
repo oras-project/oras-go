@@ -3964,3 +3964,15 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 		t.Errorf("incorrect error: %v, expected %v", err, expectedError)
 	}
 }
+
+func TestClient_fetchBasicAuth(t *testing.T) {
+	c := &Client{
+		Credential: func(ctx context.Context, registry string) (Credential, error) {
+			return EmptyCredential, nil
+		},
+	}
+	_, err := c.fetchBasicAuth(context.Background(), "")
+	if err != ErrBasicCredentialNotFound {
+		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
+	}
+}

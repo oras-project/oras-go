@@ -1450,3 +1450,13 @@ func Test_toHostname(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_Path(t *testing.T) {
+	mockedPath := "/path/to/config.json"
+	config := Config{
+		path: mockedPath,
+	}
+	if got := config.Path(); got != mockedPath {
+		t.Errorf("Config.Path() = %v, want %v", got, mockedPath)
+	}
+}
