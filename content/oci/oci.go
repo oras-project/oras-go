@@ -464,7 +464,7 @@ func (s *Store) GC(ctx context.Context) error {
 	defer s.sync.Unlock()
 
 	// get reachable nodes by reloading the index
-	err := s.reloadIndexforGC(ctx)
+	err := s.GCIndex(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to reload index: %w", err)
 	}
@@ -512,8 +512,8 @@ func (s *Store) GC(ctx context.Context) error {
 	return nil
 }
 
-// reloadIndexforGC reloads the index and updates metadata.
-func (s *Store) reloadIndexforGC(ctx context.Context) error {
+// GCIndex reloads the index and updates metadata.
+func (s *Store) GCIndex(ctx context.Context) error {
 	refMap := s.tagResolver.Map()
 	s.tagResolver = resolver.NewMemory()
 	s.graph = graph.NewMemory()
