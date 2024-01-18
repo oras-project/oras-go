@@ -27,16 +27,16 @@ import (
 
 // Memory is a memory based resolver.
 type Memory struct {
-	lock    sync.RWMutex
-	index   map[string]ocispec.Descriptor
-	reverse map[digest.Digest]set.Set[string]
+	lock  sync.RWMutex
+	index map[string]ocispec.Descriptor
+	tags  map[digest.Digest]set.Set[string]
 }
 
 // NewMemory creates a new Memory resolver.
 func NewMemory() *Memory {
 	return &Memory{
-		index:   make(map[string]ocispec.Descriptor),
-		reverse: make(map[digest.Digest]set.Set[string]),
+		index: make(map[string]ocispec.Descriptor),
+		tags:  make(map[digest.Digest]set.Set[string]),
 	}
 }
 
@@ -58,10 +58,10 @@ func (m *Memory) Tag(_ context.Context, desc ocispec.Descriptor, reference strin
 	defer m.lock.Unlock()
 
 	m.index[reference] = desc
-	tagSet, ok := m.reverse[desc.Digest]
+	tagSet, ok := m.tags[desc.Digest]
 	if !ok {
 		tagSet = set.New[string]()
-		m.reverse[desc.Digest] = tagSet
+		m.tags[desc.Digest] = tagSet
 	}
 	tagSet.Add(reference)
 	return nil
@@ -77,10 +77,10 @@ func (m *Memory) Untag(reference string) {
 		return
 	}
 	delete(m.index, reference)
-	tagSet := m.reverse[desc.Digest]
+	tagSet := m.tags[desc.Digest]
 	tagSet.Delete(reference)
 	if len(tagSet) == 0 {
-		delete(m.reverse, desc.Digest)
+		delete(m.tags, desc.Digest)
 	}
 }
 
@@ -97,11 +97,12 @@ func (m *Memory) Map() map[string]ocispec.Descriptor {
 	return res
 }
 
-func (m *Memory) ReverseSearch(desc ocispec.Descriptor) set.Set[string] {
+// TagSet returns the set of tags of the descriptor.
+func (m *Memory) TagSet(desc ocispec.Descriptor) set.Set[string] {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
-	tagSet := m.reverse[desc.Digest]
+	tagSet := m.tags[desc.Digest]
 	res := make(set.Set[string], len(tagSet))
 	for tag := range tagSet {
 		res.Add(tag)

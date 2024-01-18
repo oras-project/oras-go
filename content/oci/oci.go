@@ -512,11 +512,9 @@ func (s *Store) GC(ctx context.Context) error {
 	return nil
 }
 
-// reloadIndexforGC reloads the index and updates metadata by creating a new
-// store.
+// reloadIndexforGC reloads the index and updates metadata.
 func (s *Store) reloadIndexforGC(ctx context.Context) error {
 	refMap := s.tagResolver.Map()
-
 	s.tagResolver = resolver.NewMemory()
 	s.graph = graph.NewMemory()
 	for ref, desc := range refMap {
@@ -534,12 +532,12 @@ func (s *Store) reloadIndexforGC(ctx context.Context) error {
 			return err
 		}
 	}
-
 	return nil
 }
 
+// isTagged checks if the blob given by the descriptor is tagged.
 func (s *Store) isTagged(desc ocispec.Descriptor) bool {
-	tagSet := s.tagResolver.ReverseSearch(desc)
+	tagSet := s.tagResolver.TagSet(desc)
 	if tagSet.Contains(string(desc.Digest)) {
 		return len(tagSet) > 1
 	}
