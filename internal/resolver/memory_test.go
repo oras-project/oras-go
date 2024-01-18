@@ -78,8 +78,8 @@ func TestMemoryNotFound(t *testing.T) {
 }
 
 func TestTagSet(t *testing.T) {
-	foo := "foo"
-	bar := "bar"
+	refFoo := "foo"
+	refBar := "bar"
 
 	s := NewMemory()
 	ctx := context.Background()
@@ -91,16 +91,16 @@ func TestTagSet(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	s.Tag(ctx, desc, foo)
-	s.Tag(ctx, desc, bar)
+	s.Tag(ctx, desc, refFoo)
+	s.Tag(ctx, desc, refBar)
 
 	tagSet := s.TagSet(desc)
 
-	if !tagSet.Contains(foo) {
-		t.Fatalf("tagSet should contain %s", foo)
+	if !tagSet.Contains(refFoo) {
+		t.Fatalf("tagSet should contain %s", refFoo)
 	}
-	if !tagSet.Contains(bar) {
-		t.Fatalf("tagSet should contain %s", foo)
+	if !tagSet.Contains(refBar) {
+		t.Fatalf("tagSet should contain %s", refFoo)
 	}
 	if len(tagSet) != 2 {
 		t.Fatalf("expect size = %d, got %d", 2, len(tagSet))
