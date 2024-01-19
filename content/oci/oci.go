@@ -512,7 +512,8 @@ func (s *Store) GC(ctx context.Context) error {
 	return nil
 }
 
-// gcIndex reloads the index and updates metadata.
+// gcIndex reloads the index and updates metadata. Information of untagged blobs
+// are cleaned and only tagged blobs remain.
 func (s *Store) gcIndex(ctx context.Context) error {
 	refMap := s.tagResolver.Map()
 	s.tagResolver = resolver.NewMemory()
