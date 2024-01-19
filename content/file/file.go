@@ -485,16 +485,12 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 		return fmt.Errorf("failed to save gzip to %s: %w", gzPath, err)
 	}
 
+	checksum := expected.Annotations[AnnotationDigest]
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if s.SkipUnpack {
-		// save the gz file to the target path ???
-	}
-	checksum := expected.Annotations[AnnotationDigest]
 	if err := extractTarGzip(target, name, gzPath, checksum, *buf); err != nil {
 		return fmt.Errorf("failed to extract tar to %s: %w", target, err)
 	}
-
 	return nil
 }
 

@@ -631,6 +631,76 @@ func TestStore_Dir_Push(t *testing.T) {
 	}
 }
 
+func TestStore_Push_SkipExtract(t *testing.T) {
+	// add a file to file store, and obtain its directory as gz
+	tempDir := t.TempDir()
+	dirName := "testdir"
+	dirPath := filepath.Join(tempDir, dirName)
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+	content := []byte("hello world")
+	fileName := "test.txt"
+	if err := os.WriteFile(filepath.Join(dirPath, fileName), content, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	desc, err := s.Add(ctx, dirName, "", dirPath)
+	if err != nil {
+		t.Fatal("Store.Add() error=", err)
+	}
+	val, ok := s.digestToPath.Load(desc.Digest)
+	if !ok {
+		t.Fatal("failed to find internal gz")
+	}
+	tmpPath := val.(string)
+	zrc, err := os.Open(tmpPath)
+	if err != nil {
+		t.Fatal("failed to open internal gz")
+	}
+	gz, err := io.ReadAll(zrc)
+	if err != nil {
+		t.Fatal("failed to read internal gz")
+	}
+	if err := zrc.Close(); err != nil {
+		t.Fatal("failed to close internal gz reader")
+	}
+
+	// push the gz to another store
+	anotherTempDir := t.TempDir()
+	anotherS, err := New(anotherTempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer anotherS.Close()
+	anotherS.SkipUnpack = true
+	gzPath := filepath.Join(anotherTempDir, dirName)
+
+	// push the gz to the store
+	if err := anotherS.Push(ctx, desc, bytes.NewReader(gz)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	pushedFile, err := os.Open(gzPath)
+	if err != nil {
+		t.Fatal("failed to open internal gz")
+	}
+	pushedContent, err := io.ReadAll(pushedFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the pushedContent is equal to the original gz, i.e. it is
+	// not unpacked
+	if !bytes.Equal(gz, pushedContent) {
+		t.Errorf("file content mismatch")
+	}
+}
+
 func TestStore_Push_NoName(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
