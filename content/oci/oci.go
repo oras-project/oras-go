@@ -56,18 +56,12 @@ type Store struct {
 	//   - Default value: true.
 	AutoSaveIndex bool
 
-	// AutoGC controls if the OCI store will automatically clean newly produced
-	// dangling (unreferenced) blobs during Delete() operation. For example the
-	// blobs whose manifests have been deleted. Tagged manifests will not be
+	// AutoGC controls if the OCI store will automatically clean dangling
+	// (unreferenced) blobs created by the Delete() operation. This includes the
+	// unreferenced sucessor blobs and referrers. Tagged manifests will not be
 	// deleted.
 	//   - Default value: true.
 	AutoGC bool
-
-	// AutoDeleteReferrers controls if the OCI store will automatically delete its
-	// referrers when a manifest is deleted. When set to true, the referrers will
-	// be deleted even if they exist in index.json.
-	//   - Default value: true.
-	AutoDeleteReferrers bool
 
 	root        string
 	indexPath   string
@@ -102,14 +96,13 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	}
 
 	store := &Store{
-		AutoSaveIndex:       true,
-		AutoGC:              true,
-		AutoDeleteReferrers: true,
-		root:                rootAbs,
-		indexPath:           filepath.Join(rootAbs, ocispec.ImageIndexFile),
-		storage:             storage,
-		tagResolver:         resolver.NewMemory(),
-		graph:               graph.NewMemory(),
+		AutoSaveIndex: true,
+		AutoGC:        true,
+		root:          rootAbs,
+		indexPath:     filepath.Join(rootAbs, ocispec.ImageIndexFile),
+		storage:       storage,
+		tagResolver:   resolver.NewMemory(),
+		graph:         graph.NewMemory(),
 	}
 
 	if err := ensureDir(filepath.Join(rootAbs, ocispec.ImageBlobsDir)); err != nil {
@@ -177,7 +170,7 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		deleteQueue = deleteQueue[1:]
 
 		// get referrers if applicable
-		if s.AutoDeleteReferrers && descriptor.IsManifest(head) {
+		if s.AutoGC && descriptor.IsManifest(head) {
 			referrers, err := registry.Referrers(ctx, &unsafeStore{s}, head, "")
 			if err != nil {
 				return err
