@@ -2900,7 +2900,7 @@ func TestStore_GC(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob"))             // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer"))   // Blob 2, dangling layer
 	generateManifest(descs[0], nil, descs[1])                           // Blob 3, valid manifest
-	generateManifest(descs[0], &descs[3], descs[1])                     // Blob 4, referrer of a valid manifest, not in index.json, should be cleaned with current implementation
+	generateManifest(descs[0], &descs[3], descs[1])                     // Blob 4, referrer of a valid manifest
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 2")) // Blob 5, dangling layer
 	generateArtifactManifest(descs[4])                                  // blob 6, dangling artifact
 	generateManifest(descs[0], &descs[5], descs[1])                     // Blob 7, referrer of a dangling manifest
@@ -2922,8 +2922,8 @@ func TestStore_GC(t *testing.T) {
 		}
 	}
 
-	// remove blobs 4 - blobs 10 from index.json
-	for i := 4; i <= 10; i++ {
+	// remove blobs 5 - blobs 10 from index.json
+	for i := 5; i <= 10; i++ {
 		s.tagResolver.Untag(string(descs[i].Digest))
 	}
 	s.SaveIndex()
@@ -2951,13 +2951,16 @@ func TestStore_GC(t *testing.T) {
 	// tag manifest blob 3
 	s.Tag(ctx, descs[3], "latest")
 
-	// perform GC
+	// perform double GC
+	if err = s.GC(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if err = s.GC(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	// verify existence
-	wantExistence := []bool{true, true, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false}
+	wantExistence := []bool{true, true, false, true, true, false, false, false, false, false, false, false, false, false, false, false, false}
 	for i, wantValue := range wantExistence {
 		exists, err := s.Exists(ctx, descs[i])
 		if err != nil {

@@ -36,6 +36,7 @@ import (
 	"oras.land/oras-go/v2/internal/container/set"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/graph"
+	"oras.land/oras-go/v2/internal/manifestutil"
 	"oras.land/oras-go/v2/internal/resolver"
 	"oras.land/oras-go/v2/registry"
 )
@@ -515,9 +516,11 @@ func (s *Store) GC(ctx context.Context) error {
 // gcIndex reloads the index and updates metadata. Information of untagged blobs
 // are cleaned and only tagged blobs remain.
 func (s *Store) gcIndex(ctx context.Context) error {
+	// index tagged manifests
 	refMap := s.tagResolver.Map()
 	s.tagResolver = resolver.NewMemory()
 	s.graph = graph.NewMemory()
+	tagged := set.New[digest.Digest]()
 	for ref, desc := range refMap {
 		if ref == desc.Digest.String() {
 			continue
@@ -531,6 +534,35 @@ func (s *Store) gcIndex(ctx context.Context) error {
 		plain := descriptor.Plain(desc)
 		if err := s.graph.IndexAll(ctx, s.storage, plain); err != nil {
 			return err
+		}
+		tagged.Add(desc.Digest)
+	}
+
+	// index referers manifests
+	for ref, desc := range refMap {
+		if ref != desc.Digest.String() || tagged.Contains(desc.Digest) {
+			continue
+		}
+		// check if the referrers manifest can traverse to the existing graph
+		subject := &desc
+		for {
+			subject, err := manifestutil.Subject(ctx, s.storage, *subject)
+			if err != nil {
+				return err
+			}
+			if subject == nil {
+				break
+			}
+			if s.graph.Exists(*subject) {
+				if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
+					return err
+				}
+				plain := descriptor.Plain(desc)
+				if err := s.graph.IndexAll(ctx, s.storage, plain); err != nil {
+					return err
+				}
+				break
+			}
 		}
 	}
 	return nil

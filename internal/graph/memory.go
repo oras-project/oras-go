@@ -186,3 +186,10 @@ func (m *Memory) index(ctx context.Context, fetcher content.Fetcher, node ocispe
 	}
 	return successors, nil
 }
+
+// Exists checks if the node exists in the graph
+func (m *Memory) Exists(node ocispec.Descriptor) bool {
+	nodeKey := descriptor.FromOCI(node)
+	_, exists := m.nodes[nodeKey]
+	return exists
+}
