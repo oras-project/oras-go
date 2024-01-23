@@ -631,7 +631,7 @@ func TestStore_Dir_Push(t *testing.T) {
 	}
 }
 
-func TestStore_Push_SkipExtract(t *testing.T) {
+func TestStore_Dir_Push_SkipUnpack(t *testing.T) {
 	// add a file to file store, and obtain its directory as gz
 	tempDir := t.TempDir()
 	dirName := "testdir"
