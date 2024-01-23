@@ -538,7 +538,7 @@ func (s *Store) gcIndex(ctx context.Context) error {
 		tagged.Add(desc.Digest)
 	}
 
-	// index referers manifests
+	// index referrer manifests
 	for ref, desc := range refMap {
 		if ref != desc.Digest.String() || tagged.Contains(desc.Digest) {
 			continue
