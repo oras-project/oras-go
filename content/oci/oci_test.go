@@ -2972,6 +2972,99 @@ func TestStore_GC(t *testing.T) {
 	}
 }
 
+func TestStore_GCAndDeleteOnIndex(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config:  config,
+			Subject: subject,
+			Layers:  layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateImageIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob1"))   // Blob 1
+	generateManifest(descs[0], nil, descs[1])                  // Blob 2, manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob2"))   // Blob 3
+	generateManifest(descs[0], nil, descs[3])                  // Blob 4, manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob3"))   // Blob 5
+	generateManifest(descs[0], nil, descs[5])                  // Blob 6, manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob4"))   // Blob 7
+	generateManifest(descs[0], nil, descs[7])                  // Blob 8, manifest
+	generateImageIndex(descs[2], descs[4], descs[6], descs[8]) // blob 9, image index
+
+	// push all blobs into the store
+	for i := 0; i < len(blobs); i++ {
+		err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Errorf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// confirm that all the blobs are in the storage
+	for i := 0; i < len(blobs); i++ {
+		exists, err := s.Exists(ctx, descs[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			t.Fatalf("descs[%d] should exist", i)
+		}
+	}
+
+	// tag manifest blob 8
+	s.Tag(ctx, descs[8], "latest")
+
+	// delete the image index
+	if err := s.Delete(ctx, descs[9]); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify existence
+	wantExistence := []bool{true, false, false, false, false, false, false, true, true, false}
+	for i, wantValue := range wantExistence {
+		exists, err := s.Exists(ctx, descs[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exists != wantValue {
+			t.Fatalf("want existence %d to be %v, got %v", i, wantValue, exists)
+		}
+	}
+}
+
 func TestStore_GCErrorPath(t *testing.T) {
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
