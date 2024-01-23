@@ -1334,11 +1334,16 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 // sets referrers capability accordingly.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
 func (s *manifestStore) checkOCISubjectHeader(resp *http.Response) {
-	// Referrers capability is not set to false when the subject header is not
-	// present, as the server may still conform to an older version of the spec
+	// The presence of the "OCI-subject" indicates that the pushed manifest has
+	// a subject AND the Referrers API is available
 	if subjectHeader := resp.Header.Get(headerOCISubject); subjectHeader != "" {
 		s.repo.SetReferrersCapability(true)
 	}
+
+	// The absence of the "OCI-subject" means that either the manifest
+	// has no subject OR the referrers API is not available.
+	// We do not set the referrers capability here because we don't know if the
+	// manifest has a subject or not.
 }
 
 // pushWithIndexing pushes the manifest content matching the expected descriptor,
@@ -1361,7 +1366,9 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 		if err := s.push(ctx, expected, bytes.NewReader(manifestJSON), reference); err != nil {
 			return err
 		}
+
 		// check referrers API availability again after push
+		// TODO: comment
 		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
 			return nil
 		}
@@ -1423,14 +1430,8 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		return nil
 	}
 
-	ok, err := s.repo.pingReferrers(ctx)
-	if err != nil {
-		return err
-	}
-	if ok {
-		// referrers API is available, no client-side indexing needed
-		return nil
-	}
+	// TODO: comment
+	s.repo.SetReferrersCapability(false)
 	return s.updateReferrersIndex(ctx, subject, referrerChange{desc, referrerOperationAdd})
 }
 
