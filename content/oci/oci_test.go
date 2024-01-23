@@ -2913,9 +2913,19 @@ func TestStore_GC(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 2"))  // Blob 14, garbage layer 2
 	generateManifest(descs[6], nil, descs[7])                           // Blob 15, garbage manifest 2
 	generateManifest(descs[0], &descs[13], descs[1])                    // Blob 16, referrer of a garbage manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("another layer"))    // Blob 17, untagged manifest
+	generateManifest(descs[0], nil, descs[17])                          // Blob 18, valid untagged manifest
 
 	// push blobs 0 - blobs 10 into s
 	for i := 0; i <= 10; i++ {
+		err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Errorf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// push blobs 17 - blobs 18 into s
+	for i := 17; i <= 18; i++ {
 		err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
 		if err != nil {
 			t.Errorf("failed to push test content to src: %d: %v", i, err)
@@ -2930,7 +2940,7 @@ func TestStore_GC(t *testing.T) {
 
 	// push blobs 11 - blobs 16 into s.storage, making them garbage as their metadata
 	// doesn't exist in s
-	for i := 11; i < len(blobs); i++ {
+	for i := 11; i < 17; i++ {
 		err := s.storage.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
 		if err != nil {
 			t.Errorf("failed to push test content to src: %d: %v", i, err)
@@ -2938,7 +2948,7 @@ func TestStore_GC(t *testing.T) {
 	}
 
 	// confirm that all the blobs are in the storage
-	for i := 11; i < len(blobs); i++ {
+	for i := 0; i < len(blobs); i++ {
 		exists, err := s.Exists(ctx, descs[i])
 		if err != nil {
 			t.Fatal(err)
@@ -2960,7 +2970,8 @@ func TestStore_GC(t *testing.T) {
 	}
 
 	// verify existence
-	wantExistence := []bool{true, true, false, true, true, false, false, false, false, false, false, false, false, false, false, false, false}
+	wantExistence := []bool{true, true, false, true, true, false, false, false,
+		false, false, false, false, false, false, false, false, false, false, false}
 	for i, wantValue := range wantExistence {
 		exists, err := s.Exists(ctx, descs[i])
 		if err != nil {
