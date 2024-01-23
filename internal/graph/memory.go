@@ -150,6 +150,9 @@ func (m *Memory) Remove(node ocispec.Descriptor) []ocispec.Descriptor {
 
 // DigestSet returns the set of node digest in memory.
 func (m *Memory) DigestSet() set.Set[digest.Digest] {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
 	s := set.New[digest.Digest]()
 	for desc := range m.nodes {
 		s.Add(desc.Digest)
@@ -189,6 +192,9 @@ func (m *Memory) index(ctx context.Context, fetcher content.Fetcher, node ocispe
 
 // Exists checks if the node exists in the graph
 func (m *Memory) Exists(node ocispec.Descriptor) bool {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
 	nodeKey := descriptor.FromOCI(node)
 	_, exists := m.nodes[nodeKey]
 	return exists
