@@ -517,11 +517,12 @@ func (s *Store) GC(ctx context.Context) error {
 // gcIndex reloads the index and updates metadata. Information of untagged blobs
 // are cleaned and only tagged blobs remain.
 func (s *Store) gcIndex(ctx context.Context) error {
-	// index tagged manifests
-	refMap := s.tagResolver.Map()
 	tagResolver := resolver.NewMemory()
 	graph := graph.NewMemory()
 	tagged := set.New[digest.Digest]()
+
+	// index tagged manifests
+	refMap := s.tagResolver.Map()
 	for ref, desc := range refMap {
 		if ref == desc.Digest.String() {
 			continue
