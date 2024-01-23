@@ -104,7 +104,8 @@ type Store struct {
 	// manifest and config file, while leaving only named layer files.
 	// Default value: false.
 	IgnoreNoName bool
-	// SkipUnpack controls if push operations should skip extracting files.
+	// SkipUnpack controls if push operations should skip unpacking files. This
+	// value overrides the [AnnotationUnpack].
 	// Default value: false.
 	SkipUnpack bool
 
