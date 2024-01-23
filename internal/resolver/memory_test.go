@@ -76,3 +76,33 @@ func TestMemoryNotFound(t *testing.T) {
 		t.Errorf("Memory.Resolve() error = %v, want %v", err, errdef.ErrNotFound)
 	}
 }
+
+func TestTagSet(t *testing.T) {
+	refFoo := "foo"
+	refBar := "bar"
+
+	s := NewMemory()
+	ctx := context.Background()
+
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	s.Tag(ctx, desc, refFoo)
+	s.Tag(ctx, desc, refBar)
+
+	tagSet := s.TagSet(desc)
+
+	if !tagSet.Contains(refFoo) {
+		t.Fatalf("tagSet should contain %s", refFoo)
+	}
+	if !tagSet.Contains(refBar) {
+		t.Fatalf("tagSet should contain %s", refFoo)
+	}
+	if len(tagSet) != 2 {
+		t.Fatalf("expect size = %d, got %d", 2, len(tagSet))
+	}
+}

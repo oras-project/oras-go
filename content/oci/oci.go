@@ -36,6 +36,7 @@ import (
 	"oras.land/oras-go/v2/internal/container/set"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/graph"
+	"oras.land/oras-go/v2/internal/manifestutil"
 	"oras.land/oras-go/v2/internal/resolver"
 	"oras.land/oras-go/v2/registry"
 )
@@ -57,8 +58,8 @@ type Store struct {
 
 	// AutoGC controls if the OCI store will automatically clean newly produced
 	// dangling (unreferenced) blobs during Delete() operation. For example the
-	// blobs whose manifests have been deleted. Manifests in index.json will not
-	// be deleted.
+	// blobs whose manifests have been deleted. Tagged manifests will not be
+	// deleted.
 	//   - Default value: true.
 	AutoGC bool
 
@@ -76,8 +77,9 @@ type Store struct {
 	graph       *graph.Memory
 
 	// sync ensures that most operations can be done concurrently, while Delete
-	// has the exclusive access to Store if a delete operation is underway. Operations
-	// such as Fetch, Push use sync.RLock(), while Delete uses sync.Lock().
+	// has the exclusive access to Store if a delete operation is underway.
+	// Operations such as Fetch, Push use sync.RLock(), while Delete uses
+	// sync.Lock().
 	sync sync.RWMutex
 	// indexLock ensures that only one go-routine is writing to the index.
 	indexLock sync.Mutex
@@ -190,9 +192,8 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 		}
 		if s.AutoGC {
 			for _, d := range danglings {
-				// do not delete existing manifests in tagResolver
-				_, err = s.tagResolver.Resolve(ctx, string(d.Digest))
-				if errors.Is(err, errdef.ErrNotFound) {
+				// do not delete existing tagged manifests
+				if !s.isTagged(d) {
 					deleteQueue = append(deleteQueue, d)
 				}
 			}
@@ -455,19 +456,6 @@ func (s *Store) writeIndexFile() error {
 	return os.WriteFile(s.indexPath, indexJSON, 0666)
 }
 
-// reloadIndex reloads the index and updates metadata by creating a new store.
-func (s *Store) reloadIndex(ctx context.Context) error {
-	newStore, err := NewWithContext(ctx, s.root)
-	if err != nil {
-		return err
-	}
-	s.index = newStore.index
-	s.storage = newStore.storage
-	s.tagResolver = newStore.tagResolver
-	s.graph = newStore.graph
-	return nil
-}
-
 // GC removes garbage from Store. Unsaved index will be lost. To prevent unexpected
 // loss, call SaveIndex() before GC or set AutoSaveIndex to true.
 // The garbage to be cleaned are:
@@ -478,7 +466,7 @@ func (s *Store) GC(ctx context.Context) error {
 	defer s.sync.Unlock()
 
 	// get reachable nodes by reloading the index
-	err := s.reloadIndex(ctx)
+	err := s.gcIndex(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to reload index: %w", err)
 	}
@@ -524,6 +512,73 @@ func (s *Store) GC(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// gcIndex reloads the index and updates metadata. Information of untagged blobs
+// are cleaned and only tagged blobs remain.
+func (s *Store) gcIndex(ctx context.Context) error {
+	tagResolver := resolver.NewMemory()
+	graph := graph.NewMemory()
+	tagged := set.New[digest.Digest]()
+
+	// index tagged manifests
+	refMap := s.tagResolver.Map()
+	for ref, desc := range refMap {
+		if ref == desc.Digest.String() {
+			continue
+		}
+		if err := tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
+			return err
+		}
+		if err := tagResolver.Tag(ctx, desc, ref); err != nil {
+			return err
+		}
+		plain := descriptor.Plain(desc)
+		if err := graph.IndexAll(ctx, s.storage, plain); err != nil {
+			return err
+		}
+		tagged.Add(desc.Digest)
+	}
+
+	// index referrer manifests
+	for ref, desc := range refMap {
+		if ref != desc.Digest.String() || tagged.Contains(desc.Digest) {
+			continue
+		}
+		// check if the referrers manifest can traverse to the existing graph
+		subject := &desc
+		for {
+			subject, err := manifestutil.Subject(ctx, s.storage, *subject)
+			if err != nil {
+				return err
+			}
+			if subject == nil {
+				break
+			}
+			if graph.Exists(*subject) {
+				if err := tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
+					return err
+				}
+				plain := descriptor.Plain(desc)
+				if err := graph.IndexAll(ctx, s.storage, plain); err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
+	s.tagResolver = tagResolver
+	s.graph = graph
+	return nil
+}
+
+// isTagged checks if the blob given by the descriptor is tagged.
+func (s *Store) isTagged(desc ocispec.Descriptor) bool {
+	tagSet := s.tagResolver.TagSet(desc)
+	if tagSet.Contains(string(desc.Digest)) {
+		return len(tagSet) > 1
+	}
+	return len(tagSet) > 0
 }
 
 // unsafeStore is used to bypass lock restrictions in Delete.

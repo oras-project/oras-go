@@ -2900,7 +2900,7 @@ func TestStore_GC(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob"))             // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer"))   // Blob 2, dangling layer
 	generateManifest(descs[0], nil, descs[1])                           // Blob 3, valid manifest
-	generateManifest(descs[0], &descs[3], descs[1])                     // Blob 4, referrer of a valid manifest, not in index.json, should be cleaned with current implementation
+	generateManifest(descs[0], &descs[3], descs[1])                     // Blob 4, referrer of a valid manifest
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("dangling layer 2")) // Blob 5, dangling layer
 	generateArtifactManifest(descs[4])                                  // blob 6, dangling artifact
 	generateManifest(descs[0], &descs[5], descs[1])                     // Blob 7, referrer of a dangling manifest
@@ -2913,6 +2913,8 @@ func TestStore_GC(t *testing.T) {
 	appendBlob(ocispec.MediaTypeImageLayer, []byte("garbage layer 2"))  // Blob 14, garbage layer 2
 	generateManifest(descs[6], nil, descs[7])                           // Blob 15, garbage manifest 2
 	generateManifest(descs[0], &descs[13], descs[1])                    // Blob 16, referrer of a garbage manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("another layer"))    // Blob 17, untagged manifest
+	generateManifest(descs[0], nil, descs[17])                          // Blob 18, valid untagged manifest
 
 	// push blobs 0 - blobs 10 into s
 	for i := 0; i <= 10; i++ {
@@ -2922,15 +2924,23 @@ func TestStore_GC(t *testing.T) {
 		}
 	}
 
-	// remove blobs 4 - blobs 10 from index.json
-	for i := 4; i <= 10; i++ {
+	// push blobs 17 - blobs 18 into s
+	for i := 17; i <= 18; i++ {
+		err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Errorf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// remove blobs 5 - blobs 10 from index.json
+	for i := 5; i <= 10; i++ {
 		s.tagResolver.Untag(string(descs[i].Digest))
 	}
 	s.SaveIndex()
 
 	// push blobs 11 - blobs 16 into s.storage, making them garbage as their metadata
 	// doesn't exist in s
-	for i := 11; i < len(blobs); i++ {
+	for i := 11; i < 17; i++ {
 		err := s.storage.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
 		if err != nil {
 			t.Errorf("failed to push test content to src: %d: %v", i, err)
@@ -2938,7 +2948,7 @@ func TestStore_GC(t *testing.T) {
 	}
 
 	// confirm that all the blobs are in the storage
-	for i := 11; i < len(blobs); i++ {
+	for i := 0; i < len(blobs); i++ {
 		exists, err := s.Exists(ctx, descs[i])
 		if err != nil {
 			t.Fatal(err)
@@ -2948,13 +2958,113 @@ func TestStore_GC(t *testing.T) {
 		}
 	}
 
-	// perform GC
+	// tag manifest blob 3
+	s.Tag(ctx, descs[3], "latest")
+
+	// perform double GC
+	if err = s.GC(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if err = s.GC(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	// verify existence
-	wantExistence := []bool{true, true, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false}
+	wantExistence := []bool{true, true, false, true, true, false, false, false,
+		false, false, false, false, false, false, false, false, false, false, false}
+	for i, wantValue := range wantExistence {
+		exists, err := s.Exists(ctx, descs[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exists != wantValue {
+			t.Fatalf("want existence %d to be %v, got %v", i, wantValue, exists)
+		}
+	}
+}
+
+func TestStore_GCAndDeleteOnIndex(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config:  config,
+			Subject: subject,
+			Layers:  layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateImageIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob1"))   // Blob 1
+	generateManifest(descs[0], nil, descs[1])                  // Blob 2, manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob2"))   // Blob 3
+	generateManifest(descs[0], nil, descs[3])                  // Blob 4, manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob3"))   // Blob 5
+	generateManifest(descs[0], nil, descs[5])                  // Blob 6, manifest
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob4"))   // Blob 7
+	generateManifest(descs[0], nil, descs[7])                  // Blob 8, manifest
+	generateImageIndex(descs[2], descs[4], descs[6], descs[8]) // blob 9, image index
+
+	// push all blobs into the store
+	for i := 0; i < len(blobs); i++ {
+		err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Errorf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	// confirm that all the blobs are in the storage
+	for i := 0; i < len(blobs); i++ {
+		exists, err := s.Exists(ctx, descs[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			t.Fatalf("descs[%d] should exist", i)
+		}
+	}
+
+	// tag manifest blob 8
+	s.Tag(ctx, descs[8], "latest")
+
+	// delete the image index
+	if err := s.Delete(ctx, descs[9]); err != nil {
+		t.Fatal(err)
+	}
+
+	// verify existence
+	wantExistence := []bool{true, false, false, false, false, false, false, true, true, false}
 	for i, wantValue := range wantExistence {
 		exists, err := s.Exists(ctx, descs[i])
 		if err != nil {
