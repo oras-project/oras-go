@@ -153,6 +153,7 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ManifestDigest) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ReferenceManifestDigest) && m == "PUT":
+			w.Header().Set("OCI-Subject", "sha256:a3f9d449466b9b7194c3a76ca4890d792e11eb4e62e59aa8b4c3cce0a56f129d")
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSignatureManifestDescriptor.Digest) && m == "GET":
 			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
