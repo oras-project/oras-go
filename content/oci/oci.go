@@ -58,8 +58,7 @@ type Store struct {
 
 	// AutoGC controls if the OCI store will automatically clean newly produced
 	// dangling (unreferenced) blobs during Delete() operation. For example the
-	// blobs whose manifests have been deleted. Manifests in index.json will not
-	// be deleted.
+	// blobs whose manifests have been deleted. Tagged manifests will not be deleted.
 	//   - Default value: true.
 	AutoGC bool
 
@@ -518,21 +517,21 @@ func (s *Store) GC(ctx context.Context) error {
 func (s *Store) gcIndex(ctx context.Context) error {
 	// index tagged manifests
 	refMap := s.tagResolver.Map()
-	s.tagResolver = resolver.NewMemory()
-	s.graph = graph.NewMemory()
+	tagResolver := resolver.NewMemory()
+	graph := graph.NewMemory()
 	tagged := set.New[digest.Digest]()
 	for ref, desc := range refMap {
 		if ref == desc.Digest.String() {
 			continue
 		}
-		if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
+		if err := tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
 			return err
 		}
-		if err := s.tagResolver.Tag(ctx, desc, ref); err != nil {
+		if err := tagResolver.Tag(ctx, desc, ref); err != nil {
 			return err
 		}
 		plain := descriptor.Plain(desc)
-		if err := s.graph.IndexAll(ctx, s.storage, plain); err != nil {
+		if err := graph.IndexAll(ctx, s.storage, plain); err != nil {
 			return err
 		}
 		tagged.Add(desc.Digest)
@@ -553,18 +552,20 @@ func (s *Store) gcIndex(ctx context.Context) error {
 			if subject == nil {
 				break
 			}
-			if s.graph.Exists(*subject) {
-				if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
+			if graph.Exists(*subject) {
+				if err := tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
 					return err
 				}
 				plain := descriptor.Plain(desc)
-				if err := s.graph.IndexAll(ctx, s.storage, plain); err != nil {
+				if err := graph.IndexAll(ctx, s.storage, plain); err != nil {
 					return err
 				}
 				break
 			}
 		}
 	}
+	s.tagResolver = tagResolver
+	s.graph = graph
 	return nil
 }
 
