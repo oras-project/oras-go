@@ -58,7 +58,8 @@ type Store struct {
 
 	// AutoGC controls if the OCI store will automatically clean newly produced
 	// dangling (unreferenced) blobs during Delete() operation. For example the
-	// blobs whose manifests have been deleted. Tagged manifests will not be deleted.
+	// blobs whose manifests have been deleted. Tagged manifests will not be
+	// deleted.
 	//   - Default value: true.
 	AutoGC bool
 
@@ -76,8 +77,9 @@ type Store struct {
 	graph       *graph.Memory
 
 	// sync ensures that most operations can be done concurrently, while Delete
-	// has the exclusive access to Store if a delete operation is underway. Operations
-	// such as Fetch, Push use sync.RLock(), while Delete uses sync.Lock().
+	// has the exclusive access to Store if a delete operation is underway.
+	// Operations such as Fetch, Push use sync.RLock(), while Delete uses
+	// sync.Lock().
 	sync sync.RWMutex
 	// indexLock ensures that only one go-routine is writing to the index.
 	indexLock sync.Mutex
