@@ -1334,16 +1334,17 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 // sets referrers capability accordingly.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc3/spec.md#pushing-manifests-with-subject
 func (s *manifestStore) checkOCISubjectHeader(resp *http.Response) {
-	// The presence of the "OCI-subject" indicates that the pushed manifest has
-	// a subject AND the Referrers API is available
+	// If the "OCI-Subject" header is set, it indicates that the registry
+	// supports the Referrers API and has processed the subject of the manifest.
 	if subjectHeader := resp.Header.Get(headerOCISubject); subjectHeader != "" {
 		s.repo.SetReferrersCapability(true)
 	}
 
-	// The absence of the "OCI-subject" means that either the manifest
-	// has no subject OR the referrers API is not available.
-	// We do not set the referrers capability here because we don't know if the
-	// manifest has a subject or not.
+	// If the "OCI-Subject" header is NOT set, it means that either the manifest
+	// has no subject OR the referrers API is NOT supported by the registry.
+	//
+	// Since we don't know whether the pushed manifest has a subject or not,
+	// we do not set the referrers capability to false at here.
 }
 
 // pushWithIndexing pushes the manifest content matching the expected descriptor,
@@ -1366,10 +1367,10 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 		if err := s.push(ctx, expected, bytes.NewReader(manifestJSON), reference); err != nil {
 			return err
 		}
-
 		// check referrers API availability again after push
-		// TODO: comment
 		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+			// the subject has been processed the registry, no client-side
+			// indexing needed
 			return nil
 		}
 		return s.indexReferrersForPush(ctx, expected, manifestJSON)
@@ -1430,7 +1431,8 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 		return nil
 	}
 
-	// TODO: comment
+	// if the manifest has a subject but the remote registry does not process it,
+	// it means that the Referrers API is not supported by the registry.
 	s.repo.SetReferrersCapability(false)
 	return s.updateReferrersIndex(ctx, subject, referrerChange{desc, referrerOperationAdd})
 }
