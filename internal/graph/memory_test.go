@@ -688,3 +688,80 @@ func TestMemory_DigestSet(t *testing.T) {
 		}
 	}
 }
+
+func TestMemory_Exists(t *testing.T) {
+	testFetcher := cas.NewMemory()
+	testMemory := NewMemory()
+	ctx := context.Background()
+
+	// generate test content
+	var blobs [][]byte
+	var descriptors []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) ocispec.Descriptor {
+		blobs = append(blobs, blob)
+		descriptors = append(descriptors, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+		return descriptors[len(descriptors)-1]
+	}
+	generateManifest := func(layers ...ocispec.Descriptor) ocispec.Descriptor {
+		manifest := ocispec.Manifest{
+			Config: ocispec.Descriptor{MediaType: "test config"},
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) ocispec.Descriptor {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+	descE := appendBlob("layer node E", []byte("Node E is a layer")) // blobs[0], layer "E"
+	descF := appendBlob("layer node F", []byte("Node F is a layer")) // blobs[1], layer "F"
+	descB := generateManifest(descriptors[0:1]...)                   // blobs[2], manifest "B"
+	descC := generateManifest(descriptors[0:2]...)                   // blobs[3], manifest "C"
+	descD := generateManifest(descriptors[1:2]...)                   // blobs[4], manifest "D"
+	descA := generateIndex(descriptors[2:5]...)                      // blobs[5], index "A"
+
+	// prepare the content in the fetcher, so that it can be used to test IndexAll
+	testContents := []ocispec.Descriptor{descE, descF, descB, descC, descD, descA}
+	for i := 0; i < len(blobs); i++ {
+		testFetcher.Push(ctx, testContents[i], bytes.NewReader(blobs[i]))
+	}
+
+	// make sure that testFetcher works
+	rc, err := testFetcher.Fetch(ctx, descA)
+	if err != nil {
+		t.Errorf("testFetcher.Fetch() error = %v", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Errorf("testFetcher.Fetch().Read() error = %v", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Errorf("testFetcher.Fetch().Close() error = %v", err)
+	}
+	if !bytes.Equal(got, blobs[5]) {
+		t.Errorf("testFetcher.Fetch() = %v, want %v", got, blobs[4])
+	}
+
+	// index node A into testMemory using IndexAll
+	testMemory.IndexAll(ctx, testFetcher, descA)
+	for i := 0; i < len(blobs); i++ {
+		if exists := testMemory.Exists(descriptors[i]); exists != true {
+			t.Errorf("digest of blob[%d] should exist in digestSet", i)
+		}
+	}
+}
