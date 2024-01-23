@@ -32,7 +32,6 @@ import (
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/container/set"
 	"oras.land/oras-go/v2/internal/docker"
-	"oras.land/oras-go/v2/internal/spec"
 )
 
 var ErrBadFetch = errors.New("bad fetch error")
@@ -323,45 +322,13 @@ func TestSubject_ErrorPath(t *testing.T) {
 		}
 		appendBlob(ocispec.MediaTypeImageManifest, manifest.Config.MediaType, manifestJSON)
 	}
-	generateArtifactManifest := func(subject *ocispec.Descriptor, blobs ...ocispec.Descriptor) {
-		artifact := spec.Artifact{
-			MediaType:    spec.MediaTypeArtifactManifest,
-			ArtifactType: "artifact",
-			Subject:      subject,
-			Blobs:        blobs,
-			Annotations:  map[string]string{"test": "content"},
-		}
-		manifestJSON, err := json.Marshal(artifact)
-		if err != nil {
-			t.Fatal(err)
-		}
-		appendBlob(spec.MediaTypeArtifactManifest, artifact.ArtifactType, manifestJSON)
-	}
-	generateIndex := func(subject *ocispec.Descriptor, manifests ...ocispec.Descriptor) {
-		index := ocispec.Index{
-			MediaType:    ocispec.MediaTypeImageIndex,
-			ArtifactType: "index",
-			Subject:      subject,
-			Manifests:    manifests,
-			Annotations:  map[string]string{"test": "content"},
-		}
-		indexJSON, err := json.Marshal(index)
-		if err != nil {
-			t.Fatal(err)
-		}
-		appendBlob(ocispec.MediaTypeImageIndex, index.ArtifactType, indexJSON)
-	}
 	appendBlob("image manifest", "image config", []byte("config"))    // Blob 0
 	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("foo"))   // Blob 1
 	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("bar"))   // Blob 2
 	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("hello")) // Blob 3
 	generateImageManifest(descs[0], nil, descs[1])                    // Blob 4
 	generateImageManifest(descs[0], &descs[4], descs[2])              // Blob 5
-	generateArtifactManifest(&descs[5], descs[3])                     // Blob 6
-	generateIndex(&descs[6])                                          // Blob 7
 	s.badFetch.Add(descs[5].Digest)
-	s.badFetch.Add(descs[6].Digest)
-	s.badFetch.Add(descs[7].Digest)
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	for i := range blobs {
@@ -379,10 +346,8 @@ func TestSubject_ErrorPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i := 5; i < 7; i++ {
-		_, err := Subject(ctx, &s, descs[i])
-		if !errors.Is(err, ErrBadFetch) {
-			t.Errorf("Store.Referrers(%d) error = %v, want %v", i, err, ErrBadFetch)
-		}
+	_, err := Subject(ctx, &s, descs[5])
+	if !errors.Is(err, ErrBadFetch) {
+		t.Errorf("Store.Referrers() error = %v, want %v", err, ErrBadFetch)
 	}
 }
