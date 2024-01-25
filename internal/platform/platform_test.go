@@ -131,20 +131,23 @@ func TestSelectManifest(t *testing.T) {
 			Size:      int64(len(blob)),
 		})
 	}
-	appendManifest := func(arc, os, variant string, mediaType string, blob []byte) {
+	appendManifest := func(arc, os, variant string, hasPlatform bool, mediaType string, blob []byte) {
 		blobs = append(blobs, blob)
-		descs = append(descs, ocispec.Descriptor{
+		desc := ocispec.Descriptor{
 			MediaType: mediaType,
 			Digest:    digest.FromBytes(blob),
 			Size:      int64(len(blob)),
-			Platform: &ocispec.Platform{
+		}
+		if hasPlatform {
+			desc.Platform = &ocispec.Platform{
 				Architecture: arc,
 				OS:           os,
 				Variant:      variant,
-			},
-		})
+			}
+		}
+		descs = append(descs, desc)
 	}
-	generateManifest := func(arc, os, variant string, subject *ocispec.Descriptor, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+	generateManifest := func(arc, os, variant string, hasPlatform bool, subject *ocispec.Descriptor, config ocispec.Descriptor, layers ...ocispec.Descriptor) {
 		manifest := ocispec.Manifest{
 			Subject: subject,
 			Config:  config,
@@ -154,7 +157,7 @@ func TestSelectManifest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		appendManifest(arc, os, variant, ocispec.MediaTypeImageManifest, manifestJSON)
+		appendManifest(arc, os, variant, hasPlatform, ocispec.MediaTypeImageManifest, manifestJSON)
 	}
 	generateIndex := func(subject *ocispec.Descriptor, manifests ...ocispec.Descriptor) {
 		index := ocispec.Index{
@@ -175,14 +178,14 @@ func TestSelectManifest(t *testing.T) {
 "architecture":"test-arc-1",
 "os":"test-os-1",
 "variant":"v1"}`)) // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                       // Blob 2
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))                       // Blob 3
-	generateManifest(arc_1, os_1, variant_1, &descs[0], descs[1], descs[2:4]...) // Blob 4
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello1"))                    // Blob 5
-	generateManifest(arc_2, os_2, variant_1, nil, descs[1], descs[5])            // Blob 6
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello2"))                    // Blob 7
-	generateManifest(arc_1, os_1, variant_2, nil, descs[1], descs[7])            // Blob 8
-	generateIndex(&descs[0], descs[4], descs[6], descs[8])                       // Blob 9
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                             // Blob 2
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))                             // Blob 3
+	generateManifest(arc_1, os_1, variant_1, true, &descs[0], descs[1], descs[2:4]...) // Blob 4
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello1"))                          // Blob 5
+	generateManifest(arc_2, os_2, variant_1, true, nil, descs[1], descs[5])            // Blob 6
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("hello2"))                          // Blob 7
+	generateManifest(arc_1, os_1, variant_2, true, nil, descs[1], descs[7])            // Blob 8
+	generateIndex(&descs[0], descs[4], descs[6], descs[8])                             // Blob 9
 
 	ctx := context.Background()
 	for i := range blobs {
@@ -264,6 +267,40 @@ func TestSelectManifest(t *testing.T) {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, errdef.ErrUnsupported)
 	}
 
+	// generate test content without platform
+	storage = cas.NewMemory()
+	blobs = nil
+	descs = nil
+	appendBlob("test/subject", []byte("dummy subject")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageConfig, []byte(`{"mediaType":"application/vnd.oci.image.config.v1+json",
+	"created":"2022-07-29T08:13:55Z",
+	"author":"test author",
+	"architecture":"test-arc-1",
+	"os":"test-os-1",
+	"variant":"v1"}`)) // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))                         // Blob 2
+	generateManifest(arc_1, os_1, variant_1, false, &descs[0], descs[1], descs[2]) // Blob 3
+	generateIndex(&descs[0], descs[3])                                             // Blob 4
+
+	ctx = context.Background()
+	for i := range blobs {
+		err := storage.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+	// test SelectManifest on image index, only one matching manifest found
+	root = descs[4]
+	targetPlatform = ocispec.Platform{
+		Architecture: arc_1,
+		OS:           os_1,
+	}
+	_, err = SelectManifest(ctx, storage, root, &targetPlatform)
+	expected = fmt.Sprintf("%s: %v: no matching manifest was found in the manifest list", root.Digest, errdef.ErrNotFound)
+	if err.Error() != expected {
+		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, expected)
+	}
+
 	// generate incorrect test content
 	storage = cas.NewMemory()
 	blobs = nil
@@ -275,9 +312,9 @@ func TestSelectManifest(t *testing.T) {
 	"architecture":"test-arc-1",
 	"os":"test-os-1",
 	"variant":"v1"}`)) // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo1"))                 // Blob 2
-	generateManifest(arc_1, os_1, variant_1, &descs[0], descs[1], descs[2]) // Blob 3
-	generateIndex(&descs[0], descs[3])                                      // Blob 4
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo1"))                       // Blob 2
+	generateManifest(arc_1, os_1, variant_1, true, &descs[0], descs[1], descs[2]) // Blob 3
+	generateIndex(&descs[0], descs[3])                                            // Blob 4
 
 	ctx = context.Background()
 	for i := range blobs {
@@ -305,11 +342,11 @@ func TestSelectManifest(t *testing.T) {
 	storage = cas.NewMemory()
 	blobs = nil
 	descs = nil
-	appendBlob("test/subject", []byte("dummy subject"))                     // Blob 0
-	appendBlob(ocispec.MediaTypeImageConfig, []byte("null"))                // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo2"))                 // Blob 2
-	generateManifest(arc_1, os_1, variant_1, &descs[0], descs[1], descs[2]) // Blob 3
-	generateIndex(nil, descs[3])                                            // Blob 4
+	appendBlob("test/subject", []byte("dummy subject"))                           // Blob 0
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("null"))                      // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo2"))                       // Blob 2
+	generateManifest(arc_1, os_1, variant_1, true, &descs[0], descs[1], descs[2]) // Blob 3
+	generateIndex(nil, descs[3])                                                  // Blob 4
 
 	ctx = context.Background()
 	for i := range blobs {
@@ -336,11 +373,11 @@ func TestSelectManifest(t *testing.T) {
 	storage = cas.NewMemory()
 	blobs = nil
 	descs = nil
-	appendBlob("test/subject", []byte("dummy subject"))               // Blob 0
-	appendBlob(ocispec.MediaTypeImageConfig, []byte(""))              // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo3"))           // Blob 2
-	generateManifest(arc_1, os_1, variant_1, nil, descs[1], descs[2]) // Blob 3
-	generateIndex(&descs[0], descs[3])                                // Blob 4
+	appendBlob("test/subject", []byte("dummy subject"))                     // Blob 0
+	appendBlob(ocispec.MediaTypeImageConfig, []byte(""))                    // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo3"))                 // Blob 2
+	generateManifest(arc_1, os_1, variant_1, true, nil, descs[1], descs[2]) // Blob 3
+	generateIndex(&descs[0], descs[3])                                      // Blob 4
 
 	ctx = context.Background()
 	for i := range blobs {
