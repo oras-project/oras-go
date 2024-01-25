@@ -289,7 +289,8 @@ func TestSelectManifest(t *testing.T) {
 			t.Fatalf("failed to push test content to src: %d: %v", i, err)
 		}
 	}
-	// test SelectManifest on image index, only one matching manifest found
+
+	// Test SelectManifest on an image index when no platform exists in the manifest list and a target platform is provided
 	root = descs[4]
 	targetPlatform = ocispec.Platform{
 		Architecture: arc_1,
@@ -299,6 +300,16 @@ func TestSelectManifest(t *testing.T) {
 	expected = fmt.Sprintf("%s: %v: no matching manifest was found in the manifest list", root.Digest, errdef.ErrNotFound)
 	if err.Error() != expected {
 		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, expected)
+	}
+
+	// Test SelectManifest on an image index when no platform exists in the manifest list and no target platform is provided
+	wantDesc = descs[3]
+	gotDesc, err = SelectManifest(ctx, storage, root, nil)
+	if err != nil {
+		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, false)
+	}
+	if !reflect.DeepEqual(gotDesc, wantDesc) {
+		t.Errorf("SelectManifest() = %v, want %v", gotDesc, wantDesc)
 	}
 
 	// generate incorrect test content
