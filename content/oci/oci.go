@@ -58,8 +58,8 @@ type Store struct {
 
 	// AutoGC controls if the OCI store will automatically clean dangling
 	// (unreferenced) blobs created by the Delete() operation. This includes the
-	// unreferenced sucessor blobs and referrers. Tagged manifests will not be
-	// deleted.
+	// referrers and the unreferenced successor blobs of the deleted content.
+	// Tagged manifests will not be deleted.
 	//   - Default value: true.
 	AutoGC bool
 
