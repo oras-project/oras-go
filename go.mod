@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/containerd/containerd v1.7.6
 	github.com/distribution/distribution/v3 v3.0.0-20221208165359-362910506bc2
-	github.com/docker/cli v25.0.1+incompatible
+	github.com/docker/cli v25.0.3+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/docker v25.0.1+incompatible
 	github.com/docker/go-connections v0.5.0
