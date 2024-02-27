@@ -15,4 +15,4 @@ blank_issues_enabled: true
 contact_links:
   - name: Ask a question or request support in the community
     url: https://github.com/oras-project/oras-go/discussions 
-    about: Ask a question or request support for using ORAS
+    about: Ask a question or request support for using ORAS go library
