@@ -19,7 +19,7 @@ body:
     id: preface
     attributes:
       value: |
-        Thank you for reporting bugs to ORAS-GO!
+        Thank you for reporting bugs to ORAS Go library!
   - type: textarea
     id: environment
     validations:
