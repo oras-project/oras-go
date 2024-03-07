@@ -25,9 +25,9 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 )
 
-// ExampleImageV11RC4 demonstrates packing an OCI Image Manifest as defined in
-// image-spec v1.1.0-rc4.
-func ExamplePackManifest_imageV11RC4() {
+// ExampleImageV11 demonstrates packing an OCI Image Manifest as defined in
+// image-spec v1.1.0.
+func ExamplePackManifest_imageV11() {
 	// 0. Create a storage
 	store := memory.New()
 
