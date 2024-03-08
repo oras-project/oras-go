@@ -71,6 +71,9 @@ const (
 	// PackManifestVersion1_1_RC4 represents the OCI Image Manifest defined
 	// in image-spec v1.1.0-rc4.
 	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md
+	//
+	// Deprecated: This constant is deprecated and not recommended for future use.
+	// Use [PackManifestVersion1_1] instead.
 	PackManifestVersion1_1_RC4 PackManifestVersion = PackManifestVersion1_1
 
 	// PackManifestVersion1_1 represents the OCI Image Manifest defined in
@@ -128,7 +131,7 @@ func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersio
 	case PackManifestVersion1_0:
 		return packManifestV1_0(ctx, pusher, artifactType, opts)
 	case PackManifestVersion1_1:
-		return packManifestV1_1_RC4(ctx, pusher, artifactType, opts)
+		return packManifestV1_1(ctx, pusher, artifactType, opts)
 	default:
 		return ocispec.Descriptor{}, fmt.Errorf("PackManifestVersion(%v): %w", packManifestVersion, errdef.ErrUnsupported)
 	}
@@ -288,9 +291,9 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, manifest.Annotations)
 }
 
-// packManifestV1_1_RC4 packs an image manifest defined in image-spec v1.1.0-rc4.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/manifest.md#guidelines-for-artifact-usage
-func packManifestV1_1_RC4(ctx context.Context, pusher content.Pusher, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
+// packManifestV1_1 packs an image manifest defined in image-spec v1.1.0.
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md#guidelines-for-artifact-usage
+func packManifestV1_1(ctx context.Context, pusher content.Pusher, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
 	if artifactType == "" && (opts.ConfigDescriptor == nil || opts.ConfigDescriptor.MediaType == ocispec.MediaTypeEmptyJSON) {
 		// artifactType MUST be set when config.mediaType is set to the empty value
 		return ocispec.Descriptor{}, ErrMissingArtifactType
