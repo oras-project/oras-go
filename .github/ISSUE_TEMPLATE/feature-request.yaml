@@ -23,7 +23,7 @@ body:
     id: version
     attributes:
       label: "What is the version of your oras-go"
-      description: "You can use the command `oras version` to get it"
+   
   - type: textarea
     id: description
     attributes:
