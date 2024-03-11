@@ -33,7 +33,7 @@ body:
   - type: textarea
     id: solution
     attributes:
-      label: "Why is this needed for ORAS?"
+      label: "Why is this needed for oras-go?"
       description: "Please describe your user story or scenario."
     validations:
       required: true
