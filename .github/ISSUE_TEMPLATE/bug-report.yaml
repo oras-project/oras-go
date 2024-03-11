@@ -44,7 +44,6 @@ body:
       required: true
     attributes:
       label: What is the version of your oras-go library ?
-      description: "You can use the command `oras version` to get it."
   - type: input
     id: os
     validations:
