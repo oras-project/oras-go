@@ -801,13 +801,13 @@ func Test_PackManifest_ImageV1_0_InvalidDateTimeFormat(t *testing.T) {
 	}
 }
 
-func Test_PackManifest_ImageV1_1_RC4(t *testing.T) {
+func Test_PackManifest_ImageV1_1(t *testing.T) {
 	s := memory.New()
 
 	// test PackManifest
 	ctx := context.Background()
 	artifactType := "application/vnd.test"
-	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, PackManifestOptions{})
+	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_1, artifactType, PackManifestOptions{})
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -831,7 +831,7 @@ func Test_PackManifest_ImageV1_1_RC4(t *testing.T) {
 	}
 }
 
-func Test_PackManifest_ImageV1_1_RC4_WithOptions(t *testing.T) {
+func Test_PackManifest_ImageV1_1_WithOptions(t *testing.T) {
 	s := memory.New()
 
 	// prepare test content
@@ -863,7 +863,7 @@ func Test_PackManifest_ImageV1_1_RC4_WithOptions(t *testing.T) {
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
 	}
-	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
+	manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_1, artifactType, opts)
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -916,7 +916,7 @@ func Test_PackManifest_ImageV1_1_RC4_WithOptions(t *testing.T) {
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
 	}
-	manifestDesc, err = PackManifest(ctx, s, PackManifestVersion1_1_RC4, "", opts)
+	manifestDesc, err = PackManifest(ctx, s, PackManifestVersion1_1, "", opts)
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -967,7 +967,7 @@ func Test_PackManifest_ImageV1_1_RC4_WithOptions(t *testing.T) {
 		ConfigAnnotations:   configAnnotations,
 		ManifestAnnotations: annotations,
 	}
-	manifestDesc, err = PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
+	manifestDesc, err = PackManifest(ctx, s, PackManifestVersion1_1, artifactType, opts)
 	if err != nil {
 		t.Fatal("Oras.PackManifest() error =", err)
 	}
@@ -1015,12 +1015,12 @@ func Test_PackManifest_ImageV1_1_RC4_WithOptions(t *testing.T) {
 	}
 }
 
-func Test_PackManifest_ImageV1_1_RC4_NoArtifactType(t *testing.T) {
+func Test_PackManifest_ImageV1_1_NoArtifactType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
 	// test no artifact type and no config
-	_, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, "", PackManifestOptions{})
+	_, err := PackManifest(ctx, s, PackManifestVersion1_1, "", PackManifestOptions{})
 	if wantErr := ErrMissingArtifactType; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
@@ -1031,13 +1031,13 @@ func Test_PackManifest_ImageV1_1_RC4_NoArtifactType(t *testing.T) {
 			MediaType: ocispec.DescriptorEmptyJSON.MediaType,
 		},
 	}
-	_, err = PackManifest(ctx, s, PackManifestVersion1_1_RC4, "", opts)
+	_, err = PackManifest(ctx, s, PackManifestVersion1_1, "", opts)
 	if wantErr := ErrMissingArtifactType; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
 }
 
-func Test_PackManifest_ImageV1_1_RC4_InvalidMediaType(t *testing.T) {
+func Test_PackManifest_ImageV1_1_InvalidMediaType(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
@@ -1048,7 +1048,7 @@ func Test_PackManifest_ImageV1_1_RC4_InvalidMediaType(t *testing.T) {
 	opts := PackManifestOptions{
 		ConfigDescriptor: &configDesc,
 	}
-	_, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
+	_, err := PackManifest(ctx, s, PackManifestVersion1_1, artifactType, opts)
 	if wantErr := errdef.ErrInvalidMediaType; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
@@ -1059,13 +1059,13 @@ func Test_PackManifest_ImageV1_1_RC4_InvalidMediaType(t *testing.T) {
 	opts = PackManifestOptions{
 		ConfigDescriptor: &configDesc,
 	}
-	_, err = PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
+	_, err = PackManifest(ctx, s, PackManifestVersion1_1, artifactType, opts)
 	if wantErr := errdef.ErrInvalidMediaType; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
 }
 
-func Test_PackManifest_ImageV1_1_RC4_InvalidDateTimeFormat(t *testing.T) {
+func Test_PackManifest_ImageV1_1_InvalidDateTimeFormat(t *testing.T) {
 	s := memory.New()
 
 	ctx := context.Background()
@@ -1075,7 +1075,7 @@ func Test_PackManifest_ImageV1_1_RC4_InvalidDateTimeFormat(t *testing.T) {
 		},
 	}
 	artifactType := "application/vnd.test"
-	_, err := PackManifest(ctx, s, PackManifestVersion1_1_RC4, artifactType, opts)
+	_, err := PackManifest(ctx, s, PackManifestVersion1_1, artifactType, opts)
 	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
