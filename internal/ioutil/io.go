@@ -46,13 +46,20 @@ func CopyBuffer(dst io.Writer, src io.Reader, buf []byte, desc ocispec.Descripto
 
 // nopCloserType is the type of `io.NopCloser()`.
 var nopCloserType = reflect.TypeOf(io.NopCloser(nil))
+var nopCloserWriterToType = reflect.TypeOf(io.NopCloser(struct {
+	io.Reader
+	io.WriterTo
+}{}))
 
-// UnwrapNopCloser unwraps the reader wrapped by `io.NopCloser()`.
+// unwrapNopCloser return the underlying reader and true if r is a NopCloser
+// else it return false.
 // Similar implementation can be found in the built-in package `net/http`.
-// Reference: https://github.com/golang/go/blob/go1.17.6/src/net/http/transfer.go#L423-L425
-func UnwrapNopCloser(rc io.Reader) io.Reader {
-	if reflect.TypeOf(rc) == nopCloserType {
-		return reflect.ValueOf(rc).Field(0).Interface().(io.Reader)
+// Reference: https://github.com/golang/go/blob/go1.22.1/src/net/http/transfer.go#L1090-L1105
+func unwrapNopCloser(r io.Reader) (underlyingReader io.Reader, isNopCloser bool) {
+	switch reflect.TypeOf(r) {
+	case nopCloserType, nopCloserWriterToType:
+		return reflect.ValueOf(r).Field(0).Interface().(io.Reader), true
+	default:
+		return nil, false
 	}
-	return rc
 }
