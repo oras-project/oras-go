@@ -52,8 +52,8 @@ var nopCloserWriterToType = reflect.TypeOf(io.NopCloser(struct {
 	io.WriterTo
 }{}))
 
-// unwrapNopCloser return the underlying reader and true if r is a NopCloser
-// else it return false.
+// UnwrapNopCloser returns the underlying reader if rc is a NopCloser
+// else it simply returns rc.
 // Similar implementation can be found in the built-in package `net/http`.
 // Reference: https://github.com/golang/go/blob/go1.22.1/src/net/http/transfer.go#L1090-L1105
 func UnwrapNopCloser(rc io.Reader) io.Reader {
