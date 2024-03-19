@@ -25,8 +25,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
+	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/credentials/internal/config"
 )
@@ -107,18 +107,14 @@ func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
 		// no authentication configured, detect the default credentials store
 		ds.detectedCredsStore = getDefaultHelperSuffix()
 	}
-	var setCredsStore func() error
-	setCredsStore = func() error {
+	ds.setCredsStoreOnce = syncutil.OnceRetryOnError(func() error {
 		if ds.detectedCredsStore != "" {
 			if err := ds.config.SetCredentialsStore(ds.detectedCredsStore); err != nil {
-				// retry on next call
-				ds.setCredsStoreOnce = sync.OnceValue(setCredsStore)
 				return fmt.Errorf("failed to set credsStore: %w", err)
 			}
 		}
 		return nil
-	}
-	ds.setCredsStoreOnce = sync.OnceValue(setCredsStore)
+	})
 	return ds, nil
 }
 
