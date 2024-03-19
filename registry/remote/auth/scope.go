@@ -17,10 +17,10 @@ package auth
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 
-	"oras.land/oras-go/v2/internal/slices"
 	"oras.land/oras-go/v2/registry"
 )
 
