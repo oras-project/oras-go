@@ -53,7 +53,7 @@ type DynamicStore struct {
 	config             *config.Config
 	options            StoreOptions
 	detectedCredsStore string
-	setCredsStoreOnce  func() error
+	setCredsStoreOnce  syncutil.OnceOrRetry
 }
 
 // StoreOptions provides options for NewStore.
@@ -107,14 +107,6 @@ func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
 		// no authentication configured, detect the default credentials store
 		ds.detectedCredsStore = getDefaultHelperSuffix()
 	}
-	ds.setCredsStoreOnce = syncutil.OnceRetryOnError(func() error {
-		if ds.detectedCredsStore != "" {
-			if err := ds.config.SetCredentialsStore(ds.detectedCredsStore); err != nil {
-				return fmt.Errorf("failed to set credsStore: %w", err)
-			}
-		}
-		return nil
-	})
 	return ds, nil
 }
 
@@ -149,7 +141,14 @@ func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred auth
 		return err
 	}
 	// save the detected creds store back to the config file on first put
-	return ds.setCredsStoreOnce()
+	return ds.setCredsStoreOnce.Do(func() error {
+		if ds.detectedCredsStore != "" {
+			if err := ds.config.SetCredentialsStore(ds.detectedCredsStore); err != nil {
+				return fmt.Errorf("failed to set credsStore: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // Delete removes credentials from the store for the given server address.
