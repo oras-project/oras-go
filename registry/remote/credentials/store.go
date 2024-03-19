@@ -53,7 +53,7 @@ type DynamicStore struct {
 	config             *config.Config
 	options            StoreOptions
 	detectedCredsStore string
-	setCredsStoreOnce  sync.Once
+	setCredsStoreOnce  func() error
 }
 
 // StoreOptions provides options for NewStore.
@@ -107,6 +107,18 @@ func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
 		// no authentication configured, detect the default credentials store
 		ds.detectedCredsStore = getDefaultHelperSuffix()
 	}
+	var setCredsStore func() error
+	setCredsStore = func() error {
+		if ds.detectedCredsStore != "" {
+			if err := ds.config.SetCredentialsStore(ds.detectedCredsStore); err != nil {
+				// retry on next call
+				ds.setCredsStoreOnce = sync.OnceValue(setCredsStore)
+				return fmt.Errorf("failed to set credsStore: %w", err)
+			}
+		}
+		return nil
+	}
+	ds.setCredsStoreOnce = sync.OnceValue(setCredsStore)
 	return ds, nil
 }
 
@@ -136,19 +148,12 @@ func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (auth.Cre
 // Put saves credentials into the store for the given server address.
 // Put returns ErrPlaintextPutDisabled if native store is not available and
 // [StoreOptions].AllowPlaintextPut is set to false.
-func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred auth.Credential) (returnErr error) {
+func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred auth.Credential) error {
 	if err := ds.getStore(serverAddress).Put(ctx, serverAddress, cred); err != nil {
 		return err
 	}
 	// save the detected creds store back to the config file on first put
-	ds.setCredsStoreOnce.Do(func() {
-		if ds.detectedCredsStore != "" {
-			if err := ds.config.SetCredentialsStore(ds.detectedCredsStore); err != nil {
-				returnErr = fmt.Errorf("failed to set credsStore: %w", err)
-			}
-		}
-	})
-	return returnErr
+	return ds.setCredsStoreOnce()
 }
 
 // Delete removes credentials from the store for the given server address.
