@@ -28,6 +28,14 @@ import (
 )
 
 func TestUnwrapNopCloser(t *testing.T) {
+	var reader struct {
+		io.Reader
+	}
+	var readerWithWriterTo struct {
+		io.Reader
+		io.WriterTo
+	}
+
 	tests := []struct {
 		name string
 		rc   io.Reader
@@ -37,9 +45,14 @@ func TestUnwrapNopCloser(t *testing.T) {
 			name: "nil",
 		},
 		{
-			name: "no-op closer",
-			rc:   io.NopCloser(os.Stdin),
-			want: os.Stdin,
+			name: "no-op closer with plain io.Reader",
+			rc:   io.NopCloser(reader),
+			want: reader,
+		},
+		{
+			name: "no-op closer with io.WriteTo",
+			rc:   io.NopCloser(readerWithWriterTo),
+			want: readerWithWriterTo,
 		},
 		{
 			name: "any ReadCloser",
