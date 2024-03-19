@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"sort"
+	"slices"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -125,7 +125,7 @@ func (s *ReadOnlyStore) Predecessors(ctx context.Context, node ocispec.Descripto
 //
 // See also `Tags()` in the package `registry`.
 func (s *ReadOnlyStore) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
-	return listTags(ctx, s.tagResolver, last, fn)
+	return listTags(s.tagResolver, last, fn)
 }
 
 // validateOCILayoutFile validates the `oci-layout` file.
@@ -216,7 +216,7 @@ func resolveBlob(fsys fs.FS, dgst string) (ocispec.Descriptor, error) {
 // list.
 //
 // See also `Tags()` in the package `registry`.
-func listTags(ctx context.Context, tagResolver *resolver.Memory, last string, fn func(tags []string) error) error {
+func listTags(tagResolver *resolver.Memory, last string, fn func(tags []string) error) error {
 	var tags []string
 
 	tagMap := tagResolver.Map()
@@ -229,7 +229,7 @@ func listTags(ctx context.Context, tagResolver *resolver.Memory, last string, fn
 		}
 		tags = append(tags, tag)
 	}
-	sort.Strings(tags)
+	slices.Sort(tags)
 
 	return fn(tags)
 }

@@ -334,7 +334,7 @@ func (s *Store) Tags(ctx context.Context, last string, fn func(tags []string) er
 	s.sync.RLock()
 	defer s.sync.RUnlock()
 
-	return listTags(ctx, s.tagResolver, last, fn)
+	return listTags(s.tagResolver, last, fn)
 }
 
 // ensureOCILayoutFile ensures the `oci-layout` file.
