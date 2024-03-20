@@ -114,6 +114,10 @@ func TestParseReferenceUglies(t *testing.T) {
 			raw:  "hello-world:linux",
 		},
 		{
+			name: "missing registry (issue #698)",
+			raw:  "/hello-world:linux",
+		},
+		{
 			name: "invalid repo name",
 			raw:  "localhost/UPPERCASE/test",
 		},
