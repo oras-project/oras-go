@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"time"
 
@@ -420,9 +421,8 @@ func ensureAnnotationCreated(annotations map[string]string, annotationCreatedKey
 
 	// copy the original annotation map
 	copied := make(map[string]string, len(annotations)+1)
-	for k, v := range annotations {
-		copied[k] = v
-	}
+	maps.Copy(copied, annotations)
+
 	// set creation time in RFC 3339 format
 	// reference: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc2/annotations.md#pre-defined-annotation-keys
 	now := time.Now().UTC()

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -333,7 +334,7 @@ func (s *Store) Tags(ctx context.Context, last string, fn func(tags []string) er
 	s.sync.RLock()
 	defer s.sync.RUnlock()
 
-	return listTags(ctx, s.tagResolver, last, fn)
+	return listTags(s.tagResolver, last, fn)
 }
 
 // ensureOCILayoutFile ensures the `oci-layout` file.
@@ -418,9 +419,7 @@ func (s *Store) saveIndex() error {
 	for ref, desc := range refMap {
 		if ref != desc.Digest.String() {
 			annotations := make(map[string]string, len(desc.Annotations)+1)
-			for k, v := range desc.Annotations {
-				annotations[k] = v
-			}
+			maps.Copy(annotations, desc.Annotations)
 			annotations[ocispec.AnnotationRefName] = ref
 			desc.Annotations = annotations
 			manifests = append(manifests, desc)
