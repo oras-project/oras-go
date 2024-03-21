@@ -38,6 +38,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/spec"
 )
@@ -1610,6 +1611,147 @@ func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
 	// push manifest before blob is fine
 	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
 		t.Error("Store.Push(): error = ", err)
+	}
+}
+
+type storageMock struct {
+	content.Storage
+
+	OnFetch func(ctx context.Context, desc ocispec.Descriptor) error
+}
+
+func (m *storageMock) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
+	if m.OnFetch != nil {
+		if err := m.OnFetch(ctx, desc); err != nil {
+			return nil, err
+		}
+	}
+	return m.Storage.Fetch(ctx, desc)
+}
+
+func TestStore_File_Push_RestoreDuplicates_DuplicateName(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{blobDesc},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	fallbackMock := &storageMock{
+		Storage: cas.NewMemory(),
+	}
+	s, err := NewWithFallbackStorage(tempDir, fallbackMock)
+	if err != nil {
+		t.Fatal("NewWithFallbackStorage() error =", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	// push blob as unnamed
+	if err := fallbackMock.Push(ctx, blobDesc, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+	// push manifest
+	fallbackMock.OnFetch = func(ctx context.Context, desc ocispec.Descriptor) error {
+		if desc.Digest == blobDesc.Digest {
+			// push blob before being restored by manifest put to simulate
+			// concurrent pushing for race condition
+			if err := s.Push(ctx, blobDesc, bytes.NewReader(content)); err != nil {
+				t.Fatal("Store.Push() error =", err)
+			}
+		}
+		return nil
+	}
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// verify blob is restored
+	got, err := os.ReadFile(filepath.Join(tempDir, "blob"))
+	if err != nil {
+		t.Fatal("os.ReadFile() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("os.ReadFile() = %v, want %v", got, content)
+	}
+}
+
+func TestStore_File_Push_RestoreDuplicates_Failure(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{blobDesc},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	tempDir := t.TempDir()
+	fallbackMock := &storageMock{
+		Storage: cas.NewMemory(),
+	}
+	s, err := NewWithFallbackStorage(tempDir, fallbackMock)
+	if err != nil {
+		t.Fatal("NewWithFallbackStorage() error =", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	// push manifest
+	wantErr := errors.New("restoreDuplicates: fetch error")
+	fallbackMock.OnFetch = func(ctx context.Context, desc ocispec.Descriptor) error {
+		if desc.Digest == blobDesc.Digest {
+			return wantErr
+		}
+		return nil
+	}
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, wantErr) {
+		t.Fatalf("Store.Push() error = %v, wantErr %v", err, wantErr)
 	}
 }
 
