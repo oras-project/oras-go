@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -189,5 +190,99 @@ func TestOnce_Do_Cancel_Panic(t *testing.T) {
 	}
 	if wantResult := "bar"; !reflect.DeepEqual(result, wantResult) {
 		t.Fatalf("Once.Do() result = %v, want %v", result, wantResult)
+	}
+}
+
+func TestOnceOrRetry_Do(t *testing.T) {
+	var once OnceOrRetry
+	var count atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := once.Do(func() error {
+				count.Add(1)
+				return nil
+			})
+			if err != nil {
+				t.Errorf("OnceOrRetry.Do() error = %v, wantErr %v", err, nil)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := count.Load(); got != 1 {
+		t.Fatal("OnceOrRetry.Do() called more than once")
+	}
+}
+
+func TestOnceOrRetry_Do_Fail(t *testing.T) {
+	var once OnceOrRetry
+	var wg sync.WaitGroup
+
+	// test failure
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(wantErr error) {
+			defer wg.Done()
+			err := once.Do(func() error {
+				return wantErr
+			})
+			if err != wantErr {
+				t.Errorf("OnceOrRetry.Do() error = %v, wantErr %v", err, wantErr)
+			}
+		}(errors.New(strconv.Itoa(i)))
+	}
+	wg.Wait()
+
+	// retry after failure
+	err := once.Do(func() error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("OnceOrRetry.Do() error = %v, wantErr %v", err, nil)
+	}
+
+	// no retry after success
+	err = once.Do(func() error {
+		t.Fatal("OnceOrRetry.Do() called twice")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("OnceOrRetry.Do() error = %v, wantErr %v", err, nil)
+	}
+}
+
+func TestOnceOrRetry_Do_Panic(t *testing.T) {
+	var once OnceOrRetry
+
+	// test panic
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatal("OnceOrRetry.Do() did not panic")
+			}
+		}()
+		_ = once.Do(func() error {
+			panic("failed")
+		})
+	}()
+
+	// retry after panic
+	err := once.Do(func() error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("OnceOrRetry.Do() error = %v, wantErr %v", err, nil)
+	}
+
+	// no retry after success
+	err = once.Do(func() error {
+		t.Fatal("OnceOrRetry.Do() called twice")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("OnceOrRetry.Do() error = %v, wantErr %v", err, nil)
 	}
 }
