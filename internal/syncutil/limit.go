@@ -17,6 +17,7 @@ package syncutil
 
 import (
 	"context"
+	"sync/atomic"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
@@ -68,15 +69,24 @@ type GoFunc[T any] func(ctx context.Context, region *LimitedRegion, t T) error
 // Go concurrently invokes fn on items.
 func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], items ...T) error {
 	eg, egCtx := errgroup.WithContext(ctx)
+	var egErr atomic.Value
 	for _, item := range items {
-		region := LimitRegion(ctx, limiter)
+		region := LimitRegion(egCtx, limiter)
 		if err := region.Start(); err != nil {
+			if egErr, ok := egErr.Load().(error); ok && egErr != nil {
+				return egErr
+			}
 			return err
 		}
 		eg.Go(func(t T) func() error {
 			return func() error {
 				defer region.End()
-				return fn(egCtx, region, t)
+				// cancel the gorountine before the next goroutine is created
+				err := fn(egCtx, region, t)
+				if err != nil {
+					egErr.CompareAndSwap(nil, err)
+				}
+				return err
 			}
 		}(item))
 	}
