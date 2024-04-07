@@ -1780,6 +1780,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		root = descs[6]
 		dst := &countingStorage{storage: cas.NewMemory()}
 		opts = oras.CopyGraphOptions{
+			// to make the run result deterministic, we limit concurrency to 1
 			Concurrency: 1,
 		}
 		var numMountFrom atomic.Int64
@@ -1832,6 +1833,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 			return nil
 		}
 		opts = oras.CopyGraphOptions{
+			// to make the run result deterministic, we limit concurrency to 1
 			Concurrency: 1,
 		}
 		var numPreCopy, numPostCopy, numOnMounted, numMountFrom atomic.Int64
