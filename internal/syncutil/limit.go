@@ -85,8 +85,9 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 				err := fn(egCtx, region, t)
 				if err != nil {
 					egErr.CompareAndSwap(nil, err)
+					return err
 				}
-				return err
+				return nil
 			}
 		}(item))
 	}

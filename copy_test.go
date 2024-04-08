@@ -1793,7 +1793,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 			t.Fatalf("CopyGraph() error = %v, wantErr %v", err, e)
 		}
 
-		// with a very low probability, dst.numExists may be 3
+		// with a low probability, dst.numExists may be 3 or 5
 		if got, expected := dst.numExists.Load(), int64(4); got != expected {
 			t.Errorf("count(Exists()) = %d, want %d", got, expected)
 		}
@@ -1803,6 +1803,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		if got, expected := dst.numPush.Load(), int64(0); got != expected {
 			t.Errorf("count(Push()) = %d, want %d", got, expected)
 		}
+		// with a low probability, dst.numExists may be 2
 		if got, expected := numMountFrom.Load(), int64(1); got != expected {
 			t.Errorf("count(MountFrom()) = %d, want %d", got, expected)
 		}
