@@ -1777,7 +1777,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 	})
 
 	t.Run("MountFrom error", func(t *testing.T) {
-		root = descs[6]
+		root = descs[3]
 		dst := &countingStorage{storage: cas.NewMemory()}
 		opts = oras.CopyGraphOptions{
 			// to make the run result deterministic, we limit concurrency to 1
@@ -1793,8 +1793,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 			t.Fatalf("CopyGraph() error = %v, wantErr %v", err, e)
 		}
 
-		// with a low probability, dst.numExists may be 3 or 5
-		if got, expected := dst.numExists.Load(), int64(4); got != expected {
+		if got, expected := dst.numExists.Load(), int64(2); got != expected {
 			t.Errorf("count(Exists()) = %d, want %d", got, expected)
 		}
 		if got, expected := dst.numFetch.Load(), int64(0); got != expected {
@@ -1803,14 +1802,13 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		if got, expected := dst.numPush.Load(), int64(0); got != expected {
 			t.Errorf("count(Push()) = %d, want %d", got, expected)
 		}
-		// with a low probability, dst.numExists may be 2
 		if got, expected := numMountFrom.Load(), int64(1); got != expected {
 			t.Errorf("count(MountFrom()) = %d, want %d", got, expected)
 		}
 	})
 
 	t.Run("MountFrom OnMounted error", func(t *testing.T) {
-		root = descs[6]
+		root = descs[3]
 		dst := &countingStorage{storage: cas.NewMemory()}
 		var numMount atomic.Int64
 		dst.mount = func(ctx context.Context,
@@ -1859,7 +1857,7 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 			t.Fatalf("CopyGraph() error = %v, wantErr %v", err, e)
 		}
 
-		if got, expected := dst.numExists.Load(), int64(4); got != expected {
+		if got, expected := dst.numExists.Load(), int64(2); got != expected {
 			t.Errorf("count(Exists()) = %d, want %d", got, expected)
 		}
 		if got, expected := dst.numFetch.Load(), int64(0); got != expected {
