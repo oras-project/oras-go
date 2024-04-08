@@ -81,7 +81,6 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 		eg.Go(func(t T) func() error {
 			return func() error {
 				defer region.End()
-				// cancel the gorountine before the next goroutine is created
 				err := fn(egCtx, region, t)
 				if err != nil {
 					egErr.CompareAndSwap(nil, err)
