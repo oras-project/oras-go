@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/containerd/containerd v1.7.6
 	github.com/distribution/distribution/v3 v3.0.0-alpha.1
-	github.com/docker/cli v26.0.1+incompatible
+	github.com/docker/cli v26.0.2+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/docker v26.0.1+incompatible
 	github.com/docker/go-connections v0.5.0
