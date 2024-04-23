@@ -93,7 +93,9 @@ type PackManifestOptions struct {
 	// Layers is the layers of the manifest.
 	Layers []ocispec.Descriptor
 
-	// ManifestAnnotations is the annotation map of the manifest.
+	// ManifestAnnotations is the annotation map of the manifest. Set
+	// "org.opencontainers.image.created" with a value to make PackManifest
+	// reproducible.
 	ManifestAnnotations map[string]string
 
 	// ConfigDescriptor is a pointer to the descriptor of the config blob.
@@ -125,6 +127,11 @@ var mediaTypeRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&-^_.+]{0,126
 //     if opts.ConfigDescriptor is NOT nil, artifactType will be ignored.
 //
 // artifactType and opts.ConfigDescriptor.MediaType MUST comply with RFC 6838.
+//
+// Each time when PackManifest is called, it generates a new time stamp in the
+// manifest annotations with the key "org.opencontainers.image.created". To make
+// PackManifest reproducible, set "org.opencontainers.image.created" with a value
+// in opts.ManifestAnnotations.
 //
 // If succeeded, returns a descriptor of the packed manifest.
 func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
