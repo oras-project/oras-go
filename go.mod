@@ -1,4 +1,4 @@
-module oras.land/oras-go/v2
+module github.com/saladtechnologies/oras-go
 
 go 1.23.0
 
