@@ -49,3 +49,11 @@ Documentation and examples are available at [pkg.go.dev](https://pkg.go.dev/oras
 2. Code Refactoring
    - Since breaking changes are introduced in `v2`, code refactoring is required for migrating from `v1` to `v2`.  
    - The migration can be done in an iterative fashion, as `v1` and `v2` can be imported and used at the same time.
+
+## FAQ
+
+## Community Support
+
+TODO: add links
+
+If you encounter challenges, seek assistance from the community by filing GitHub issues or asking in Slack channel.
