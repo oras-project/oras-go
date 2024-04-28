@@ -51,4 +51,4 @@ In version `v2`, ORAS Go library has been completely refreshed with:
 
 ## Community Support
 
-If you encounter challenges during migration, seek assistance from the community by [filing GitHub issues](https://github.com/oras-project/oras-go/issues/new) or asking in the [#oras](https://cloud-native.slack.com/archives/CJ1KHJM5Z) channel in Slack.
+If you encounter challenges during migration, seek assistance from the community by [filing GitHub issues](https://github.com/oras-project/oras-go/issues/new) or asking in the [#oras](https://cloud-native.slack.com/archives/CJ1KHJM5Z) Slack channel.
