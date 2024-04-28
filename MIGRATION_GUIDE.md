@@ -23,8 +23,6 @@ In version `v2`, ORAS Go library has been completely refreshed with:
   - Supports [copying](https://pkg.go.dev/oras.land/oras-go/v2#Copy) artifacts between various [`Target`](https://pkg.go.dev/oras.land/oras-go/v2#Target) with more flexible options
   - Supports [extended-copying](https://pkg.go.dev/oras.land/oras-go/v2#ExtendedCopy) artifacts and their predecessors (e.g. referrers) with options *(experimental)*
 
-Documentation and examples are available at [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
-
 ## Migrating from `v1` to `v2`
 
 1. Update Go dependencies
@@ -46,14 +44,10 @@ Documentation and examples are available at [pkg.go.dev](https://pkg.go.dev/oras
     go mod tidy
     ```
 
-2. Code Refactoring
-   - Since breaking changes are introduced in `v2`, code refactoring is required for migrating from `v1` to `v2`.  
-   - The migration can be done in an iterative fashion, as `v1` and `v2` can be imported and used at the same time.
-
-## FAQ
+2. Code Refactoring  
+   Since breaking changes are introduced in `v2`, code refactoring is required for migrating from `v1` to `v2`. The migration can be done in an iterative fashion, as `v1` and `v2` can be imported and used at the same time.  
+   Please refer to [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2) for detailed documentation and examples.
 
 ## Community Support
 
-TODO: add links
-
-If you encounter challenges, seek assistance from the community by filing GitHub issues or asking in Slack channel.
+If you encounter challenges during migration, seek assistance from the community by [filing GitHub issues](https://github.com/oras-project/oras-go/issues/new) or asking in the [#oras](https://cloud-native.slack.com/archives/CJ1KHJM5Z) channel in Slack.
