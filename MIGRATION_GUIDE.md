@@ -13,16 +13,15 @@ In version `v2`, ORAS Go library has been completely refreshed with:
 
 - Content store
   - [`content.File`](https://pkg.go.dev/oras.land/oras-go/pkg/content#File) is now [`file.Store`](https://pkg.go.dev/oras.land/oras-go/v2/content/file#Store)
-  - [`content.OCI`](https://pkg.go.dev/oras.land/oras-go/pkg/content#OCI) is now [oci.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/oci#Store)
-  - [`content.Memory`](https://pkg.go.dev/oras.land/oras-go/pkg/content#Memory) is now [memory.Store](https://pkg.go.dev/oras.land/oras-go/v2/content/memory#Store)
+  - [`content.OCI`](https://pkg.go.dev/oras.land/oras-go/pkg/content#OCI) is now [`oci.Store`](https://pkg.go.dev/oras.land/oras-go/v2/content/oci#Store)
+  - [`content.Memory`](https://pkg.go.dev/oras.land/oras-go/pkg/content#Memory) is now [`memory.Store`](https://pkg.go.dev/oras.land/oras-go/v2/content/memory#Store)
 - Registry interaction
   - Provides an [SDK](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) to interact with both OCI-compliant and Docker-compliant registries
 - Authentication
-  - Provides authentication through authentication through [auth.Client](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#Client) and provides credential management through [`credentials`](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/credentials)
+  - Provides authentication through authentication through [`auth.Client`](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#Client) and provides credential management through [`credentials`](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/credentials)
 - Copy operations
   - Supports [copying](https://pkg.go.dev/oras.land/oras-go/v2#Copy) artifacts between various [`Target`](https://pkg.go.dev/oras.land/oras-go/v2#Target) with more flexible options
   - Supports [extended-copying](https://pkg.go.dev/oras.land/oras-go/v2#ExtendedCopy) artifacts and their predecessors (e.g. referrers) with options *(experimental)*
-
 
 Documentation and examples are available at [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
 
