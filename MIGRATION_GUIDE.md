@@ -32,7 +32,7 @@ In version `v2`, ORAS Go library has been completely refreshed with:
     go get oras.land/oras-go/v2
     ```
 
-   - Import the `v2` package:
+   - Incorporate the `v2` package in your project:
 
     ```go
     import "oras.land/oras-go/v2"
