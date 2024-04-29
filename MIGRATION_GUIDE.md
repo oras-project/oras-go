@@ -25,26 +25,26 @@ In version `v2`, ORAS Go library has been completely refreshed with:
 
 ## Migrating from `v1` to `v2`
 
-1. Updating Go dependencies:
-   - Get the `v2` package
+1. Update Go dependencies:
+   - Get the `v2` package:
 
     ```sh
     go get oras.land/oras-go/v2
     ```
 
-   - Import the `v2` package and use it in your code
+   - Import the `v2` package:
 
     ```go
     import "oras.land/oras-go/v2"
     ```
 
-   - Run
+   - Run:
 
     ```sh
     go mod tidy
     ```
 
-2. Code Refactoring:
+2. Refactor your code:
    - Since breaking changes are introduced in `v2`, code refactoring is required for migrating from `v1` to `v2`.
    - The migration can be done in an iterative fashion, as `v1` and `v2` can be imported and used at the same time.  
    - For comprehensive documentation and examples, please refer to [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
