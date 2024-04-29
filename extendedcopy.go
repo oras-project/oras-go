@@ -65,7 +65,7 @@ type ExtendedCopyGraphOptions struct {
 
 // ExtendedCopy copies the directed acyclic graph (DAG) that are reachable from
 // the given tagged node from the source GraphTarget to the destination Target.
-// In other words, it copies an tagged artifact along with its referrers or
+// In other words, it copies a tagged artifact along with its referrers or
 // other predecessor manifests referencing it.
 //
 // The tagged node (e.g. a tagged manifest of the artifact) is identified by the
