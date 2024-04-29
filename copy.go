@@ -120,8 +120,11 @@ type CopyGraphOptions struct {
 	FindSuccessors func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
 
-// Copy copies a rooted directed acyclic graph (DAG) with the tagged root node
-// in the source Target to the destination Target.
+// Copy copies a rooted directed acyclic graph (DAG), such as an artifact,
+// from the source Target to the destination Target.
+//
+// The root node (e.g. a tagged manifest of the artifact) is identified by the
+// source reference.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
 //
@@ -167,8 +170,9 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	return root, nil
 }
 
-// CopyGraph copies a rooted directed acyclic graph (DAG) from the source CAS to
-// the destination CAS.
+// CopyGraph copies a rooted directed acyclic graph (DAG), such as an artifact,
+// from the source CAS to the destination CAS.
+// The root node (e.g. a manifest of the artifact) is identified by a descriptor.
 func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, root ocispec.Descriptor, opts CopyGraphOptions) error {
 	return copyGraph(ctx, src, dst, root, nil, nil, nil, opts)
 }

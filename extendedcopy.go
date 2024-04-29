@@ -65,6 +65,11 @@ type ExtendedCopyGraphOptions struct {
 
 // ExtendedCopy copies the directed acyclic graph (DAG) that are reachable from
 // the given tagged node from the source GraphTarget to the destination Target.
+// In other words, it copies an tagged artifact along with its referrers or
+// other predecessor manifests referencing it.
+//
+// The tagged node (e.g. a tagged manifest of the artifact) is identified by the
+// source reference.
 // The destination reference will be the same as the source reference if the
 // destination reference is left blank.
 //
@@ -98,6 +103,9 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 
 // ExtendedCopyGraph copies the directed acyclic graph (DAG) that are reachable
 // from the given node from the source GraphStorage to the destination Storage.
+// In other words, it copies an artifact along with its referrers or other
+// predecessor manifests referencing it.
+// The node (e.g. a manifest of the artifact) is identified by a descriptor.
 func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
 	roots, err := findRoots(ctx, src, node, opts)
 	if err != nil {
