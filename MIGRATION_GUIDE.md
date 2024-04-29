@@ -16,7 +16,7 @@ In version `v2`, ORAS Go library has been completely refreshed with:
   - [`content.OCI`](https://pkg.go.dev/oras.land/oras-go/pkg/content#OCI) is now [`oci.Store`](https://pkg.go.dev/oras.land/oras-go/v2/content/oci#Store)
   - [`content.Memory`](https://pkg.go.dev/oras.land/oras-go/pkg/content#Memory) is now [`memory.Store`](https://pkg.go.dev/oras.land/oras-go/v2/content/memory#Store)
 - Registry interaction
-  - Introduces an [SDK](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) to interact with both OCI-compliant and Docker-compliant registries
+  - Introduces an [SDK](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) to interact with OCI-compliant and Docker-compliant registries
 - Authentication
   - Implements authentication through [`auth.Client`](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#Client) and supports credential management via [`credentials`](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/credentials)
 - Copy operations
