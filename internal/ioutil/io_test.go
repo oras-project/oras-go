@@ -21,10 +21,12 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strconv"
 	"testing"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 func TestUnwrapNopCloser(t *testing.T) {
@@ -77,52 +79,127 @@ func TestCopyBuffer(t *testing.T) {
 		desc ocispec.Descriptor
 	}
 	tests := []struct {
-		name    string
-		args    args
-		wantDst string
-		wantErr error
+		name         string
+		args         args
+		wantDst      string
+		wantErr      error
+		blob         []byte
+		bufSize      int64
+		resumeOffset int64
 	}{
 		{
 			name:    "exact buffer size, no errors",
-			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", blob)},
 			wantDst: "foo",
 			wantErr: nil,
+			blob:    blob,
+			bufSize: 3,
+		},
+		{
+			name:         "exact buffer size, no errors, resume",
+			wantDst:      "foo",
+			wantErr:      nil,
+			blob:         blob,
+			bufSize:      3,
+			resumeOffset: 1,
 		},
 		{
 			name:    "small buffer size, no errors",
-			args:    args{bytes.NewReader(blob), make([]byte, 1), content.NewDescriptorFromBytes("test", blob)},
 			wantDst: "foo",
 			wantErr: nil,
+			blob:    blob,
+			bufSize: 1,
+		},
+		{
+			name:         "small buffer size, no errors, resume",
+			wantDst:      "foo",
+			wantErr:      nil,
+			blob:         blob,
+			bufSize:      1,
+			resumeOffset: 1,
 		},
 		{
 			name:    "big buffer size, no errors",
-			args:    args{bytes.NewReader(blob), make([]byte, 5), content.NewDescriptorFromBytes("test", blob)},
 			wantDst: "foo",
 			wantErr: nil,
+			blob:    blob,
+			bufSize: 5,
+		},
+		{
+			name:         "big buffer size, no errors, resume",
+			wantDst:      "foo",
+			wantErr:      nil,
+			blob:         blob,
+			bufSize:      5,
+			resumeOffset: 1,
 		},
 		{
 			name:    "wrong digest",
-			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("bar"))},
 			wantDst: "foo",
 			wantErr: content.ErrMismatchedDigest,
+			blob:    []byte("bar"),
+			bufSize: 3,
+		},
+		{
+			name:         "wrong digest, resume",
+			wantDst:      "foo",
+			wantErr:      content.ErrMismatchedDigest,
+			blob:         []byte("bar"),
+			bufSize:      3,
+			resumeOffset: 1,
 		},
 		{
 			name:    "wrong size, descriptor size is smaller",
-			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("fo"))},
 			wantDst: "foo",
 			wantErr: content.ErrTrailingData,
+			blob:    []byte("fo"),
+			bufSize: 3,
+		},
+		{
+			name:         "wrong size, descriptor size is smaller, resume",
+			wantDst:      "foo",
+			wantErr:      content.ErrTrailingData,
+			blob:         []byte("fo"),
+			bufSize:      3,
+			resumeOffset: 1,
 		},
 		{
 			name:    "wrong size, descriptor size is larger",
-			args:    args{bytes.NewReader(blob), make([]byte, 3), content.NewDescriptorFromBytes("test", []byte("fooo"))},
 			wantDst: "foo",
 			wantErr: io.ErrUnexpectedEOF,
+			blob:    []byte("fooo"),
+			bufSize: 3,
+		},
+		{
+			name:         "wrong size, descriptor size is larger, resume",
+			wantDst:      "foo",
+			wantErr:      content.ErrMismatchedDigest,
+			blob:         []byte("fooo"),
+			bufSize:      3,
+			resumeOffset: 2,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dst := &bytes.Buffer{}
-			err := CopyBuffer(dst, tt.args.src, tt.args.buf, tt.args.desc)
+			args := args{
+				bytes.NewReader(blob),
+				make([]byte, tt.bufSize),
+				content.NewDescriptorFromBytes("test", tt.blob),
+			}
+			if tt.resumeOffset > 0 {
+				// Make the starting Hash and run over the starting content
+				h := args.desc.Digest.Algorithm().Hash()
+				h.Write(tt.blob[0 : tt.resumeOffset-1])
+				eh, _ := content.EncodeHash(h)
+
+				// Add the Annotations for resume
+				args.desc.Annotations = map[string]string{
+					spec.AnnotationResumeDownload: "true",
+					spec.AnnotationResumeOffset:   strconv.FormatInt(tt.resumeOffset, 10),
+					spec.AnnotationResumeHash:     eh,
+				}
+			}
+			err := CopyBuffer(dst, args.src, args.buf, args.desc)
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("CopyBuffer() error = %v, wantErr %v", err, tt.wantErr)
 				return

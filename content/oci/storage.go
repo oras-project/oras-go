@@ -23,11 +23,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/ioutil"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 // bufPool is a pool of byte buffers that can be reused for copying content
@@ -107,6 +110,18 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 	return nil
 }
 
+// IngestFile returns the ingest file matching name
+func (s *Storage) IngestFile(name string) string {
+	ingestFiles, err := filepath.Glob(filepath.Join(s.ingestRoot, name+"_*"))
+	if err != nil || len(ingestFiles) == 0 {
+		// Error or no files found
+		return ""
+	}
+	// Found at least one file, return up the first one
+	// TODO: Look for the largest matching file?
+	return ingestFiles[0]
+}
+
 // Delete removes the target from the system.
 func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	path, err := blobPath(target.Digest)
@@ -125,18 +140,59 @@ func (s *Storage) Delete(ctx context.Context, target ocispec.Descriptor) error {
 }
 
 // ingest write the content into a temporary ingest file.
-func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path string, ingestErr error) {
+func (s *Storage) ingest(expected ocispec.Descriptor, contentReader io.Reader) (path string, ingestErr error) {
 	if err := ensureDir(s.ingestRoot); err != nil {
 		return "", fmt.Errorf("failed to ensure ingest dir: %w", err)
 	}
 
-	// create a temp file with the file name format "blobDigest_randomString"
-	// in the ingest directory.
-	// Go ensures that multiple programs or goroutines calling CreateTemp
-	// simultaneously will not choose the same file.
-	fp, err := os.CreateTemp(s.ingestRoot, expected.Digest.Encoded()+"_*")
+	// Resume Download
+	resume := expected.Annotations[spec.AnnotationResumeDownload]
+	ingestFile := expected.Annotations[spec.AnnotationResumeFilename]
+	ingestSize, err := strconv.ParseInt(expected.Annotations[spec.AnnotationResumeOffset], 10, 64)
 	if err != nil {
-		return "", fmt.Errorf("failed to create ingest file: %w", err)
+		ingestSize = 0
+	}
+
+	// See if a partial ingest file with this hash already exists
+	var fp *os.File
+	if resume == "true" && ingestFile != "" && ingestSize > 0 && ingestSize < expected.Size {
+		// Found a suitable ingest file
+		fp, err = os.OpenFile(ingestFile, os.O_RDWR|os.O_APPEND, 0o600)
+		if err != nil {
+			return "", fmt.Errorf("failed to open partial ingest file: %w", err)
+		}
+
+		// Rewind file to re-verify current contents on disk
+		fp.Seek(0, io.SeekStart)
+
+		// Make a new Hash and update for current contents on disk
+		newHash := expected.Digest.Algorithm().Hash()
+		if n, err := io.Copy(newHash, fp); err != nil || n != ingestSize {
+			// If error, assume we can't use what is there
+			ingestSize = 0
+		} else {
+			eh, err := content.EncodeHash(newHash)
+			if err != nil {
+				// oops, still can't resume...
+				ingestSize = 0
+			} else {
+				expected.Annotations[spec.AnnotationResumeHash] = eh
+			}
+		}
+		if ingestSize == 0 {
+			// Reset file pointer
+			fp.Seek(0, io.SeekStart)
+		}
+	} else {
+		// No partial ingest files found
+		// create a temp file with the file name format "blobDigest_randomString"
+		// in the ingest directory.
+		// Go ensures that multiple programs or goroutines calling CreateTemp
+		// simultaneously will not choose the same file.
+		fp, err = os.CreateTemp(s.ingestRoot, expected.Digest.Encoded()+"_*")
+		if err != nil {
+			return "", fmt.Errorf("failed to create ingest file: %w", err)
+		}
 	}
 
 	path = fp.Name()
@@ -152,10 +208,13 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 		}
 	}()
 
-	buf := bufPool.Get().(*[]byte)
-	defer bufPool.Put(buf)
-	if err := ioutil.CopyBuffer(fp, content, *buf, expected); err != nil {
-		return "", fmt.Errorf("failed to ingest: %w", err)
+	// Copy downloaded bits to ingest file only if we do not already have it all
+	if ingestSize >= 0 && ingestSize < expected.Size {
+		buf := bufPool.Get().(*[]byte)
+		defer bufPool.Put(buf)
+		if err := ioutil.CopyBuffer(fp, contentReader, *buf, expected); err != nil {
+			return "", fmt.Errorf("failed to ingest: %w", err)
+		}
 	}
 
 	// change to readonly

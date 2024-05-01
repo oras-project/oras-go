@@ -16,12 +16,18 @@ limitations under the License.
 package content
 
 import (
+	"crypto/sha256"
+	"encoding"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
+	"strconv"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 var (
@@ -51,6 +57,7 @@ type VerifyReader struct {
 	verifier digest.Verifier
 	verified bool
 	err      error
+	resume   bool
 }
 
 // Read reads up to len(p) bytes into p. It returns the number of bytes
@@ -62,7 +69,7 @@ func (vr *VerifyReader) Read(p []byte) (n int, err error) {
 
 	n, err = vr.base.Read(p)
 	if err != nil {
-		if err == io.EOF && vr.base.N > 0 {
+		if err == io.EOF && vr.base.N > 0 && !vr.resume {
 			err = io.ErrUnexpectedEOF
 		}
 		vr.err = err
@@ -99,12 +106,33 @@ func (vr *VerifyReader) Verify() error {
 
 // NewVerifyReader wraps r for reading content with verification against desc.
 func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
-	if err := desc.Digest.Validate(); err != nil {
-		return &VerifyReader{
-			err: fmt.Errorf("failed to validate %s: %w", desc.Digest, err),
+	var verifier digest.Verifier
+
+	// Ignore error, if we can't parse it assume zero
+	offset, _ := strconv.ParseInt(desc.Annotations[spec.AnnotationResumeOffset], 10, 64)
+
+	// All error cases below fall through to create a digest.Verifier
+	if offset > 0 {
+		// Attempt to resume
+		newHash, err := DecodeHash(desc.Annotations[spec.AnnotationResumeHash], desc.Digest)
+		if err == nil {
+			// Create a verifier with our in-progress hash and the final digest
+			verifier = hashVerifier{
+				hash:   newHash,
+				digest: desc.Digest,
+			}
 		}
 	}
-	verifier := desc.Digest.Verifier()
+	if verifier == nil {
+		// Did not get a verifier for resume, make a new empty one
+		if err := desc.Digest.Validate(); err != nil {
+			return &VerifyReader{
+				err: fmt.Errorf("failed to validate %s: %w", desc.Digest, err),
+			}
+		}
+		verifier = desc.Digest.Verifier()
+	}
+
 	lr := &io.LimitedReader{
 		R: io.TeeReader(r, verifier),
 		N: desc.Size,
@@ -112,6 +140,7 @@ func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
 	return &VerifyReader{
 		base:     lr,
 		verifier: verifier,
+		resume:   offset > 0,
 	}
 }
 
@@ -127,6 +156,10 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	vr := NewVerifyReader(r, desc)
 	if n, err := io.ReadFull(vr, buf); err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) {
+			if err == io.ErrUnexpectedEOF && vr.base.N > 0 && vr.resume {
+				// In resume mode the buffers may not be exact
+				err = io.EOF
+			}
 			return nil, fmt.Errorf("read failed: expected content size of %d, got %d, for digest %s: %w", desc.Size, n, desc.Digest.String(), err)
 		}
 		return nil, fmt.Errorf("read failed: %w", err)
@@ -146,4 +179,36 @@ func ensureEOF(r io.Reader) error {
 		return ErrTrailingData
 	}
 	return nil
+}
+
+// DecodeHash recovers a Hash object from existing partial data
+func DecodeHash(encHash string, d digest.Digest) (hash.Hash, error) {
+	state, err := hex.DecodeString(encHash)
+	if err == nil {
+		// Recover Hash object
+		newHash := d.Algorithm().Hash()
+		unmarshaler, ok := newHash.(encoding.BinaryUnmarshaler)
+		if ok {
+			if err := unmarshaler.UnmarshalBinary(state); err == nil {
+				return newHash, nil
+			}
+		}
+	}
+	// Return new empty Hash with error
+	return sha256.New(), err
+}
+
+// EncodeHash serialzes a Hash object to pass to a Verifier
+func EncodeHash(h hash.Hash) (string, error) {
+	marshaler, ok := h.(encoding.BinaryMarshaler)
+	if ok {
+		state, err := marshaler.MarshalBinary()
+		if err == nil {
+			// Save the new Hash as an Annotation to pass to the Verifier
+			buf := make([]byte, hex.EncodedLen(len(state)))
+			hex.Encode(buf, state)
+			return string(buf), nil
+		}
+	}
+	return "", fmt.Errorf("error encoding Hash")
 }

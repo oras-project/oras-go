@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/semaphore"
@@ -29,6 +31,7 @@ import (
 	"oras.land/oras-go/v2/internal/descriptor"
 	"oras.land/oras-go/v2/internal/platform"
 	"oras.land/oras-go/v2/internal/registryutil"
+	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/internal/status"
 	"oras.land/oras-go/v2/internal/syncutil"
 	"oras.land/oras-go/v2/registry"
@@ -356,6 +359,30 @@ func mountOrCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst conte
 
 // doCopyNode copies a single content from the source CAS to the destination CAS.
 func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor) error {
+	// We don't resume on files without Annotations
+	if desc.Annotations != nil {
+		// Get ingest path from dst if it is a local store
+		var ingestFile string
+		var ingestFileSize int64
+		if st, ok := dst.(content.Resumer); ok {
+			// Look for matching partial ingest files
+			ingestFile = st.IngestFile(desc.Digest.Encoded())
+			if ingestFile != "" {
+				// Found existing ingest file
+				f, err := os.Stat(ingestFile)
+				if err != nil {
+					// Can't find it???  Shouldn't happen...
+					ingestFile = ""
+				} else {
+					ingestFileSize = f.Size()
+					desc.Annotations[spec.AnnotationResumeOffset] = strconv.FormatInt(ingestFileSize, 10)
+					desc.Annotations[spec.AnnotationResumeFilename] = ingestFile
+					desc.Annotations[spec.AnnotationResumeDownload] = "true"
+				}
+			}
+		}
+	}
+
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
 		return newCopyError("Fetch", CopyErrorOriginSource, err)

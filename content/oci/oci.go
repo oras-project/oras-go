@@ -155,6 +155,11 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 	return s.storage.Exists(ctx, target)
 }
 
+// Get the ingest file matching name from the storage layer
+func (s *Store) IngestFile(name string) string {
+	return s.storage.IngestFile(name)
+}
+
 // Delete deletes the content matching the descriptor from the store. Delete may
 // fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
 // Reader) using target.

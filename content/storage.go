@@ -60,6 +60,12 @@ type Deleter interface {
 	Delete(ctx context.Context, target ocispec.Descriptor) error
 }
 
+// Resumer knows how to do resumable downloads
+type Resumer interface {
+	// IngestFile returns the name of temporary ingest files
+	IngestFile(name string) string
+}
+
 // FetchAll safely fetches the content described by the descriptor.
 // The fetched content is verified against the size and the digest.
 func FetchAll(ctx context.Context, fetcher Fetcher, desc ocispec.Descriptor) ([]byte, error) {

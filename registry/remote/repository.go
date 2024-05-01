@@ -269,6 +269,18 @@ func (r *Repository) do(req *http.Request) (*http.Response, error) {
 	return resp, nil
 }
 
+// FetcherHead fetches content headers.
+type FetcherHead interface {
+	// Fetch fetches the content identified by the descriptor.
+	FetchHead(ctx context.Context, target ocispec.Descriptor) (*http.Header, error)
+}
+
+// BlobStoreHead is a BlobStore with the ability to retrieve content headers.
+type BlobStoreHead interface {
+	registry.BlobStore
+	FetcherHead
+}
+
 // blobStore detects the blob store for the given descriptor.
 func (r *Repository) blobStore(desc ocispec.Descriptor) registry.BlobStore {
 	if isManifest(r.ManifestMediaTypes, desc) {
@@ -280,6 +292,15 @@ func (r *Repository) blobStore(desc ocispec.Descriptor) registry.BlobStore {
 // Fetch fetches the content identified by the descriptor.
 func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
 	return r.blobStore(target).Fetch(ctx, target)
+}
+
+// FetchHead fetches the content headers identified by the descriptor.
+func (r *Repository) FetchHead(ctx context.Context, target ocispec.Descriptor) (*http.Header, error) {
+	bs := r.blobStore(target)
+	if bsh, ok := bs.(BlobStoreHead); ok {
+		return bsh.FetchHead(ctx, target)
+	}
+	return nil, fmt.Errorf("not a blobStore")
 }
 
 // Push pushes the content, matching the expected descriptor.
@@ -736,6 +757,82 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 		return nil, err
 	}
 
+	var ingestSize int64
+	resume := target.Annotations != nil && target.Annotations[spec.AnnotationResumeDownload] == "true"
+	if resume {
+
+		// Check if resume is possible
+		_, err = s.FetchHead(ctx, target)
+		if err != nil {
+			// Resume is not possible, ensure it is disabled
+			if target.Annotations != nil {
+				target.Annotations[spec.AnnotationResumeDownload] = ""
+				resume = false
+			}
+		}
+
+		// Get size of existing ingestFile to set Range start
+		ingestSize, err = strconv.ParseInt(target.Annotations[spec.AnnotationResumeOffset], 10, 64)
+		if err != nil {
+			ingestSize = 0
+			resume = false
+		} else {
+			if ingestSize < target.Size {
+				// Set the Range header and do a chunk right up front if the file is not complete...
+				req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", ingestSize, target.Size-1))
+			}
+		}
+	}
+
+	resp, err := s.repo.do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			resp.Body.Close()
+		}
+	}()
+
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+		if size := resp.ContentLength; size != -1 && size != target.Size-ingestSize {
+			return nil, fmt.Errorf("206 %s %q: mismatch Content-Length", resp.Request.Method, resp.Request.URL)
+		}
+		return resp.Body, nil
+	case http.StatusOK:
+		if size := resp.ContentLength; size != -1 && size != target.Size {
+			return nil, fmt.Errorf("204 %s %q: mismatch Content-Length", resp.Request.Method, resp.Request.URL)
+		}
+
+		// check server range request capability.
+		// Docker spec allows range header form of "Range: bytes=<start>-<end>".
+		// However, the remote server may still not RFC 7233 compliant.
+		// Reference: https://docs.docker.com/registry/spec/api/#blob
+		if rangeUnit := resp.Header.Get("Accept-Ranges"); !resume && rangeUnit == "bytes" {
+			return httputil.NewReadSeekCloser(s.repo.client(), req, resp.Body, target.Size), nil
+		}
+		return resp.Body, nil
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
+	default:
+		return nil, errutil.ParseErrorResponse(resp)
+	}
+}
+
+// FetchHead fetches the content identified by the descriptor.
+func (s *blobStore) FetchHead(ctx context.Context, target ocispec.Descriptor) (header *http.Header, err error) {
+	ref := s.repo.Reference
+	ref.Reference = target.Digest.String()
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
+	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
+
+	// HEAD
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	resp, err := s.repo.do(req)
 	if err != nil {
 		return nil, err
@@ -760,14 +857,18 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 		// However, the remote server may still not RFC 7233 compliant.
 		// Reference: https://distribution.github.io/distribution/spec/api/#blob
 		if rangeUnit := resp.Header.Get("Accept-Ranges"); rangeUnit == "bytes" {
-			return httputil.NewReadSeekCloser(s.repo.client(), req, resp.Body, target.Size), nil
+			if target.Annotations != nil {
+				target.Annotations[spec.AnnotationResumeDownload] = "true"
+			}
 		}
-		return resp.Body, nil
+		header = &resp.Header
 	case http.StatusNotFound:
 		return nil, fmt.Errorf("%s: %w", target.Digest, errdef.ErrNotFound)
 	default:
 		return nil, errutil.ParseErrorResponse(resp)
 	}
+
+	return header, nil
 }
 
 // Mount mounts the given descriptor from fromRepo into s.

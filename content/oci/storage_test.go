@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -30,6 +31,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2/errdef"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 func TestStorage_Success(t *testing.T) {
@@ -49,6 +51,80 @@ func TestStorage_Success(t *testing.T) {
 
 	// test push
 	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Storage.Push() error =", err)
+	}
+
+	// test fetch
+	exists, err := s.Exists(ctx, desc)
+	if err != nil {
+		t.Fatal("Storage.Exists() error =", err)
+	}
+	if !exists {
+		t.Errorf("Storage.Exists() = %v, want %v", exists, true)
+	}
+
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Storage.Fetch() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("Storage.Fetch().Read() error =", err)
+	}
+	err = rc.Close()
+	if err != nil {
+		t.Error("Storage.Fetch().Close() error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("Storage.Fetch() = %v, want %v", got, content)
+	}
+}
+
+func TestStorage_Success_Resume(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			spec.AnnotationResumeDownload: "true",
+			spec.AnnotationResumeOffset:   "4",
+		},
+	}
+
+	tempDir := t.TempDir()
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	if err := ensureDir(s.ingestRoot); err != nil {
+		t.Fatal("failed to ensure ingest dir exists =", err)
+	}
+	ctx := context.Background()
+
+	// Set up an existing ingest file
+	ingestSize, err := strconv.ParseInt(desc.Annotations[spec.AnnotationResumeOffset], 10, 64)
+	if err != nil {
+		t.Fatal("error parsing resume offset =", err)
+	}
+
+	fp, err := os.CreateTemp(s.ingestRoot, desc.Digest.Encoded()+"_*")
+	if err != nil {
+		t.Fatal("error creating partial ingest file =", err)
+	}
+	defer fp.Close()
+
+	desc.Annotations[spec.AnnotationResumeFilename] = fp.Name()
+
+	// Fill the ingest buffer with the beginning of the content
+	_, err = fp.Write(content[0:ingestSize])
+	if err != nil {
+		t.Fatal("error writing partial ingest file =", err)
+	}
+
+	// Test push the remainder of the content
+	err = s.Push(ctx, desc, bytes.NewReader(content[ingestSize:]))
 	if err != nil {
 		t.Fatal("Storage.Push() error =", err)
 	}
@@ -188,6 +264,60 @@ func TestStorage_AlreadyExists(t *testing.T) {
 	ctx := context.Background()
 
 	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if err != nil {
+		t.Fatal("Storage.Push() error =", err)
+	}
+
+	err = s.Push(ctx, desc, bytes.NewReader(content))
+	if !errors.Is(err, errdef.ErrAlreadyExists) {
+		t.Errorf("Storage.Push() error = %v, want %v", err, errdef.ErrAlreadyExists)
+	}
+}
+
+func TestStorage_AlreadyExists_Resume(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			spec.AnnotationResumeDownload: "true",
+			spec.AnnotationResumeOffset:   "4",
+		},
+	}
+
+	tempDir := t.TempDir()
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	if err := ensureDir(s.ingestRoot); err != nil {
+		t.Fatal("failed to ensure ingest dir exists =", err)
+	}
+	ctx := context.Background()
+
+	// Set up an existing ingest file
+	ingestSize, err := strconv.ParseInt(desc.Annotations[spec.AnnotationResumeOffset], 10, 64)
+	if err != nil {
+		t.Fatal("error parsing resume offset =", err)
+	}
+
+	fp, err := os.CreateTemp(s.ingestRoot, desc.Digest.Encoded()+"_*")
+	if err != nil {
+		t.Fatal("error creating partial ingest file =", err)
+	}
+	defer fp.Close()
+
+	desc.Annotations[spec.AnnotationResumeFilename] = fp.Name()
+
+	// Fill the ingest buffer with the beginning of the content
+	_, err = fp.Write(content[0:ingestSize])
+	if err != nil {
+		t.Fatal("error writing partial ingest file =", err)
+	}
+
+	// Test push the remainder of the content
+	err = s.Push(ctx, desc, bytes.NewReader(content[ingestSize:]))
 	if err != nil {
 		t.Fatal("Storage.Push() error =", err)
 	}

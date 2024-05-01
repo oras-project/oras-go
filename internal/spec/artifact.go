@@ -26,6 +26,23 @@ const (
 
 	// AnnotationReferrersFiltersApplied is the annotation key for the comma separated list of filters applied by the registry in the referrers listing.
 	AnnotationReferrersFiltersApplied = "org.opencontainers.referrers.filtersApplied"
+
+	// The AnnotationResume* constants define the keys used in resumable downloads
+	// in the ocispec.Descriptior.Annotations map for tracking resume state.
+
+	// AnnotationResumeDownload is "true" when a resumable download is being attempted.
+	AnnotationResumeDownload = "com.salad.image.resume"
+
+	// AnnotationResumeFilename contains the full ingest filename.
+	AnnotationResumeFilename = "com.salad.image.resume.filename"
+
+	// AnnotationResumeHash contains a hash.Hash of the existing ingest file
+	// suitable for using in the new Verifier to resume download verification.
+	AnnotationResumeHash = "com.salad.image.resume.hash"
+
+	// AnnotationResumeOffset contains the resume download offset, aka
+	// the size of the existing ingest file.
+	AnnotationResumeOffset = "com.salad.image.resume.offset"
 )
 
 // MediaTypeArtifactManifest specifies the media type for a content descriptor.

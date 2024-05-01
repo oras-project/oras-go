@@ -16,12 +16,15 @@ limitations under the License.
 package ioutil
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
+	"strconv"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/internal/spec"
 )
 
 // CloserFunc is the basic Close method defined in io.Closer.
@@ -37,9 +40,16 @@ func (fn CloserFunc) Close() error {
 // The copied content is verified against the size and the digest.
 func CopyBuffer(dst io.Writer, src io.Reader, buf []byte, desc ocispec.Descriptor) error {
 	// verify while copying
+	ingestSize, _ := strconv.ParseInt(desc.Annotations[spec.AnnotationResumeOffset], 10, 64)
 	vr := content.NewVerifyReader(src, desc)
-	if _, err := io.CopyBuffer(dst, vr, buf); err != nil {
-		return fmt.Errorf("copy failed: %w", err)
+	if n, err := io.CopyBuffer(dst, vr, buf); err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			// Check if amount read == partial size
+			if n != (desc.Size - ingestSize) {
+				// sumthin's up
+				return fmt.Errorf("copy failed: %w", err)
+			}
+		}
 	}
 	return vr.Verify()
 }
