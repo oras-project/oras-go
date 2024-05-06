@@ -35,7 +35,8 @@ func ExamplePackManifest_imageV11() {
 	opts := oras.PackManifestOptions{
 		ManifestAnnotations: map[string]string{
 			// this timestamp will be automatically generated if not specified
-			// use a fixed value here in order to test the output
+			// use a fixed value here in order to test the output and make the
+			// pack reproducible.
 			ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
 		},
 	}
@@ -71,7 +72,8 @@ func ExamplePackManifest_imageV10() {
 	opts := oras.PackManifestOptions{
 		ManifestAnnotations: map[string]string{
 			// this timestamp will be automatically generated if not specified
-			// use a fixed value here in order to test the output
+			// use a fixed value here in order to test the output and make the
+			// pack reproducible.
 			ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
 		},
 	}
