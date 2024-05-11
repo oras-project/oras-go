@@ -690,6 +690,7 @@ func TestStore_Dir_Push_SkipUnpack(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to open internal gz")
 	}
+	defer pushedFile.Close()
 	pushedContent, err := io.ReadAll(pushedFile)
 	if err != nil {
 		t.Fatal(err)
