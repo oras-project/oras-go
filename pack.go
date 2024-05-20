@@ -48,8 +48,8 @@ const (
 
 var (
 	// ErrInvalidDateTimeFormat is returned by [Pack] and [PackManifest] when
-	// AnnotationArtifactCreated or AnnotationCreated is provided, but its value
-	// is not in RFC 3339 format.
+	// "org.opencontainers.artifact.created" or "org.opencontainers.image.created"
+	// is provided, but its value is not in RFC 3339 format.
 	// Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
 	ErrInvalidDateTimeFormat = errors.New("invalid date and time format")
 
@@ -93,7 +93,10 @@ type PackManifestOptions struct {
 	// Layers is the layers of the manifest.
 	Layers []ocispec.Descriptor
 
-	// ManifestAnnotations is the annotation map of the manifest.
+	// ManifestAnnotations is the annotation map of the manifest. In order to
+	// make [PackManifest] reproducible, set the key ocispec.AnnotationCreated
+	// (i.e. "org.opencontainers.image.created") to a fixed value. The value
+	// must conform to RFC 3339.
 	ManifestAnnotations map[string]string
 
 	// ConfigDescriptor is a pointer to the descriptor of the config blob.
@@ -125,6 +128,12 @@ var mediaTypeRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&-^_.+]{0,126
 //     if opts.ConfigDescriptor is NOT nil, artifactType will be ignored.
 //
 // artifactType and opts.ConfigDescriptor.MediaType MUST comply with RFC 6838.
+//
+// Each time when PackManifest is called, if a time stamp is not specified, a new time
+// stamp is generated in the manifest annotations with the key ocispec.AnnotationCreated
+// (i.e. "org.opencontainers.image.created"). To make [PackManifest] reproducible,
+// set the key ocispec.AnnotationCreated to a fixed value in
+// opts.ManifestAnnotations. The value MUST conform to RFC 3339.
 //
 // If succeeded, returns a descriptor of the packed manifest.
 func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
