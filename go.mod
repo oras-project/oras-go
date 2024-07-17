@@ -2,8 +2,6 @@ module oras.land/oras-go
 
 go 1.22.4
 
-toolchain go1.22.5
-
 require (
 	github.com/containerd/containerd v1.7.19
 	github.com/distribution/distribution/v3 v3.0.0-beta.1
