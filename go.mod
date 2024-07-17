@@ -1,10 +1,10 @@
 module oras.land/oras-go
 
-go 1.22
+go 1.22.4
 
 require (
 	github.com/containerd/containerd v1.7.19
-	github.com/distribution/distribution/v3 v3.0.0-alpha.1
+	github.com/distribution/distribution/v3 v3.0.0-beta.1
 	github.com/docker/cli v27.0.3+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/docker v27.0.3+incompatible
@@ -41,8 +41,8 @@ require (
 	github.com/go-logr/logr v1.3.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/uuid v1.3.1 // indirect
-	github.com/gorilla/handlers v1.5.1 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/handlers v1.5.2 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0 // indirect
 	github.com/hashicorp/golang-lru/arc/v2 v2.0.5 // indirect
@@ -76,7 +76,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.21.0 // indirect
 	go.opentelemetry.io/otel/trace v1.21.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.0.0 // indirect
-	golang.org/x/net v0.23.0 // indirect
+	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/sys v0.22.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20230913181813-007df8e322eb // indirect
