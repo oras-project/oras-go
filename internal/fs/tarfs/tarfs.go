@@ -48,6 +48,13 @@ func New(path string) (*TarFS, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", path, err)
 	}
+
+	extension := filepath.Ext(pathAbs)
+
+	if extension != ".tar" {
+		return nil, errdef.ErrNotTarFile
+	}
+
 	tarfs := &TarFS{
 		path:    pathAbs,
 		entries: make(map[string]*entry),
