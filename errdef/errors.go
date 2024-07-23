@@ -28,5 +28,5 @@ var (
 	ErrSizeExceedsLimit   = errors.New("size exceeds limit")
 	ErrUnsupported        = errors.New("unsupported")
 	ErrUnsupportedVersion = errors.New("unsupported version")
-	ErrNotTarFile         = errors.New("tar file type expected")
+	ErrNotTarFile         = errors.New("non-empty tar file expected")
 )

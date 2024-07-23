@@ -271,7 +271,9 @@ func TestTarFS_Stat_Unsupported(t *testing.T) {
 
 func TestTarFS_New_NonTarFile(t *testing.T) {
 
-	emptyfile := "testdata/emptyfile"
+	emptyfile := "testdata/emptyfile.tar"
+	nonemptyfile := "testdata/nonempty.tar"
+	tarwithoutextension := "testdata/tarwithoutextension"
 
 	_, err := New(emptyfile)
 
@@ -279,4 +281,15 @@ func TestTarFS_New_NonTarFile(t *testing.T) {
 		t.Errorf("TarFS.New(%s) error = %v, wantErr %v", emptyfile, err, want)
 	}
 
+	_, err = New(nonemptyfile)
+
+	if want := errdef.ErrNotTarFile; !errors.Is(err, want) {
+		t.Errorf("TarFS.New(%s) error = %v, wantErr %v", nonemptyfile, err, want)
+	}
+
+	_, err = New(tarwithoutextension)
+
+	if err != nil {
+		t.Errorf("TarFS.New(%s) error = %v, wantErr %v", tarwithoutextension, err, nil)
+	}
 }
