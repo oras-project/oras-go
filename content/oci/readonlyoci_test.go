@@ -840,17 +840,15 @@ func Test_deleteAnnotationRefName(t *testing.T) {
 
 func TestNewFromTar_NonTarFile(t *testing.T) {
 
-	emptyfile := "testdata/emptyfile"
-	nontar := "testdata/nontar.tar"
-
-	_, err := NewFromTar(context.Background(), emptyfile)
-	if want := errdef.ErrInvalidTarFile; !errors.Is(err, want) {
-		t.Errorf("OCI.NewFromTar(%s) error = %v, wantErr %v", emptyfile, err, want)
+	testFiles := []string{
+		"testdata/emptyfile",
+		"testdata/nontar.tar",
 	}
-
-	_, err = NewFromTar(context.Background(), nontar)
-	if want := errdef.ErrInvalidTarFile; !errors.Is(err, want) {
-		t.Errorf("OCI.NewFromTar(%s) error = %v, wantErr %v", nontar, err, want)
+	for _, name := range testFiles {
+		_, err := NewFromTar(context.Background(), name)
+		if want := errdef.ErrInvalidTarFile; !errors.Is(err, want) {
+			t.Errorf("OCI.NewFromTar(%s) error = %v, wantErr %v", name, err, want)
+		}
 	}
 
 }

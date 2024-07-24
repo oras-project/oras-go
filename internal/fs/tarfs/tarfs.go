@@ -138,13 +138,13 @@ func (tfs *TarFS) indexEntries() error {
 			if errors.Is(err, io.EOF) {
 				if len(tfs.entries) == 0 {
 					// indicates the given file is empty
-					return fmt.Errorf("{%s}: %w", tfs.path, errdef.ErrInvalidTarFile)
+					return fmt.Errorf("%s: file is empty: %w", tfs.path, errdef.ErrInvalidTarFile)
 				}
 				break
 			}
 			if errors.Is(err, io.ErrUnexpectedEOF) {
 				// indicates that its either not a tarfile or it is a corrupted one
-				return fmt.Errorf("{%s}: %w", tfs.path, errdef.ErrInvalidTarFile)
+				return fmt.Errorf("%s: %w", tfs.path, errdef.ErrInvalidTarFile)
 			}
 			return err
 		}
