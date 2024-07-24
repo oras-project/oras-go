@@ -48,6 +48,7 @@ func New(path string) (*TarFS, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", path, err)
 	}
+
 	tarfs := &TarFS{
 		path:    pathAbs,
 		entries: make(map[string]*entry),
@@ -135,7 +136,15 @@ func (tfs *TarFS) indexEntries() error {
 		header, err := tr.Next()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				if len(tfs.entries) == 0 {
+					// indicates the given file is empty
+					return fmt.Errorf("%s: file is empty: %w", tfs.path, errdef.ErrInvalidTarFile)
+				}
 				break
+			}
+			if errors.Is(err, io.ErrUnexpectedEOF) {
+				// indicates that its either not a tarfile or it is a corrupted one
+				return fmt.Errorf("%s: %w", tfs.path, errdef.ErrInvalidTarFile)
 			}
 			return err
 		}

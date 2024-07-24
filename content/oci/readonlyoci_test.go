@@ -36,6 +36,7 @@ import (
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/registry"
@@ -835,4 +836,19 @@ func Test_deleteAnnotationRefName(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewFromTar_NonTarFile(t *testing.T) {
+
+	testFiles := []string{
+		"testdata/emptyfile",
+		"testdata/nontar.tar",
+	}
+	for _, name := range testFiles {
+		_, err := NewFromTar(context.Background(), name)
+		if want := errdef.ErrInvalidTarFile; !errors.Is(err, want) {
+			t.Errorf("OCI.NewFromTar(%s) error = %v, wantErr %v", name, err, want)
+		}
+	}
+
 }
