@@ -280,7 +280,9 @@ func TestTarFS_New_NonTarFile(t *testing.T) {
 			t.Errorf("TarFS.New(%s) error = %v, wantErr %v", name, err, want)
 		}
 	}
+}
 
+func TestTarFS_New_TarWithoutExtension(t *testing.T) {
 	tarwithoutextension := "testdata/tarwithoutextension"
 	_, err := New(tarwithoutextension)
 	if err != nil {
