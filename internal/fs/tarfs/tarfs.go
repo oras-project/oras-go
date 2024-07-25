@@ -108,11 +108,11 @@ func (tfs *TarFS) Stat(name string) (fs.FileInfo, error) {
 // getEntry returns the named entry.
 func (tfs *TarFS) getEntry(name string) (*entry, error) {
 	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Path: name, Err: fs.ErrInvalid}
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
 	}
 	entry, ok := tfs.entries[name]
 	if !ok {
-		return nil, &fs.PathError{Path: name, Err: fs.ErrNotExist}
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 	}
 	if entry.header.Typeflag != tar.TypeReg {
 		// support regular files only
