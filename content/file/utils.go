@@ -18,6 +18,7 @@ package file
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -31,7 +32,7 @@ import (
 
 // tarDirectory walks the directory specified by path, and tar those files with a new
 // path prefix.
-func tarDirectory(root, prefix string, w io.Writer, removeTimes bool, buf []byte) (err error) {
+func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeTimes bool, buf []byte) (err error) {
 	tw := tar.NewWriter(w)
 	defer func() {
 		closeErr := tw.Close()
@@ -43,6 +44,12 @@ func tarDirectory(root, prefix string, w io.Writer, removeTimes bool, buf []byte
 	return filepath.Walk(root, func(path string, info os.FileInfo, err error) (returnErr error) {
 		if err != nil {
 			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 
 		// Rename path

@@ -395,7 +395,7 @@ func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]oc
 }
 
 // Add adds a file into the file store.
-func (s *Store) Add(_ context.Context, name, mediaType, path string) (ocispec.Descriptor, error) {
+func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.Descriptor, error) {
 	if s.isClosedSet() {
 		return ocispec.Descriptor{}, ErrStoreClosed
 	}
@@ -426,7 +426,7 @@ func (s *Store) Add(_ context.Context, name, mediaType, path string) (ocispec.De
 	// generate descriptor
 	var desc ocispec.Descriptor
 	if fi.IsDir() {
-		desc, err = s.descriptorFromDir(name, mediaType, path)
+		desc, err = s.descriptorFromDir(ctx, name, mediaType, path)
 	} else {
 		desc, err = s.descriptorFromFile(fi, mediaType, path)
 	}
@@ -505,7 +505,7 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 }
 
 // descriptorFromDir generates descriptor from the given directory.
-func (s *Store) descriptorFromDir(name, mediaType, dir string) (desc ocispec.Descriptor, err error) {
+func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir string) (desc ocispec.Descriptor, err error) {
 	// make a temp file to store the gzip
 	gz, err := s.tempFile()
 	if err != nil {
@@ -532,7 +532,7 @@ func (s *Store) descriptorFromDir(name, mediaType, dir string) (desc ocispec.Des
 	tw := io.MultiWriter(gzw, tarDigester.Hash())
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := tarDirectory(dir, name, tw, s.TarReproducible, *buf); err != nil {
+	if err := tarDirectory(ctx, dir, name, tw, s.TarReproducible, *buf); err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to tar %s: %w", dir, err)
 	}
 
