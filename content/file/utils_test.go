@@ -16,10 +16,88 @@ limitations under the License.
 package file
 
 import (
+	"compress/gzip"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func Test_tarDirectory(t *testing.T) {
+	setup := func(t *testing.T) (tmpdir string, gz *os.File, gw *gzip.Writer) {
+		tmpdir = t.TempDir()
+
+		paths := []string{
+			filepath.Join(tmpdir, "file1.txt"),
+			filepath.Join(tmpdir, "file2.txt"),
+		}
+
+		for _, p := range paths {
+			err := os.WriteFile(p, []byte("test content"), 0644)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		gz, err := os.CreateTemp(tmpdir, "tarDirectory-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return tmpdir, gz, gzip.NewWriter(gz)
+	}
+
+	t.Run("success", func(t *testing.T) {
+		tmpdir, gz, gw := setup(t)
+		defer func() {
+			if err := gw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := gz.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}()
+
+		err := tarDirectory(context.Background(), tmpdir, "prefix", gw, false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = gz.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		tmpdir, gz, gw := setup(t)
+		defer func() {
+			if err := gw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := gz.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := tarDirectory(ctx, tmpdir, "prefix", gw, false, nil)
+		if err == nil {
+			t.Fatal("expected context cancellation error, got nil")
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled error, got %v", err)
+		}
+
+		_, err = gz.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+}
 
 func Test_ensureBasePath(t *testing.T) {
 	root := t.TempDir()
