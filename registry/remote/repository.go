@@ -1368,7 +1368,11 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 			return err
 		}
 		// check referrers API availability again after push
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		ok, err := s.repo.pingReferrers(ctx)
+		if err != nil {
+			return err
+		}
+		if ok {
 			// the subject has been processed the registry, no client-side
 			// indexing needed
 			return nil
