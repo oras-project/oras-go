@@ -303,7 +303,7 @@ func cleanActions(actions []string) []string {
 	// slow path
 	slices.Sort(actions)
 	n := 0
-	for i := 0; i < len(actions); i++ {
+	for i := range len(actions) {
 		if actions[i] == "*" {
 			return []string{"*"}
 		}
