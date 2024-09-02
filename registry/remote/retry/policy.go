@@ -96,7 +96,7 @@ func ExponentialBackoff(backoff time.Duration, factor, jitter float64) Backoff {
 	return func(attempt int, resp *http.Response) time.Duration {
 		var h maphash.Hash
 		h.SetSeed(maphash.MakeSeed())
-		rand := rand.New(rand.NewPCG(h.Sum64(), 0))
+		rand := rand.New(rand.NewPCG(0, h.Sum64()))
 
 		// check Retry-After
 		if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
