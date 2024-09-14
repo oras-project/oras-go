@@ -138,16 +138,18 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 	if err != nil {
 		return "", fmt.Errorf("failed to create ingest file: %w", err)
 	}
-
 	path = fp.Name()
 	defer func() {
-		// remove the temp file in case of error.
-		// this executes after the file is closed.
+		// close the temp file and check close error
+		if err := fp.Close(); err != nil && ingestErr == nil {
+			ingestErr = fmt.Errorf("failed to close ingest file: %w", err)
+		}
+
+		// remove the temp file in case of error
 		if ingestErr != nil {
 			os.Remove(path)
 		}
 	}()
-	defer fp.Close()
 
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
@@ -160,7 +162,7 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 		return "", fmt.Errorf("failed to make readonly: %w", err)
 	}
 
-	return
+	return path, nil
 }
 
 // ensureDir ensures the directories of the path exists.
