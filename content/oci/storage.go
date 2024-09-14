@@ -138,6 +138,7 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 	if err != nil {
 		return "", fmt.Errorf("failed to create ingest file: %w", err)
 	}
+
 	path = fp.Name()
 	defer func() {
 		// close the temp file and check close error
@@ -162,7 +163,7 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 		return "", fmt.Errorf("failed to make readonly: %w", err)
 	}
 
-	return path, nil
+	return
 }
 
 // ensureDir ensures the directories of the path exists.
