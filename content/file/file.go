@@ -621,6 +621,14 @@ func (s *Store) resolveWritePath(name string) (string, error) {
 		if strings.HasPrefix(rel, "../") || rel == ".." {
 			return "", ErrPathTraversalDisallowed
 		}
+	} else {
+		base, err := filepath.Abs(s.workingDir)
+		if err != nil {
+			return "", err
+		} else {
+			path = base
+		}
+
 	}
 	if s.DisableOverwrite {
 		if _, err := os.Stat(path); err == nil {
