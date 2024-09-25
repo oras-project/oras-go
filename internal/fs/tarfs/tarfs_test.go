@@ -268,3 +268,24 @@ func TestTarFS_Stat_Unsupported(t *testing.T) {
 		}
 	}
 }
+
+func TestTarFS_New_NonTarFile(t *testing.T) {
+	testFiles := []string{
+		"testdata/emptyfile.tar",
+		"testdata/nontar.tar",
+	}
+	for _, name := range testFiles {
+		_, err := New(name)
+		if want := errdef.ErrInvalidTarFile; !errors.Is(err, want) {
+			t.Errorf("TarFS.New(%s) error = %v, wantErr %v", name, err, want)
+		}
+	}
+}
+
+func TestTarFS_New_TarWithoutExtension(t *testing.T) {
+	tarwithoutextension := "testdata/tarwithoutextension"
+	_, err := New(tarwithoutextension)
+	if err != nil {
+		t.Errorf("TarFS.New(%s) error = %v, wantErr %v", tarwithoutextension, err, nil)
+	}
+}

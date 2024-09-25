@@ -28,4 +28,5 @@ var (
 	ErrSizeExceedsLimit   = errors.New("size exceeds limit")
 	ErrUnsupported        = errors.New("unsupported")
 	ErrUnsupportedVersion = errors.New("unsupported version")
+	ErrInvalidTarFile     = errors.New("invalid tar file")
 )
