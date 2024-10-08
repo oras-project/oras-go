@@ -17,6 +17,7 @@ package syncutil
 
 import (
 	"context"
+	"errors"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
@@ -92,6 +93,10 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 				}
 
 				if err := fn(egCtx, lr, t); err != nil {
+					if errors.Is(err, context.Canceled) {
+						cancel(context.Canceled)
+						return context.Canceled
+					}
 					cancel(err)
 					return err
 				}
