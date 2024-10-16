@@ -3,7 +3,7 @@ module oras.land/oras-go
 go 1.22.4
 
 require (
-	github.com/containerd/containerd v1.7.22
+	github.com/containerd/containerd v1.7.23
 	github.com/distribution/distribution/v3 v3.0.0-beta.1
 	github.com/docker/cli v27.3.1+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
@@ -26,7 +26,7 @@ require (
 	github.com/bshuster-repo/logrus-logstash-hook v1.0.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
-	github.com/containerd/errdefs v0.1.0 // indirect
+	github.com/containerd/errdefs v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
