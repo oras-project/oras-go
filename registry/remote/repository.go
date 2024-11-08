@@ -122,7 +122,7 @@ type Repository struct {
 	// NOTE: Pagination for the Referrers API is not defined in the distribution spec, so not all registries support it.
 	// ReferrerListPageSize may be ignored if pagination is unsupported by the remote registry.
 	//
-	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.0/spec.md#listing-referrers
+	// Reference: https://github.com/oras-project/oras-go/issues/841
 	ReferrerListPageSize int
 
 	// MaxMetadataBytes specifies a limit on how many response bytes are allowed
