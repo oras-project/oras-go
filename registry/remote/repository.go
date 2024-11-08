@@ -119,8 +119,9 @@ type Repository struct {
 	// API.
 	// If zero, the page size is determined by the remote registry.
 	//
-	// NOTE: Pagination for the Referrers API is not defined in the distribution spec, so not all registries support it.
-	// ReferrerListPageSize may be ignored if pagination is unsupported by the remote registry.
+	// NOTE: Pagination for the Referrers API is not defined in the distribution
+	// spec, so not all registries support it. ReferrerListPageSize may be
+	// ignored if pagination is unsupported by the remote registry.
 	//
 	// Reference: https://github.com/oras-project/oras-go/issues/841
 	ReferrerListPageSize int
