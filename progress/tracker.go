@@ -34,10 +34,14 @@ func Done(t Tracker) error {
 
 // TrackReader bind a reader with a tracker.
 func TrackReader(t Tracker, r io.Reader) io.ReadCloser {
-	return &readTracker{
+	rt := readTracker{
 		base:    r,
 		tracker: t,
 	}
+	if _, ok := r.(io.WriterTo); ok {
+		return &readTrackerWriteTo{rt}
+	}
+	return &rt
 }
 
 // readTracker tracks the transmission based on the read operation.
@@ -51,10 +55,12 @@ type readTracker struct {
 func (rt *readTracker) Read(p []byte) (n int, err error) {
 	n, err = rt.base.Read(p)
 	rt.offset += int64(n)
-	_ = rt.tracker.Update(Status{
-		State:  StateTransmitting,
-		Offset: rt.offset,
-	})
+	if n > 0 {
+		_ = rt.tracker.Update(Status{
+			State:  StateTransmitting,
+			Offset: rt.offset,
+		})
+	}
 	if err != nil && err != io.EOF {
 		_ = rt.tracker.Fail(err)
 	}
@@ -64,4 +70,42 @@ func (rt *readTracker) Read(p []byte) (n int, err error) {
 // Close closes the tracker.
 func (rt *readTracker) Close() error {
 	return rt.tracker.Close()
+}
+
+// readTrackerWriteTo is readTracker with WriteTo support.
+type readTrackerWriteTo struct {
+	readTracker
+}
+
+// WriteTo writes to the base writer and updates the status.
+func (rt *readTrackerWriteTo) WriteTo(w io.Writer) (n int64, err error) {
+	wt := &writeTracker{
+		base:    w,
+		tracker: rt.tracker,
+		offset:  rt.offset,
+	}
+	return rt.base.(io.WriterTo).WriteTo(wt)
+}
+
+// writeTracker tracks the transmission based on the write operation.
+type writeTracker struct {
+	base    io.Writer
+	tracker Tracker
+	offset  int64
+}
+
+// Write writes to the base writer and updates the status.
+func (wt *writeTracker) Write(p []byte) (n int, err error) {
+	n, err = wt.base.Write(p)
+	wt.offset += int64(n)
+	if n > 0 {
+		_ = wt.tracker.Update(Status{
+			State:  StateTransmitting,
+			Offset: wt.offset,
+		})
+	}
+	if err != nil {
+		_ = wt.tracker.Fail(err)
+	}
+	return n, err
 }
