@@ -2,23 +2,23 @@ package progress
 
 import "io"
 
-// ReadTracker tracks the transmission based on the read operation.
-type ReadTracker struct {
+// TrackReader bind a reader with a tracker.
+func TrackReader(t Tracker, r io.Reader) io.ReadCloser {
+	return &readTracker{
+		base:    r,
+		tracker: t,
+	}
+}
+
+// readTracker tracks the transmission based on the read operation.
+type readTracker struct {
 	base    io.Reader
 	tracker Tracker
 	offset  int64
 }
 
-// NewReadTracker attaches a tracker to a reader.
-func NewReadTracker(track Tracker, r io.Reader) *ReadTracker {
-	return &ReadTracker{
-		base:    r,
-		tracker: track,
-	}
-}
-
 // Read reads from the base reader and updates the status.
-func (rt *ReadTracker) Read(p []byte) (n int, err error) {
+func (rt *readTracker) Read(p []byte) (n int, err error) {
 	n, err = rt.base.Read(p)
 	rt.offset += int64(n)
 	_ = rt.tracker.Update(Status{
@@ -32,6 +32,6 @@ func (rt *ReadTracker) Read(p []byte) (n int, err error) {
 }
 
 // Close closes the tracker.
-func (rt *ReadTracker) Close() error {
+func (rt *readTracker) Close() error {
 	return rt.tracker.Close()
 }
