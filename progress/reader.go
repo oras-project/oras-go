@@ -35,22 +35,3 @@ func (rt *ReadTracker) Read(p []byte) (n int, err error) {
 func (rt *ReadTracker) Close() error {
 	return rt.tracker.Close()
 }
-
-// Start starts tracking the transmission.
-func (rt *ReadTracker) Start() error {
-	return rt.tracker.Update(Status{
-		State:  StateInitialized,
-		Offset: -1,
-	})
-}
-
-// Done marks the transmission as complete.
-// Done should be called after the transmission is complete.
-// Note: Reading all content from the reader does not imply the transmission is
-// complete.
-func (rt *ReadTracker) Done() error {
-	return rt.tracker.Update(Status{
-		State:  StateTransmitted,
-		Offset: -1,
-	})
-}
