@@ -193,7 +193,7 @@ func (ds *DynamicStore) getStore(serverAddress string) Store {
 		return NewNativeStore(helper)
 	}
 
-	fs := newFileStore(ds.config)
+	fs := NewFileStoreFromConfig(ds.config)
 	fs.DisablePut = !ds.options.AllowPlaintextPut
 	return fs
 }
