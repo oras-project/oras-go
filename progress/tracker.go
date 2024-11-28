@@ -69,7 +69,7 @@ func Done(t Tracker) error {
 }
 
 // TrackReader bind a reader with a tracker.
-func TrackReader(t Tracker, r io.Reader) io.ReadCloser {
+func TrackReader(t Tracker, r io.Reader) io.Reader {
 	rt := readTracker{
 		base:    r,
 		tracker: t,
@@ -105,11 +105,6 @@ func (rt *readTracker) Read(p []byte) (int, error) {
 		}
 	}
 	return n, err
-}
-
-// Close closes the tracker.
-func (rt *readTracker) Close() error {
-	return rt.tracker.Close()
 }
 
 // readTrackerWriteTo is readTracker with WriteTo support.
