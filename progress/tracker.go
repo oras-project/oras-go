@@ -72,8 +72,8 @@ type readTracker struct {
 }
 
 // Read reads from the base reader and updates the status.
-func (rt *readTracker) Read(p []byte) (n int, err error) {
-	n, err = rt.base.Read(p)
+func (rt *readTracker) Read(p []byte) (int, error) {
+	n, err := rt.base.Read(p)
 	rt.offset += int64(n)
 	if n > 0 {
 		_ = rt.tracker.Update(Status{
@@ -98,13 +98,15 @@ type readTrackerWriteTo struct {
 }
 
 // WriteTo writes to the base writer and updates the status.
-func (rt *readTrackerWriteTo) WriteTo(w io.Writer) (n int64, err error) {
+func (rt *readTrackerWriteTo) WriteTo(w io.Writer) (int64, error) {
 	wt := &writeTracker{
 		base:    w,
 		tracker: rt.tracker,
 		offset:  rt.offset,
 	}
-	return rt.base.(io.WriterTo).WriteTo(wt)
+	n, err := rt.base.(io.WriterTo).WriteTo(wt)
+	rt.offset = wt.offset
+	return n, err
 }
 
 // writeTracker tracks the transmission based on the write operation.
@@ -115,8 +117,8 @@ type writeTracker struct {
 }
 
 // Write writes to the base writer and updates the status.
-func (wt *writeTracker) Write(p []byte) (n int, err error) {
-	n, err = wt.base.Write(p)
+func (wt *writeTracker) Write(p []byte) (int, error) {
+	n, err := wt.base.Write(p)
 	wt.offset += int64(n)
 	if n > 0 {
 		_ = wt.tracker.Update(Status{
