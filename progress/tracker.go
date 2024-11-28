@@ -13,6 +13,26 @@ type Tracker interface {
 	Fail(err error) error
 }
 
+// TrackerFunc is an adapter to allow the use of ordinary functions as Trackers.
+// If f is a function with the appropriate signature, TrackerFunc(f) is a
+// [Tracker] that calls f.
+type TrackerFunc func(Status, error) error
+
+// Update updates the status of the descriptor.
+func (f TrackerFunc) Update(status Status) error {
+	return f(status, nil)
+}
+
+// Fail marks the descriptor as failed.
+func (f TrackerFunc) Fail(err error) error {
+	return f(Status{}, err)
+}
+
+// Close closes the tracker.
+func (f TrackerFunc) Close() error {
+	return nil
+}
+
 // Start starts tracking the transmission.
 func Start(t Tracker) error {
 	return t.Update(Status{
