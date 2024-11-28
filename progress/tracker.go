@@ -25,6 +25,7 @@ type Tracker interface {
 	Update(status Status) error
 
 	// Fail marks the descriptor as failed.
+	// Fail should return nil on successful failure marking.
 	Fail(err error) error
 }
 
@@ -91,13 +92,17 @@ func (rt *readTracker) Read(p []byte) (int, error) {
 	n, err := rt.base.Read(p)
 	rt.offset += int64(n)
 	if n > 0 {
-		_ = rt.tracker.Update(Status{
+		if updateErr := rt.tracker.Update(Status{
 			State:  StateTransmitting,
 			Offset: rt.offset,
-		})
+		}); updateErr != nil {
+			return n, updateErr
+		}
 	}
 	if err != nil && err != io.EOF {
-		_ = rt.tracker.Fail(err)
+		if failErr := rt.tracker.Fail(err); failErr != nil {
+			return n, failErr
+		}
 	}
 	return n, err
 }
@@ -136,13 +141,15 @@ func (wt *writeTracker) Write(p []byte) (int, error) {
 	n, err := wt.base.Write(p)
 	wt.offset += int64(n)
 	if n > 0 {
-		_ = wt.tracker.Update(Status{
+		if updateErr := wt.tracker.Update(Status{
 			State:  StateTransmitting,
 			Offset: wt.offset,
-		})
+		}); updateErr != nil {
+			return n, updateErr
+		}
 	}
 	if err != nil {
-		_ = wt.tracker.Fail(err)
+		return n, wt.tracker.Fail(err)
 	}
-	return n, err
+	return n, nil
 }
