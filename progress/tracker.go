@@ -32,7 +32,12 @@ type Tracker interface {
 // TrackerFunc is an adapter to allow the use of ordinary functions as Trackers.
 // If f is a function with the appropriate signature, TrackerFunc(f) is a
 // [Tracker] that calls f.
-type TrackerFunc func(Status, error) error
+type TrackerFunc func(status Status, err error) error
+
+// Close closes the tracker.
+func (f TrackerFunc) Close() error {
+	return nil
+}
 
 // Update updates the status of the descriptor.
 func (f TrackerFunc) Update(status Status) error {
@@ -42,11 +47,6 @@ func (f TrackerFunc) Update(status Status) error {
 // Fail marks the descriptor as failed.
 func (f TrackerFunc) Fail(err error) error {
 	return f(Status{}, err)
-}
-
-// Close closes the tracker.
-func (f TrackerFunc) Close() error {
-	return nil
 }
 
 // Start starts tracking the transmission.
