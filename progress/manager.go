@@ -46,16 +46,3 @@ func (f ManagerFunc) Track(desc ocispec.Descriptor) (Tracker, error) {
 		return f(desc, status, err)
 	}), nil
 }
-
-// Record adds the progress of a descriptor as a single entry.
-func Record(m Manager, desc ocispec.Descriptor, status Status) error {
-	tracker, err := m.Track(desc)
-	if err != nil {
-		return err
-	}
-	err = tracker.Update(status)
-	if err != nil {
-		return err
-	}
-	return tracker.Close()
-}
