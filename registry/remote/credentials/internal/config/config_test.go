@@ -18,6 +18,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -80,13 +81,64 @@ func TestLoad_badFormat(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s-from-file", tt.name), func(t *testing.T) {
 			_, err := Load(tt.configPath)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Load() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 		})
+		t.Run(fmt.Sprintf("%s-from-reader", tt.name), func(t *testing.T) {
+			r, err := os.Open(tt.configPath)
+			if err != nil {
+				t.Fatal("failed to open test file:", err)
+			}
+			defer r.Close()
+			_, err = LoadFromReader(r)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Load() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+		})
+	}
+}
+
+func TestLoadFromReader_setPathAndSave(t *testing.T) {
+	const testCfgPath = "../../testdata/valid_auths_config.json"
+	r, err := os.Open(testCfgPath)
+	if err != nil {
+		t.Fatal("failed to open test file:", err)
+	}
+	defer r.Close()
+	cfg, err := LoadFromReader(r)
+	if err != nil {
+		t.Fatal("LoadFromReader() error =", err)
+	}
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	cfg.SetPath(configPath)
+	cfg.SaveFile()
+	if cfg.Path() != configPath {
+		t.Errorf("Config.Path() = %s, want %s", cfg.Path(), configPath)
+	}
+
+	// Verify content.
+	orgContent, err := os.ReadFile(testCfgPath)
+	if err != nil {
+		t.Fatalf("failed to read original config file: %v", err)
+	}
+	var orgCfg configtest.Config
+	json.Unmarshal(orgContent, &orgCfg)
+
+	savedContent, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read saved config file: %v", err)
+	}
+	var savedCfg configtest.Config
+	json.Unmarshal(savedContent, &savedCfg)
+
+	if !reflect.DeepEqual(orgCfg, savedCfg) {
+		t.Errorf("Saved config = %v, want %v", savedCfg, orgCfg)
 	}
 }
 
@@ -1278,8 +1330,8 @@ func TestConfig_saveFile(t *testing.T) {
 			}
 			cfg.credentialsStore = tt.newCfg.CredentialsStore
 			cfg.credentialHelpers = tt.newCfg.CredentialHelpers
-			if err := cfg.saveFile(); err != nil {
-				t.Fatal("saveFile() error =", err)
+			if err := cfg.SaveFile(); err != nil {
+				t.Fatal("SaveFile() error =", err)
 			}
 
 			// verify config file

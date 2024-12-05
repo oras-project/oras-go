@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,7 +94,7 @@ func (ac AuthConfig) Credential() (auth.Credential, error) {
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 //   - https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/configfile/file.go#L17-L44
 type Config struct {
-	// path is the path to the config file.
+	// path is the path to the config file. When config was loaded from memory, path is empty.
 	path string
 	// rwLock is a read-write-lock for the file store.
 	rwLock sync.RWMutex
@@ -113,11 +114,11 @@ type Config struct {
 
 // Load loads Config from the given config path.
 func Load(configPath string) (*Config, error) {
-	cfg := &Config{path: configPath}
 	configFile, err := os.Open(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// init content and caches if the content file does not exist
+			cfg := &Config{path: configPath}
 			cfg.content = make(map[string]json.RawMessage)
 			cfg.authsCache = make(map[string]json.RawMessage)
 			return cfg, nil
@@ -126,9 +127,21 @@ func Load(configPath string) (*Config, error) {
 	}
 	defer configFile.Close()
 
-	// decode config content if the config file exists
-	if err := json.NewDecoder(configFile).Decode(&cfg.content); err != nil {
-		return nil, fmt.Errorf("failed to decode config file at %s: %w: %v", configPath, ErrInvalidConfigFormat, err)
+	cfg, err := LoadFromReader(configFile)
+	if err != nil {
+		return nil, err
+	}
+	cfg.path = configPath
+	return cfg, nil
+}
+
+// LoadFromReader loads Config from the given io.Reader.
+// Path can be set by SetPath to save the config,
+// otherwise all changes happen in memory.
+func LoadFromReader(r io.Reader) (*Config, error) {
+	cfg := &Config{}
+	if err := json.NewDecoder(r).Decode(&cfg.content); err != nil {
+		return nil, fmt.Errorf("failed to decode config file: %w: %v", ErrInvalidConfigFormat, err)
 	}
 
 	if credsStoreBytes, ok := cfg.content[configFieldCredentialsStore]; ok {
@@ -195,7 +208,7 @@ func (cfg *Config) PutCredential(serverAddress string, cred auth.Credential) err
 		return fmt.Errorf("failed to marshal auth field: %w", err)
 	}
 	cfg.authsCache[serverAddress] = authCfgBytes
-	return cfg.saveFile()
+	return cfg.SaveFile()
 }
 
 // DeleteAuthConfig deletes the corresponding credential for serverAddress.
@@ -208,7 +221,7 @@ func (cfg *Config) DeleteCredential(serverAddress string) error {
 		return nil
 	}
 	delete(cfg.authsCache, serverAddress)
-	return cfg.saveFile()
+	return cfg.SaveFile()
 }
 
 // GetCredentialHelper returns the credential helpers for serverAddress.
@@ -225,8 +238,14 @@ func (cfg *Config) CredentialsStore() string {
 }
 
 // Path returns the path to the config file.
+// It's empty if the config was loaded from memory.
 func (cfg *Config) Path() string {
 	return cfg.path
+}
+
+// SetPath sets the path to the config file.
+func (cfg *Config) SetPath(path string) {
+	cfg.path = path
 }
 
 // SetCredentialsStore puts the configured credentials store.
@@ -235,7 +254,7 @@ func (cfg *Config) SetCredentialsStore(credsStore string) error {
 	defer cfg.rwLock.Unlock()
 
 	cfg.credentialsStore = credsStore
-	return cfg.saveFile()
+	return cfg.SaveFile()
 }
 
 // IsAuthConfigured returns whether there is authentication configured in this
@@ -246,8 +265,13 @@ func (cfg *Config) IsAuthConfigured() bool {
 		len(cfg.authsCache) > 0
 }
 
-// saveFile saves Config into the file.
-func (cfg *Config) saveFile() (returnErr error) {
+// SaveFile saves Config into the file.
+// In case when the Path() returns empty, it does nothing.
+func (cfg *Config) SaveFile() (returnErr error) {
+	if cfg.path == "" {
+		return nil
+	}
+
 	// marshal content
 	// credentialHelpers is skipped as it's never set
 	if cfg.credentialsStore != "" {

@@ -54,11 +54,11 @@ func NewFileStore(configPath string) (*FileStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newFileStore(cfg), nil
+	return NewFileStoreFromConfig(cfg), nil
 }
 
-// newFileStore creates a file credentials store based on the given config instance.
-func newFileStore(cfg *config.Config) *FileStore {
+// NewFileStoreFromConfig creates a file credentials store based on the given config instance.
+func NewFileStoreFromConfig(cfg *config.Config) *FileStore {
 	return &FileStore{config: cfg}
 }
 
