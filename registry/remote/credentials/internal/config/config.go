@@ -160,13 +160,18 @@ func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) 
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
-	authCfgBytes, ok := cfg.authsCache[serverAddress]
+	return getCredentialFromCache(cfg.authsCache, serverAddress)
+}
+
+// getCredentialsFromCache is a helper function to get the credential for serverAddress from authsCache in a raw format.
+func getCredentialFromCache(authsCache map[string]json.RawMessage, serverAddress string) (auth.Credential, error) {
+	authCfgBytes, ok := authsCache[serverAddress]
 	if !ok {
 		// NOTE: the auth key for the server address may have been stored with
 		// a http/https prefix in legacy config files, e.g. "registry.example.com"
 		// can be stored as "https://registry.example.com/".
 		var matched bool
-		for addr, auth := range cfg.authsCache {
+		for addr, auth := range authsCache {
 			if toHostname(addr) == serverAddress {
 				matched = true
 				authCfgBytes = auth

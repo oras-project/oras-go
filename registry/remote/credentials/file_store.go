@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -44,6 +45,9 @@ var (
 	// ErrBadCredentialFormat is returned by Put() when the credential format
 	// is bad.
 	ErrBadCredentialFormat = errors.New("bad credential format")
+	// ErrReadOnlyStore is returned for operations
+	// Put(...) and Delete(...) for read-only store.
+	ErrReadOnlyStore = errors.New("cannot modify content of the read-only store")
 )
 
 // NewFileStore creates a new file credentials store.
@@ -94,4 +98,37 @@ func validateCredentialFormat(cred auth.Credential) error {
 		return fmt.Errorf("%w: colons(:) are not allowed in username", ErrBadCredentialFormat)
 	}
 	return nil
+}
+
+// ReadOnlyFileStore implements a credentials store using the docker configuration file
+// as an input. It supports only Get operation that works in the same way as for standard
+// FileStore.
+type ReadOnlyFileStore struct {
+	cfg *config.ReadOnlyConfig
+}
+
+// NewFileStore creates a new file credentials store based on the given config,
+// it returns an error if the config is not in the expected format.
+func NewReadOnlyFileStore(reader io.Reader) (*ReadOnlyFileStore, error) {
+	cfg, err := config.NewReadOnlyConfig(reader)
+	if err != nil {
+		return nil, err
+	}
+	return &ReadOnlyFileStore{cfg: cfg}, nil
+}
+
+// Get retrieves credentials from the store for the given server address. In case of non-existent
+// server address, it returns auth.EmptyCredential.
+func (fs *ReadOnlyFileStore) Get(_ context.Context, serverAddress string) (auth.Credential, error) {
+	return fs.cfg.GetCredential(serverAddress)
+}
+
+// Get always returns ErrReadOnlyStore. It's present to satisfy the Store interface.
+func (fs *ReadOnlyFileStore) Put(_ context.Context, _ string, _ auth.Credential) error {
+	return ErrReadOnlyStore
+}
+
+// Delete always returns ErrReadOnlyStore. It's present to satisfy the Store interface.
+func (fs *ReadOnlyFileStore) Delete(_ context.Context, _ string) error {
+	return ErrReadOnlyStore
 }
