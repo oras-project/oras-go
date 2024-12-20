@@ -160,28 +160,7 @@ func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) 
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
-	authCfgBytes, ok := cfg.authsCache[serverAddress]
-	if !ok {
-		// NOTE: the auth key for the server address may have been stored with
-		// a http/https prefix in legacy config files, e.g. "registry.example.com"
-		// can be stored as "https://registry.example.com/".
-		var matched bool
-		for addr, auth := range cfg.authsCache {
-			if toHostname(addr) == serverAddress {
-				matched = true
-				authCfgBytes = auth
-				break
-			}
-		}
-		if !matched {
-			return auth.EmptyCredential, nil
-		}
-	}
-	var authCfg AuthConfig
-	if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
-		return auth.EmptyCredential, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
-	}
-	return authCfg.Credential()
+	return getCredentialFromAuthsRaw(cfg.authsCache, serverAddress)
 }
 
 // PutAuthConfig puts cred for serverAddress.

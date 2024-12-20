@@ -16,6 +16,7 @@ limitations under the License.
 package credentials
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,7 @@ import (
 	"testing"
 
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/credentials/internal/config"
 	"oras.land/oras-go/v2/registry/remote/credentials/internal/config/configtest"
 )
 
@@ -81,21 +83,44 @@ func TestNewFileStore_badFormat(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name+" FileStore", func(t *testing.T) {
 			_, err := NewFileStore(tt.configPath)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewFileStore() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 		})
+		t.Run(tt.name+" ReadOnlyFileStore", func(t *testing.T) {
+			f, err := os.Open(tt.configPath)
+			if err != nil {
+				t.Fatalf("failed to open file: %v", err)
+			}
+			defer f.Close()
+
+			_, err = NewReadOnlyFileStore(f)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewReadOnlyFileStore() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+		})
 	}
 }
 
-func TestFileStore_Get_validConfig(t *testing.T) {
+func TestFileStoreAndReadOnlyFileStore_Get_validConfig(t *testing.T) {
 	ctx := context.Background()
-	fs, err := NewFileStore("testdata/valid_auths_config.json")
+	const validAuthsConfigPath = "testdata/valid_auths_config.json"
+	fs, err := NewFileStore(validAuthsConfigPath)
 	if err != nil {
 		t.Fatal("NewFileStore() error =", err)
+	}
+
+	f, err := os.ReadFile(validAuthsConfigPath)
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	rofs, err := NewReadOnlyFileStore(bytes.NewReader(f))
+	if err != nil {
+		t.Fatalf("NewReadOnlyFileStore() error = %v", err)
 	}
 
 	tests := []struct {
@@ -169,7 +194,7 @@ func TestFileStore_Get_validConfig(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name+" FileStore.Get()", func(t *testing.T) {
 			got, err := fs.Get(ctx, tt.serverAddress)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FileStore.Get() error = %v, wantErr %v", err, tt.wantErr)
@@ -179,6 +204,27 @@ func TestFileStore_Get_validConfig(t *testing.T) {
 				t.Errorf("FileStore.Get() = %v, want %v", got, tt.want)
 			}
 		})
+		t.Run(tt.name+" ReadOnlyFileStore.Get()", func(t *testing.T) {
+			got, err := rofs.Get(ctx, tt.serverAddress)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ReadOnlyFileStore.Get() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ReadOnlyFileStore.Get() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadOnlyFileStore_Create_fromInvalidConfig(t *testing.T) {
+	f, err := os.ReadFile("testdata/invalid_auths_entry_config.json")
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	_, err = NewReadOnlyFileStore(bytes.NewReader(f))
+	if !errors.Is(err, config.ErrInvalidConfigFormat) {
+		t.Fatalf("Error: %s is expected", config.ErrInvalidConfigFormat)
 	}
 }
 
@@ -293,6 +339,23 @@ func TestFileStore_Get_notExistConfig(t *testing.T) {
 				t.Errorf("FileStore.Get() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestReadOnlyFileStore_Put_expectError(t *testing.T) {
+	const validAuthsConfigPath = "testdata/valid_auths_config.json"
+	f, err := os.ReadFile(validAuthsConfigPath)
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+
+	rofs, err := NewReadOnlyFileStore(bytes.NewReader(f))
+	if err != nil {
+		t.Fatalf("NewReadOnlyFileStore() error = %v", err)
+	}
+	err = rofs.Put(context.Background(), "registry.example.com", auth.Credential{})
+	if !errors.Is(err, ErrReadOnlyStore) {
+		t.Fatalf("Error: %s is expected", ErrReadOnlyStore)
 	}
 }
 
@@ -589,6 +652,23 @@ func TestFileStore_Put_passwordContainsColon(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, cred) {
 		t.Errorf("FileStore.Get() = %v, want %v", got, cred)
+	}
+}
+
+func TestReadOnlyFileStore_Delete_expectError(t *testing.T) {
+	const validAuthsConfigPath = "testdata/valid_auths_config.json"
+	f, err := os.ReadFile(validAuthsConfigPath)
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+
+	rofs, err := NewReadOnlyFileStore(bytes.NewReader(f))
+	if err != nil {
+		t.Fatalf("NewReadOnlyFileStore() error = %v", err)
+	}
+	err = rofs.Delete(context.Background(), "registry.example.com")
+	if !errors.Is(err, ErrReadOnlyStore) {
+		t.Fatalf("Error: %s is expected", ErrReadOnlyStore)
 	}
 }
 
