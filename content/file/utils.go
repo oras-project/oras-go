@@ -185,10 +185,23 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 				err = os.Link(target, path)
 			}
 		case tar.TypeSymlink:
+			// var target string
+			// if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
+			// 	err = os.Symlink(target, path)
+			// }
+
 			var target string
-			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
-				err = os.Symlink(target, path)
+			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err != nil {
+				return err
 			}
+			if _, err := os.Lstat(path); err == nil {
+				// TODO: check if the option allows overwrite
+				// TODO: tests
+				if err := os.Remove(path); err != nil {
+					return err
+				}
+			}
+			err = os.Symlink(target, path)
 		default:
 			continue // Non-regular files are skipped
 		}
