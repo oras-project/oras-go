@@ -61,6 +61,7 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeT
 		name = filepath.ToSlash(name)
 
 		// Generate header
+		// TODO: handle hard links?
 		var link string
 		mode := info.Mode()
 		if mode&os.ModeSymlink != 0 {
@@ -180,17 +181,24 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 		case tar.TypeDir:
 			err = os.MkdirAll(path, header.FileInfo().Mode())
 		case tar.TypeLink:
-			var target string
-			// TODO: handle hard link?
-			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
-				err = os.Link(target, path)
-			}
-		case tar.TypeSymlink:
+			// TODO: tests
 			var target string
 			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err != nil {
 				return err
 			}
+			if _, err := os.Lstat(path); err == nil {
+				// link already exists, remove it first
+				if err := os.Remove(path); err != nil {
+					return err
+				}
+			}
+			err = os.Link(target, path)
+		case tar.TypeSymlink:
 			// TODO: tests
+			var target string
+			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err != nil {
+				return err
+			}
 			if _, err := os.Lstat(path); err == nil {
 				// link already exists, remove it first
 				if err := os.Remove(path); err != nil {
