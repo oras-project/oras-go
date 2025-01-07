@@ -181,22 +181,18 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 			err = os.MkdirAll(path, header.FileInfo().Mode())
 		case tar.TypeLink:
 			var target string
+			// TODO: handle hard link?
 			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
 				err = os.Link(target, path)
 			}
 		case tar.TypeSymlink:
-			// var target string
-			// if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
-			// 	err = os.Symlink(target, path)
-			// }
-
 			var target string
 			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err != nil {
 				return err
 			}
+			// TODO: tests
 			if _, err := os.Lstat(path); err == nil {
-				// TODO: check if the option allows overwrite
-				// TODO: tests
+				// link already exists, remove it first
 				if err := os.Remove(path); err != nil {
 					return err
 				}
