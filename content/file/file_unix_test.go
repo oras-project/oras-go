@@ -244,3 +244,159 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 		t.Error("oras.CopyGraph() error = nil, wantErr ", true)
 	}
 }
+
+// Related issue: https://github.com/oras-project/oras-go/issues/865
+func TestStore_Dir_OverwriteSymlinkRel(t *testing.T) {
+	// prepare test content
+	tempDir := t.TempDir()
+	dirName := "testdir"
+	dirPath := filepath.Join(tempDir, dirName)
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+
+	content := []byte("hello world")
+	fileName := "test.txt"
+	filePath := filepath.Join(dirPath, fileName)
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	// create symlink to a relative path
+	symlinkName := "test_symlink"
+	symlinkPath := filepath.Join(dirPath, symlinkName)
+	if err := os.Symlink(fileName, symlinkPath); err != nil {
+		t.Fatal("error calling Symlink(), error =", err)
+	}
+
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer src.Close()
+	ctx := context.Background()
+
+	// add dir
+	desc, err := src.Add(ctx, dirName, "", dirPath)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	// pack a manifest
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{desc},
+	}
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "test/dir", opts)
+	if err != nil {
+		t.Fatal("oras.PackManifest() error =", err)
+	}
+
+	// copy to another file store created from an absolute root, to trigger extracting directory
+	tempDir = t.TempDir()
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dst.Close()
+	if err := oras.CopyGraph(ctx, src, dst, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// copy to another file store created from the same root again, to test overwriting symlink
+	sameDst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer sameDst.Close()
+	if err := oras.CopyGraph(ctx, src, sameDst, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// verify extracted symlink
+	extractedSymlink := filepath.Join(tempDir, dirName, symlinkName)
+	symlinkDst, err := os.Readlink(extractedSymlink)
+	if err != nil {
+		t.Fatal("failed to get symlink destination, error =", err)
+	}
+	if want := fileName; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err := os.ReadFile(extractedSymlink)
+	if err != nil {
+		t.Fatal("failed to read symlink file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
+	}
+}
+
+// Related issue: https://github.com/oras-project/oras-go/issues/865
+func TestStore_Dir_OverwriteSymlinkAbs(t *testing.T) {
+	// prepare test content
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal("error calling filepath.EvalSymlinks(), error =", err)
+	}
+	dirName := "testdir"
+	dirPath := filepath.Join(tempDir, dirName)
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+
+	content := []byte("hello world")
+	fileName := "test.txt"
+	filePath := filepath.Join(dirPath, fileName)
+	if err := os.WriteFile(filePath, content, 0777); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	// create symlink to an absolute path
+	symlink := filepath.Join(dirPath, "test_symlink")
+	if err := os.Symlink(filePath, symlink); err != nil {
+		t.Fatal("error calling Symlink(), error =", err)
+	}
+
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer src.Close()
+	ctx := context.Background()
+
+	// add dir
+	desc, err := src.Add(ctx, dirName, "", dirPath)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	// pack a manifest
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{desc},
+	}
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "test/dir", opts)
+	if err != nil {
+		t.Fatal("oras.PackManifest() error =", err)
+	}
+
+	// create a new store from the same root, to test overwriting symlink
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dst.Close()
+	if err := oras.CopyGraph(ctx, src, dst, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// verify extracted symlink
+	symlinkDst, err := os.Readlink(symlink)
+	if err != nil {
+		t.Fatal("failed to get symlink destination, error =", err)
+	}
+	if want := filePath; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err := os.ReadFile(symlink)
+	if err != nil {
+		t.Fatal("failed to read symlink file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
+	}
+}
