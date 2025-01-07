@@ -64,9 +64,12 @@ func TestStore_Dir_ExtractSymlinkRel(t *testing.T) {
 		t.Fatal("Store.Add() error =", err)
 	}
 	// pack a manifest
-	manifestDesc, err := oras.Pack(ctx, src, "dir", []ocispec.Descriptor{desc}, oras.PackOptions{})
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{desc},
+	}
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "test/dir", opts)
 	if err != nil {
-		t.Fatal("oras.Pack() error =", err)
+		t.Fatal("oras.PackManifest() error =", err)
 	}
 
 	// copy to another file store created from an absolute root, to trigger extracting directory
@@ -167,9 +170,12 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 		t.Fatal("Store.Add() error =", err)
 	}
 	// pack a manifest
-	manifestDesc, err := oras.Pack(ctx, src, "dir", []ocispec.Descriptor{desc}, oras.PackOptions{})
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{desc},
+	}
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "test/dir", opts)
 	if err != nil {
-		t.Fatal("oras.Pack() error =", err)
+		t.Fatal("oras.PackManifest() error =", err)
 	}
 
 	// remove the original testing directory and create a new store using an absolute root

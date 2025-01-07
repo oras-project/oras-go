@@ -194,7 +194,6 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 			}
 			err = os.Link(target, path)
 		case tar.TypeSymlink:
-			// TODO: tests
 			var target string
 			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err != nil {
 				return err
