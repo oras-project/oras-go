@@ -615,16 +615,16 @@ func (s *Store) resolveWritePath(name string) (string, error) {
 		}
 		rel, err := filepath.Rel(base, target)
 		if err != nil {
-			return "", ErrPathTraversalDisallowed
+			return "", fmt.Errorf("target path '%s' is outside of working dir '%s': %w", path, base, ErrPathTraversalDisallowed)
 		}
 		rel = filepath.ToSlash(rel)
 		if strings.HasPrefix(rel, "../") || rel == ".." {
-			return "", ErrPathTraversalDisallowed
+			return "", fmt.Errorf("target path '%s' is outside of working dir '%s' : %w", path, base, ErrPathTraversalDisallowed)
 		}
 	}
 	if s.DisableOverwrite {
 		if _, err := os.Stat(path); err == nil {
-			return "", ErrOverwriteDisallowed
+			return "", fmt.Errorf("file %s already exists: %w", path, ErrOverwriteDisallowed)
 		} else if !os.IsNotExist(err) {
 			return "", err
 		}
