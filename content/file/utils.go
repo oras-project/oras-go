@@ -61,6 +61,7 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeT
 		name = filepath.ToSlash(name)
 
 		// Generate header
+		// NOTE: We don't support hard links and treat it as regular files
 		var link string
 		mode := info.Mode()
 		if mode&os.ModeSymlink != 0 {
@@ -190,7 +191,8 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 			}
 		case tar.TypeSymlink:
 			var target string
-			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err != nil {
+			target, err = ensureLinkPath(dir, prefix, path, header.Linkname)
+			if err != nil {
 				return err
 			}
 			if _, err := os.Lstat(path); err == nil {
