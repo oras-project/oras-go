@@ -61,7 +61,6 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeT
 		name = filepath.ToSlash(name)
 
 		// Generate header
-		// TODO: handle hard links?
 		var link string
 		mode := info.Mode()
 		if mode&os.ModeSymlink != 0 {
@@ -181,18 +180,14 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 		case tar.TypeDir:
 			err = os.MkdirAll(path, header.FileInfo().Mode())
 		case tar.TypeLink:
-			// TODO: tests
+			// NOTE: ORAS does not generate hard links when creating tarballs.
+			// If a hard link is found in the tarball, it will be extracted.
+			// If the target link already exists, os.Link will throw an error.
+			// This is a known limitation and will not be addressed.
 			var target string
-			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err != nil {
-				return err
+			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
+				err = os.Link(target, path)
 			}
-			if _, err := os.Lstat(path); err == nil {
-				// link already exists, remove it first
-				if err := os.Remove(path); err != nil {
-					return err
-				}
-			}
-			err = os.Link(target, path)
 		case tar.TypeSymlink:
 			var target string
 			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err != nil {
