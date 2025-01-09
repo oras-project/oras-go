@@ -104,7 +104,8 @@ func Test_ensureBasePath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "hello world", "foo", "bar"), 0700); err != nil {
 		t.Fatal("failed to create temp folders:", err)
 	}
-	base := "hello world/foo"
+	baseRel := "hello world/foo"
+	baseAbs := filepath.Join(root, baseRel)
 
 	tests := []struct {
 		name    string
@@ -155,7 +156,7 @@ func Test_ensureBasePath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ensureBasePath(root, base, tt.target)
+			got, err := ensureBasePath(baseAbs, baseRel, tt.target)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ensureBasePath() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -172,7 +173,8 @@ func Test_ensureLinkPath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "hello world", "foo", "bar"), 0700); err != nil {
 		t.Fatal("failed to create temp folders:", err)
 	}
-	base := "hello world/foo"
+	baseRel := "hello world/foo"
+	baseAbs := filepath.Join(root, baseRel)
 
 	tests := []struct {
 		name    string
@@ -220,7 +222,7 @@ func Test_ensureLinkPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ensureLinkPath(root, base, tt.link, tt.target)
+			got, err := ensureLinkPath(baseAbs, baseRel, tt.link, tt.target)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ensureLinkPath() error = %v, wantErr %v", err, tt.wantErr)
 				return
