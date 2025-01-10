@@ -3748,108 +3748,43 @@ func TestStore_resolveWritePath_PathTraversal(t *testing.T) {
 	}
 }
 
-func TestStore_resolveWritePath(t *testing.T) {
-	tempDir := t.TempDir()
+func TestStore_resolveWritePath_Overwrite(t *testing.T) {
+	t.Run("Target file already exists", func(t *testing.T) {
+		tempDir := t.TempDir()
 
-	tests := []struct {
-		name                   string
-		store                  *Store
-		inputName              string
-		allowPathTraversal     bool
-		disableOverwrite       bool
-		existingFile           string
-		expectedPath           string
-		expectedErrorSubstring string
-	}{
-		{
-			name:                   "valid path without traversal",
-			store:                  &Store{workingDir: tempDir},
-			inputName:              "testfile.txt",
-			expectedPath:           filepath.Join(tempDir, "testfile.txt"),
-			expectedErrorSubstring: "",
-		},
-		{
-			name:                   "path traversal disallowed",
-			store:                  &Store{workingDir: tempDir},
-			inputName:              "../testfile.txt",
-			expectedErrorSubstring: "target path",
-		},
-		{
-			name:                   "path traversal allowed",
-			store:                  &Store{workingDir: tempDir, AllowPathTraversalOnWrite: true},
-			inputName:              "../testfile.txt",
-			expectedPath:           filepath.Join(tempDir, "../testfile.txt"),
-			expectedErrorSubstring: "",
-		},
-		{
-			name:                   "overwrite disallowed",
-			store:                  &Store{workingDir: tempDir, DisableOverwrite: true},
-			inputName:              "testfile.txt",
-			existingFile:           filepath.Join(tempDir, "testfile.txt"),
-			expectedErrorSubstring: "file testfile.txt already exists",
-		},
-		{
-			name:                   "overwrite allowed",
-			store:                  &Store{workingDir: tempDir},
-			inputName:              "testfile.txt",
-			existingFile:           filepath.Join(tempDir, "testfile.txt"),
-			expectedPath:           filepath.Join(tempDir, "testfile.txt"),
-			expectedErrorSubstring: "",
-		},
-	}
+		s, err := New(tempDir)
+		if err != nil {
+			t.Fatalf("failed to create store: %v", err)
+		}
+		s.DisableOverwrite = true
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.existingFile != "" {
-				if err := os.WriteFile(tt.existingFile, []byte("content"), 0644); err != nil {
-					t.Fatalf("failed to create existing file: %v", err)
-				}
-			}
+		existingFile := filepath.Join(tempDir, "test.txt")
+		if err := os.WriteFile(existingFile, []byte("content"), 0444); err != nil {
+			t.Fatalf("failed to create existing file: %v", err)
+		}
+		if _, err := s.resolveWritePath("test.txt"); !errors.Is(err, ErrOverwriteDisallowed) {
+			t.Errorf("resolveWritePath() error = %v, wantErr %v", err, ErrOverwriteDisallowed)
+		}
+	})
 
-			got, err := tt.store.resolveWritePath(tt.inputName)
-			if tt.expectedErrorSubstring != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.expectedErrorSubstring) {
-					t.Errorf("expected error containing %q, got %v", tt.expectedErrorSubstring, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-				if got != tt.expectedPath {
-					t.Errorf("expected path %q, got %q", tt.expectedPath, got)
-				}
-			}
-		})
-	}
+	t.Run("Target file does not exist", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		s, err := New(tempDir)
+		if err != nil {
+			t.Fatalf("failed to create store: %v", err)
+		}
+		s.DisableOverwrite = true
+
+		got, err := s.resolveWritePath("test.txt")
+		if err != nil {
+			t.Fatalf("resolveWritePath() error = %v", err)
+		}
+		if want := filepath.Join(tempDir, "test.txt"); got != want {
+			t.Errorf("resolveWritePath() = %v, want %v", got, want)
+		}
+	})
 }
-
-// func TestStore_resolveWritePath(t *testing.T) {
-
-// 	// type args struct {
-// 	// 	name string
-// 	// }
-// 	// tests := []struct {
-// 	// 	name    string
-// 	// 	s       *Store
-// 	// 	args    args
-// 	// 	want    string
-// 	// 	wantErr bool
-// 	// }{
-// 	// 	// TODO: Add test cases.
-// 	// }
-// 	// for _, tt := range tests {
-// 	// 	t.Run(tt.name, func(t *testing.T) {
-// 	// 		got, err := tt.s.resolveWritePath(tt.args.name)
-// 	// 		if (err != nil) != tt.wantErr {
-// 	// 			t.Errorf("Store.resolveWritePath() error = %v, wantErr %v", err, tt.wantErr)
-// 	// 			return
-// 	// 		}
-// 	// 		if got != tt.want {
-// 	// 			t.Errorf("Store.resolveWritePath() = %v, want %v", got, tt.want)
-// 	// 		}
-// 	// 	})
-// 	// }
-// }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
 	if len(actual) != len(expected) {
