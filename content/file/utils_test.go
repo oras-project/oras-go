@@ -233,3 +233,12 @@ func Test_ensureLinkPath(t *testing.T) {
 		})
 	}
 }
+
+func Test_extractTarGzip_Error(t *testing.T) {
+	t.Run("Non-existing file", func(t *testing.T) {
+		err := extractTarGzip("", "", "non-existing-file", "", nil)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+}

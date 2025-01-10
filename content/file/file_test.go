@@ -18,6 +18,7 @@ package file
 import (
 	"bytes"
 	"context"
+	_ "crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,8 +29,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-
-	_ "crypto/sha256"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -3053,6 +3052,62 @@ func TestStore_Dir_OverwriteSymlinkAbs(t *testing.T) {
 	}
 }
 
+func TestStore_Dir_OverwriteSymlink_RemovalFailed(t *testing.T) {
+	// prepare test content
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal("error calling filepath.EvalSymlinks(), error =", err)
+	}
+	dirName := "testdir"
+	dirPath := filepath.Join(tempDir, dirName)
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+
+	content := []byte("hello world")
+	fileName := "test.txt"
+	filePath := filepath.Join(dirPath, fileName)
+	if err := os.WriteFile(filePath, content, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	// create symlink to an absolute path
+	symlink := filepath.Join(dirPath, "test_symlink")
+	if err := os.Symlink(filePath, symlink); err != nil {
+		t.Fatal("error calling Symlink(), error =", err)
+	}
+
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer src.Close()
+	ctx := context.Background()
+
+	// add dir
+	desc, err := src.Add(ctx, dirName, "", dirPath)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	// pack a manifest
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{desc},
+	}
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "test/dir", opts)
+	if err != nil {
+		t.Fatal("oras.PackManifest() error =", err)
+	}
+
+	// create a new store from the same root, to test overwriting symlink
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dst.Close()
+	if err := oras.CopyGraph(ctx, src, dst, manifestDesc, oras.DefaultCopyGraphOptions); err == nil {
+		t.Error("oras.CopyGraph() error = nil, wantErr = true")
+	}
+}
+
 func TestCopyGraph_MemoryToFile_FullCopy(t *testing.T) {
 	src := memory.New()
 
@@ -3595,6 +3650,206 @@ func TestCopyGraph_FileToMemory_PartialCopy(t *testing.T) {
 		t.Errorf("count(dst.Exists()) = %v, want %v", got, want)
 	}
 }
+
+func TestStore_resolveWritePath_PathTraversal(t *testing.T) {
+	tempDir := t.TempDir()
+
+	tests := []struct {
+		name               string
+		workingDir         string
+		allowPathTraversal bool
+		input              string
+		want               string
+		wantErr            error
+	}{
+		{
+			name:               "good relative path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              "test.txt",
+			want:               filepath.Join(tempDir, "test.txt"),
+			wantErr:            nil,
+		},
+		{
+			name:               "good absolute path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              filepath.Join(tempDir, "test.txt"),
+			want:               filepath.Join(tempDir, "test.txt"),
+			wantErr:            nil,
+		},
+		{
+			name:               "bad absolute path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              filepath.Clean(filepath.Join(tempDir, "../test.txt")),
+			want:               "",
+			wantErr:            ErrPathTraversalDisallowed,
+		},
+		{
+			name:               "bad absolute path with path traversal allowed",
+			workingDir:         tempDir,
+			allowPathTraversal: true,
+			input:              filepath.Clean(filepath.Join(tempDir, "../test.txt")),
+			want:               filepath.Clean(filepath.Join(tempDir, "../test.txt")),
+			wantErr:            nil,
+		},
+		{
+			name:               "bad relative path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              "../test.txt",
+			want:               "",
+			wantErr:            ErrPathTraversalDisallowed,
+		},
+		{
+			name:               "bad relative path with path traversal allowed",
+			workingDir:         tempDir,
+			allowPathTraversal: true,
+			input:              "../test.txt",
+			want:               filepath.Clean(filepath.Join(tempDir, "../test.txt")),
+			wantErr:            nil,
+		},
+		{
+			name:               "bad relative directory path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              "..",
+			want:               "",
+			wantErr:            ErrPathTraversalDisallowed,
+		},
+		{
+			name:               "bad relative directory path with path traversal allowed",
+			workingDir:         tempDir,
+			allowPathTraversal: true,
+			input:              "..",
+			want:               filepath.Clean(filepath.Join(tempDir, "..")),
+			wantErr:            nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := New(tt.workingDir)
+			if err != nil {
+				t.Fatalf("failed to create store: %v", err)
+			}
+			defer s.Close()
+
+			s.AllowPathTraversalOnWrite = tt.allowPathTraversal
+			got, err := s.resolveWritePath(tt.input)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("resolveWritePath() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("resolveWritePath() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStore_resolveWritePath(t *testing.T) {
+	tempDir := t.TempDir()
+
+	tests := []struct {
+		name                   string
+		store                  *Store
+		inputName              string
+		allowPathTraversal     bool
+		disableOverwrite       bool
+		existingFile           string
+		expectedPath           string
+		expectedErrorSubstring string
+	}{
+		{
+			name:                   "valid path without traversal",
+			store:                  &Store{workingDir: tempDir},
+			inputName:              "testfile.txt",
+			expectedPath:           filepath.Join(tempDir, "testfile.txt"),
+			expectedErrorSubstring: "",
+		},
+		{
+			name:                   "path traversal disallowed",
+			store:                  &Store{workingDir: tempDir},
+			inputName:              "../testfile.txt",
+			expectedErrorSubstring: "target path",
+		},
+		{
+			name:                   "path traversal allowed",
+			store:                  &Store{workingDir: tempDir, AllowPathTraversalOnWrite: true},
+			inputName:              "../testfile.txt",
+			expectedPath:           filepath.Join(tempDir, "../testfile.txt"),
+			expectedErrorSubstring: "",
+		},
+		{
+			name:                   "overwrite disallowed",
+			store:                  &Store{workingDir: tempDir, DisableOverwrite: true},
+			inputName:              "testfile.txt",
+			existingFile:           filepath.Join(tempDir, "testfile.txt"),
+			expectedErrorSubstring: "file testfile.txt already exists",
+		},
+		{
+			name:                   "overwrite allowed",
+			store:                  &Store{workingDir: tempDir},
+			inputName:              "testfile.txt",
+			existingFile:           filepath.Join(tempDir, "testfile.txt"),
+			expectedPath:           filepath.Join(tempDir, "testfile.txt"),
+			expectedErrorSubstring: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.existingFile != "" {
+				if err := os.WriteFile(tt.existingFile, []byte("content"), 0644); err != nil {
+					t.Fatalf("failed to create existing file: %v", err)
+				}
+			}
+
+			got, err := tt.store.resolveWritePath(tt.inputName)
+			if tt.expectedErrorSubstring != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.expectedErrorSubstring) {
+					t.Errorf("expected error containing %q, got %v", tt.expectedErrorSubstring, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if got != tt.expectedPath {
+					t.Errorf("expected path %q, got %q", tt.expectedPath, got)
+				}
+			}
+		})
+	}
+}
+
+// func TestStore_resolveWritePath(t *testing.T) {
+
+// 	// type args struct {
+// 	// 	name string
+// 	// }
+// 	// tests := []struct {
+// 	// 	name    string
+// 	// 	s       *Store
+// 	// 	args    args
+// 	// 	want    string
+// 	// 	wantErr bool
+// 	// }{
+// 	// 	// TODO: Add test cases.
+// 	// }
+// 	// for _, tt := range tests {
+// 	// 	t.Run(tt.name, func(t *testing.T) {
+// 	// 		got, err := tt.s.resolveWritePath(tt.args.name)
+// 	// 		if (err != nil) != tt.wantErr {
+// 	// 			t.Errorf("Store.resolveWritePath() error = %v, wantErr %v", err, tt.wantErr)
+// 	// 			return
+// 	// 		}
+// 	// 		if got != tt.want {
+// 	// 			t.Errorf("Store.resolveWritePath() = %v, want %v", got, tt.want)
+// 	// 		}
+// 	// 	})
+// 	// }
+// }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
 	if len(actual) != len(expected) {
