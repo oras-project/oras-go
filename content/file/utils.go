@@ -112,8 +112,8 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeT
 
 // extractTarGzip decompresses the gzip
 // and extracts tar file to a directory specified by the `dir` parameter.
-func extractTarGzip(dir, prefix, filename, checksum string, buf []byte) (err error) {
-	fp, err := os.Open(filename)
+func extractTarGzip(dirPath, dirName, gzPath, checksum string, buf []byte) (err error) {
+	fp, err := os.Open(gzPath)
 	if err != nil {
 		return err
 	}
@@ -143,7 +143,7 @@ func extractTarGzip(dir, prefix, filename, checksum string, buf []byte) (err err
 			r = io.TeeReader(r, verifier)
 		}
 	}
-	if err := extractTarDirectory(dir, prefix, r, buf); err != nil {
+	if err := extractTarDirectory(dirPath, dirName, r, buf); err != nil {
 		return err
 	}
 	if verifier != nil && !verifier.Verified() {
@@ -155,7 +155,7 @@ func extractTarGzip(dir, prefix, filename, checksum string, buf []byte) (err err
 // extractTarDirectory extracts tar file to a directory specified by the `dir`
 // parameter. The file name prefix is ensured to be the string specified by the
 // `prefix` parameter and is trimmed.
-func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
+func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte) error {
 	tr := tar.NewReader(r)
 	for {
 		header, err := tr.Next()
@@ -167,41 +167,41 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 		}
 
 		// Name check
-		name := header.Name
-		path, err := ensureBasePath(dir, prefix, name)
+		filename := header.Name
+		filePathRel, err := ensureBasePath(dirPath, dirName, filename)
 		if err != nil {
 			return err
 		}
-		path = filepath.Join(dir, path)
+		filePath := filepath.Join(dirPath, filePathRel)
 
 		// Create content
 		switch header.Typeflag {
 		case tar.TypeReg:
-			err = writeFile(path, tr, header.FileInfo().Mode(), buf)
+			err = writeFile(filePath, tr, header.FileInfo().Mode(), buf)
 		case tar.TypeDir:
-			err = os.MkdirAll(path, header.FileInfo().Mode())
+			err = os.MkdirAll(filePath, header.FileInfo().Mode())
 		case tar.TypeLink:
 			// NOTE: ORAS does not generate hard links when creating tarballs.
 			// If a hard link is found in the tarball, it will be extracted.
 			// If the target link already exists, os.Link will throw an error.
 			// This is a known limitation and will not be addressed.
 			var target string
-			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
-				err = os.Link(target, path)
+			if target, err = ensureLinkPath(dirPath, dirName, filePath, header.Linkname); err == nil {
+				err = os.Link(target, filePath)
 			}
 		case tar.TypeSymlink:
 			var target string
-			target, err = ensureLinkPath(dir, prefix, path, header.Linkname)
+			target, err = ensureLinkPath(dirPath, dirName, filePath, header.Linkname)
 			if err != nil {
 				return err
 			}
-			if _, err := os.Lstat(path); err == nil {
+			if _, err := os.Lstat(filePath); err == nil {
 				// link already exists, remove it first
-				if err := os.Remove(path); err != nil {
+				if err := os.Remove(filePath); err != nil {
 					return err
 				}
 			}
-			err = os.Symlink(target, path)
+			err = os.Symlink(target, filePath)
 		default:
 			continue // Non-regular files are skipped
 		}
@@ -210,7 +210,7 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 		}
 
 		// Change access time and modification time if possible (error ignored)
-		os.Chtimes(path, header.AccessTime, header.ModTime)
+		os.Chtimes(filePath, header.AccessTime, header.ModTime)
 	}
 }
 
