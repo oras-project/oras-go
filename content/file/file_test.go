@@ -65,6 +65,21 @@ func (t *storageTracker) Exists(ctx context.Context, target ocispec.Descriptor) 
 	return t.Storage.Exists(ctx, target)
 }
 
+type storageMock struct {
+	content.Storage
+
+	OnFetch func(ctx context.Context, desc ocispec.Descriptor) error
+}
+
+func (m *storageMock) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
+	if m.OnFetch != nil {
+		if err := m.OnFetch(ctx, desc); err != nil {
+			return nil, err
+		}
+	}
+	return m.Storage.Fetch(ctx, desc)
+}
+
 func TestStoreInterface(t *testing.T) {
 	var store interface{} = &Store{}
 	if _, ok := store.(oras.Target); !ok {
@@ -1612,21 +1627,6 @@ func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
 	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
 		t.Error("Store.Push(): error = ", err)
 	}
-}
-
-type storageMock struct {
-	content.Storage
-
-	OnFetch func(ctx context.Context, desc ocispec.Descriptor) error
-}
-
-func (m *storageMock) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
-	if m.OnFetch != nil {
-		if err := m.OnFetch(ctx, desc); err != nil {
-			return nil, err
-		}
-	}
-	return m.Storage.Fetch(ctx, desc)
 }
 
 func TestStore_File_Push_RestoreDuplicates_DuplicateName(t *testing.T) {
@@ -3690,6 +3690,14 @@ func TestStore_resolveWritePath_PathTraversal(t *testing.T) {
 			wantErr:            ErrPathTraversalDisallowed,
 		},
 		{
+			name:               "bad absolute path in root with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              "A:\\Users\\test",
+			want:               "",
+			wantErr:            ErrPathTraversalDisallowed,
+		},
+		{
 			name:               "bad absolute path with path traversal allowed",
 			workingDir:         tempDir,
 			allowPathTraversal: true,
@@ -3759,6 +3767,7 @@ func TestStore_resolveWritePath_Overwrite(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create store: %v", err)
 		}
+		defer s.Close()
 		s.DisableOverwrite = true
 
 		existingFile := filepath.Join(tempDir, "test.txt")
@@ -3777,6 +3786,7 @@ func TestStore_resolveWritePath_Overwrite(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create store: %v", err)
 		}
+		defer s.Close()
 		s.DisableOverwrite = true
 
 		got, err := s.resolveWritePath("test.txt")
@@ -3785,6 +3795,22 @@ func TestStore_resolveWritePath_Overwrite(t *testing.T) {
 		}
 		if want := filepath.Join(tempDir, "test.txt"); got != want {
 			t.Errorf("resolveWritePath() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("Invalid path", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		s, err := New(tempDir)
+		if err != nil {
+			t.Fatalf("failed to create store: %v", err)
+		}
+		defer s.Close()
+		s.AllowPathTraversalOnWrite = true
+		s.DisableOverwrite = true
+
+		if _, err := s.resolveWritePath("\x00invalid:path/test.txt"); err == nil {
+			t.Error("resolveWritePath() error = nil, wantErr = true")
 		}
 	})
 }
