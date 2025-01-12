@@ -168,7 +168,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte) error
 
 		// Name check
 		filename := header.Name
-		filePathRel, err := ensureBasePath(dirPath, dirName, filename)
+		filePathRel, err := resolveRelToBase(dirPath, dirName, filename)
 		if err != nil {
 			return err
 		}
@@ -214,10 +214,10 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte) error
 	}
 }
 
-// ensureBasePath ensures the target path is in the base path,
+// resolveRelToBase ensures the target path is in the base path,
 // returning its relative path to the base path.
 // target can be either an absolute path or a relative path.
-func ensureBasePath(baseAbs, baseRel, target string) (string, error) {
+func resolveRelToBase(baseAbs, baseRel, target string) (string, error) {
 	base := baseRel
 	if filepath.IsAbs(target) {
 		// ensure base and target are consistent
@@ -257,7 +257,7 @@ func ensureLinkPath(baseAbs, baseRel, link, target string) (string, error) {
 		path = filepath.Join(filepath.Dir(link), target)
 	}
 	// ensure path is under baseAbs or baseRel
-	if _, err := ensureBasePath(baseAbs, baseRel, path); err != nil {
+	if _, err := resolveRelToBase(baseAbs, baseRel, path); err != nil {
 		return "", err
 	}
 	return target, nil

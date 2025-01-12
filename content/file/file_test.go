@@ -3067,13 +3067,16 @@ func TestStore_Dir_OverwriteSymlink_RemovalFailed(t *testing.T) {
 	content := []byte("hello world")
 	fileName := "test.txt"
 	filePath := filepath.Join(dirPath, fileName)
-	if err := os.WriteFile(filePath, content, 0444); err != nil {
+	if err := os.WriteFile(filePath, content, 0666); err != nil {
 		t.Fatal("error calling WriteFile(), error =", err)
 	}
 	// create symlink to an absolute path
 	symlink := filepath.Join(dirPath, "test_symlink")
 	if err := os.Symlink(filePath, symlink); err != nil {
 		t.Fatal("error calling Symlink(), error =", err)
+	}
+	if err := os.Chmod(symlink, 0444); err != nil {
+		t.Fatal("error calling Chmod(), error =", err)
 	}
 
 	src, err := New(tempDir)
