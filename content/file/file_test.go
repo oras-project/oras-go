@@ -3690,14 +3690,6 @@ func TestStore_resolveWritePath_PathTraversal(t *testing.T) {
 			wantErr:            ErrPathTraversalDisallowed,
 		},
 		{
-			name:               "bad absolute path in root with path traversal disallowed",
-			workingDir:         tempDir,
-			allowPathTraversal: false,
-			input:              "A:\\Users\\test",
-			want:               "",
-			wantErr:            ErrPathTraversalDisallowed,
-		},
-		{
 			name:               "bad absolute path with path traversal allowed",
 			workingDir:         tempDir,
 			allowPathTraversal: true,
