@@ -18,6 +18,7 @@ package file
 import (
 	"bytes"
 	"context"
+	_ "crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,8 +29,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-
-	_ "crypto/sha256"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -64,6 +63,21 @@ func (t *storageTracker) Push(ctx context.Context, expected ocispec.Descriptor, 
 func (t *storageTracker) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
 	atomic.AddInt64(&t.exists, 1)
 	return t.Storage.Exists(ctx, target)
+}
+
+type storageMock struct {
+	content.Storage
+
+	OnFetch func(ctx context.Context, desc ocispec.Descriptor) error
+}
+
+func (m *storageMock) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
+	if m.OnFetch != nil {
+		if err := m.OnFetch(ctx, desc); err != nil {
+			return nil, err
+		}
+	}
+	return m.Storage.Fetch(ctx, desc)
 }
 
 func TestStoreInterface(t *testing.T) {
@@ -1615,21 +1629,6 @@ func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
 	}
 }
 
-type storageMock struct {
-	content.Storage
-
-	OnFetch func(ctx context.Context, desc ocispec.Descriptor) error
-}
-
-func (m *storageMock) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
-	if m.OnFetch != nil {
-		if err := m.OnFetch(ctx, desc); err != nil {
-			return nil, err
-		}
-	}
-	return m.Storage.Fetch(ctx, desc)
-}
-
 func TestStore_File_Push_RestoreDuplicates_DuplicateName(t *testing.T) {
 	mediaType := "test"
 	content := []byte("hello world")
@@ -2659,6 +2658,400 @@ func TestCopy_File_MemoryToFile_FullCopy(t *testing.T) {
 	}
 }
 
+// Related issue: https://github.com/oras-project/oras-go/issues/402
+func TestStore_Dir_ExtractSymlinkRel(t *testing.T) {
+	// prepare test content
+	tempDir := t.TempDir()
+	dirName := "testdir"
+	dirPath := filepath.Join(tempDir, dirName)
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+
+	content := []byte("hello world")
+	fileName := "test.txt"
+	filePath := filepath.Join(dirPath, fileName)
+	if err := os.WriteFile(filePath, content, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	// create symlink to a relative path
+	symlinkName := "test_symlink"
+	symlinkPath := filepath.Join(dirPath, symlinkName)
+	if err := os.Symlink(fileName, symlinkPath); err != nil {
+		t.Fatal("error calling Symlink(), error =", err)
+	}
+
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer src.Close()
+	ctx := context.Background()
+
+	// add dir
+	desc, err := src.Add(ctx, dirName, "", dirPath)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	// pack a manifest
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{desc},
+	}
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "test/dir", opts)
+	if err != nil {
+		t.Fatal("oras.PackManifest() error =", err)
+	}
+
+	// copy to another file store created from an absolute root, to trigger extracting directory
+	tempDir = t.TempDir()
+	dstAbs, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dstAbs.Close()
+	if err := oras.CopyGraph(ctx, src, dstAbs, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// verify extracted symlink
+	extractedSymlink := filepath.Join(tempDir, dirName, symlinkName)
+	symlinkDst, err := os.Readlink(extractedSymlink)
+	if err != nil {
+		t.Fatal("failed to get symlink destination, error =", err)
+	}
+	if want := fileName; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err := os.ReadFile(extractedSymlink)
+	if err != nil {
+		t.Fatal("failed to read symlink file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
+	}
+
+	// copy to another file store created from a relative root, to trigger extracting directory
+	tempDir = t.TempDir()
+	currDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal("error calling Getwd(), error =", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	// cd back to allow the temp directory to be removed
+	defer os.Chdir(currDir)
+
+	dstRel, err := New(".")
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dstRel.Close()
+	if err := oras.CopyGraph(ctx, src, dstRel, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// verify extracted symlink
+	extractedSymlink = filepath.Join(tempDir, dirName, symlinkName)
+	symlinkDst, err = os.Readlink(extractedSymlink)
+	if err != nil {
+		t.Fatal("failed to get symlink destination, error =", err)
+	}
+	if want := fileName; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err = os.ReadFile(extractedSymlink)
+	if err != nil {
+		t.Fatal("failed to read symlink file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
+	}
+}
+
+// Related issue: https://github.com/oras-project/oras-go/issues/402
+func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
+	// prepare test content
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal("error calling filepath.EvalSymlinks(), error =", err)
+	}
+	dirName := "testdir"
+	dirPath := filepath.Join(tempDir, dirName)
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+
+	content := []byte("hello world")
+	fileName := "test.txt"
+	filePath := filepath.Join(dirPath, fileName)
+	if err := os.WriteFile(filePath, content, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	// create symlink to an absolute path
+	symlink := filepath.Join(dirPath, "test_symlink")
+	if err := os.Symlink(filePath, symlink); err != nil {
+		t.Fatal("error calling Symlink(), error =", err)
+	}
+
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer src.Close()
+	ctx := context.Background()
+
+	// add dir
+	desc, err := src.Add(ctx, dirName, "", dirPath)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	// pack a manifest
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{desc},
+	}
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "test/dir", opts)
+	if err != nil {
+		t.Fatal("oras.PackManifest() error =", err)
+	}
+
+	// remove the original testing directory and create a new store using an absolute root
+	if err := os.RemoveAll(dirPath); err != nil {
+		t.Fatal("error calling RemoveAll(), error =", err)
+	}
+	dstAbs, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dstAbs.Close()
+	if err := oras.CopyGraph(ctx, src, dstAbs, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// verify extracted symlink
+	symlinkDst, err := os.Readlink(symlink)
+	if err != nil {
+		t.Fatal("failed to get symlink destination, error =", err)
+	}
+	if want := filePath; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err := os.ReadFile(symlink)
+	if err != nil {
+		t.Fatal("failed to read symlink file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
+	}
+
+	// remove the original testing directory and create a new store using a relative path
+	if err := os.RemoveAll(dirPath); err != nil {
+		t.Fatal("error calling RemoveAll(), error =", err)
+	}
+
+	currDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal("error calling Getwd(), error =", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal("error calling Chdir(), error=", err)
+	}
+	// cd back to allow the temp directory to be removed
+	defer os.Chdir(currDir)
+
+	dstRel, err := New(".")
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dstRel.Close()
+	if err := oras.CopyGraph(ctx, src, dstRel, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// verify extracted symlink
+	symlinkDst, err = os.Readlink(symlink)
+	if err != nil {
+		t.Fatal("failed to get symlink destination, error =", err)
+	}
+	if want := filePath; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err = os.ReadFile(symlink)
+	if err != nil {
+		t.Fatal("failed to read symlink file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
+	}
+
+	// copy to another file store created from an outside root, to trigger extracting directory
+	tempDir = t.TempDir()
+	dstOutside, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dstOutside.Close()
+	if err := oras.CopyGraph(ctx, src, dstOutside, manifestDesc, oras.DefaultCopyGraphOptions); err == nil {
+		t.Error("oras.CopyGraph() error = nil, wantErr ", true)
+	}
+}
+
+// Related issue: https://github.com/oras-project/oras-go/issues/865
+func TestStore_Dir_OverwriteSymlinkRel(t *testing.T) {
+	// prepare test content
+	tempDir := t.TempDir()
+	dirName := "testdir"
+	dirPath := filepath.Join(tempDir, dirName)
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+
+	content := []byte("hello world")
+	fileName := "test.txt"
+	filePath := filepath.Join(dirPath, fileName)
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	// create symlink to a relative path
+	symlinkName := "test_symlink"
+	symlinkPath := filepath.Join(dirPath, symlinkName)
+	if err := os.Symlink(fileName, symlinkPath); err != nil {
+		t.Fatal("error calling Symlink(), error =", err)
+	}
+
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer src.Close()
+	ctx := context.Background()
+
+	// add dir
+	desc, err := src.Add(ctx, dirName, "", dirPath)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	// pack a manifest
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{desc},
+	}
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "test/dir", opts)
+	if err != nil {
+		t.Fatal("oras.PackManifest() error =", err)
+	}
+
+	// copy to another file store created from an absolute root, to trigger extracting directory
+	tempDir = t.TempDir()
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dst.Close()
+	if err := oras.CopyGraph(ctx, src, dst, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// copy to another file store created from the same root again, to test overwriting symlink
+	sameDst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer sameDst.Close()
+	if err := oras.CopyGraph(ctx, src, sameDst, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// verify extracted symlink
+	extractedSymlink := filepath.Join(tempDir, dirName, symlinkName)
+	symlinkDst, err := os.Readlink(extractedSymlink)
+	if err != nil {
+		t.Fatal("failed to get symlink destination, error =", err)
+	}
+	if want := fileName; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err := os.ReadFile(extractedSymlink)
+	if err != nil {
+		t.Fatal("failed to read symlink file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
+	}
+}
+
+// Related issue: https://github.com/oras-project/oras-go/issues/865
+func TestStore_Dir_OverwriteSymlinkAbs(t *testing.T) {
+	// prepare test content
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal("error calling filepath.EvalSymlinks(), error =", err)
+	}
+	dirName := "testdir"
+	dirPath := filepath.Join(tempDir, dirName)
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+
+	content := []byte("hello world")
+	fileName := "test.txt"
+	filePath := filepath.Join(dirPath, fileName)
+	if err := os.WriteFile(filePath, content, 0777); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	// create symlink to an absolute path
+	symlink := filepath.Join(dirPath, "test_symlink")
+	if err := os.Symlink(filePath, symlink); err != nil {
+		t.Fatal("error calling Symlink(), error =", err)
+	}
+
+	src, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer src.Close()
+	ctx := context.Background()
+
+	// add dir
+	desc, err := src.Add(ctx, dirName, "", dirPath)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	// pack a manifest
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{desc},
+	}
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "test/dir", opts)
+	if err != nil {
+		t.Fatal("oras.PackManifest() error =", err)
+	}
+
+	// create a new store from the same root, to test overwriting symlink
+	dst, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dst.Close()
+	if err := oras.CopyGraph(ctx, src, dst, manifestDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+
+	// verify extracted symlink
+	symlinkDst, err := os.Readlink(symlink)
+	if err != nil {
+		t.Fatal("failed to get symlink destination, error =", err)
+	}
+	if want := filePath; symlinkDst != want {
+		t.Errorf("symlink destination = %v, want %v", symlinkDst, want)
+	}
+	got, err := os.ReadFile(symlink)
+	if err != nil {
+		t.Fatal("failed to read symlink file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("symlink content = %v, want %v", got, content)
+	}
+}
+
 func TestCopyGraph_MemoryToFile_FullCopy(t *testing.T) {
 	src := memory.New()
 
@@ -3200,6 +3593,159 @@ func TestCopyGraph_FileToMemory_PartialCopy(t *testing.T) {
 	if got, want := dstTracker.exists, int64(5); got != want {
 		t.Errorf("count(dst.Exists()) = %v, want %v", got, want)
 	}
+}
+
+func TestStore_resolveWritePath_PathTraversal(t *testing.T) {
+	tempDir := t.TempDir()
+
+	tests := []struct {
+		name               string
+		workingDir         string
+		allowPathTraversal bool
+		input              string
+		want               string
+		wantErr            error
+	}{
+		{
+			name:               "good relative path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              "test.txt",
+			want:               filepath.Join(tempDir, "test.txt"),
+			wantErr:            nil,
+		},
+		{
+			name:               "good absolute path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              filepath.Join(tempDir, "test.txt"),
+			want:               filepath.Join(tempDir, "test.txt"),
+			wantErr:            nil,
+		},
+		{
+			name:               "bad absolute path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              filepath.Clean(filepath.Join(tempDir, "../test.txt")),
+			want:               "",
+			wantErr:            ErrPathTraversalDisallowed,
+		},
+		{
+			name:               "bad absolute path with path traversal allowed",
+			workingDir:         tempDir,
+			allowPathTraversal: true,
+			input:              filepath.Clean(filepath.Join(tempDir, "../test.txt")),
+			want:               filepath.Clean(filepath.Join(tempDir, "../test.txt")),
+			wantErr:            nil,
+		},
+		{
+			name:               "bad relative path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              "../test.txt",
+			want:               "",
+			wantErr:            ErrPathTraversalDisallowed,
+		},
+		{
+			name:               "bad relative path with path traversal allowed",
+			workingDir:         tempDir,
+			allowPathTraversal: true,
+			input:              "../test.txt",
+			want:               filepath.Clean(filepath.Join(tempDir, "../test.txt")),
+			wantErr:            nil,
+		},
+		{
+			name:               "bad relative directory path with path traversal disallowed",
+			workingDir:         tempDir,
+			allowPathTraversal: false,
+			input:              "..",
+			want:               "",
+			wantErr:            ErrPathTraversalDisallowed,
+		},
+		{
+			name:               "bad relative directory path with path traversal allowed",
+			workingDir:         tempDir,
+			allowPathTraversal: true,
+			input:              "..",
+			want:               filepath.Clean(filepath.Join(tempDir, "..")),
+			wantErr:            nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := New(tt.workingDir)
+			if err != nil {
+				t.Fatalf("failed to create store: %v", err)
+			}
+			defer s.Close()
+
+			s.AllowPathTraversalOnWrite = tt.allowPathTraversal
+			got, err := s.resolveWritePath(tt.input)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("resolveWritePath() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("resolveWritePath() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStore_resolveWritePath_Overwrite(t *testing.T) {
+	t.Run("Target file already exists", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		s, err := New(tempDir)
+		if err != nil {
+			t.Fatalf("failed to create store: %v", err)
+		}
+		defer s.Close()
+		s.DisableOverwrite = true
+
+		existingFile := filepath.Join(tempDir, "test.txt")
+		if err := os.WriteFile(existingFile, []byte("content"), 0444); err != nil {
+			t.Fatalf("failed to create existing file: %v", err)
+		}
+		if _, err := s.resolveWritePath("test.txt"); !errors.Is(err, ErrOverwriteDisallowed) {
+			t.Errorf("resolveWritePath() error = %v, wantErr %v", err, ErrOverwriteDisallowed)
+		}
+	})
+
+	t.Run("Target file does not exist", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		s, err := New(tempDir)
+		if err != nil {
+			t.Fatalf("failed to create store: %v", err)
+		}
+		defer s.Close()
+		s.DisableOverwrite = true
+
+		got, err := s.resolveWritePath("test.txt")
+		if err != nil {
+			t.Fatalf("resolveWritePath() error = %v", err)
+		}
+		if want := filepath.Join(tempDir, "test.txt"); got != want {
+			t.Errorf("resolveWritePath() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("Invalid path", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		s, err := New(tempDir)
+		if err != nil {
+			t.Fatalf("failed to create store: %v", err)
+		}
+		defer s.Close()
+		s.AllowPathTraversalOnWrite = true
+		s.DisableOverwrite = true
+
+		if _, err := s.resolveWritePath("\x00invalid:path/test.txt"); err == nil {
+			t.Error("resolveWritePath() error = nil, wantErr = true")
+		}
+	})
 }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
