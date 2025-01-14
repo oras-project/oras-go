@@ -253,7 +253,7 @@ func Test_extractTarDirectory(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name: "valid files",
+			name: "valid files should be exracted",
 			tarData: createTar(t, []tarEntry{
 				{name: "base/", mode: os.ModeDir | 0777},
 				{name: "base/test.txt", content: "hello world", mode: 0666},
@@ -266,11 +266,11 @@ func Test_extractTarDirectory(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "non-regular files",
+			name: "non-regular files should be skipped",
 			tarData: createTar(t, []tarEntry{
-				{name: "something", isNonRegular: true},
+				{name: "base/something", isNonRegular: true},
 			}),
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name:    "invalid tar header",
