@@ -257,7 +257,7 @@ func Test_extractTarDirectory(t *testing.T) {
 			tarData: createTar(t, []tarEntry{
 				{name: "base/", mode: os.ModeDir | 0777},
 				{name: "base/test.txt", content: "hello world", mode: 0666},
-				{name: "base/file_symlink", linkname: "base/test.txt", mode: os.ModeSymlink | 0666},
+				{name: "base/file_symlink", linkname: "test.txt", mode: os.ModeSymlink | 0666},
 			}),
 			wantFiles: map[string]string{
 				"base/test.txt":     "hello world",
@@ -266,7 +266,7 @@ func Test_extractTarDirectory(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "non-regular files should be skipped",
+			name: "non-regular files",
 			tarData: createTar(t, []tarEntry{
 				{name: "base/something", isNonRegular: true},
 			}),
@@ -317,7 +317,7 @@ func Test_extractTarDirectory(t *testing.T) {
 							t.Fatalf("failed to read link %s: %v", filePath, err)
 						}
 						if !filepath.IsAbs(filePath) {
-							filePath = filepath.Join(tempDir, filePath)
+							filePath = filepath.Join(dirPath, filePath)
 						}
 					}
 					gotContent, err := os.ReadFile(filePath)
@@ -331,6 +331,51 @@ func Test_extractTarDirectory(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_extractTarDirectory_HardLink(t *testing.T) {
+	t.Run("hard link with a good path should be extracted", func(t *testing.T) {
+		tempDir := t.TempDir()
+		dirName := "base"
+		dirPath := filepath.Join(tempDir, dirName)
+		linkPath := filepath.Join(dirPath, "test.txt")
+		fileContent := "hello world"
+		buf := make([]byte, 1024)
+
+		tarData := createTar(t, []tarEntry{
+			{name: "base/", mode: os.ModeDir | 0777},
+			{name: "base/test.txt", content: fileContent, mode: 0666},
+			{name: "base/test_hardlink", linkname: linkPath, mode: 0666, isHardLink: true},
+		})
+
+		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf); err != nil {
+			t.Fatalf("extractTarDirectory() error = %v", err)
+		}
+
+		// verify extracted hard link file
+		gotContent, err := os.ReadFile(linkPath)
+		if err != nil {
+			t.Fatalf("failed to read file %s: %v", linkPath, err)
+		}
+		if string(gotContent) != fileContent {
+			t.Errorf("file content = %s, want %s", gotContent, fileContent)
+		}
+	})
+
+	t.Run("hard link with a bad path should fail", func(t *testing.T) {
+		tempDir := t.TempDir()
+		dirName := "base"
+		dirPath := filepath.Join(tempDir, dirName)
+		buf := make([]byte, 1024)
+
+		tarData := createTar(t, []tarEntry{
+			{name: "base/test_hardlink", linkname: "whatever", mode: 0666, isHardLink: true},
+		})
+
+		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf); err == nil {
+			t.Error("extractTarDirectory() error = nil, wantErr = true")
+		}
+	})
 }
 
 type tarEntry struct {
