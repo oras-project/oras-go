@@ -7,7 +7,7 @@ toolchain go1.23.4
 require (
 	github.com/containerd/containerd v1.7.25
 	github.com/distribution/distribution/v3 v3.0.0-rc.2
-	github.com/docker/cli v27.4.1+incompatible
+	github.com/docker/cli v27.5.0+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/docker v27.5.0+incompatible
 	github.com/docker/go-connections v0.5.0
