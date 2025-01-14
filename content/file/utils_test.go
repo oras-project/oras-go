@@ -273,6 +273,20 @@ func Test_extractTarDirectory(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "filepath outside of working dir should fail",
+			tarData: createTar(t, []tarEntry{
+				{name: "test.txt", content: "hello world", mode: 0666},
+			}),
+			wantErr: true,
+		},
+		{
+			name: "symlink to a bad target should fail",
+			tarData: createTar(t, []tarEntry{
+				{name: "base/file_symlink", linkname: "base/test.txt", mode: os.ModeSymlink | 0666},
+			}),
+			wantErr: true,
+		},
+		{
 			name:    "invalid tar header",
 			tarData: []byte("random data"),
 			wantErr: true,
