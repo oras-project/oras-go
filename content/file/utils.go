@@ -195,13 +195,16 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte) error
 			if err != nil {
 				return err
 			}
-			if _, err := os.Lstat(filePath); err == nil {
-				// link already exists, remove it first
+			if err = os.Symlink(target, filePath); err != nil {
+				if !os.IsExist(err) {
+					return err
+				}
+				// link already exists, remove the old one and try again
 				if err := os.Remove(filePath); err != nil {
 					return err
 				}
+				err = os.Symlink(target, filePath)
 			}
-			err = os.Symlink(target, filePath)
 		default:
 			continue // Non-regular files are skipped
 		}
