@@ -196,7 +196,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte) error
 				return err
 			}
 			if err = os.Symlink(target, filePath); err != nil {
-				if !os.IsExist(err) {
+				if !errors.Is(err, os.ErrExist) {
 					return err
 				}
 				// link already exists, remove the old one and try again
