@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,7 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeT
 		name = filepath.ToSlash(name)
 
 		// Generate header
+		// NOTE: We don't support hard links and treat it as regular files
 		var link string
 		mode := info.Mode()
 		if mode&os.ModeSymlink != 0 {
@@ -111,8 +113,8 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeT
 
 // extractTarGzip decompresses the gzip
 // and extracts tar file to a directory specified by the `dir` parameter.
-func extractTarGzip(dir, prefix, filename, checksum string, buf []byte) (err error) {
-	fp, err := os.Open(filename)
+func extractTarGzip(dirPath, dirName, gzPath, checksum string, buf []byte) (err error) {
+	fp, err := os.Open(gzPath)
 	if err != nil {
 		return err
 	}
@@ -142,7 +144,7 @@ func extractTarGzip(dir, prefix, filename, checksum string, buf []byte) (err err
 			r = io.TeeReader(r, verifier)
 		}
 	}
-	if err := extractTarDirectory(dir, prefix, r, buf); err != nil {
+	if err := extractTarDirectory(dirPath, dirName, r, buf); err != nil {
 		return err
 	}
 	if verifier != nil && !verifier.Verified() {
@@ -154,7 +156,7 @@ func extractTarGzip(dir, prefix, filename, checksum string, buf []byte) (err err
 // extractTarDirectory extracts tar file to a directory specified by the `dir`
 // parameter. The file name prefix is ensured to be the string specified by the
 // `prefix` parameter and is trimmed.
-func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
+func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte) error {
 	tr := tar.NewReader(r)
 	for {
 		header, err := tr.Next()
@@ -166,28 +168,43 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 		}
 
 		// Name check
-		name := header.Name
-		path, err := ensureBasePath(dir, prefix, name)
+		filename := header.Name
+		filePathRel, err := resolveRelToBase(dirPath, dirName, filename)
 		if err != nil {
 			return err
 		}
-		path = filepath.Join(dir, path)
+		filePath := filepath.Join(dirPath, filePathRel)
 
 		// Create content
 		switch header.Typeflag {
 		case tar.TypeReg:
-			err = writeFile(path, tr, header.FileInfo().Mode(), buf)
+			err = writeFile(filePath, tr, header.FileInfo().Mode(), buf)
 		case tar.TypeDir:
-			err = os.MkdirAll(path, header.FileInfo().Mode())
+			err = os.MkdirAll(filePath, header.FileInfo().Mode())
 		case tar.TypeLink:
+			// NOTE: ORAS does not generate hard links when creating tarballs.
+			// If a hard link is found in the tarball, it will be extracted.
+			// If the target link already exists, os.Link will throw an error.
+			// This is a known limitation and will not be addressed.
 			var target string
-			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
-				err = os.Link(target, path)
+			if target, err = ensureLinkPath(dirPath, dirName, filePath, header.Linkname); err == nil {
+				err = os.Link(target, filePath)
 			}
 		case tar.TypeSymlink:
 			var target string
-			if target, err = ensureLinkPath(dir, prefix, path, header.Linkname); err == nil {
-				err = os.Symlink(target, path)
+			target, err = ensureLinkPath(dirPath, dirName, filePath, header.Linkname)
+			if err != nil {
+				return err
+			}
+			if err = os.Symlink(target, filePath); err != nil {
+				if !errors.Is(err, fs.ErrExist) {
+					return err
+				}
+				// link already exists, remove the old one and try again
+				if err := os.Remove(filePath); err != nil {
+					return err
+				}
+				err = os.Symlink(target, filePath)
 			}
 		default:
 			continue // Non-regular files are skipped
@@ -197,14 +214,14 @@ func extractTarDirectory(dir, prefix string, r io.Reader, buf []byte) error {
 		}
 
 		// Change access time and modification time if possible (error ignored)
-		os.Chtimes(path, header.AccessTime, header.ModTime)
+		os.Chtimes(filePath, header.AccessTime, header.ModTime)
 	}
 }
 
-// ensureBasePath ensures the target path is in the base path,
+// resolveRelToBase ensures the target path is in the base path,
 // returning its relative path to the base path.
 // target can be either an absolute path or a relative path.
-func ensureBasePath(baseAbs, baseRel, target string) (string, error) {
+func resolveRelToBase(baseAbs, baseRel, target string) (string, error) {
 	base := baseRel
 	if filepath.IsAbs(target) {
 		// ensure base and target are consistent
@@ -244,7 +261,7 @@ func ensureLinkPath(baseAbs, baseRel, link, target string) (string, error) {
 		path = filepath.Join(filepath.Dir(link), target)
 	}
 	// ensure path is under baseAbs or baseRel
-	if _, err := ensureBasePath(baseAbs, baseRel, path); err != nil {
+	if _, err := resolveRelToBase(baseAbs, baseRel, path); err != nil {
 		return "", err
 	}
 	return target, nil

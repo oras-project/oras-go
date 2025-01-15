@@ -16,6 +16,8 @@ limitations under the License.
 package file
 
 import (
+	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -156,7 +158,7 @@ func Test_ensureBasePath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ensureBasePath(baseAbs, baseRel, tt.target)
+			got, err := resolveRelToBase(baseAbs, baseRel, tt.target)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ensureBasePath() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -232,4 +234,189 @@ func Test_ensureLinkPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_extractTarGzip_Error(t *testing.T) {
+	t.Run("Non-existing file", func(t *testing.T) {
+		err := extractTarGzip("", "", "non-existing-file", "", nil)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+}
+
+func Test_extractTarDirectory(t *testing.T) {
+	tests := []struct {
+		name      string
+		tarData   []byte
+		wantFiles map[string]string // map of file paths to their expected contents
+		wantErr   bool
+	}{
+		{
+			name: "valid files should be exracted",
+			tarData: createTar(t, []tarEntry{
+				{name: "base/", mode: os.ModeDir | 0777},
+				{name: "base/test.txt", content: "hello world", mode: 0666},
+				{name: "base/file_symlink", linkname: "test.txt", mode: os.ModeSymlink | 0666},
+			}),
+			wantFiles: map[string]string{
+				"base/test.txt":     "hello world",
+				"base/file_symlink": "hello world",
+			},
+			wantErr: false,
+		},
+		{
+			name: "non-regular files",
+			tarData: createTar(t, []tarEntry{
+				{name: "base/something", isNonRegular: true},
+			}),
+			wantErr: false,
+		},
+		{
+			name: "filepath outside of working dir should fail",
+			tarData: createTar(t, []tarEntry{
+				{name: "test.txt", content: "hello world", mode: 0666},
+			}),
+			wantErr: true,
+		},
+		{
+			name: "symlink to a bad target should fail",
+			tarData: createTar(t, []tarEntry{
+				{name: "base/file_symlink", linkname: "base/test.txt", mode: os.ModeSymlink | 0666},
+			}),
+			wantErr: true,
+		},
+		{
+			name:    "invalid tar header",
+			tarData: []byte("random data"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			dirName := "base"
+			dirPath := filepath.Join(tempDir, dirName)
+			buf := make([]byte, 1024)
+
+			if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tt.tarData), buf); (err != nil) != tt.wantErr {
+				t.Fatalf("extractTarDirectory() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				for path, wantContent := range tt.wantFiles {
+					filePath := filepath.Join(tempDir, path)
+					fi, err := os.Lstat(filePath)
+					if err != nil {
+						t.Fatalf("failed to stat file %s: %v", filePath, err)
+					}
+
+					if fi.Mode()&os.ModeSymlink != 0 {
+						filePath, err = os.Readlink(filePath)
+						if err != nil {
+							t.Fatalf("failed to read link %s: %v", filePath, err)
+						}
+						if !filepath.IsAbs(filePath) {
+							filePath = filepath.Join(dirPath, filePath)
+						}
+					}
+					gotContent, err := os.ReadFile(filePath)
+					if err != nil {
+						t.Fatalf("failed to read file %s: %v", filePath, err)
+					}
+					if string(gotContent) != wantContent {
+						t.Errorf("file content = %s, want %s", gotContent, wantContent)
+					}
+				}
+			}
+		})
+	}
+}
+
+func Test_extractTarDirectory_HardLink(t *testing.T) {
+	t.Run("hard link with a good path should be extracted", func(t *testing.T) {
+		tempDir := t.TempDir()
+		dirName := "base"
+		dirPath := filepath.Join(tempDir, dirName)
+		linkPath := filepath.Join(dirPath, "test.txt")
+		fileContent := "hello world"
+		buf := make([]byte, 1024)
+
+		tarData := createTar(t, []tarEntry{
+			{name: "base/", mode: os.ModeDir | 0777},
+			{name: "base/test.txt", content: fileContent, mode: 0666},
+			{name: "base/test_hardlink", linkname: linkPath, mode: 0666, isHardLink: true},
+		})
+
+		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf); err != nil {
+			t.Fatalf("extractTarDirectory() error = %v", err)
+		}
+
+		// verify extracted hard link file
+		gotContent, err := os.ReadFile(linkPath)
+		if err != nil {
+			t.Fatalf("failed to read file %s: %v", linkPath, err)
+		}
+		if string(gotContent) != fileContent {
+			t.Errorf("file content = %s, want %s", gotContent, fileContent)
+		}
+	})
+
+	t.Run("hard link with a bad path should fail", func(t *testing.T) {
+		tempDir := t.TempDir()
+		dirName := "base"
+		dirPath := filepath.Join(tempDir, dirName)
+		buf := make([]byte, 1024)
+
+		tarData := createTar(t, []tarEntry{
+			{name: "base/test_hardlink", linkname: "whatever", mode: 0666, isHardLink: true},
+		})
+
+		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf); err == nil {
+			t.Error("extractTarDirectory() error = nil, wantErr = true")
+		}
+	})
+}
+
+type tarEntry struct {
+	name         string
+	content      string
+	linkname     string
+	mode         os.FileMode
+	isNonRegular bool
+	isHardLink   bool
+}
+
+func createTar(t *testing.T, entries []tarEntry) []byte {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	for _, entry := range entries {
+		hdr := &tar.Header{
+			Name: entry.name,
+			Mode: int64(entry.mode.Perm()),
+			Size: int64(len(entry.content)),
+		}
+		if entry.isNonRegular {
+			hdr.Typeflag = tar.TypeBlock
+		} else if entry.isHardLink {
+			hdr.Typeflag = tar.TypeLink
+			hdr.Linkname = entry.linkname
+		} else if entry.mode&os.ModeSymlink != 0 {
+			hdr.Typeflag = tar.TypeSymlink
+			hdr.Linkname = entry.linkname
+		}
+
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatalf("failed to write tar header: %v", err)
+		}
+		if _, err := tw.Write([]byte(entry.content)); err != nil {
+			t.Fatalf("failed to write tar content: %v", err)
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		t.Fatalf("failed to close tar writer: %v", err)
+	}
+	return buf.Bytes()
 }

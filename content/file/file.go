@@ -394,7 +394,8 @@ func (s *Store) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]oc
 	return s.graph.Predecessors(ctx, node)
 }
 
-// Add adds a file into the file store.
+// Add adds a file or a directory into the file store.
+// Hard links within the directory are treated as regular files.
 func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.Descriptor, error) {
 	if s.isClosedSet() {
 		return ocispec.Descriptor{}, ErrStoreClosed
