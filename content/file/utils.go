@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -196,7 +197,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte) error
 				return err
 			}
 			if err = os.Symlink(target, filePath); err != nil {
-				if !errors.Is(err, os.ErrExist) {
+				if !errors.Is(err, fs.ErrExist) {
 					return err
 				}
 				// link already exists, remove the old one and try again
