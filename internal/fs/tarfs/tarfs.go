@@ -110,7 +110,8 @@ func (tfs *TarFS) getEntry(operation string, path string) (*entry, error) {
 	if !fs.ValidPath(path) {
 		return nil, &fs.PathError{Op: operation, Path: path, Err: fs.ErrInvalid}
 	}
-	entry, ok := tfs.entries[path]
+	key := getEntryKey(path)
+	entry, ok := tfs.entries[key]
 	if !ok {
 		return nil, &fs.PathError{Op: operation, Path: path, Err: fs.ErrNotExist}
 	}
@@ -143,13 +144,19 @@ func (tfs *TarFS) indexEntries() error {
 		if err != nil {
 			return err
 		}
-		tfs.entries[header.Name] = &entry{
+
+		key := getEntryKey(header.Name)
+		tfs.entries[key] = &entry{
 			header: header,
 			pos:    pos - blockSize,
 		}
 	}
-
 	return nil
+}
+
+func getEntryKey(name string) string {
+	// TODO: documentation
+	return filepath.ToSlash(filepath.Clean(name))
 }
 
 // entryFile represents an entryFile in a tar archive and implements `fs.File`.

@@ -52,11 +52,15 @@ foobar_symlink
 ./foobar_link
 ./foobar_symlink
 */
+
 func TestTarFS_Open_Success(t *testing.T) {
+	// TODO: fix tests
 	testFiles := map[string][]byte{
-		"foobar":           []byte("foobar"),
-		"dir/hello":        []byte("hello"),
-		"dir/subdir/world": []byte("world"),
+		"foobar":             []byte("foobar"),
+		"dir/hello":          []byte("hello"),
+		"dir\\hello":         []byte("hello"),
+		"dir/subdir/world":   []byte("world"),
+		"dir\\subdir\\world": []byte("world"),
 	}
 	tarPaths := []string{
 		"testdata/test.tar",
@@ -161,6 +165,7 @@ func TestTarFS_Open_NotExist(t *testing.T) {
 	}
 }
 
+// TODO: test more invalid paths
 func TestTarFS_Open_InvalidPath(t *testing.T) {
 	testFiles := []string{
 		"dir/",
@@ -196,6 +201,7 @@ func TestTarFS_Open_Unsupported(t *testing.T) {
 	}
 }
 
+// TODO: test prefixed path
 func TestTarFS_Stat(t *testing.T) {
 	tfs, err := New("testdata/test.tar")
 	if err != nil {
@@ -289,5 +295,32 @@ func TestTarFS_Stat_Unsupported(t *testing.T) {
 		if want := errdef.ErrUnsupported; !errors.Is(err, want) {
 			t.Errorf("TarFS.Stat(%s) error = %v, wantErr %v", name, err, want)
 		}
+	}
+}
+
+// TODO: test prefixed path
+func TestGetEntryKey(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"simple path", "foo/bar", "foo/bar"},
+		{"path with backslashes", "foo\\bar", "foo/bar"},
+		{"path with mixed slashes", "foo/bar\\baz", "foo/bar/baz"},
+		{"path with redundant slashes", "foo//bar", "foo/bar"},
+		{"path with redundant backslashes", "foo\\\\bar", "foo/bar"},
+		{"path with dots", "foo/./bar", "foo/bar"},
+		{"path with double dots", "foo/../bar", "bar"},
+		{"absolute path", "/foo/bar", "/foo/bar"},
+		{"absolute path with backslashes", "\\foo\\bar", "/foo/bar"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := getEntryKey(tt.path); got != tt.want {
+				t.Errorf("getEntryKey(%s) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
 	}
 }
