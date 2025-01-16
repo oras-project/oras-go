@@ -27,15 +27,30 @@ import (
 )
 
 /*
-testdata/test.tar contains:
+=== Contents of testdata/test.tar ===
 
-	foobar
-	foobar_link
-	foobar_symlink
-	dir/
-		hello
-		subdir/
-			world
+dir/
+
+	dir/hello
+	dir/subdir/
+		dir/subdir/world
+
+foobar
+foobar_link
+foobar_symlink
+
+=== Contents of testdata/prefixed_path.tar ===
+
+./
+./dir/
+
+	./dir/hello
+	./dir/subdir/
+		./dir/subdir/world
+
+./foobar
+./foobar_link
+./foobar_symlink
 */
 func TestTarFS_Open_Success(t *testing.T) {
 	testFiles := map[string][]byte{
@@ -43,36 +58,44 @@ func TestTarFS_Open_Success(t *testing.T) {
 		"dir/hello":        []byte("hello"),
 		"dir/subdir/world": []byte("world"),
 	}
-	tarPath := "testdata/test.tar"
-	tfs, err := New(tarPath)
-	if err != nil {
-		t.Fatalf("New() error = %v, wantErr %v", err, nil)
-	}
-	tarPathAbs, err := filepath.Abs(tarPath)
-	if err != nil {
-		t.Fatal("error calling filepath.Abs(), error =", err)
-	}
-	if tfs.path != tarPathAbs {
-		t.Fatalf("TarFS.path = %s, want %s", tfs.path, tarPathAbs)
+	tarPaths := []string{
+		"testdata/test.tar",
+		"testdata/prefixed_path.tar",
 	}
 
-	for name, data := range testFiles {
-		f, err := tfs.Open(name)
-		if err != nil {
-			t.Fatalf("TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
-			continue
-		}
+	for _, tarPath := range tarPaths {
+		t.Run("Should open successfully", func(t *testing.T) {
+			tfs, err := New(tarPath)
+			if err != nil {
+				t.Fatalf("New() error = %v, wantErr %v", err, nil)
+			}
+			tarPathAbs, err := filepath.Abs(tarPath)
+			if err != nil {
+				t.Fatal("error calling filepath.Abs(), error =", err)
+			}
+			if tfs.path != tarPathAbs {
+				t.Fatalf("TarFS.path = %s, want %s", tfs.path, tarPathAbs)
+			}
 
-		got, err := io.ReadAll(f)
-		if err != nil {
-			t.Fatalf("failed to read %s: %v", name, err)
-		}
-		if err = f.Close(); err != nil {
-			t.Errorf("TarFS.Open(%s).Close() error = %v", name, err)
-		}
-		if want := data; !bytes.Equal(got, want) {
-			t.Errorf("TarFS.Open(%s) = %v, want %v", name, string(got), string(want))
-		}
+			for name, data := range testFiles {
+				f, err := tfs.Open(name)
+				if err != nil {
+					t.Fatalf("TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
+					continue
+				}
+
+				got, err := io.ReadAll(f)
+				if err != nil {
+					t.Fatalf("failed to read %s: %v", name, err)
+				}
+				if err = f.Close(); err != nil {
+					t.Errorf("TarFS.Open(%s).Close() error = %v", name, err)
+				}
+				if want := data; !bytes.Equal(got, want) {
+					t.Errorf("TarFS.Open(%s) = %v, want %v", name, string(got), string(want))
+				}
+			}
+		})
 	}
 }
 
