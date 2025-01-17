@@ -145,8 +145,8 @@ func (tfs *TarFS) indexEntries() error {
 			return err
 		}
 
-		cleanPath := path.Clean(header.Name)
-		tfs.entries[cleanPath] = &entry{
+		name := path.Clean(header.Name)
+		tfs.entries[name] = &entry{
 			header: header,
 			pos:    pos - blockSize,
 		}
