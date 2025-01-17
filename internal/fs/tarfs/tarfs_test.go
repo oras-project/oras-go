@@ -47,6 +47,7 @@ foobar_symlink
 ./foobar
 ./foobar_link
 ./foobar_symlink
+
 */
 
 func TestTarFS_Open_Success(t *testing.T) {

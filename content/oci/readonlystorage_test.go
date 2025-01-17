@@ -180,9 +180,9 @@ oci-layout
 ./blobs/
 	./blobs/sha256/
 		./blobs/sha256/2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54
-		/blobs/sha256/f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4
-		/blobs/sha256/faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af
-		/blobs/sha256/feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412
+		./blobs/sha256/f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4
+		./blobs/sha256/faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af
+		./blobs/sha256/feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412
 ./index.json
 ./manifest.json
 ./oci-layout
