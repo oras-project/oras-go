@@ -54,13 +54,10 @@ foobar_symlink
 */
 
 func TestTarFS_Open_Success(t *testing.T) {
-	// TODO: fix tests
 	testFiles := map[string][]byte{
-		"foobar":             []byte("foobar"),
-		"dir/hello":          []byte("hello"),
-		"dir\\hello":         []byte("hello"),
-		"dir/subdir/world":   []byte("world"),
-		"dir\\subdir\\world": []byte("world"),
+		"foobar":           []byte("foobar"),
+		"dir/hello":        []byte("hello"),
+		"dir/subdir/world": []byte("world"),
 	}
 	tarPaths := []string{
 		"testdata/test.tar",
@@ -104,47 +101,55 @@ func TestTarFS_Open_Success(t *testing.T) {
 }
 
 func TestTarFS_Open_MoreThanOnce(t *testing.T) {
-	tfs, err := New("testdata/test.tar")
-	if err != nil {
-		t.Fatalf("New() error = %v, wantErr %v", err, nil)
+	tarPaths := []string{
+		"testdata/test.tar",
+		"testdata/prefixed_path.tar",
 	}
 
-	name := "foobar"
-	data := []byte("foobar")
-	// open once
-	f1, err := tfs.Open(name)
-	if err != nil {
-		t.Fatalf("1st: TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
+	for _, tarPath := range tarPaths {
+		tfs, err := New(tarPath)
+		if err != nil {
+			t.Fatalf("New() error = %v, wantErr %v", err, nil)
+		}
+
+		name := "foobar"
+		data := []byte("foobar")
+		// open once
+		f1, err := tfs.Open(name)
+		if err != nil {
+			t.Fatalf("1st: TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
+		}
+
+		got, err := io.ReadAll(f1)
+		if err != nil {
+			t.Fatalf("1st: failed to read %s: %v", name, err)
+		}
+		if want := data; !bytes.Equal(got, want) {
+			t.Errorf("1st: TarFS.Open(%s) = %v, want %v", name, string(got), string(want))
+		}
+
+		// open twice
+		f2, err := tfs.Open(name)
+		if err != nil {
+			t.Fatalf("2nd: TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
+		}
+		got, err = io.ReadAll(f2)
+		if err != nil {
+			t.Fatalf("2nd: failed to read %s: %v", name, err)
+		}
+		if want := data; !bytes.Equal(got, want) {
+			t.Errorf("2nd: TarFS.Open(%s) = %v, want %v", name, string(got), string(want))
+		}
+
+		// close
+		if err = f1.Close(); err != nil {
+			t.Errorf("1st TarFS.Open(%s).Close() error = %v", name, err)
+		}
+		if err = f2.Close(); err != nil {
+			t.Errorf("2nd TarFS.Open(%s).Close() error = %v", name, err)
+		}
 	}
 
-	got, err := io.ReadAll(f1)
-	if err != nil {
-		t.Fatalf("1st: failed to read %s: %v", name, err)
-	}
-	if want := data; !bytes.Equal(got, want) {
-		t.Errorf("1st: TarFS.Open(%s) = %v, want %v", name, string(got), string(want))
-	}
-
-	// open twice
-	f2, err := tfs.Open(name)
-	if err != nil {
-		t.Fatalf("2nd: TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
-	}
-	got, err = io.ReadAll(f2)
-	if err != nil {
-		t.Fatalf("2nd: failed to read %s: %v", name, err)
-	}
-	if want := data; !bytes.Equal(got, want) {
-		t.Errorf("2nd: TarFS.Open(%s) = %v, want %v", name, string(got), string(want))
-	}
-
-	// close
-	if err = f1.Close(); err != nil {
-		t.Errorf("1st TarFS.Open(%s).Close() error = %v", name, err)
-	}
-	if err = f2.Close(); err != nil {
-		t.Errorf("2nd TarFS.Open(%s).Close() error = %v", name, err)
-	}
 }
 
 func TestTarFS_Open_NotExist(t *testing.T) {
@@ -153,33 +158,54 @@ func TestTarFS_Open_NotExist(t *testing.T) {
 		"subdir/bar",
 		"barfoo",
 	}
-	tfs, err := New("testdata/test.tar")
-	if err != nil {
-		t.Fatalf("New() error = %v, wantErr %v", err, nil)
+	tarPaths := []string{
+		"testdata/test.tar",
+		"testdata/prefixed_path.tar",
 	}
-	for _, name := range testFiles {
-		_, err := tfs.Open(name)
-		if want := fs.ErrNotExist; !errors.Is(err, want) {
-			t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+
+	for _, tarPath := range tarPaths {
+		tfs, err := New(tarPath)
+		if err != nil {
+			t.Fatalf("New() error = %v, wantErr %v", err, nil)
+		}
+		for _, name := range testFiles {
+			_, err := tfs.Open(name)
+			if want := fs.ErrNotExist; !errors.Is(err, want) {
+				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+			}
 		}
 	}
+
 }
 
-// TODO: test more invalid paths
 func TestTarFS_Open_InvalidPath(t *testing.T) {
 	testFiles := []string{
+		"..",
+		"../outside",
+		"./dir",
 		"dir/",
-		"subdir/",
 		"dir/subdir/",
+		"/absolute/path",
+		"dir/../invalid",
+		"dir/./invalid",
+		"dir//double_slash",
+		"dir/subdir/../../invalid",
 	}
-	tfs, err := New("testdata/test.tar")
-	if err != nil {
-		t.Fatalf("New() error = %v, wantErr %v", err, nil)
+	tarPaths := []string{
+		"testdata/test.tar",
+		"testdata/prefixed_path.tar",
 	}
-	for _, name := range testFiles {
-		_, err := tfs.Open(name)
-		if want := fs.ErrInvalid; !errors.Is(err, want) {
-			t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+
+	for _, tarPath := range tarPaths {
+		tfs, err := New(tarPath)
+		if err != nil {
+			t.Fatalf("New() error = %v, wantErr %v", err, nil)
+		}
+		for _, name := range testFiles {
+			_, err := tfs.Open(name)
+			if want := fs.ErrInvalid; !errors.Is(err, want) {
+				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+			}
 		}
 	}
 }
@@ -189,59 +215,72 @@ func TestTarFS_Open_Unsupported(t *testing.T) {
 		"foobar_link",
 		"foobar_symlink",
 	}
-	tfs, err := New("testdata/test.tar")
-	if err != nil {
-		t.Fatalf("New() error = %v, wantErr %v", err, nil)
+	tarPaths := []string{
+		"testdata/test.tar",
+		"testdata/prefixed_path.tar",
 	}
-	for _, name := range testFiles {
-		_, err := tfs.Open(name)
-		if want := errdef.ErrUnsupported; !errors.Is(err, want) {
-			t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+
+	for _, tarPath := range tarPaths {
+		tfs, err := New(tarPath)
+		if err != nil {
+			t.Fatalf("New() error = %v, wantErr %v", err, nil)
+		}
+		for _, name := range testFiles {
+			_, err := tfs.Open(name)
+			if want := errdef.ErrUnsupported; !errors.Is(err, want) {
+				t.Errorf("TarFS.Open(%s) error = %v, wantErr %v", name, err, want)
+			}
 		}
 	}
 }
 
-// TODO: test prefixed path
 func TestTarFS_Stat(t *testing.T) {
-	tfs, err := New("testdata/test.tar")
-	if err != nil {
-		t.Fatalf("New() error = %v, wantErr %v", err, nil)
+	tarPaths := []string{
+		"testdata/test.tar",
+		"testdata/prefixed_path.tar",
 	}
 
-	name := "foobar"
-	fi, err := tfs.Stat(name)
-	if err != nil {
-		t.Fatal("Stat() error =", err)
-	}
-	if got, want := fi.Name(), "foobar"; got != want {
-		t.Errorf("Stat().want() = %v, want %v", got, want)
-	}
-	if got, want := fi.Size(), int64(6); got != want {
-		t.Errorf("Stat().Size() = %v, want %v", got, want)
-	}
+	for _, tarPath := range tarPaths {
+		tfs, err := New(tarPath)
+		if err != nil {
+			t.Fatalf("New() error = %v, wantErr %v", err, nil)
+		}
 
-	name = "dir/hello"
-	fi, err = tfs.Stat(name)
-	if err != nil {
-		t.Fatal("Stat() error =", err)
-	}
-	if got, want := fi.Name(), "hello"; got != want {
-		t.Errorf("Stat().want() = %v, want %v", got, want)
-	}
-	if got, want := fi.Size(), int64(5); got != want {
-		t.Errorf("Stat().Size() = %v, want %v", got, want)
-	}
+		name := "foobar"
+		fi, err := tfs.Stat(name)
+		if err != nil {
+			t.Fatal("Stat() error =", err)
+		}
+		if got, want := fi.Name(), "foobar"; got != want {
+			t.Errorf("Stat().want() = %v, want %v", got, want)
+		}
+		if got, want := fi.Size(), int64(6); got != want {
+			t.Errorf("Stat().Size() = %v, want %v", got, want)
+		}
 
-	name = "dir/subdir/world"
-	fi, err = tfs.Stat(name)
-	if err != nil {
-		t.Fatal("Stat() error =", err)
-	}
-	if got, want := fi.Name(), "world"; got != want {
-		t.Errorf("Stat().want() = %v, want %v", got, want)
-	}
-	if got, want := fi.Size(), int64(5); got != want {
-		t.Errorf("Stat().Size() = %v, want %v", got, want)
+		name = "dir/hello"
+		fi, err = tfs.Stat(name)
+		if err != nil {
+			t.Fatal("Stat() error =", err)
+		}
+		if got, want := fi.Name(), "hello"; got != want {
+			t.Errorf("Stat().want() = %v, want %v", got, want)
+		}
+		if got, want := fi.Size(), int64(5); got != want {
+			t.Errorf("Stat().Size() = %v, want %v", got, want)
+		}
+
+		name = "dir/subdir/world"
+		fi, err = tfs.Stat(name)
+		if err != nil {
+			t.Fatal("Stat() error =", err)
+		}
+		if got, want := fi.Name(), "world"; got != want {
+			t.Errorf("Stat().want() = %v, want %v", got, want)
+		}
+		if got, want := fi.Size(), int64(5); got != want {
+			t.Errorf("Stat().Size() = %v, want %v", got, want)
+		}
 	}
 }
 
@@ -251,32 +290,53 @@ func TestTarFS_Stat_NotExist(t *testing.T) {
 		"subdir/bar",
 		"barfoo",
 	}
-	tfs, err := New("testdata/test.tar")
-	if err != nil {
-		t.Fatalf("New() error = %v, wantErr %v", err, nil)
+	tarPaths := []string{
+		"testdata/test.tar",
+		"testdata/prefixed_path.tar",
 	}
-	for _, name := range testFiles {
-		_, err := tfs.Stat(name)
-		if want := fs.ErrNotExist; !errors.Is(err, want) {
-			t.Errorf("TarFS.Stat(%s) error = %v, wantErr %v", name, err, want)
+
+	for _, tarPath := range tarPaths {
+		tfs, err := New(tarPath)
+		if err != nil {
+			t.Fatalf("New() error = %v, wantErr %v", err, nil)
+		}
+		for _, name := range testFiles {
+			_, err := tfs.Stat(name)
+			if want := fs.ErrNotExist; !errors.Is(err, want) {
+				t.Errorf("TarFS.Stat(%s) error = %v, wantErr %v", name, err, want)
+			}
 		}
 	}
 }
 
 func TestTarFS_Stat_InvalidPath(t *testing.T) {
 	testFiles := []string{
+		"..",
+		"../outside",
+		"./dir",
 		"dir/",
-		"subdir/",
 		"dir/subdir/",
+		"/absolute/path",
+		"dir/../invalid",
+		"dir/./invalid",
+		"dir//double_slash",
+		"dir/subdir/../../invalid",
 	}
-	tfs, err := New("testdata/test.tar")
-	if err != nil {
-		t.Fatalf("New() error = %v, wantErr %v", err, nil)
+	tarPaths := []string{
+		"testdata/test.tar",
+		"testdata/prefixed_path.tar",
 	}
-	for _, name := range testFiles {
-		_, err := tfs.Stat(name)
-		if want := fs.ErrInvalid; !errors.Is(err, want) {
-			t.Errorf("TarFS.Stat(%s) error = %v, wantErr %v", name, err, want)
+
+	for _, tarPath := range tarPaths {
+		tfs, err := New(tarPath)
+		if err != nil {
+			t.Fatalf("New() error = %v, wantErr %v", err, nil)
+		}
+		for _, name := range testFiles {
+			_, err := tfs.Stat(name)
+			if want := fs.ErrInvalid; !errors.Is(err, want) {
+				t.Errorf("TarFS.Stat(%s) error = %v, wantErr %v", name, err, want)
+			}
 		}
 	}
 }
@@ -286,41 +346,21 @@ func TestTarFS_Stat_Unsupported(t *testing.T) {
 		"foobar_link",
 		"foobar_symlink",
 	}
-	tfs, err := New("testdata/test.tar")
-	if err != nil {
-		t.Fatalf("New() error = %v, wantErr %v", err, nil)
+	tarPaths := []string{
+		"testdata/test.tar",
+		"testdata/prefixed_path.tar",
 	}
-	for _, name := range testFiles {
-		_, err := tfs.Stat(name)
-		if want := errdef.ErrUnsupported; !errors.Is(err, want) {
-			t.Errorf("TarFS.Stat(%s) error = %v, wantErr %v", name, err, want)
+
+	for _, tarPath := range tarPaths {
+		tfs, err := New(tarPath)
+		if err != nil {
+			t.Fatalf("New() error = %v, wantErr %v", err, nil)
 		}
-	}
-}
-
-// TODO: test prefixed path
-func TestGetEntryKey(t *testing.T) {
-	tests := []struct {
-		name string
-		path string
-		want string
-	}{
-		{"simple path", "foo/bar", "foo/bar"},
-		{"path with backslashes", "foo\\bar", "foo/bar"},
-		{"path with mixed slashes", "foo/bar\\baz", "foo/bar/baz"},
-		{"path with redundant slashes", "foo//bar", "foo/bar"},
-		{"path with redundant backslashes", "foo\\\\bar", "foo/bar"},
-		{"path with dots", "foo/./bar", "foo/bar"},
-		{"path with double dots", "foo/../bar", "bar"},
-		{"absolute path", "/foo/bar", "/foo/bar"},
-		{"absolute path with backslashes", "\\foo\\bar", "/foo/bar"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := getEntryKey(tt.path); got != tt.want {
-				t.Errorf("getEntryKey(%s) = %v, want %v", tt.path, got, tt.want)
+		for _, name := range testFiles {
+			_, err := tfs.Stat(name)
+			if want := errdef.ErrUnsupported; !errors.Is(err, want) {
+				t.Errorf("TarFS.Stat(%s) error = %v, wantErr %v", name, err, want)
 			}
-		})
+		}
 	}
 }

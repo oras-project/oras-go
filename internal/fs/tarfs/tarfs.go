@@ -156,7 +156,7 @@ func (tfs *TarFS) indexEntries() error {
 
 func getEntryKey(name string) string {
 	// TODO: documentation
-	return filepath.ToSlash(filepath.Clean(name))
+	return filepath.Clean(name)
 }
 
 // entryFile represents an entryFile in a tar archive and implements `fs.File`.
