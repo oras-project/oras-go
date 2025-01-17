@@ -27,7 +27,7 @@ import (
 )
 
 /*
-=== Contents of testdata/test.tar ===
+=== Contents of testdata/cleaned_path.tar ===
 
 dir/
 
@@ -60,7 +60,7 @@ func TestTarFS_Open_Success(t *testing.T) {
 		"dir/subdir/world": []byte("world"),
 	}
 	tarPaths := []string{
-		"testdata/test.tar",
+		"testdata/cleaned_path.tar",
 		"testdata/prefixed_path.tar",
 	}
 
@@ -102,7 +102,7 @@ func TestTarFS_Open_Success(t *testing.T) {
 
 func TestTarFS_Open_MoreThanOnce(t *testing.T) {
 	tarPaths := []string{
-		"testdata/test.tar",
+		"testdata/cleaned_path.tar",
 		"testdata/prefixed_path.tar",
 	}
 
@@ -159,7 +159,7 @@ func TestTarFS_Open_NotExist(t *testing.T) {
 		"barfoo",
 	}
 	tarPaths := []string{
-		"testdata/test.tar",
+		"testdata/cleaned_path.tar",
 		"testdata/prefixed_path.tar",
 	}
 
@@ -192,7 +192,7 @@ func TestTarFS_Open_InvalidPath(t *testing.T) {
 		"dir/subdir/../../invalid",
 	}
 	tarPaths := []string{
-		"testdata/test.tar",
+		"testdata/cleaned_path.tar",
 		"testdata/prefixed_path.tar",
 	}
 
@@ -216,7 +216,7 @@ func TestTarFS_Open_Unsupported(t *testing.T) {
 		"foobar_symlink",
 	}
 	tarPaths := []string{
-		"testdata/test.tar",
+		"testdata/cleaned_path.tar",
 		"testdata/prefixed_path.tar",
 	}
 
@@ -236,7 +236,7 @@ func TestTarFS_Open_Unsupported(t *testing.T) {
 
 func TestTarFS_Stat(t *testing.T) {
 	tarPaths := []string{
-		"testdata/test.tar",
+		"testdata/cleaned_path.tar",
 		"testdata/prefixed_path.tar",
 	}
 
@@ -291,7 +291,7 @@ func TestTarFS_Stat_NotExist(t *testing.T) {
 		"barfoo",
 	}
 	tarPaths := []string{
-		"testdata/test.tar",
+		"testdata/cleaned_path.tar",
 		"testdata/prefixed_path.tar",
 	}
 
@@ -323,7 +323,7 @@ func TestTarFS_Stat_InvalidPath(t *testing.T) {
 		"dir/subdir/../../invalid",
 	}
 	tarPaths := []string{
-		"testdata/test.tar",
+		"testdata/cleaned_path.tar",
 		"testdata/prefixed_path.tar",
 	}
 
@@ -347,7 +347,7 @@ func TestTarFS_Stat_Unsupported(t *testing.T) {
 		"foobar_symlink",
 	}
 	tarPaths := []string{
-		"testdata/test.tar",
+		"testdata/cleaned_path.tar",
 		"testdata/prefixed_path.tar",
 	}
 
