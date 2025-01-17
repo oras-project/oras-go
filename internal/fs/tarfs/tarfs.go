@@ -154,8 +154,8 @@ func (tfs *TarFS) indexEntries() error {
 	return nil
 }
 
+// getEntryKey cleans the name and returns a key for the entry.
 func getEntryKey(name string) string {
-	// TODO: documentation
 	return filepath.Clean(name)
 }
 
