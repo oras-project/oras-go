@@ -22,6 +22,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 
 	"oras.land/oras-go/v2/errdef"
@@ -156,7 +157,7 @@ func (tfs *TarFS) indexEntries() error {
 
 // getEntryKey cleans the name and returns a key for the entry.
 func getEntryKey(name string) string {
-	return filepath.Clean(name)
+	return path.Clean(name)
 }
 
 // entryFile represents an entryFile in a tar archive and implements `fs.File`.
