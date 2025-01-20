@@ -22,6 +22,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 
 	"oras.land/oras-go/v2/errdef"
@@ -143,12 +144,13 @@ func (tfs *TarFS) indexEntries() error {
 		if err != nil {
 			return err
 		}
-		tfs.entries[header.Name] = &entry{
+
+		name := path.Clean(header.Name)
+		tfs.entries[name] = &entry{
 			header: header,
 			pos:    pos - blockSize,
 		}
 	}
-
 	return nil
 }
 

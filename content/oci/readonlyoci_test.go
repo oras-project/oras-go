@@ -416,91 +416,117 @@ func TestReadOnlyStore_DirFS(t *testing.T) {
 }
 
 /*
-testdata/hello-world.tar contains:
+=== Contents of testdata/hello-world.tar ===
 
-	blobs/
-		sha256/
-			2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54 // image layer
-			f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4 // image manifest
-			faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af // manifest list
-			feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412 // config
-	index.json
-	manifest.json
-	oci-layout
+blobs/
+
+	blobs/sha256/
+		blobs/sha256/2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54 // image layer
+		blobs/sha256/f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4 // image manifest
+		blobs/sha256/faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af // manifest list
+		blobs/sha256/feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412 // config
+
+index.json
+manifest.json
+oci-layout
+
+=== Contents of testdata/hello-world-prefixed-path.tar ===
+
+./
+./blobs/
+
+	./blobs/sha256/
+		./blobs/sha256/2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54 // image layer
+		./blobs/sha256/f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4 // image manifest
+		./blobs/sha256/faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af // manifest list
+		./blobs/sha256/feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412 // config
+
+./index.json
+./manifest.json
+./oci-layout
 */
+
 func TestReadOnlyStore_TarFS(t *testing.T) {
-	ctx := context.Background()
-	s, err := NewFromTar(ctx, "testdata/hello-world.tar")
-	if err != nil {
-		t.Fatal("New() error =", err)
+	tarPaths := []string{
+		"testdata/hello-world.tar",
+		"testdata/hello-world-prefixed-path.tar",
 	}
+	for _, tarPath := range tarPaths {
+		t.Run(tarPath, func(t *testing.T) {
+			ctx := context.Background()
+			s, err := NewFromTar(ctx, tarPath)
+			if err != nil {
+				t.Fatal("New() error =", err)
+			}
 
-	// test data in testdata/hello-world.tar
-	descs := []ocispec.Descriptor{
-		// desc 0: config
-		{
-			MediaType: "application/vnd.docker.container.image.v1+json",
-			Size:      1469,
-			Digest:    "sha256:feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412",
-		},
-		// desc 1: layer
-		{
-			MediaType: "application/vnd.docker.image.rootfs.diff.tar.gzip",
-			Size:      2479,
-			Digest:    "sha256:2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54",
-		},
-		// desc 2: image manifest
-		{
-			MediaType: "application/vnd.docker.distribution.manifest.v2+json",
-			Digest:    "sha256:f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4",
-			Size:      525,
-			Platform: &ocispec.Platform{
-				Architecture: "amd64",
-				OS:           "linux",
-			},
-		},
-		// desc 3: manifest list
-		{
-			MediaType: docker.MediaTypeManifestList,
-			Size:      2561,
-			Digest:    "sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
-		},
-	}
+			// test data in testdata/hello-world.tar
+			descs := []ocispec.Descriptor{
+				// desc 0: config
+				{
+					MediaType: "application/vnd.docker.container.image.v1+json",
+					Size:      1469,
+					Digest:    "sha256:feb5d9fea6a5e9606aa995e879d862b825965ba48de054caab5ef356dc6b3412",
+				},
+				// desc 1: layer
+				{
+					MediaType: "application/vnd.docker.image.rootfs.diff.tar.gzip",
+					Size:      2479,
+					Digest:    "sha256:2db29710123e3e53a794f2694094b9b4338aa9ee5c40b930cb8063a1be392c54",
+				},
+				// desc 2: image manifest
+				{
+					MediaType: "application/vnd.docker.distribution.manifest.v2+json",
+					Digest:    "sha256:f54a58bc1aac5ea1a25d796ae155dc228b3f0e11d046ae276b39c4bf2f13d8c4",
+					Size:      525,
+					Platform: &ocispec.Platform{
+						Architecture: "amd64",
+						OS:           "linux",
+					},
+				},
+				// desc 3: manifest list
+				{
+					MediaType: docker.MediaTypeManifestList,
+					Size:      2561,
+					Digest:    "sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
+				},
+			}
 
-	// test resolving by tag
-	for _, desc := range descs {
-		gotDesc, err := s.Resolve(ctx, desc.Digest.String())
-		if err != nil {
-			t.Fatal("ReadOnlyStore: Resolve() error =", err)
-		}
-		if want := desc; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
-			t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
-		}
-	}
-	// test resolving by tag
-	gotDesc, err := s.Resolve(ctx, "latest")
-	if err != nil {
-		t.Fatal("ReadOnlyStore: Resolve() error =", err)
-	}
-	if want := descs[3]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
-		t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
-	}
+			// test resolving by tag
+			for _, desc := range descs {
+				gotDesc, err := s.Resolve(ctx, desc.Digest.String())
+				if err != nil {
+					t.Fatal("ReadOnlyStore: Resolve() error =", err)
+				}
+				if want := desc; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+					t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
+				}
+			}
+			// test resolving by tag
+			gotDesc, err := s.Resolve(ctx, "latest")
+			if err != nil {
+				t.Fatal("ReadOnlyStore: Resolve() error =", err)
+			}
+			if want := descs[3]; gotDesc.Size != want.Size || gotDesc.Digest != want.Digest {
+				t.Errorf("ReadOnlyStore.Resolve() = %v, want %v", gotDesc, want)
+			}
 
-	// test Predecessors
-	wantPredecessors := [][]ocispec.Descriptor{
-		{descs[2]}, // desc 0
-		{descs[2]}, // desc 1
-		{descs[3]}, // desc 2
-		{},         // desc 3
-	}
-	for i, want := range wantPredecessors {
-		predecessors, err := s.Predecessors(ctx, descs[i])
-		if err != nil {
-			t.Errorf("ReadOnlyStore.Predecessors(%d) error = %v", i, err)
-		}
-		if !equalDescriptorSet(predecessors, want) {
-			t.Errorf("ReadOnlyStore.Predecessors(%d) = %v, want %v", i, predecessors, want)
-		}
+			// test Predecessors
+			wantPredecessors := [][]ocispec.Descriptor{
+				{descs[2]}, // desc 0
+				{descs[2]}, // desc 1
+				{descs[3]}, // desc 2
+				{},         // desc 3
+			}
+			for i, want := range wantPredecessors {
+				predecessors, err := s.Predecessors(ctx, descs[i])
+				if err != nil {
+					t.Errorf("ReadOnlyStore.Predecessors(%d) error = %v", i, err)
+				}
+				if !equalDescriptorSet(predecessors, want) {
+					t.Errorf("ReadOnlyStore.Predecessors(%d) = %v, want %v", i, predecessors, want)
+				}
+			}
+		})
 	}
 }
 
