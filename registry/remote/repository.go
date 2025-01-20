@@ -1608,6 +1608,9 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 // calculateDigestFromResponse calculates the actual digest of the response body
 // taking care not to destroy it in the process.
 func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (digest.Digest, error) {
+	if resp.Body == nil {
+		return "", fmt.Errorf("%s %q: response body is nil", resp.Request.Method, resp.Request.URL)
+	}
 	defer resp.Body.Close()
 
 	body := limitReader(resp.Body, maxMetadataBytes)

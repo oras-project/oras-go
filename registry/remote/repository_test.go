@@ -120,6 +120,45 @@ func getTestIOStructMapForGetDescriptorClass() map[string]testIOStruct {
 	}
 }
 
+func TestNewRepository(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		wantErr   error
+	}{
+		{
+			name:      "valid reference",
+			reference: "localhost:5000/hello-world",
+			wantErr:   nil,
+		},
+		{
+			name:      "invalid reference",
+			reference: "invalid reference",
+			wantErr:   errdef.ErrInvalidReference,
+		},
+		{
+			name:      "empty reference",
+			reference: "",
+			wantErr:   errdef.ErrInvalidReference,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NewRepository(tt.reference)
+			if err != nil {
+				if errors.Is(err, tt.wantErr) {
+					return
+				}
+				t.Fatalf("NewRepository() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got.Reference.String() != tt.reference {
+				t.Errorf("NewRepository() got = %v, want %v", got.Reference.String(), tt.reference)
+			}
+		})
+	}
+}
+
 func TestRepository_Fetch(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
@@ -7267,4 +7306,232 @@ func TestRepository_clone(t *testing.T) {
 	if !reflect.DeepEqual(&repo.referrersMergePool, &crepo.referrersMergePool) {
 		t.Fatal("referrersMergePool should be different")
 	}
+}
+
+func TestManifestStore_generateDescriptor(t *testing.T) {
+	data := []byte("test")
+	dataSize := int64(len(data))
+	dataDigest := digest.FromBytes(data)
+	mediaType := "application/vnd.test"
+
+	tests := []struct {
+		name           string
+		resp           *http.Response
+		ref            registry.Reference
+		httpMethod     string
+		wantDescriptor ocispec.Descriptor
+		wantErr        bool
+	}{
+		{
+			name: "valid response with Content-Type and Docker-Content-Digest",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{mediaType},
+					"Docker-Content-Digest": []string{dataDigest.String()},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			ref: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  dataDigest.String(),
+			},
+			httpMethod: http.MethodGet,
+			wantDescriptor: ocispec.Descriptor{
+				MediaType: mediaType,
+				Digest:    dataDigest,
+				Size:      dataSize,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid Content-Type",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{"invalid content type"},
+					"Docker-Content-Digest": []string{dataDigest.String()},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			ref: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  dataDigest.String(),
+			},
+			httpMethod:     http.MethodGet,
+			wantDescriptor: ocispec.Descriptor{},
+			wantErr:        true,
+		},
+		{
+			name: "unknown Content-Length",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{mediaType},
+					"Docker-Content-Digest": []string{dataDigest.String()},
+				},
+				ContentLength: -1,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			ref: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  dataDigest.String(),
+			},
+			httpMethod:     http.MethodGet,
+			wantDescriptor: ocispec.Descriptor{},
+			wantErr:        true,
+		},
+		{
+			name: "bad Docker-Content-Digest",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{mediaType},
+					"Docker-Content-Digest": []string{"not-a-digest"},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			ref: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  dataDigest.String(),
+			},
+			httpMethod:     http.MethodGet,
+			wantDescriptor: ocispec.Descriptor{},
+			wantErr:        true,
+		},
+		{
+			name: "resp with body, missing Docker-Content-Digest",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type": []string{mediaType},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+				Body: io.NopCloser(bytes.NewReader(data)),
+			},
+			ref: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  dataDigest.String(),
+			},
+			httpMethod: http.MethodGet,
+			wantDescriptor: ocispec.Descriptor{
+				MediaType: mediaType,
+				Digest:    dataDigest,
+				Size:      dataSize,
+			},
+			wantErr: false,
+		},
+		{
+			name: "resp without body, missing Docker-Content-Digest",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type": []string{mediaType},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			ref: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  dataDigest.String(),
+			},
+			httpMethod:     http.MethodGet,
+			wantDescriptor: ocispec.Descriptor{},
+			wantErr:        true,
+		},
+		{
+			name: "failed to read resp with body, missing Docker-Content-Digest",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type": []string{mediaType},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+				Body: &badReader{},
+			},
+			ref: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  dataDigest.String(),
+			},
+			httpMethod:     http.MethodGet,
+			wantDescriptor: ocispec.Descriptor{},
+			wantErr:        true,
+		},
+		{
+			name: "digest mismatch",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{mediaType},
+					"Docker-Content-Digest": []string{string(dataDigest)},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			ref: registry.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  string(digest.FromBytes([]byte("whatever"))),
+			},
+			httpMethod:     http.MethodGet,
+			wantDescriptor: ocispec.Descriptor{},
+			wantErr:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &manifestStore{
+				repo: &Repository{
+					MaxMetadataBytes: 1024,
+				},
+			}
+			got, err := s.generateDescriptor(tt.resp, tt.ref, tt.httpMethod)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("generateDescriptor() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.wantDescriptor) {
+				t.Errorf("generateDescriptor() = %v, want %v", got, tt.wantDescriptor)
+			}
+		})
+	}
+}
+
+type badReader struct{}
+
+func (r *badReader) Read(p []byte) (n int, err error) {
+	return 0, errors.New("read error")
+}
+
+func (r *badReader) Close() error {
+	return nil
 }
