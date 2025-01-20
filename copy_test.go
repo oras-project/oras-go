@@ -62,6 +62,19 @@ func (t *storageTracker) Exists(ctx context.Context, target ocispec.Descriptor) 
 	return t.Storage.Exists(ctx, target)
 }
 
+type mockReferencePusher struct {
+	oras.Target
+	pushReference int64
+}
+
+func (p *mockReferencePusher) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
+	atomic.AddInt64(&p.pushReference, 1)
+	if err := p.Target.Push(ctx, expected, content); err != nil {
+		return err
+	}
+	return p.Target.Tag(ctx, expected, reference)
+}
+
 func TestCopy_FullCopy(t *testing.T) {
 	src := memory.New()
 	dst := memory.New()
@@ -2211,11 +2224,110 @@ func TestCopyGraph_ForeignLayers_Mixed(t *testing.T) {
 	}
 }
 
+func TestCopy_ReferencePusher(t *testing.T) {
+	ctx := context.Background()
+	src := memory.New()
+	dst := &mockReferencePusher{Target: memory.New()}
+
+	// generate test content
+	// generate test content
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
+	generateManifest(descs[0], descs[1:3]...)                  // Blob 3
+
+	for i := range blobs {
+		err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i]))
+		if err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+
+	root := descs[len(descs)-1]
+	tag := "latest"
+	if err := src.Tag(ctx, root, tag); err != nil {
+		t.Fatalf("failed to tag manifest: %v", err)
+	}
+
+	// test copying to a reference pusher
+	var preCopyCount int64
+	var postCopyCount int64
+	opts := oras.CopyOptions{
+		CopyGraphOptions: oras.CopyGraphOptions{
+			PreCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
+				atomic.AddInt64(&preCopyCount, 1)
+				return nil
+			},
+			PostCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
+				atomic.AddInt64(&postCopyCount, 1)
+				return nil
+			},
+		},
+	}
+	gotManifestDesc, err := oras.Copy(ctx, src, tag, dst, tag, opts)
+	if err != nil {
+		t.Fatalf("Copy() error = %v, wantErr %v", err, false)
+	}
+	if !reflect.DeepEqual(gotManifestDesc, root) {
+		t.Errorf("Copy() = %v, want %v", gotManifestDesc, root)
+	}
+
+	// verify contents
+	for i, desc := range descs {
+		exists, err := dst.Exists(ctx, desc)
+		if err != nil {
+			t.Fatalf("dst.Exists(%d) error = %v", i, err)
+		}
+		if !exists {
+			t.Errorf("dst.Exists(%d) = %v, want %v", i, exists, true)
+		}
+	}
+
+	// verify tag
+	gotDesc, err := dst.Resolve(ctx, tag)
+	if err != nil {
+		t.Fatal("dst.Resolve() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, root) {
+		t.Errorf("dst.Resolve() = %v, want %v", gotDesc, root)
+	}
+
+	// verify API counts
+	if got, want := preCopyCount, int64(4); got != want {
+		t.Errorf("count(PreCopy()) = %v, want %v", got, want)
+	}
+	if got, want := postCopyCount, int64(4); got != want {
+		t.Errorf("count(PostCopy()) = %v, want %v", got, want)
+	}
+}
+
 func TestCopy_Error(t *testing.T) {
 	t.Run("src target is nil", func(t *testing.T) {
 		ctx := context.Background()
 		dst := memory.New()
-		if _, err := oras.Copy(ctx, nil, "", dst, "", oras.CopyOptions{}); err == nil {
+		if _, err := oras.Copy(ctx, nil, "", dst, "", oras.DefaultCopyOptions); err == nil {
 			t.Errorf("Copy() error = %v, wantErr %v", err, true)
 		}
 	})
@@ -2223,7 +2335,7 @@ func TestCopy_Error(t *testing.T) {
 	t.Run("dst target is nil", func(t *testing.T) {
 		ctx := context.Background()
 		src := memory.New()
-		if _, err := oras.Copy(ctx, src, "", nil, "", oras.CopyOptions{}); err == nil {
+		if _, err := oras.Copy(ctx, src, "", nil, "", oras.DefaultCopyOptions); err == nil {
 			t.Errorf("Copy() error = %v, wantErr %v", err, true)
 		}
 	})
@@ -2232,7 +2344,7 @@ func TestCopy_Error(t *testing.T) {
 		ctx := context.Background()
 		src := memory.New()
 		dst := memory.New()
-		if _, err := oras.Copy(ctx, src, "whatever", dst, "", oras.CopyOptions{}); err == nil {
+		if _, err := oras.Copy(ctx, src, "whatever", dst, "", oras.DefaultCopyOptions); err == nil {
 			t.Errorf("Copy() error = %v, wantErr %v", err, true)
 		}
 	})
