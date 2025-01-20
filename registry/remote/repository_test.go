@@ -57,6 +57,16 @@ type testIOStruct struct {
 const theAmazingBanClan = "Ban Gu, Ban Chao, Ban Zhao"
 const theAmazingBanDigest = "b526a4f2be963a2f9b0990c001255669eab8a254ab1a6e3f84f1820212ac7078"
 
+type badReader struct{}
+
+func (r *badReader) Read(p []byte) (n int, err error) {
+	return 0, errors.New("read error")
+}
+
+func (r *badReader) Close() error {
+	return nil
+}
+
 // The following truth table aims to cover the expected GET/HEAD request outcome
 // for all possible permutations of the client/server "containing a digest", for
 // both Manifests and Blobs.  Where the results between the two differ, the index
@@ -7308,6 +7318,61 @@ func TestRepository_clone(t *testing.T) {
 	}
 }
 
+func TestManifestStore_ParseReference(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference string
+		want      registry.Reference
+		wantErr   bool
+	}{
+		{
+			name:      "valid tag",
+			reference: "foobar",
+			want: registry.Reference{
+				Reference: "foobar",
+			},
+			wantErr: false,
+		},
+		{
+			name:      "valid digest",
+			reference: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			want: registry.Reference{
+				Reference: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: false,
+		},
+		{
+			name:      "valid tag@digest",
+			reference: "foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			want: registry.Reference{
+				Reference: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			wantErr: false,
+		},
+		{
+			name:      "invalid reference",
+			reference: "invalid@reference",
+			want:      registry.Reference{},
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &Repository{}
+			s := &manifestStore{repo: repo}
+			got, err := s.ParseReference(tt.reference)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseReference() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ParseReference() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestManifestStore_generateDescriptor(t *testing.T) {
 	data := []byte("test")
 	dataSize := int64(len(data))
@@ -7526,12 +7591,144 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 	}
 }
 
-type badReader struct{}
+func Test_generateBlobDescriptor(t *testing.T) {
+	data := []byte("test")
+	dataSize := int64(len(data))
+	dataDigest := digest.FromBytes(data)
+	mediaType := "application/vnd.test"
 
-func (r *badReader) Read(p []byte) (n int, err error) {
-	return 0, errors.New("read error")
-}
+	tests := []struct {
+		name           string
+		resp           *http.Response
+		refDigest      digest.Digest
+		wantDescriptor ocispec.Descriptor
+		wantErr        bool
+	}{
+		{
+			name: "valid response with Content-Type and Docker-Content-Digest",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{mediaType},
+					"Docker-Content-Digest": []string{dataDigest.String()},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			refDigest: dataDigest,
+			wantDescriptor: ocispec.Descriptor{
+				MediaType: mediaType,
+				Digest:    dataDigest,
+				Size:      dataSize,
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing Content-Type",
+			resp: &http.Response{
+				Header: http.Header{
+					"Docker-Content-Digest": []string{dataDigest.String()},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			refDigest: dataDigest,
+			wantDescriptor: ocispec.Descriptor{
+				MediaType: "application/octet-stream",
+				Digest:    dataDigest,
+				Size:      dataSize,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid Content-Type",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{"invalid content type"},
+					"Docker-Content-Digest": []string{dataDigest.String()},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			refDigest: dataDigest,
+			wantDescriptor: ocispec.Descriptor{
+				MediaType: "application/octet-stream",
+				Digest:    dataDigest,
+				Size:      dataSize,
+			},
+			wantErr: false,
+		},
+		{
+			name: "unknown Content-Length",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{mediaType},
+					"Docker-Content-Digest": []string{dataDigest.String()},
+				},
+				ContentLength: -1,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			refDigest:      dataDigest,
+			wantDescriptor: ocispec.Descriptor{},
+			wantErr:        true,
+		},
+		{
+			name: "bad Docker-Content-Digest",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{mediaType},
+					"Docker-Content-Digest": []string{"not-a-digest"},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			refDigest:      dataDigest,
+			wantDescriptor: ocispec.Descriptor{},
+			wantErr:        true,
+		},
+		{
+			name: "digest mismatch",
+			resp: &http.Response{
+				Header: http.Header{
+					"Content-Type":          []string{mediaType},
+					"Docker-Content-Digest": []string{string(dataDigest)},
+				},
+				ContentLength: dataSize,
+				Request: &http.Request{
+					Method: http.MethodGet,
+					URL:    &url.URL{Path: "/test"},
+				},
+			},
+			refDigest:      digest.FromBytes([]byte("mismatch")),
+			wantDescriptor: ocispec.Descriptor{},
+			wantErr:        true,
+		},
+	}
 
-func (r *badReader) Close() error {
-	return nil
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := generateBlobDescriptor(tt.resp, tt.refDigest)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("generateBlobDescriptor() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.wantDescriptor) {
+				t.Errorf("generateBlobDescriptor() = %v, want %v", got, tt.wantDescriptor)
+			}
+		})
+	}
 }
