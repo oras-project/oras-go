@@ -67,41 +67,83 @@ func TestRegistry_TLS(t *testing.T) {
 }
 
 func TestRegistry_Ping(t *testing.T) {
-	v2Implemented := true
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v2/" {
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusNotFound)
-			return
+	t.Run("Ping success", func(t *testing.T) {
+		v2Implemented := true
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/v2/" {
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			if v2Implemented {
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
 		}
 
-		if v2Implemented {
-			w.WriteHeader(http.StatusOK)
-		} else {
-			w.WriteHeader(http.StatusNotFound)
+		reg, err := NewRegistry(uri.Host)
+		if err != nil {
+			t.Fatalf("NewRegistry() error = %v", err)
 		}
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
+		reg.PlainHTTP = true
 
-	reg, err := NewRegistry(uri.Host)
-	if err != nil {
-		t.Fatalf("NewRegistry() error = %v", err)
-	}
-	reg.PlainHTTP = true
+		ctx := context.Background()
+		if err := reg.Ping(ctx); err != nil {
+			t.Errorf("Registry.Ping() error = %v", err)
+		}
 
-	ctx := context.Background()
-	if err := reg.Ping(ctx); err != nil {
-		t.Errorf("Registry.Ping() error = %v", err)
-	}
+		v2Implemented = false
+		if err := reg.Ping(ctx); err == nil {
+			t.Errorf("Registry.Ping() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		}
+	})
 
-	v2Implemented = false
-	if err := reg.Ping(ctx); err == nil {
-		t.Errorf("Registry.Ping() error = %v, wantErr %v", err, errdef.ErrNotFound)
-	}
+	t.Run("Ping failed for server error", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/v2/" {
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		reg, err := NewRegistry(uri.Host)
+		if err != nil {
+			t.Fatalf("NewRegistry() error = %v", err)
+		}
+		reg.PlainHTTP = true
+
+		ctx := context.Background()
+		if err := reg.Ping(ctx); err == nil {
+			t.Error("Registry.Ping() error = nil, wantErr = true")
+		}
+	})
+
+	t.Run("Ping failed for connection error", func(t *testing.T) {
+		reg, err := NewRegistry("localhost:9876")
+		if err != nil {
+			t.Fatalf("NewRegistry() error = %v", err)
+		}
+
+		ctx := context.Background()
+		if err := reg.Ping(ctx); err == nil {
+			t.Error("Registry.Ping() error = nil, wantErr = true")
+		}
+	})
 }
 
 func TestRegistry_Repositories(t *testing.T) {
@@ -377,6 +419,38 @@ func TestRegistry_do(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotWarnings, wantWarnings) {
 		t.Errorf("Registry.do() = %v, want %v", gotWarnings, wantWarnings)
+	}
+}
+
+func TestNewRegistry(t *testing.T) {
+	tests := []struct {
+		name    string
+		regName string
+		wantErr bool
+	}{
+		{
+			name:    "Valid registry name",
+			regName: "localhost:5000",
+			wantErr: false,
+		},
+		{
+			name:    "Invalid registry name",
+			regName: "invalid registry name",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NewRegistry(tt.regName)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewRegistry() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got == nil {
+				t.Errorf("NewRegistry() = %v, want non-nil", got)
+			}
+		})
 	}
 }
 
