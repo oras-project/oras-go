@@ -3298,67 +3298,242 @@ func Test_ManifestStore_Fetch(t *testing.T) {
 		Digest:    digest.FromBytes(manifest),
 		Size:      int64(len(manifest)),
 	}
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		switch r.URL.Path {
-		case "/v2/test/manifests/" + manifestDesc.Digest.String():
-			if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
-				t.Errorf("manifest not convertable: %s", accept)
-				w.WriteHeader(http.StatusBadRequest)
+
+	t.Run("successfull fetch", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
-			w.Header().Set("Content-Type", manifestDesc.MediaType)
-			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
-			if _, err := w.Write(manifest); err != nil {
-				t.Errorf("failed to write %q: %v", r.URL, err)
+			switch r.URL.Path {
+			case "/v2/test/manifests/" + manifestDesc.Digest.String():
+				if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+					t.Errorf("manifest not convertable: %s", accept)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", manifestDesc.MediaType)
+				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+				if _, err := w.Write(manifest); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
 			}
-		default:
-			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
 		}
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
 
-	repo, err := NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.PlainHTTP = true
-	store := repo.Manifests()
-	ctx := context.Background()
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
+		store := repo.Manifests()
+		ctx := context.Background()
 
-	rc, err := store.Fetch(ctx, manifestDesc)
-	if err != nil {
-		t.Fatalf("Manifests.Fetch() error = %v", err)
-	}
-	buf := bytes.NewBuffer(nil)
-	if _, err := buf.ReadFrom(rc); err != nil {
-		t.Errorf("fail to read: %v", err)
-	}
-	if err := rc.Close(); err != nil {
-		t.Errorf("fail to close: %v", err)
-	}
-	if got := buf.Bytes(); !bytes.Equal(got, manifest) {
-		t.Errorf("Manifests.Fetch() = %v, want %v", got, manifest)
-	}
+		rc, err := store.Fetch(ctx, manifestDesc)
+		if err != nil {
+			t.Fatalf("Manifests.Fetch() error = %v", err)
+		}
+		buf := bytes.NewBuffer(nil)
+		if _, err := buf.ReadFrom(rc); err != nil {
+			t.Errorf("fail to read: %v", err)
+		}
+		if err := rc.Close(); err != nil {
+			t.Errorf("fail to close: %v", err)
+		}
+		if got := buf.Bytes(); !bytes.Equal(got, manifest) {
+			t.Errorf("Manifests.Fetch() = %v, want %v", got, manifest)
+		}
 
-	content := []byte(`{"manifests":[]}`)
-	contentDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageIndex,
-		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)),
-	}
-	_, err = store.Fetch(ctx, contentDesc)
-	if !errors.Is(err, errdef.ErrNotFound) {
-		t.Errorf("Manifests.Fetch() error = %v, wantErr %v", err, errdef.ErrNotFound)
-	}
+		content := []byte(`{"manifests":[]}`)
+		contentDesc := ocispec.Descriptor{
+			MediaType: ocispec.MediaTypeImageIndex,
+			Digest:    digest.FromBytes(content),
+			Size:      int64(len(content)),
+		}
+		_, err = store.Fetch(ctx, contentDesc)
+		if !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Manifests.Fetch() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		}
+	})
+
+	t.Run("fail with invalid Content-Type", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			switch r.URL.Path {
+			case "/v2/test/manifests/" + manifestDesc.Digest.String():
+				if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+					t.Errorf("manifest not convertable: %s", accept)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "invalid content type")
+				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+				if _, err := w.Write(manifest); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
+		store := repo.Manifests()
+		ctx := context.Background()
+
+		_, err = store.Fetch(ctx, manifestDesc)
+		if err == nil {
+			t.Error("Manifests.Fetch() error = nil, wantErr = true")
+		}
+	})
+
+	t.Run("fail with mismatching Content-Type", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			switch r.URL.Path {
+			case "/v2/test/manifests/" + manifestDesc.Digest.String():
+				if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+					t.Errorf("manifest not convertable: %s", accept)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/vnd.other")
+				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+				if _, err := w.Write(manifest); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
+		store := repo.Manifests()
+		ctx := context.Background()
+
+		_, err = store.Fetch(ctx, manifestDesc)
+		if err == nil {
+			t.Error("Manifests.Fetch() error = nil, wantErr = true")
+		}
+	})
+
+	t.Run("fail with mismatching Content-Length", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			switch r.URL.Path {
+			case "/v2/test/manifests/" + manifestDesc.Digest.String():
+				if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+					t.Errorf("manifest not convertable: %s", accept)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", manifestDesc.MediaType)
+				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
+				if _, err := w.Write([]byte("random")); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
+		store := repo.Manifests()
+		ctx := context.Background()
+
+		_, err = store.Fetch(ctx, manifestDesc)
+		if err == nil {
+			t.Error("Manifests.Fetch() error = nil, wantErr = true")
+		}
+	})
+
+	t.Run("fail with mismatching digest", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			switch r.URL.Path {
+			case "/v2/test/manifests/" + manifestDesc.Digest.String():
+				if accept := r.Header.Get("Accept"); !strings.Contains(accept, manifestDesc.MediaType) {
+					t.Errorf("manifest not convertable: %s", accept)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", manifestDesc.MediaType)
+				w.Header().Set("Docker-Content-Digest", digest.FromBytes([]byte("random")).String())
+				if _, err := w.Write(manifest); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
+		store := repo.Manifests()
+		ctx := context.Background()
+
+		_, err = store.Fetch(ctx, manifestDesc)
+		if err == nil {
+			t.Error("Manifests.Fetch() error = nil, wantErr = true")
+		}
+	})
 }
 
 func Test_ManifestStore_Push(t *testing.T) {
