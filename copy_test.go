@@ -2210,3 +2210,30 @@ func TestCopyGraph_ForeignLayers_Mixed(t *testing.T) {
 		t.Errorf("count(dst.Exists()) = %v, want %v", got, want)
 	}
 }
+
+func TestCopy_Error(t *testing.T) {
+	t.Run("src target is nil", func(t *testing.T) {
+		ctx := context.Background()
+		dst := memory.New()
+		if _, err := oras.Copy(ctx, nil, "", dst, "", oras.CopyOptions{}); err == nil {
+			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		}
+	})
+
+	t.Run("dst target is nil", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		if _, err := oras.Copy(ctx, src, "", nil, "", oras.CopyOptions{}); err == nil {
+			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		}
+	})
+
+	t.Run("failed to resolve reference", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		dst := memory.New()
+		if _, err := oras.Copy(ctx, src, "whatever", dst, "", oras.CopyOptions{}); err == nil {
+			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		}
+	})
+}
