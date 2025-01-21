@@ -53,14 +53,6 @@ func (s *testStorage) Fetch(ctx context.Context, target ocispec.Descriptor) (io.
 	return s.store.Fetch(ctx, target)
 }
 
-// func (s *testStorage) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-// 	return s.store.Exists(ctx, target)
-// }
-
-// func (s *testStorage) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-// 	return s.store.Predecessors(ctx, node)
-// }
-
 func TestConfig(t *testing.T) {
 	storage := cas.NewMemory()
 
@@ -136,6 +128,35 @@ func TestConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConfig_ErrorPath(t *testing.T) {
+	data := []byte("data")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(data),
+		Size:      int64(len(data)),
+	}
+
+	t.Run("Fetch error", func(t *testing.T) {
+		storage := cas.NewMemory()
+		ctx := context.Background()
+		if _, err := Config(ctx, storage, desc); err == nil {
+			t.Error("Config() error = nil, wantErr = true")
+		}
+	})
+
+	t.Run("Unmarshal error", func(t *testing.T) {
+		storage := cas.NewMemory()
+		ctx := context.Background()
+		if err := storage.Push(ctx, desc, bytes.NewReader(data)); err != nil {
+			t.Fatalf("failed to push test content to src: %v", err)
+		}
+		_, err := Config(ctx, storage, desc)
+		if err == nil {
+			t.Error("Config() error = nil, wantErr = true")
+		}
+	})
 }
 
 func TestManifests(t *testing.T) {
@@ -234,6 +255,35 @@ func TestManifests(t *testing.T) {
 	}
 }
 
+func TestManifests_ErrorPath(t *testing.T) {
+	data := []byte("data")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(data),
+		Size:      int64(len(data)),
+	}
+
+	t.Run("Fetch error", func(t *testing.T) {
+		storage := cas.NewMemory()
+		ctx := context.Background()
+		if _, err := Manifests(ctx, storage, desc); err == nil {
+			t.Error("Manifests() error = nil, wantErr = true")
+		}
+	})
+
+	t.Run("Unmarshal error", func(t *testing.T) {
+		storage := cas.NewMemory()
+		ctx := context.Background()
+		if err := storage.Push(ctx, desc, bytes.NewReader(data)); err != nil {
+			t.Fatalf("failed to push test content to src: %v", err)
+		}
+		_, err := Manifests(ctx, storage, desc)
+		if err == nil {
+			t.Error("Manifests() error = nil, wantErr = true")
+		}
+	})
+}
+
 func TestSubject(t *testing.T) {
 	storage := cas.NewMemory()
 
@@ -289,65 +339,87 @@ func TestSubject(t *testing.T) {
 }
 
 func TestSubject_ErrorPath(t *testing.T) {
-	s := testStorage{
-		store:    memory.New(),
-		badFetch: set.New[digest.Digest](),
-	}
-	ctx := context.Background()
 
-	// generate test content
-	var blobs [][]byte
-	var descs []ocispec.Descriptor
-	appendBlob := func(mediaType string, artifactType string, blob []byte) {
-		blobs = append(blobs, blob)
-		descs = append(descs, ocispec.Descriptor{
-			MediaType:    mediaType,
-			ArtifactType: artifactType,
-			Annotations:  map[string]string{"test": "content"},
-			Digest:       digest.FromBytes(blob),
-			Size:         int64(len(blob)),
-		})
-	}
-	generateImageManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
-		manifest := ocispec.Manifest{
-			MediaType:   ocispec.MediaTypeImageManifest,
-			Config:      config,
-			Subject:     subject,
-			Layers:      layers,
-			Annotations: map[string]string{"test": "content"},
+	t.Run("Fetch error", func(t *testing.T) {
+		s := testStorage{
+			store:    memory.New(),
+			badFetch: set.New[digest.Digest](),
 		}
-		manifestJSON, err := json.Marshal(manifest)
-		if err != nil {
+		ctx := context.Background()
+
+		// generate test content
+		var blobs [][]byte
+		var descs []ocispec.Descriptor
+		appendBlob := func(mediaType string, artifactType string, blob []byte) {
+			blobs = append(blobs, blob)
+			descs = append(descs, ocispec.Descriptor{
+				MediaType:    mediaType,
+				ArtifactType: artifactType,
+				Annotations:  map[string]string{"test": "content"},
+				Digest:       digest.FromBytes(blob),
+				Size:         int64(len(blob)),
+			})
+		}
+		generateImageManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
+			manifest := ocispec.Manifest{
+				MediaType:   ocispec.MediaTypeImageManifest,
+				Config:      config,
+				Subject:     subject,
+				Layers:      layers,
+				Annotations: map[string]string{"test": "content"},
+			}
+			manifestJSON, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			appendBlob(ocispec.MediaTypeImageManifest, manifest.Config.MediaType, manifestJSON)
+		}
+		appendBlob("image manifest", "image config", []byte("config"))    // Blob 0
+		appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("foo"))   // Blob 1
+		appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("bar"))   // Blob 2
+		appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("hello")) // Blob 3
+		generateImageManifest(descs[0], nil, descs[1])                    // Blob 4
+		generateImageManifest(descs[0], &descs[4], descs[2])              // Blob 5
+		s.badFetch.Add(descs[5].Digest)
+
+		eg, egCtx := errgroup.WithContext(ctx)
+		for i := range blobs {
+			eg.Go(func(i int) func() error {
+				return func() error {
+					err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
+					if err != nil {
+						return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
+					}
+					return nil
+				}
+			}(i))
+		}
+		if err := eg.Wait(); err != nil {
 			t.Fatal(err)
 		}
-		appendBlob(ocispec.MediaTypeImageManifest, manifest.Config.MediaType, manifestJSON)
-	}
-	appendBlob("image manifest", "image config", []byte("config"))    // Blob 0
-	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("foo"))   // Blob 1
-	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("bar"))   // Blob 2
-	appendBlob(ocispec.MediaTypeImageLayer, "layer", []byte("hello")) // Blob 3
-	generateImageManifest(descs[0], nil, descs[1])                    // Blob 4
-	generateImageManifest(descs[0], &descs[4], descs[2])              // Blob 5
-	s.badFetch.Add(descs[5].Digest)
 
-	eg, egCtx := errgroup.WithContext(ctx)
-	for i := range blobs {
-		eg.Go(func(i int) func() error {
-			return func() error {
-				err := s.Push(egCtx, descs[i], bytes.NewReader(blobs[i]))
-				if err != nil {
-					return fmt.Errorf("failed to push test content to src: %d: %v", i, err)
-				}
-				return nil
-			}
-		}(i))
-	}
-	if err := eg.Wait(); err != nil {
-		t.Fatal(err)
-	}
+		// test fetch error
+		if _, err := Subject(ctx, &s, descs[5]); !errors.Is(err, ErrBadFetch) {
+			t.Errorf("Subject() error = %v, want %v", err, ErrBadFetch)
+		}
+	})
 
-	_, err := Subject(ctx, &s, descs[5])
-	if !errors.Is(err, ErrBadFetch) {
-		t.Errorf("Store.Referrers() error = %v, want %v", err, ErrBadFetch)
-	}
+	t.Run("Unmarshal error", func(t *testing.T) {
+		data := []byte("data")
+		desc := ocispec.Descriptor{
+			MediaType: ocispec.MediaTypeImageIndex,
+			Digest:    digest.FromBytes(data),
+			Size:      int64(len(data)),
+		}
+
+		storage := cas.NewMemory()
+		ctx := context.Background()
+		if err := storage.Push(ctx, desc, bytes.NewReader(data)); err != nil {
+			t.Fatalf("failed to push test content to src: %v", err)
+		}
+		_, err := Subject(ctx, storage, desc)
+		if err == nil {
+			t.Error("Subject() error = nil, wantErr = true")
+		}
+	})
 }

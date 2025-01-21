@@ -405,3 +405,19 @@ func TestTarFS_Stat_Unsupported(t *testing.T) {
 		})
 	}
 }
+
+func TestTarFs_New_Error(t *testing.T) {
+	t.Run("not existing path", func(t *testing.T) {
+		_, err := New("testdata/ghost.tar")
+		if err == nil {
+			t.Error("New() error = nil, wantErr = true")
+		}
+	})
+
+	t.Run("invalid file path", func(t *testing.T) {
+		_, err := New(string([]byte{0x00}))
+		if err == nil {
+			t.Error("New() error = nil, wantErr = true")
+		}
+	})
+}
