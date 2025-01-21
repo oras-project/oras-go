@@ -7603,6 +7603,36 @@ func TestRepository_do(t *testing.T) {
 	}
 }
 
+func TestRepository_newRepositoryWithOptions(t *testing.T) {
+	t.Run("valid reference and options", func(t *testing.T) {
+		ref := registry.Reference{
+			Registry:   "registry.example.com",
+			Repository: "test",
+			Reference:  "latest",
+		}
+		opts := &RepositoryOptions{
+			PlainHTTP: true,
+		}
+		repo, err := newRepositoryWithOptions(ref, opts)
+		if err != nil {
+			t.Fatalf("newRepositoryWithOptions() error = %v", err)
+		}
+		if repo.PlainHTTP != opts.PlainHTTP {
+			t.Errorf("Repository.PlainHTTP = %v, want %v", repo.PlainHTTP, opts.PlainHTTP)
+		}
+		if !reflect.DeepEqual(repo.Reference, ref) {
+			t.Errorf("Repository.Reference = %v, want %v", repo.Reference, ref)
+		}
+	})
+
+	t.Run("invalid reference", func(t *testing.T) {
+		ref := registry.Reference{}
+		if _, err := newRepositoryWithOptions(ref, nil); err == nil {
+			t.Error("newRepositoryWithOptions() error = nil, wantErr")
+		}
+	})
+}
+
 func TestRepository_clone(t *testing.T) {
 	repo, err := NewRepository("localhost:1234/repo/image")
 	if err != nil {
