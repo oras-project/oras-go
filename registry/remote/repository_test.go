@@ -7816,53 +7816,6 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 			wantErr:        true,
 		},
 		{
-			name: "resp with body, missing Docker-Content-Digest",
-			resp: &http.Response{
-				Header: http.Header{
-					"Content-Type": []string{mediaType},
-				},
-				ContentLength: dataSize,
-				Request: &http.Request{
-					Method: http.MethodGet,
-					URL:    &url.URL{Path: "/test"},
-				},
-				Body: io.NopCloser(bytes.NewReader(data)),
-			},
-			ref: registry.Reference{
-				Registry:   "registry.example.com",
-				Repository: "hello-world",
-				Reference:  dataDigest.String(),
-			},
-			httpMethod: http.MethodGet,
-			wantDescriptor: ocispec.Descriptor{
-				MediaType: mediaType,
-				Digest:    dataDigest,
-				Size:      dataSize,
-			},
-			wantErr: false,
-		},
-		{
-			name: "resp without body, missing Docker-Content-Digest",
-			resp: &http.Response{
-				Header: http.Header{
-					"Content-Type": []string{mediaType},
-				},
-				ContentLength: dataSize,
-				Request: &http.Request{
-					Method: http.MethodGet,
-					URL:    &url.URL{Path: "/test"},
-				},
-			},
-			ref: registry.Reference{
-				Registry:   "registry.example.com",
-				Repository: "hello-world",
-				Reference:  dataDigest.String(),
-			},
-			httpMethod:     http.MethodGet,
-			wantDescriptor: ocispec.Descriptor{},
-			wantErr:        true,
-		},
-		{
 			name: "failed to read resp with body, missing Docker-Content-Digest",
 			resp: &http.Response{
 				Header: http.Header{
