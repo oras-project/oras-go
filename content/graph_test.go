@@ -19,12 +19,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/cas"
 	"oras.land/oras-go/v2/internal/docker"
 	"oras.land/oras-go/v2/internal/spec"
@@ -387,5 +389,102 @@ func TestSuccessors_otherMediaType(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("Successors() = %v, want nil", got)
+	}
+}
+
+func TestSuccessors_ErrNotFound(t *testing.T) {
+	tests := []struct {
+		name string
+		desc ocispec.Descriptor
+	}{
+		{
+			name: "docker manifest",
+			desc: ocispec.Descriptor{
+				MediaType: docker.MediaTypeManifest,
+			},
+		},
+		{
+			name: "image manifest",
+			desc: ocispec.Descriptor{
+				MediaType: ocispec.MediaTypeImageManifest,
+			},
+		},
+		{
+			name: "docker manifest list",
+			desc: ocispec.Descriptor{
+				MediaType: docker.MediaTypeManifestList,
+			},
+		},
+		{
+			name: "image index",
+			desc: ocispec.Descriptor{
+				MediaType: ocispec.MediaTypeImageIndex,
+			},
+		},
+		{
+			name: "artifact manifest",
+			desc: ocispec.Descriptor{
+				MediaType: spec.MediaTypeArtifactManifest,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			fetcher := cas.NewMemory()
+			if _, err := content.Successors(ctx, fetcher, tt.desc); !errors.Is(err, errdef.ErrNotFound) {
+				t.Errorf("Successors() error = %v, wantErr = %v", err, errdef.ErrNotFound)
+			}
+		})
+	}
+}
+
+func TestSuccessors_UnmarshalError(t *testing.T) {
+	tests := []struct {
+		name      string
+		mediaType string
+	}{
+		{
+			name:      "docker manifest",
+			mediaType: docker.MediaTypeManifest,
+		},
+		{
+			name:      "image manifest",
+			mediaType: ocispec.MediaTypeImageManifest,
+		},
+		{
+			name:      "docker manifest list",
+			mediaType: docker.MediaTypeManifestList,
+		},
+		{
+			name:      "image index",
+			mediaType: ocispec.MediaTypeImageIndex,
+		},
+		{
+			name:      "artifact manifest",
+			mediaType: spec.MediaTypeArtifactManifest,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			fetcher := cas.NewMemory()
+
+			// prepare test content
+			data := "invalid json"
+			desc := ocispec.Descriptor{
+				MediaType: tt.mediaType,
+				Digest:    digest.FromString(data),
+				Size:      int64(len(data)),
+			}
+			if err := fetcher.Push(ctx, desc, bytes.NewReader([]byte(data))); err != nil {
+				t.Fatalf("failed to push test content to fetcher: %v", err)
+			}
+
+			// test Successors
+			if _, err := content.Successors(ctx, fetcher, desc); err == nil {
+				t.Error("Successors() error = nil, wantErr = true")
+			}
+		})
 	}
 }

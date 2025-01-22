@@ -1829,3 +1829,21 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex_Refe
 	uncopiedIndice := []int{1, 2, 4, 5, 6, 8, 9}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
+
+func TestExtededCopy_Error(t *testing.T) {
+	t.Run("src target is nil", func(t *testing.T) {
+		ctx := context.Background()
+		dst := memory.New()
+		if _, err := oras.ExtendedCopy(ctx, nil, "", dst, "", oras.DefaultExtendedCopyOptions); err == nil {
+			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		}
+	})
+
+	t.Run("dst target is nil", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		if _, err := oras.ExtendedCopy(ctx, src, "", nil, "", oras.DefaultExtendedCopyOptions); err == nil {
+			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		}
+	})
+}

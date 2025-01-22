@@ -82,6 +82,14 @@ func TestTarFS_Open_Success(t *testing.T) {
 						t.Fatalf("TarFS.Open(%s) error = %v, wantErr %v", name, err, nil)
 					}
 
+					fi, err := f.Stat()
+					if err != nil {
+						t.Fatalf("failed to get FileInfo for %s: %v", name, err)
+					}
+					if got, want := fi.Name(), filepath.Base(name); got != want {
+						t.Errorf("FileInfo.Name() = %v, want %v", got, want)
+					}
+
 					got, err := io.ReadAll(f)
 					if err != nil {
 						t.Fatalf("failed to read %s: %v", name, err)
@@ -396,4 +404,20 @@ func TestTarFS_Stat_Unsupported(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTarFs_New_Error(t *testing.T) {
+	t.Run("not existing path", func(t *testing.T) {
+		_, err := New("testdata/ghost.tar")
+		if err == nil {
+			t.Error("New() error = nil, wantErr = true")
+		}
+	})
+
+	t.Run("invalid file path", func(t *testing.T) {
+		_, err := New(string([]byte{0x00}))
+		if err == nil {
+			t.Error("New() error = nil, wantErr = true")
+		}
+	})
 }

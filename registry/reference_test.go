@@ -152,3 +152,201 @@ func TestParseReferenceUglies(t *testing.T) {
 		})
 	}
 }
+
+func TestReference_Validate(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference Reference
+		wantErr   bool
+	}{
+		{
+			name: "valid reference with tag",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "v1.0.0",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid reference with digest",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid reference without tag or digest",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid registry",
+			reference: Reference{
+				Registry:   "invalid registry",
+				Repository: "hello-world",
+				Reference:  "v1.0.0",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid repository",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "INVALID_REPO",
+				Reference:  "v1.0.0",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid tag",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "INVALID_TAG!",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid digest",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  InvalidDigest,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.reference.Validate(); (err != nil) != tt.wantErr {
+				t.Errorf("Reference.Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestReference_Host(t *testing.T) {
+	tests := []struct {
+		name     string
+		registry string
+		want     string
+	}{
+		{
+			name:     "docker.io",
+			registry: "docker.io",
+			want:     "registry-1.docker.io",
+		},
+		{
+			name:     "other registry",
+			registry: "registry.example.com",
+			want:     "registry.example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ref := Reference{
+				Registry: tt.registry,
+			}
+			if got := ref.Host(); got != tt.want {
+				t.Errorf("Reference.Host() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+func TestReference_ReferenceOrDefault(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference Reference
+		want      string
+	}{
+		{
+			name: "empty reference",
+			reference: Reference{
+				Reference: "",
+			},
+			want: "latest",
+		},
+		{
+			name: "non-empty reference",
+			reference: Reference{
+				Reference: "v1.0.0",
+			},
+			want: "v1.0.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.reference.ReferenceOrDefault(); got != tt.want {
+				t.Errorf("Reference.ReferenceOrDefault() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReference_String(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference Reference
+		want      string
+	}{
+		{
+			name: "only registry",
+			reference: Reference{
+				Registry: "registry.example.com",
+			},
+			want: "registry.example.com",
+		},
+		{
+			name: "registry and repository",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			want: "registry.example.com/hello-world",
+		},
+		{
+			name: "registry, repository and tag",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "v1.0.0",
+			},
+			want: "registry.example.com/hello-world:v1.0.0",
+		},
+		{
+			name: "registry, repository and digest",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+			},
+			want: fmt.Sprintf("registry.example.com/hello-world@%s", ValidDigest),
+		},
+		{
+			name: "registry, repository and invalid digest",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  InvalidDigest,
+			},
+			want: fmt.Sprintf("registry.example.com/hello-world:%s", InvalidDigest),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.reference.String(); got != tt.want {
+				t.Errorf("Reference.String() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

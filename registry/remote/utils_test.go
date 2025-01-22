@@ -52,7 +52,13 @@ func Test_parseLink(t *testing.T) {
 			want:   "https://localhost:5001/v2/_catalog?last=alpine&n=1",
 		},
 		{
-			name:    "invalid header",
+			name:    "invalid header, missing <",
+			url:     "https://localhost:5000/v2/_catalog",
+			header:  `/v2/_catalog>`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid header, missing >",
 			url:     "https://localhost:5000/v2/_catalog",
 			header:  `</v2/_catalog`,
 			wantErr: true,
