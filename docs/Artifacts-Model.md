@@ -35,7 +35,8 @@ Here is an example of a container image manifest:
 }
 ```
 
-The manifest indicates that the container image contains a config blob and three layer blobs.
+The manifest indicates that the container image contains a config blob and three layer blobs. When stored in a CAS, a digest will be computed for identifying the manifest. For this particular manifest, the digest is `sha256:f0382590900dc8dd40931755bee9f99a7dd7a1d9da769fcca61ab010fc9d5c70`.
+
 // TODO: explain the descriptor, digest, and size
 
 The container image can be represented by the graph below:
@@ -43,10 +44,10 @@ The container image can be represented by the graph below:
 ```mermaid
 graph TD;
 
-Manifest["Manifest"]-->Config[Config blob]
-Manifest-->Layer0[Layer blob 0]
-Manifest-->Layer1[Layer blob 1]
-Manifest-->Layer2[Layer blob 2]
+Manifest["Manifest<br>(sha256:f03825...)"]-->Config["Config blob<br>(sha256:b5b2b2...)"]
+Manifest-->Layer0["Layer blob 0<br>(sha256:983487...)"]
+Manifest-->Layer1["Layer blob 1<br>(sha256:3c3a46...)"]
+Manifest-->Layer2["Layer blob 2<br>(sha256:ec4b89...)"]
 
 ```
 
