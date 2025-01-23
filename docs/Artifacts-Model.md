@@ -4,50 +4,54 @@ In ORAS Go v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https:/
 
 An artifact is a rooted DAG where the root node is an [OCI Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md). Additionally, artifacts can be grouped by an [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.0/image-index.md), which is also a rooted DAG.
 
-Here is an example of a container image manifest:
+
+Here is an example of a manifest of artifact:
 
 ```json
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.example+type",
   "config": {
-    "mediaType": "application/vnd.oci.image.config.v1+json",
-    "digest": "sha256:b5b2b2c507a0944348e0303114d8d93aaaa081732b86451d9bce1f432a537bc7",
-    "size": 7023
+    "mediaType": "application/vnd.oci.empty.v1+json",
+    "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "size": 2,
+    "data": "e30="
   },
   "layers": [
     {
-      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-      "digest": "sha256:9834876dcfb05cb167a5c24953eba58c4ac89b1adf57f28f2f9d09af107ee8f0",
-      "size": 32654
+      "mediaType": "application/vnd.custom.type",
+      "digest": "sha256:b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
+      "size": 4,
+      "annotations": {
+        "org.opencontainers.image.title": "foo.txt"
+      }
     },
     {
-      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-      "digest": "sha256:3c3a4604a545cdc127456d94e421cd355bca5b528f4a9c1905b15da2eb4a4c6b",
-      "size": 16724
-    },
-    {
-      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-      "digest": "sha256:ec4b8955958665577945c89419d1af06b5f7636b4ac3da7f12184802ad867736",
-      "size": 73109
+      "mediaType": "application/vnd.custom.type",
+      "digest": "sha256:7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730",
+      "size": 4,
+      "annotations": {
+        "org.opencontainers.image.title": "bar.txt"
+      }
     }
-  ]
+  ],
+  "annotations": {
+    "org.opencontainers.image.created": "2025-01-23T10:57:27Z"
+  }
 }
 ```
 
-The manifest indicates that the container image contains a config blob and three layer blobs. When stored in a CAS, a digest will be computed for identifying the manifest. For this particular manifest, the digest is `sha256:f0382590900dc8dd40931755bee9f99a7dd7a1d9da769fcca61ab010fc9d5c70`.
+The manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest will be computed for identifying the manifest. For this particular manifest, the digest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`. 
 
-// TODO: explain the descriptor, digest, and size
-
-The container image can be represented by the graph below:
+The artifact can be represented by the graph below:
 
 ```mermaid
 graph TD;
 
-Manifest["Manifest<br>(sha256:f03825...)"]-->Config["Config blob<br>(sha256:b5b2b2...)"]
-Manifest-->Layer0["Layer blob 0<br>(sha256:983487...)"]
-Manifest-->Layer1["Layer blob 1<br>(sha256:3c3a46...)"]
-Manifest-->Layer2["Layer blob 2<br>(sha256:ec4b89...)"]
+Manifest["Manifest<br>(sha256:314c7f...)"]-->Config["Config blob<br>(sha256:44136f...)"]
+Manifest-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
+Manifest-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 
 ```
 
