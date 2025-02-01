@@ -103,6 +103,8 @@ SignatureManifest--layers-->SignatureBlob["Signature blob<br>(sha256:37f884)"]
 
 ```
 
+Now, the signature manifest is the root of the whole graph containing both the signature blobs and artifact blobs, while the artifact manifest is the root of the sub-graph containing the artifact blobs.
+
 // TODO: similarly, Image index...
 
 // TODO: simplify the graph using alias
