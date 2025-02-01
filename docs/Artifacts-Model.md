@@ -49,14 +49,63 @@ The artifact can be represented by the graph below:
 ```mermaid
 graph TD;
 
-Manifest["Manifest<br>(sha256:314c7f...)"]-->Config["Config blob<br>(sha256:44136f...)"]
-Manifest-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
-Manifest-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
+Manifest["Manifest<br>(sha256:314c7f...)"]--config-->Config["Config blob<br>(sha256:44136f...)"]
+Manifest--layers-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
+Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 
 ```
 
 Where the manifest is the root of the graph and the config or layer blobs are the leaf nodes referenced by the root.
 
+If the artifact manifest is signed by signing tools like `notation`, a signature manifest referencing the signature blob will be created and attached to the artifact manifest. The signature manifest looks like:
+
+```json
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "config": {
+    "mediaType": "application/vnd.cncf.notary.signature",
+    "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "size": 2
+  },
+  "layers": [
+    {
+      "mediaType": "application/jose+json",
+      "digest": "sha256:37f88486592fd90ace303ee38f8d1ff698193e76c76d3c1fef8627a39e677696",
+      "size": 2090
+    }
+  ],
+  "subject": {
+    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+    "digest": "sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb",
+    "size": 762
+  },
+  "annotations": {
+    "io.cncf.notary.x509chain.thumbprint#S256": "[\"a9c85558943f197f41fe7cf3caf691f7df8d0088be426a33d895560717893962\"]",
+    "org.opencontainers.image.created": "2025-02-01T09:50:52Z"
+  }
+}
+```
+
+The signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its subject manfiest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`, which is the digest of the artifact manifest in the above example. When stored in a CAS, a digest will be computed for identifying the signature manifest. For this particular signature manifest, the digest is `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
+
+The relationship of the artifact and the signature can be modeled as the graph below:
+
+```mermaid
+graph TD;
+
+Manifest["Manifest<br>(sha256:314c7f...)"]--config-->Config["Config blob<br>(sha256:44136f...)"]
+Manifest--layers-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
+Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
+SignatureManifest["Signature Manifest<br>(sha256:e5727b...)"]--subject-->Manifest
+SignatureManifest--config-->Config
+SignatureManifest--layers-->SignatureBlob["Signature blob<br>(sha256:37f884)"]
+
+```
+
+// TODO: similarly, Image index...
+
+// TODO: simplify the graph using alias
 // TODO: explain artifacts
 // TODO: artifacts vs. container images
 // TODO: artifacts with referrers
