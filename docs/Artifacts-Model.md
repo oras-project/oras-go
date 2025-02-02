@@ -4,7 +4,7 @@ In ORAS Go v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https:/
 
 An artifact is a rooted DAG where the root node is an [OCI Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md). Additionally, artifacts can be grouped by an [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.0/image-index.md), which is also a rooted DAG.
 
-## Simple Graph
+## Simple Artifact
 
 Here is an example of a manifest of artifact:
 
@@ -59,7 +59,7 @@ Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 This graph is of a [Merkle](https://en.wikipedia.org/wiki/Merkle_tree) Directed Acyclic Graph (DAG) structure, where every object is a node uniquely identified by its digest. Since the digests are computed from the content and the content is fixed, every node itself in the graph is immutable.
 In this graph, The manifest is the root of the graph and the config or layer blobs are the leaf nodes referenced by the root.
 
-## Complex Graph
+## Artifact with Subject
 
 If the artifact manifest is signed by signing tools like `notation`, a signature manifest referencing the signature blob will be created and attached to the artifact manifest. The signature manifest looks like:
 
@@ -98,12 +98,14 @@ The relationship of the artifact and the signature in the CAS can be modeled as 
 ```mermaid
 graph TD;
 
-Manifest["Manifest<br>(sha256:314c7f...)"]--config-->Config["Config blob<br>(sha256:44136f...)"]
-Manifest--layers-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
-Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 SignatureManifest["Signature Manifest<br>(sha256:e5727b...)"]--subject-->Manifest
 SignatureManifest--config-->Config
 SignatureManifest--layers-->SignatureBlob["Signature blob<br>(sha256:37f884)"]
+
+Manifest["Manifest<br>(sha256:314c7f...)"]--config-->Config["Config blob<br>(sha256:44136f...)"]
+Manifest--layers-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
+Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
+
 
 ```
 
@@ -112,12 +114,58 @@ Now, the signature manifest is the root of the whole graph containing both the s
 Note that since the content of the config blob of the artifacf and the signature are the same, their digest are identical. As a result, there will be only config blob stored in the CAS, identified by its digest. In the graph, the signature manifest and the artifact manifest points to the same node of config blob.
 This is a common case and it's why artifacts are modeled as graphs instead of trees.
 
+## Index of Artifacts
 
+A Index can also be created for collecting multiple manifests.
+For example, an Index manifest referencing the artifact manifest `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb` and another random manifest `"sha256:eba50b7b7dfdf6294a375a3376b2b74e3b926c75119f7da04b1c671c7de662c9"` would look like:
 
-// TODO: similarly, Image index...
+```json
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "manifests": [
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb",
+      "size": 762
+    },
+    {
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "digest": "sha256:eba50b7b7dfdf6294a375a3376b2b74e3b926c75119f7da04b1c671c7de662c9",
+      "size": 588
+    }
+  ]
+}
+```
+
+When stored in a CAS, a digest will be computed from the signature manifest content. For this particular Index manifest, the digest is ` sha256:9c7c6bfa51dac3c9dfeffc7a0a795c30101f1f60afa64739767cedd92f574570`.
+
+The relationship of the Index manifest and the artifacts in the CAS can be modeled as the graph below:
+
+```mermaid
+graph TD;
+
+Index["Index<br>(sha256:9c7c6b...)"]--manifests-->Manifest
+Index--manifests-->AnotherManifest
+
+Manifest--layers-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
+Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
+Manifest["Manifest<br>(sha256:314c7f...)"]--config-->Config["Config blob<br>(sha256:44136f...)"]
+
+AnotherManifest["Another Manifest<br>(sha256:eba50b)"]--config-->Config
+AnotherManifest--layers-->Layer2["Layer blob 2<br>(sha256:a94890...)"]
+
+```
+
+In this graph, the Index is the root of the whole graph and the two manifests are the root of the sub-graphs of two artifacts, respectively.
+
+## Complex Graph
+
 
 // TODO: simplify the graph using alias
 
 // TODO: The relationship between Predecessors and Referrers.
 
 // TODO: The difference between Copy and ExtendedCopy.
+
+// TODO: add links
