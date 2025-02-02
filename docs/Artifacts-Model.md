@@ -44,7 +44,7 @@ Here is an example of a manifest of artifact:
 
 The manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest will be computed for identifying the manifest. For this particular manifest, the digest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`. 
 
-The artifact can be represented by the graph below:
+The artifact stored in CAS can be represented by the graph below:
 
 ```mermaid
 graph TD;
@@ -55,7 +55,7 @@ Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 
 ```
 
-Where the manifest is the root of the graph and the config or layer blobs are the leaf nodes referenced by the root.
+In this graph, every object is a node uniquely identified by its digest. The manifest is the root of the graph and the config or layer blobs are the leaf nodes referenced by the root.
 
 If the artifact manifest is signed by signing tools like `notation`, a signature manifest referencing the signature blob will be created and attached to the artifact manifest. The signature manifest looks like:
 
@@ -89,7 +89,7 @@ If the artifact manifest is signed by signing tools like `notation`, a signature
 
 The signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its subject manfiest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`, which is the digest of the artifact manifest in the above example. When stored in a CAS, a digest will be computed for identifying the signature manifest. For this particular signature manifest, the digest is `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
 
-The relationship of the artifact and the signature can be modeled as the graph below:
+The relationship of the artifact and the signature in the CAS can be modeled as the graph below:
 
 ```mermaid
 graph TD;
@@ -104,6 +104,11 @@ SignatureManifest--layers-->SignatureBlob["Signature blob<br>(sha256:37f884)"]
 ```
 
 Now, the signature manifest is the root of the whole graph containing both the signature blobs and artifact blobs, while the artifact manifest is the root of the sub-graph containing the artifact blobs.
+
+Note that since the content of the config blob of the artifacf and the signature are the same, their digest are identical. As a result, there will be only config blob stored in the CAS, identified by its digest. In the graph, the signature manifest and the artifact manifest points to the same node of config blob.
+This is a common case and it's why artifacts are modeled as graphs instead of trees.
+
+
 
 // TODO: similarly, Image index...
 
