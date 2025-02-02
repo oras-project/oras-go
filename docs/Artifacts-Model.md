@@ -91,7 +91,9 @@ If the artifact manifest is signed by signing tools like `notation`, a signature
 }
 ```
 
-The signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its subject manfiest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`, which is the digest of the artifact manifest in the above example. When stored in a CAS, a digest will be computed from the signature manifest content. For this particular signature manifest, the digest is `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
+The signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its subject refers to `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`, which is the digest of the artifact manifest in the above example. This siganature manifest is considered a `Referrer` of the artifact manifest.
+
+ When stored in a CAS, a digest will be computed from the signature manifest content. For this particular signature manifest, the digest is `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
 
 The relationship of the artifact and the signature in the CAS can be modeled as the graph below:
 
@@ -159,10 +161,35 @@ AnotherManifest--layers-->Layer2["Layer blob 2<br>(sha256:a94890...)"]
 
 In this graph, the Index is the root of the whole graph and the two manifests are the root of the sub-graphs of two artifacts, respectively.
 
-## Complex Graph
+## Graph Concepts
 
+Combining the cases above, there can be a complex graph:
 
-// TODO: simplify the graph using alias
+```mermaid
+graph TD;
+
+I0["Index i0"]--manifests-->M0
+I0--manifests-->M1
+
+M2["Manifest m2"]--config-->Blob0
+M2--layers-->Blob5["Blob b5"]
+M2--subject-->M0
+
+M1["Manifest m1"]--config-->Blob3["Blob b3"]
+M1--layers-->Blob4["Blob b4"]
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+
+```
+
+In this graph, all non-leaf nodes that directly pointing to another node is a `Predecessor` of the another node. For instance:
+
+- `m0` is a predecessor of `b0`, `b1`, and `b2`
+- `m2` is a predecessor of `b0`, `b5`, and `m0`
+- `i0` is a predecessor of `m0` and `m1` 
+
 
 // TODO: The relationship between Predecessors and Referrers.
 
