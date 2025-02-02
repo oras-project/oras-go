@@ -4,6 +4,7 @@ In ORAS Go v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https:/
 
 An artifact is a rooted DAG where the root node is an [OCI Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md). Additionally, artifacts can be grouped by an [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.0/image-index.md), which is also a rooted DAG.
 
+## Simple Graph
 
 Here is an example of a manifest of artifact:
 
@@ -42,7 +43,7 @@ Here is an example of a manifest of artifact:
 }
 ```
 
-The manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest will be computed for identifying the manifest. For this particular manifest, the digest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`. 
+The manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest will be computed from the manifest content. For this particular manifest, the digest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`. 
 
 The artifact stored in CAS can be represented by the graph below:
 
@@ -55,7 +56,10 @@ Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 
 ```
 
-In this graph, every object is a node uniquely identified by its digest. The manifest is the root of the graph and the config or layer blobs are the leaf nodes referenced by the root.
+This graph is of a [Merkle](https://en.wikipedia.org/wiki/Merkle_tree) Directed Acyclic Graph (DAG) structure, where every object is a node uniquely identified by its digest. Since the digests are computed from the content and the content is fixed, every node itself in the graph is immutable.
+In this graph, The manifest is the root of the graph and the config or layer blobs are the leaf nodes referenced by the root.
+
+## Complex Graph
 
 If the artifact manifest is signed by signing tools like `notation`, a signature manifest referencing the signature blob will be created and attached to the artifact manifest. The signature manifest looks like:
 
@@ -87,7 +91,7 @@ If the artifact manifest is signed by signing tools like `notation`, a signature
 }
 ```
 
-The signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its subject manfiest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`, which is the digest of the artifact manifest in the above example. When stored in a CAS, a digest will be computed for identifying the signature manifest. For this particular signature manifest, the digest is `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
+The signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its subject manfiest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`, which is the digest of the artifact manifest in the above example. When stored in a CAS, a digest will be computed from the signature manifest content. For this particular signature manifest, the digest is `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
 
 The relationship of the artifact and the signature in the CAS can be modeled as the graph below:
 
@@ -113,6 +117,7 @@ This is a common case and it's why artifacts are modeled as graphs instead of tr
 // TODO: similarly, Image index...
 
 // TODO: simplify the graph using alias
-// TODO: explain artifacts
-// TODO: artifacts vs. container images
-// TODO: artifacts with referrers
+
+// TODO: The relationship between Predecessors and Referrers.
+
+// TODO: The difference between Copy and ExtendedCopy.
