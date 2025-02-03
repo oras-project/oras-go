@@ -163,7 +163,7 @@ In this graph, the Index is the root of the whole graph and the two manifests ar
 
 ## Graph Concepts
 
-Combining the cases above, there can be a complex graph:
+Combining the cases above, there can be a complex Directed Acyclic Graph (DAG):
 
 ```mermaid
 graph TD;
@@ -205,7 +205,71 @@ So, it is worth noting that:
 - `m0` is a `subject` of `m2`, and it is a successor of both `m2` and `i0`
 - `m2` is a referrer of `m0`, and it is a predecessor of `m0`, `b0`, and `b5`
 
-## Copy
+### Copy
+
+Given the root node of a Directed Acyclic Graph (DAG), `Copy` is a function to replicate the graph reachable from the root node from a Content-Addressable Storage (CAS) to another.
+
+Taking the graph above as an example:
+
+`Copy(m0)` copies the graph rooted by the node `m0`, including `m0` itself and all of its successors `b0`, `b1`, and `b2`.
+
+```mermaid
+graph TD;
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+```
+
+`Copy(m2)` copies the graph rooted by the node `m2`, including itself and all nodes reachable from it.
+
+```mermaid
+graph TD;
+
+M2["Manifest m2"]--config-->Blob0
+M2--layers-->Blob5["Blob b5"]
+M2--subject-->M0
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+```
+
+`Copy(b0)` copies itself only as it has no successor.
+
+```mermaid
+graph TD;
+
+Blob0["Blob b0"]
+```
+
+### Extended Copy
+
+Given any node in a Directed Acyclic Graph (DAG), `ExtendedCopy` is a function to replicate the graph reachable from the given node from a Content-Addressable Storage (CAS) to another.
+
+It is important to note that Extended Copy is possible only if the source CAS supports predecessor finding. The source CAS may maintain the predecessor relationship when storing the DAG.
+
+The predecessor relationship for the example graph looks like:
+
+```mermaid
+graph TD;
+
+Blob0["Blob b0"]--predecessor-->M0["Manifest m0"]
+Blob1["Blob b1"]--predecessor-->M0
+Blob2["Blob b2"]--predecessor-->M0
+
+Blob3["Blob b3"]--predecessor-->M1["Manifest m1"]
+Blob4["Blob b4"]--predecessor-->M1
+
+Blob5["Blob b5"]--predecessor-->M2
+M0--predecessor-->M2
+Blob0--predecessor-->M2["Manifest m2"]
+
+M1--predecessor-->I0
+M0--predecessor-->I0["Index i0"]
+```
+
+#### Referrers API
 
 // TODO: The difference between Copy and ExtendedCopy.
 
