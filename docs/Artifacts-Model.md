@@ -140,7 +140,7 @@ For example, an Index manifest referencing the artifact manifest `sha256:314c7f2
 }
 ```
 
-When stored in a CAS, a digest will be computed from the signature manifest content. For this particular Index manifest, the digest is ` sha256:9c7c6bfa51dac3c9dfeffc7a0a795c30101f1f60afa64739767cedd92f574570`.
+When stored in a CAS, a digest will be computed from the signature manifest content. For this particular Index manifest, the digest is `sha256:9c7c6bfa51dac3c9dfeffc7a0a795c30101f1f60afa64739767cedd92f574570`.
 
 The relationship of the Index manifest and the artifacts in the CAS can be modeled as the graph below:
 
@@ -184,14 +184,28 @@ M0--layers-->Blob2["Blob b2"]
 
 ```
 
-In this graph, all non-leaf nodes that directly pointing to another node is a `Predecessor` of the another node. For instance:
+In this graph, all non-leaf nodes that directly pointing to another node is a `Predecessor` of that node. For instance:
 
 - `m0` is a predecessor of `b0`, `b1`, and `b2`
 - `m2` is a predecessor of `b0`, `b5`, and `m0`
-- `i0` is a predecessor of `m0` and `m1` 
+- `i0` is a predecessor of `m0` and `m1`
 
+Vice versa, all nodes being pointed to by another node is a `Successor` of that node. For instance:
 
-// TODO: The relationship between Predecessors and Referrers.
+- `b0` is a successor of `m0` and `m2`
+- `m0` is a successor of `m2` and `i0`
+
+The concepts of predecessor and successor can be applied to nodes of any types, including Manifest, Index, arbitary blobs, etc. But it is not the same case for referrers and `subject`.
+
+A manifest containing a `subject` field is considered a referrer of its subject. According to [OCI image-spec v1.1.0](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md), Image Manifest and Image Index can contain a `subject` field referencing to another manifest.
+This means that the referrer and the `subject` both must be a manifest.
+
+So, it is worth noting that:
+
+- `m0` is a `subject` of `m2`, and it is a successor of both `m2` and `i0`
+- `m2` is a referrer of `m0`, and it is a predecessor of `m0`, `b0`, and `b5`
+
+## Copy
 
 // TODO: The difference between Copy and ExtendedCopy.
 
