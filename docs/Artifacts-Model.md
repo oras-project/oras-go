@@ -43,7 +43,7 @@ Here is an example of a manifest of artifact:
 }
 ```
 
-The manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest will be computed from the manifest content. For this particular manifest, the digest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`. 
+The manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest will be computed from the manifest content. For this particular manifest, the digest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`.
 
 The artifact stored in CAS can be represented by the graph below:
 
@@ -61,7 +61,7 @@ In this graph, The manifest is the root of the graph and the config or layer blo
 
 ## Artifact with Subject
 
-If the artifact manifest is signed by signing tools like `notation`, a signature manifest referencing the signature blob will be created and attached to the artifact manifest. The signature manifest looks like:
+If the artifact manifest is signed by signing tools like `notation`, a signature manifest referencing the signature blob will be created and attached to the artifact manifest. The signature manifest would be similar to this:
 
 ```json
 {
@@ -91,9 +91,9 @@ If the artifact manifest is signed by signing tools like `notation`, a signature
 }
 ```
 
-The signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its subject refers to `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`, which is the digest of the artifact manifest in the above example. This siganature manifest is considered a `Referrer` of the artifact manifest.
+The signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its `subject` refers to `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`, which is the digest of the artifact manifest in the above example. This siganature manifest is considered a `Referrer` of the artifact manifest.
 
- When stored in a CAS, a digest will be computed from the signature manifest content. For this particular signature manifest, the digest is `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
+When stored in a CAS, a digest will be computed from the signature manifest content. For this particular signature manifest, the digest is `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
 
 The relationship of the artifact and the signature in the CAS can be modeled as the graph below:
 
@@ -183,20 +183,20 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
-In this graph, all non-leaf nodes that directly pointing to another node is a `Predecessor` of that node. For instance:
+In this graph, all nodes being pointed to by another node is a `Successor` of that node. For instance:
+
+- `b0` is a successor of `m0` and `m2`
+- `m0` is a successor of `m2` and `i0`
+
+Vice versa, all non-leaf nodes that directly pointing to another node is a `Predecessor` of that node. For instance:
 
 - `m0` is a predecessor of `b0`, `b1`, and `b2`
 - `m2` is a predecessor of `b0`, `b5`, and `m0`
 - `i0` is a predecessor of `m0` and `m1`
 
-Vice versa, all nodes being pointed to by another node is a `Successor` of that node. For instance:
+The concepts of successor and predecessor can be applied to nodes of any types, including Manifest, Index, arbitary blobs, etc. But it is not the same case for `subject` and referrers.
 
-- `b0` is a successor of `m0` and `m2`
-- `m0` is a successor of `m2` and `i0`
-
-The concepts of predecessor and successor can be applied to nodes of any types, including Manifest, Index, arbitary blobs, etc. But it is not the same case for referrers and `subject`.
-
-A manifest containing a `subject` field is considered a referrer of its subject. According to [OCI image-spec v1.1.0](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md), Image Manifest and Image Index can contain a `subject` field referencing to another manifest.
+A manifest containing a `subject` field is considered a referrer of the subject manifest. According to [OCI image-spec v1.1.0](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md), Image Manifest and Image Index can contain a `subject` field referencing to another manifest.
 This means that the referrer and the `subject` both must be a manifest.
 
 So, it is worth noting that:
@@ -204,9 +204,27 @@ So, it is worth noting that:
 - `m0` is a `subject` of `m2`, and it is a successor of both `m2` and `i0`
 - `m2` is a referrer of `m0`, and it is a predecessor of `m0`, `b0`, and `b5`
 
+Defining functions `Predecessors()`, `Successors()`, and `Referrers()`, the example result would be:
+
+```
+Successors(m0) == [b0, b1, b2]
+Predecessors(m0) == [m2, i0]
+Referrers(m0) == [m2]
+
+Successors(m2) == [m0, b0, b5]
+Predessors(m2) == []
+Referrers(m2) == []
+
+Successors(b0) == []
+Predecessors(b0) == [m0, m2]
+Referrers(b0) == []
+```
+
 ### Copy
 
 Given the root node of a Directed Acyclic Graph (DAG), `Copy` is a function to replicate the graph reachable from the root node from a Content-Addressable Storage (CAS) to another.
+
+This can be achieved by...
 
 Taking the graph above as an example:
 
@@ -322,7 +340,7 @@ M0--layers-->Blob2["Blob b2"]
 
 #### Referrers API
 
-Many CAS, such as artifact registries, supports referrers finding through Referrers API, but they does not support general predecessor finding.
+Many CASs, such as artifact registries, supports referrers finding through Referrers API, but they does not support general predecessor finding.
 
 According to [`OCI distribution-spec v1.1.1`](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers), Referrers API returns the referrers manifests of a specified manifest.
 
@@ -335,9 +353,9 @@ M2["Manifest m2"]--subject-->M0["Manifest m0"]
 M0--referrer-->M2
 ```
 
-When Extended-Copy graphs from artifact registries, since the predecessor finding functionality is limited, the nodes can be copied are also limited.
+When Extended-Copying graphs from a source artifact registries to another CAS, since the predecessor finding functionality is limited, the nodes can be copied are also limited.
 
-`ExtendedCopy(m0)` finds out the root node `m2` starting from `m0`,and copies the graph rooted by `m2`:
+For example, `ExtendedCopy(m0)` finds out the root node `m2` starting from `m0`, and copies the graph rooted by `m2`:
 
 ```mermaid
 graph TD;
@@ -351,6 +369,6 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
-// TODO: summary??
+// TODO: refine
 
 // TODO: add links
