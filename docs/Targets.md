@@ -35,7 +35,7 @@ The `Storage` interface represents a content-addressable storage (CAS) where con
 - `Exists`: checks if the described content exists in the CAS or not.
 - `Push`: pushes the content matching the expected descriptor to the CAS.
 
-Suppose there is such a graph stored in a storage, where the name of each node is the alias of their descriptors:
+Suppose there is such a graph stored in a `Storage`, where the name of each node is the alias of their descriptors:
 
 ```mermaid
 graph TD;
@@ -65,11 +65,14 @@ M0--layers-->Blob2["Blob b2"]
 Blob3["Blob b3"]
 ```
 
-#### PredecessorFinder
+#### GraphStorage
 
-The `PredecessorFinder` interfaces is an extension to `Storage`, it provides only one function:
+The `GraphStorage` interface represents a CAS with support of predecessors finding. It provides the following functions:
 
-- `Prdecessors`: finds out the nodes directly pointing to a given node in the graph.
+- `Fetch`
+- `Exists`
+- `Push`
+- **`Prdecessors`**: finds out the nodes directly pointing to a given node in the graph.
 
 The effects of the `Predecessors` function called against the same graph would be like this:
 
@@ -80,3 +83,68 @@ Predecessors(m0) == []
 
 ### Target
 
+The `Target` interface represents a CAS with tagging capability. It provides the following functions:
+
+- `Fetch`
+- `Exists`
+- `Push`
+- **`Resolve`**: resolves a tag string to a descriptor.
+- **`Tag`**: tags a descriptor with a tag string.
+
+Suppose there is such a graph stored in a `Target`, where `m0` is associated with two tags `"foo"` and `"bar"`:
+
+```mermaid
+graph TD;
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+
+TagFoo>"Tag: foo"]-.->M0
+TagBar>"Tag: bar"]-.->M0
+```
+
+The effects of the `Resolve` function would be like this:
+
+```
+Resolve("foo") == m0
+Resolve("bar") == m0
+Resolve("hello") == nil
+```
+
+If a new tag "v1" is tagged on `m0`, the graph would become:
+
+```mermaid
+graph TD;
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+
+TagFoo>"Tag: foo"]-.->M0
+TagBar>"Tag: bar"]-.->M0
+TagV1>"Tag: v1"]-.->M0
+```
+
+### GraphTarget
+
+The `GraphTarget` interface represents a CAS with tagging capability and supports predecessors finding. It provides the following functions:
+
+- `Fetch`
+- `Exists`
+- `Push`
+- `Resolve`
+- `Tag`
+- `Predecessors`
+
+## Content Stores
+
+### Memory Store
+
+### OCI Store
+
+### File Store
+
+### Repository Store
+
+## How to choose the appropriate content store
