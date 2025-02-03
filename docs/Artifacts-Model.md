@@ -181,7 +181,6 @@ M1--layers-->Blob4["Blob b4"]
 M0["Manifest m0"]--config-->Blob0["Blob b0"]
 M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
-
 ```
 
 In this graph, all non-leaf nodes that directly pointing to another node is a `Predecessor` of that node. For instance:
@@ -247,9 +246,9 @@ Blob0["Blob b0"]
 
 Given any node in a Directed Acyclic Graph (DAG), `ExtendedCopy` is a function to replicate the graph reachable from the given node from a Content-Addressable Storage (CAS) to another.
 
-It is important to note that Extended Copy is possible only if the source CAS supports predecessor finding. The source CAS may maintain the predecessor relationship when storing the DAG.
+It is important to note that Extended Copy is possible only if the source CAS supports predecessor finding. The source CAS may index the predecessor relationship when storing the DAG.
 
-The predecessor relationship for the example graph looks like:
+The predecessor relationship for the example graph looks like this:
 
 ```mermaid
 graph TD;
@@ -269,8 +268,89 @@ M1--predecessor-->I0
 M0--predecessor-->I0["Index i0"]
 ```
 
+With the predecessor relationship, it is possible to find out the root node from any node reachable to the root node in a graph and initiate copy from there.
+
+`ExtendedCopy(b5)` finds out the root node `m2` starting from `b5`, and copies the graph rooted by `m2`:
+
+```mermaid
+graph TD;
+
+M2["Manifest m2"]--config-->Blob0
+M2--layers-->Blob5["Blob b5"]
+M2--subject-->M0
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+```
+
+`ExtendedCopy(m1)` finds out the root node `i1` starting from `m1`, and copies the graph rooted by `i1`:
+
+```mermaid
+graph TD;
+
+I0["Index i0"]--manifests-->M0
+I0--manifests-->M1
+
+M1["Manifest m1"]--config-->Blob3["Blob b3"]
+M1--layers-->Blob4["Blob b4"]
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+```
+
+`ExtendedCopy(b0)` finds out the root node `m2` and `i0` starting from `b0`, and copies the whole graph rooted by `m2` and `i0`:
+
+```mermaid
+graph TD;
+
+I0["Index i0"]--manifests-->M0
+I0--manifests-->M1
+
+M2["Manifest m2"]--config-->Blob0
+M2--layers-->Blob5["Blob b5"]
+M2--subject-->M0
+
+M1["Manifest m1"]--config-->Blob3["Blob b3"]
+M1--layers-->Blob4["Blob b4"]
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+```
+
 #### Referrers API
 
-// TODO: The difference between Copy and ExtendedCopy.
+Many CAS, such as artifact registries, supports referrers finding through Referrers API, but they does not support general predecessor finding.
+
+According to [`OCI distribution-spec v1.1.1`](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers), Referrers API returns the referrers manifests of a specified manifest.
+
+The referrer/subject relationship for the example graph looks like this:
+
+```mermaid
+graph TD;
+
+M2["Manifest m2"]--subject-->M0["Manifest m0"]
+M0--referrer-->M2
+```
+
+When Extended-Copy graphs from artifact registries, since the predecessor finding functionality is limited, the nodes can be copied are also limited.
+
+`ExtendedCopy(m0)` finds out the root node `m2` starting from `m0`,and copies the graph rooted by `m2`:
+
+```mermaid
+graph TD;
+
+M2["Manifest m2"]--config-->Blob0
+M2--layers-->Blob5["Blob b5"]
+M2--subject-->M0
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+```
+
+// TODO: summary??
 
 // TODO: add links
