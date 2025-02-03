@@ -224,7 +224,7 @@ Referrers(b0) == []
 
 Given the root node of a Directed Acyclic Graph (DAG), `Copy` is a function to replicate the graph reachable from the root node from a Content-Addressable Storage (CAS) to another.
 
-This can be achieved by...
+`Copy` can be achieved by recursively calling `Successors()` to traverse all nodes in the graph copying them in a certain order.
 
 Taking the graph above as an example:
 
@@ -286,9 +286,9 @@ M1--predecessor-->I0
 M0--predecessor-->I0["Index i0"]
 ```
 
-With the predecessor relationship, it is possible to find out the root node from any node reachable to the root node in a graph and initiate copy from there.
+With the predecessor finding capability, `ExtendedCopy` can be achieved by recursively calling `Predecessors()` to find the root nodes and calling `Copy` on each root node.
 
-`ExtendedCopy(b5)` finds out the root node `m2` starting from `b5`, and copies the graph rooted by `m2`:
+For example, `ExtendedCopy(b5)` finds out the root node `m2` starting from `b5`, and copies the graph rooted by `m2`:
 
 ```mermaid
 graph TD;
@@ -340,9 +340,7 @@ M0--layers-->Blob2["Blob b2"]
 
 #### Referrers API
 
-Many CASs, such as artifact registries, supports referrers finding through Referrers API, but they does not support general predecessor finding.
-
-According to [`OCI distribution-spec v1.1.1`](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers), Referrers API returns the referrers manifests of a specified manifest.
+Many CASs, such as artifact registries, supports referrers finding through [Referrers API](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers), but they do not support general predecessor finding. For such CASs, the `Predecessors` function is equivalent to `Referrers` function.
 
 The referrer/subject relationship for the example graph looks like this:
 
