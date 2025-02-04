@@ -140,7 +140,7 @@ In ORAS Go v2, a content store is an implementation of `Target`, more specifical
 
 There are four built-in content stores defined in the library, they are:
 
-- Memory Store: An in-memory implementation
+- Memory Store: Stores everything in memory
 - OCI Store: Stores content in format of OCI-Image layout on file system
 - File Store: Stores location-addressable content on file system
 - Repository Store: Represents a remote artifact repository (e.g. `ghcr.io`, `docker.io`, etc.)
@@ -290,7 +290,9 @@ Unlike other content stores mentioned above, the repository store handles manife
 
 The repository store manages manifests via the `ManifestStore` sub-store and handles blobs via the `BlobStore` sub-store. It is able to automatically determine which sub-store to use based on the media type specified in the descriptor.
 
-Here is simplified lists of mappings between repository functions and registry API endpoints:
+It is important to note that, the `ManifestStore` implements the `Predecessors` function based on the [Referrers API](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers), which only supports referrers finding but not generic predecessors finding.
+
+Here are lists of mappings between mayjor repository functions and registry API endpoints:
 
 #### Manifest Store Mappings
 
@@ -313,6 +315,13 @@ Here is simplified lists of mappings between repository functions and registry A
 | `Resolve`      | HEAD `/v2/<name>/blobs/<reference>`                                                        |
 
 ### Summary
+
+| Name | Description | Persistent Storage | Predecessors Support | Scenarios |
+|--|--|--|--|--|
+|Memory Store| Stores everything in memory | No | Yes | Memory caching, testing |
+| OCI Store | Stores content in format of OCI-Image layout on file system | Yes | Yes | Used as a cache/copy of remote repositories |
+| File Store | Stores location-addressable content on file system | Partial (For named blobs only) | Yes | Packaging arbitary files |
+| Repository Store | Represents a remote artifact repository (e.g. `ghcr.io`, `docker.io`, etc.) | Yes | Partial (via Referrers API) | Accessing remote repositories |
 
 // TODO: refine
 
