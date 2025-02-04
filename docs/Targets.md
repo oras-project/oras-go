@@ -2,9 +2,7 @@
 
 Prerequisite reading: [Modeling Artifact](./Artifacts-Model.md)
 
-## Interfaces
-
-In ORAS Go v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) stored in [Content-Addressable Storages (CASs)](https://en.wikipedia.org/wiki/Content-addressable_storage). Each node in the graph can be represented by their [descriptors](https://github.com/opencontainers/image-spec/blob/v1.1.0/descriptor.md).
+In ORAS Go v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) stored in [Content-Addressable Storages (CASs)](https://en.wikipedia.org/wiki/Content-addressable_storage). Each node in the graph represents their [descriptors](https://github.com/opencontainers/image-spec/blob/v1.1.0/descriptor.md).
 
 A descriptor should at least contains the following three required properties:
 
@@ -22,10 +20,9 @@ Here is an example of the descriptor of an image manifest:
 }
 ```
 
-Based on the concepts of graph modeling and descriptors, the following mayjor interfaces are defined in ORAS Go v2:
+## Interfaces
 
-- `Storage`
-- `Target`
+Based on the concepts of graph modeling and descriptors, the following mayjor interfaces are defined in ORAS Go v2.
 
 ### Storage
 
@@ -139,9 +136,53 @@ The `GraphTarget` interface represents a CAS with tagging capability and support
 
 ## Content Stores
 
+In ORAS Go v2, a content store is an implementation of `Target`, more specifically, `GraphTarget`.
+
+There are four built-in content stores defined in the library, they are:
+
+- Memory Store: An in-memory implementation
+- OCI Store: Stores content in format of OCI-Image layout on file system
+- File Store: Stores location-addressable content on file system
+- Repository Store: Represents a remote artifact repository (e.g. `ghcr.io`, `docker.io`, etc.)
+
 ### Memory Store
 
+The memory store is available in the `content/memory` package, it stores everything in memory where blob content are mapped to their descriptor.
+
+One common scenario for using a memory store is to build and store an artifact in the memory store first, and then later copy it as a whole to other stores, such as remote repositories.
+
 ### OCI Store
+
+The OCI store is available in the `content/oci` package, it follows the [`OCI image-spec`](https://github.com/opencontainers/image-spec/blob/v1.1.0/image-layout.md) to store the blob contents on file system.
+
+For example, the directory structure for the following artifact graph would look like this:
+
+```mermaid
+graph TD;
+
+Manifest["Manifest<br>(sha256:314c7f...)"]--config-->Config["Config blob<br>(sha256:44136f...)"]
+Manifest--layers-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
+Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
+
+```
+
+```shell
+$ tree repo
+
+repo/
+├── blobs
+│   └── sha256
+│       ├── 314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb
+│       ├── 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+│       ├── 7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730
+│       └── b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c
+├── index.json
+├── ingest
+└── oci-layout
+```
+
+In the layout,
+- All content, no mater of manifests or layer blobs, are all placed in the `blobs` directory. The path to the content is the digest of the content.
 
 ### File Store
 
