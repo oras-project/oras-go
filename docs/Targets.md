@@ -153,18 +153,23 @@ One common scenario for using a memory store is to build and store an artifact i
 
 ### OCI Store
 
-The OCI store is available in the `content/oci` package, it follows the [`OCI image-spec`](https://github.com/opencontainers/image-spec/blob/v1.1.0/image-layout.md) to store the blob contents on file system.
+The OCI store is available in the `content/oci` package, it follows the [`OCI image-spec v1.1.0`](https://github.com/opencontainers/image-spec/blob/v1.1.0/image-layout.md) to store the blob contents on file system.
 
-For example, the directory structure for the following artifact graph would look like this:
+Suppose there is an artifact and its signature, it can be represented in the graph below:
 
 ```mermaid
 graph TD;
 
+SignatureManifest["Signature Manifest<br>(sha256:e5727b...)"]--subject-->Manifest
+SignatureManifest--config-->Config
+SignatureManifest--layers-->SignatureBlob["Signature blob<br>(sha256:37f884)"]
+
 Manifest["Manifest<br>(sha256:314c7f...)"]--config-->Config["Config blob<br>(sha256:44136f...)"]
 Manifest--layers-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
 Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
-
 ```
+
+The directory structure for the graph on the file system would look like this:
 
 ```shell
 $ tree repo
@@ -173,16 +178,29 @@ repo/
 ├── blobs
 │   └── sha256
 │       ├── 314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb
+│       ├── 37f88486592fd90ace303ee38f8d1ff698193e76c76d3c1fef8627a39e677696
 │       ├── 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
 │       ├── 7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730
-│       └── b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c
+│       ├── b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c
+│       └── e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c
 ├── index.json
 ├── ingest
 └── oci-layout
 ```
 
 In the layout,
-- All content, no mater of manifests or layer blobs, are all placed in the `blobs` directory. The path to the content is the digest of the content.
+
+- All content, no mater of manifests or layer blobs, are all placed in the `blobs` directory, where the path to the content is the digest of the content.
+- `index.json` is an Image Index JSON object, it serves as an entry point of the graph and a tagging system.
+- `ingest` is a tempoprary directory for ingesting the blobs during processing, it not defined in the spec and is ORAS-specific.
+- `oci-layout` is a marker of the base of the OCI Layout.
+
+The OCI Layout has several advantages:
+
+- It is `OCI image-spec v1.1.0` compliant and is compatible with other tools besides ORAS
+- Its clean structure makes it easy to be managed and replicated
+
+Based on these advantages, the OCI Store can be used as a local copy of a remote repository.
 
 ### File Store
 
