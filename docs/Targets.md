@@ -284,6 +284,23 @@ Unlike the OCI store, only named contents are persisted in the file store and al
 
 ### Repository Store
 
-## How to choose the appropriate content store
+The repository store is available at the `registry/remote` package, it implements APIs defined in the [OCI distribution-spec v1.1.0](https://github.com/opencontainers/distribution-spec/blob/v1.1.0/spec.md) to communicate to the remote repositories.
+
+Unlike other content stores mentioned above, the repository store handles manifests and non-manifest blobs seperately. This is because the URI paths for manifests and blobs go through `/v2/<name>/manifests/` and `/v2/<name>/blobs/`, respectively.
+
+The repository store manages manifests via the `ManifestStore` sub-store and handles blobs via the `BlobStore` sub-store. It is able to automatically determine which sub-store to use based on the media type specified in the descriptor.
+
+Here is a simplified list of mappings between repository store functions and registry APIs:
+
+| Funciton Name | Registry API  |
+| ------------- | ------------- |
+| `Repository.Manifests().Resolve()` | HEAD `/v2/<name>/manifests/<reference>` |
+| `Repository.Blobs().Resolve()` | HEAD `/v2/<name>/blobs/<reference>` |
+| `Repository.Manifests().Fetch()` | GET `/v2/<name>/manifests/<reference>` |
+| `Repository.Blobs().Fetch()` | GET `/v2/<name>/blobs/<reference>` |
+
+### Summary
 
 // TODO: refine
+
+// TODO: add links
