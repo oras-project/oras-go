@@ -107,8 +107,6 @@ SignatureManifest--layers-->SignatureBlob["Signature blob<br>(sha256:37f884)"]
 Manifest["Manifest<br>(sha256:314c7f...)"]--config-->Config["Config blob<br>(sha256:44136f...)"]
 Manifest--layers-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
 Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
-
-
 ```
 
 Now, the signature manifest is the root of the whole graph containing both the signature blobs and artifact blobs, while the artifact manifest is the root of the sub-graph containing the artifact blobs.
