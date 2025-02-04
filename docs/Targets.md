@@ -323,6 +323,20 @@ Here are lists of mappings between mayjor repository functions and registry API 
 | File Store | Stores location-addressable content on file system | Partial (For named blobs only) | Yes | Packaging arbitary files |
 | Repository Store | Represents a remote artifact repository (e.g. `ghcr.io`, `docker.io`, etc.) | Yes | Partial (via Referrers API) | Accessing remote repositories |
 
+### How to choose the appropriate content store
+
+```mermaid
+flowchart TD;
+
+Q1{"Access remote repository?"}
+Q1--Y-->Repository["Repository Store"]
+Q1--N-->Q2{"Reading/writing arbitary files?"}
+Q2--Y-->File["File Store"]
+Q2--N-->Q3{"Need persistent storage?"}
+Q3--Y-->OCI["OCI Store"]
+Q3--N-->Memory["Memory Store"]
+```
+
 // TODO: refine
 
 // TODO: add links
