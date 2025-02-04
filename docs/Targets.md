@@ -290,14 +290,27 @@ Unlike other content stores mentioned above, the repository store handles manife
 
 The repository store manages manifests via the `ManifestStore` sub-store and handles blobs via the `BlobStore` sub-store. It is able to automatically determine which sub-store to use based on the media type specified in the descriptor.
 
-Here is a simplified list of mappings between repository store functions and registry APIs:
+Here is simplified lists of mappings between repository functions and registry API endpoints:
 
-| Funciton Name | Registry API  |
-| ------------- | ------------- |
-| `Repository.Manifests().Resolve()` | HEAD `/v2/<name>/manifests/<reference>` |
-| `Repository.Blobs().Resolve()` | HEAD `/v2/<name>/blobs/<reference>` |
-| `Repository.Manifests().Fetch()` | GET `/v2/<name>/manifests/<reference>` |
-| `Repository.Blobs().Fetch()` | GET `/v2/<name>/blobs/<reference>` |
+#### Manifest Store Mappings
+
+| Funciton Name  | API endpoint                                                    |
+| -------------- | --------------------------------------------------------------- |
+| `Fetch`        | GET `/v2/<name>/manifests/<reference>`                          |
+| `Exists`       | HEAD `/v2/<name>/manifests/<reference>`                         |
+| `Push`         | PUT `/v2/<name>/manifests/<reference>`                          |
+| `Resolve`      | HEAD `/v2/<name>/manifests/<reference>`                         |
+| `Tag`          | PUT `/v2/<name>/manifests/<reference>`                          |
+| `Predecessors` | GET `/v2/<name>/referrers/<digest>?artifactType=<artifactType>` |
+
+#### Blob Store Mappings
+
+| Funciton Name  | API endpoint                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| `Fetch`        | GET `/v2/<name>/blobs/<reference>`                                                             |
+| `Exists`       | HEAD `/v2/<name>/blobs/<reference>`                                                            |
+| `Push`         | POST `/v2/<name>/blobs/uploads/`<br>PUT `/v2/<name>/blobs/uploads/<reference>?digest=<digest>` |
+| `Resolve`      | HEAD `/v2/<name>/blobs/<reference>`                                                        |
 
 ### Summary
 
