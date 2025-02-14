@@ -238,7 +238,7 @@ func Test_ensureLinkPath(t *testing.T) {
 
 func Test_extractTarGzip_Error(t *testing.T) {
 	t.Run("Non-existing file", func(t *testing.T) {
-		err := extractTarGzip("", "", "non-existing-file", "", nil)
+		err := extractTarGzip("", "", "non-existing-file", "", nil, false)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -247,10 +247,11 @@ func Test_extractTarGzip_Error(t *testing.T) {
 
 func Test_extractTarDirectory(t *testing.T) {
 	tests := []struct {
-		name      string
-		tarData   []byte
-		wantFiles map[string]string // map of file paths to their expected contents
-		wantErr   bool
+		name             string
+		tarData          []byte
+		wantFiles        map[string]string // map of file paths to their expected contents
+		wantPreserveMode bool
+		wantErr          bool
 	}{
 		{
 			name: "valid files should be exracted",
@@ -264,6 +265,20 @@ func Test_extractTarDirectory(t *testing.T) {
 				"base/file_symlink": "hello world",
 			},
 			wantErr: false,
+		},
+		{
+			name: "preserve file mode",
+			tarData: createTar(t, []tarEntry{
+				{name: "base/", mode: os.ModeDir | 0777},
+				{name: "base/test.txt", content: "hello world", mode: 0771},
+				{name: "base/file_symlink", linkname: "test.txt", mode: os.ModeSymlink | 0771},
+			}),
+			wantFiles: map[string]string{
+				"base/test.txt":     "hello world",
+				"base/file_symlink": "hello world",
+			},
+			wantErr:          false,
+			wantPreserveMode: true,
 		},
 		{
 			name: "non-regular files",
@@ -300,10 +315,12 @@ func Test_extractTarDirectory(t *testing.T) {
 			dirPath := filepath.Join(tempDir, dirName)
 			buf := make([]byte, 1024)
 
-			if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tt.tarData), buf); (err != nil) != tt.wantErr {
+			if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tt.tarData), buf, tt.wantPreserveMode); (err != nil) != tt.wantErr {
 				t.Fatalf("extractTarDirectory() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr {
+				headers := extractHeaders(tt.tarData)
+
 				for path, wantContent := range tt.wantFiles {
 					filePath := filepath.Join(tempDir, path)
 					fi, err := os.Lstat(filePath)
@@ -327,10 +344,31 @@ func Test_extractTarDirectory(t *testing.T) {
 					if string(gotContent) != wantContent {
 						t.Errorf("file content = %s, want %s", gotContent, wantContent)
 					}
+
+					header := headers[path]
+					if tt.wantPreserveMode &&
+						fi.Mode() != os.FileMode(header.Mode) &&
+						(header.Typeflag == tar.TypeDir || header.Typeflag == tar.TypeReg) {
+						t.Errorf("file %q mode = %s, want %s", fi.Name(), fi.Mode(), os.FileMode(header.Mode))
+					}
 				}
 			}
 		})
 	}
+}
+
+func extractHeaders(tarData []byte) map[string]*tar.Header {
+	m := map[string]*tar.Header{}
+	r := tar.NewReader(bytes.NewBuffer(tarData))
+	for {
+		header, err := r.Next()
+		if err != nil {
+			break
+		}
+
+		m[header.Name] = header
+	}
+	return m
 }
 
 func Test_extractTarDirectory_HardLink(t *testing.T) {
@@ -348,7 +386,7 @@ func Test_extractTarDirectory_HardLink(t *testing.T) {
 			{name: "base/test_hardlink", linkname: linkPath, mode: 0666, isHardLink: true},
 		})
 
-		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf); err != nil {
+		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf, false); err != nil {
 			t.Fatalf("extractTarDirectory() error = %v", err)
 		}
 
@@ -372,7 +410,7 @@ func Test_extractTarDirectory_HardLink(t *testing.T) {
 			{name: "base/test_hardlink", linkname: "whatever", mode: 0666, isHardLink: true},
 		})
 
-		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf); err == nil {
+		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf, false); err == nil {
 			t.Error("extractTarDirectory() error = nil, wantErr = true")
 		}
 	})
