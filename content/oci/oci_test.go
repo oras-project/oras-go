@@ -125,6 +125,9 @@ func TestStore_Success(t *testing.T) {
 	if want := 2; index.SchemaVersion != want {
 		t.Errorf("index.SchemaVersion = %v, want %v", index.SchemaVersion, want)
 	}
+	if want := "application/vnd.oci.image.index.v1+json"; index.MediaType != want {
+		t.Errorf("index.MediaType = %s, want %s", index.MediaType, want)
+	}
 
 	// test push blob
 	err = s.Push(ctx, blobDesc, bytes.NewReader(blob))

@@ -379,6 +379,7 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 			Versioned: specs.Versioned{
 				SchemaVersion: 2, // historical value
 			},
+			MediaType: ocispec.MediaTypeImageIndex,
 			Manifests: []ocispec.Descriptor{},
 		}
 		return s.writeIndexFile()
