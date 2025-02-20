@@ -2747,6 +2747,92 @@ func Test_BlobStore_Fetch_ZeroSizedBlob(t *testing.T) {
 	}
 }
 
+func Test_BlobStore_Fetch_BadResponse(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	t.Run("Docker-Content-Digest header mismatches", func(t *testing.T) {
+		randomDgst := digest.FromBytes([]byte("random"))
+
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			switch r.URL.Path {
+			case "/v2/test/blobs/" + blobDesc.Digest.String():
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("Docker-Content-Digest", randomDgst.String())
+				if _, err := w.Write(blob); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
+		store := repo.Blobs()
+		ctx := context.Background()
+
+		if _, err = store.Fetch(ctx, blobDesc); err == nil {
+			t.Error("Blobs.Fetch() error = nil, want error")
+		}
+	})
+
+	t.Run("Content-Length header mismatches", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+			switch r.URL.Path {
+			case "/v2/test/blobs/" + blobDesc.Digest.String():
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+				w.Header().Set("Content-Length", strconv.FormatInt(blobDesc.Size+1, 10))
+				if _, err := w.Write(blob); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.PlainHTTP = true
+		store := repo.Blobs()
+		ctx := context.Background()
+
+		if _, err = store.Fetch(ctx, blobDesc); err == nil {
+			t.Error("Blobs.Fetch() error = nil, want error")
+		}
+	})
+}
+
 func Test_BlobStore_Push(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
