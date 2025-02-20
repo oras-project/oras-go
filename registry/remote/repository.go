@@ -744,9 +744,12 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 	}()
 
 	switch resp.StatusCode {
-	case http.StatusOK: // server does not support seek as `Range` was ignored.
+	case http.StatusOK:
 		if size := resp.ContentLength; size != -1 && size != target.Size {
 			return nil, fmt.Errorf("%s %q: mismatch Content-Length", resp.Request.Method, resp.Request.URL)
+		}
+		if err := verifyContentDigest(resp, target.Digest); err != nil {
+			return nil, err
 		}
 
 		// check server range request capability.
