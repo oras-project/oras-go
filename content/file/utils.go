@@ -219,7 +219,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		// Restore full mode bits
 		if preservePermissions && (header.Typeflag == tar.TypeReg || header.Typeflag == tar.TypeDir) {
 			if err := os.Chmod(filePath, os.FileMode(header.Mode)); err != nil {
-				return fmt.Errorf("%w: %w", ErrPreservePermissions, err)
+				return err
 			}
 		}
 	}
