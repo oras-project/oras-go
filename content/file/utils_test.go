@@ -238,7 +238,7 @@ func Test_ensureLinkPath(t *testing.T) {
 
 func Test_extractTarGzip_Error(t *testing.T) {
 	t.Run("Non-existing file", func(t *testing.T) {
-		err := extractTarGzip("", "", "non-existing-file", "", nil)
+		err := extractTarGzip("", "", "non-existing-file", "", nil, false)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -300,7 +300,7 @@ func Test_extractTarDirectory(t *testing.T) {
 			dirPath := filepath.Join(tempDir, dirName)
 			buf := make([]byte, 1024)
 
-			if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tt.tarData), buf); (err != nil) != tt.wantErr {
+			if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tt.tarData), buf, false); (err != nil) != tt.wantErr {
 				t.Fatalf("extractTarDirectory() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr {
@@ -348,7 +348,7 @@ func Test_extractTarDirectory_HardLink(t *testing.T) {
 			{name: "base/test_hardlink", linkname: linkPath, mode: 0666, isHardLink: true},
 		})
 
-		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf); err != nil {
+		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf, false); err != nil {
 			t.Fatalf("extractTarDirectory() error = %v", err)
 		}
 
@@ -372,7 +372,7 @@ func Test_extractTarDirectory_HardLink(t *testing.T) {
 			{name: "base/test_hardlink", linkname: "whatever", mode: 0666, isHardLink: true},
 		})
 
-		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf); err == nil {
+		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf, false); err == nil {
 			t.Error("extractTarDirectory() error = nil, wantErr = true")
 		}
 	})
