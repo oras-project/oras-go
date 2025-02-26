@@ -108,6 +108,9 @@ type Store struct {
 	// value overrides the [AnnotationUnpack].
 	// Default value: false.
 	SkipUnpack bool
+	// PreservePermissions controls whether to preserve file permissions when unpacking,
+	// disregarding the active umask, similar to tar's `--preserve-permissions`
+	PreservePermissions bool
 
 	workingDir   string   // the working directory of the file store
 	closed       int32    // if the store is closed - 0: false, 1: true.
@@ -499,7 +502,7 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 	checksum := expected.Annotations[AnnotationDigest]
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := extractTarGzip(target, name, gzPath, checksum, *buf); err != nil {
+	if err := extractTarGzip(target, name, gzPath, checksum, *buf, s.PreservePermissions); err != nil {
 		return fmt.Errorf("failed to extract tar to %s: %w", target, err)
 	}
 	return nil

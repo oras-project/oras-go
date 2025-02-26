@@ -113,7 +113,7 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeT
 
 // extractTarGzip decompresses the gzip
 // and extracts tar file to a directory specified by the `dir` parameter.
-func extractTarGzip(dirPath, dirName, gzPath, checksum string, buf []byte) (err error) {
+func extractTarGzip(dirPath, dirName, gzPath, checksum string, buf []byte, preservePermissions bool) (err error) {
 	fp, err := os.Open(gzPath)
 	if err != nil {
 		return err
@@ -144,7 +144,7 @@ func extractTarGzip(dirPath, dirName, gzPath, checksum string, buf []byte) (err 
 			r = io.TeeReader(r, verifier)
 		}
 	}
-	if err := extractTarDirectory(dirPath, dirName, r, buf); err != nil {
+	if err := extractTarDirectory(dirPath, dirName, r, buf, preservePermissions); err != nil {
 		return err
 	}
 	if verifier != nil && !verifier.Verified() {
@@ -156,7 +156,7 @@ func extractTarGzip(dirPath, dirName, gzPath, checksum string, buf []byte) (err 
 // extractTarDirectory extracts tar file to a directory specified by the `dir`
 // parameter. The file name prefix is ensured to be the string specified by the
 // `prefix` parameter and is trimmed.
-func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte) error {
+func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, preservePermissions bool) error {
 	tr := tar.NewReader(r)
 	for {
 		header, err := tr.Next()
@@ -214,7 +214,14 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte) error
 		}
 
 		// Change access time and modification time if possible (error ignored)
-		os.Chtimes(filePath, header.AccessTime, header.ModTime)
+		_ = os.Chtimes(filePath, header.AccessTime, header.ModTime)
+
+		// Restore full mode bits
+		if preservePermissions && (header.Typeflag == tar.TypeReg || header.Typeflag == tar.TypeDir) {
+			if err := os.Chmod(filePath, os.FileMode(header.Mode)); err != nil {
+				return err
+			}
+		}
 	}
 }
 
