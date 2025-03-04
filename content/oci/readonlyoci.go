@@ -36,7 +36,7 @@ import (
 
 // ReadOnlyStore implements `oras.ReadonlyTarget`, and represents a read-only
 // content store based on file system with the OCI-Image layout.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0/image-layout.md
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md
 type ReadOnlyStore struct {
 	fsys        fs.FS
 	storage     content.ReadOnlyStorage

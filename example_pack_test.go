@@ -26,7 +26,7 @@ import (
 )
 
 // ExampleImageV11 demonstrates packing an OCI Image Manifest as defined in
-// image-spec v1.1.0.
+// image-spec v1.1.1.
 func ExamplePackManifest_imageV11() {
 	// 0. Create a storage
 	store := memory.New()

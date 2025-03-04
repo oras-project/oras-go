@@ -78,8 +78,8 @@ const (
 	PackManifestVersion1_1_RC4 PackManifestVersion = PackManifestVersion1_1
 
 	// PackManifestVersion1_1 represents the OCI Image Manifest defined in
-	// image-spec v1.1.0.
-	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md
+	// image-spec v1.1.1.
+	// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md
 	PackManifestVersion1_1 PackManifestVersion = 2
 )
 
@@ -110,9 +110,9 @@ type PackManifestOptions struct {
 
 // mediaTypeRegexp checks the format of media types.
 // References:
-//   - https://github.com/opencontainers/image-spec/blob/v1.1.0/schema/defs-descriptor.json#L7
+//   - https://github.com/opencontainers/image-spec/blob/v1.1.1/schema/defs-descriptor.json#L7
 //   - https://datatracker.ietf.org/doc/html/rfc6838#section-4.2
-var mediaTypeRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&-^_.+]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&-^_.+]{0,126}$`)
+var mediaTypeRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$`)
 
 // PackManifest generates an OCI Image Manifest based on the given parameters
 // and pushes the packed manifest to a content storage using pusher. The version
@@ -301,8 +301,8 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, manifest.Annotations)
 }
 
-// packManifestV1_1 packs an image manifest defined in image-spec v1.1.0.
-// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md#guidelines-for-artifact-usage
+// packManifestV1_1 packs an image manifest defined in image-spec v1.1.1.
+// Reference: https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md#guidelines-for-artifact-usage
 func packManifestV1_1(ctx context.Context, pusher content.Pusher, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
 	if artifactType == "" && (opts.ConfigDescriptor == nil || opts.ConfigDescriptor.MediaType == ocispec.MediaTypeEmptyJSON) {
 		// artifactType MUST be set when config.mediaType is set to the empty value
