@@ -34,7 +34,7 @@ const MediaTypeArtifactManifest = "application/vnd.oci.artifact.manifest.v1+json
 // Artifact describes an artifact manifest.
 // This structure provides `application/vnd.oci.artifact.manifest.v1+json` mediatype when marshalled to JSON.
 //
-// This manifest type was introduced in image-spec v1.1.0-rc1 and was removed in
+// This manifest type was introduced in image-spec v1.1.1-rc1 and was removed in
 // image-spec v1.1.0-rc3. It is not part of the current image-spec and is kept
 // here for Go compatibility.
 //
