@@ -2,11 +2,11 @@
 
 In ORAS Go v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) stored in [Content-Addressable Storages (CASs)](https://en.wikipedia.org/wiki/Content-addressable_storage).
 
-An artifact is a rooted DAG where the root node is an [OCI Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md). Additionally, artifacts can be grouped by an [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.0/image-index.md), which is also a rooted DAG.
+In this model, an artifact is represented as a rooted DAG whose root node is an [OCI Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md). Artifacts may be grouped by an [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.0/image-index.md), which is also a rooted DAG.
 
 ## Simple Artifact
 
-Here is an example of a manifest of artifact:
+The following example demonstrates an artifact manifest:
 
 ```json
 {
@@ -43,7 +43,7 @@ Here is an example of a manifest of artifact:
 }
 ```
 
-The manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest will be computed from the manifest content. For this particular manifest, the digest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`.
+This manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest is computed from the manifest content. In this instance, the digest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`.
 
 The artifact stored in CAS can be represented by the graph below:
 
@@ -56,12 +56,15 @@ Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 
 ```
 
-This graph is of a [Merkle](https://en.wikipedia.org/wiki/Merkle_tree) Directed Acyclic Graph (DAG) structure, where every object is a node uniquely identified by its digest. Since the digests are computed from the content and the content is fixed, every node itself in the graph is immutable.
-In this graph, The manifest is the root of the graph and the config or layer blobs are the leaf nodes referenced by the root.
+This graph is a [Merkle](https://en.wikipedia.org/wiki/Merkle_tree) Directed Acyclic Graph (DAG), where every object is a node uniquely identified by its digest. Since the digests are computed from the content and the content is fixed, every node itself in the graph is immutable.
+
+In this graph, The manifest is the root of the graph, and the config or layer blobs are the leaf nodes referenced by the root.
 
 ## Artifact with Subject
 
-If the artifact manifest is signed by signing tools like `notation`, a signature manifest referencing the signature blob will be created and attached to the artifact manifest. The signature manifest would be similar to this:
+When an artifact manifest is signed using tools such as `notation`, a signature manifest is created and attached to the artifact manifest being signed. The signature manifest references a signature blob and specifies a `subject` field that points to the target artifact manifest.
+
+The following example demonstrates a signature manifest:
 
 ```json
 {
@@ -91,11 +94,12 @@ If the artifact manifest is signed by signing tools like `notation`, a signature
 }
 ```
 
-The signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its `subject` refers to `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`, which is the digest of the artifact manifest in the above example. This siganature manifest is considered a `Referrer` of the artifact manifest.
+This signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its `subject` refers to the digest of the artifact manifest in the above example. This siganature manifest is considered a `Referrer` of the artifact manifest.
 
-When stored in a CAS, a digest will be computed from the signature manifest content. For this particular signature manifest, the digest is `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
+When stored in the CAS, the digest computed from the signature manifest content is:
+`sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
 
-The relationship of the artifact and the signature in the CAS can be modeled as the graph below:
+The relationship between the artifact and its signature appears in the graph below:
 
 ```mermaid
 graph TD;
@@ -109,15 +113,14 @@ Manifest--layers-->Layer0["Layer blob 0<br>(sha256:b5bb9d...)"]
 Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 ```
 
-Now, the signature manifest is the root of the whole graph containing both the signature blobs and artifact blobs, while the artifact manifest is the root of the sub-graph containing the artifact blobs.
+In this model, the signature manifest acts as the root for the combined graph, while the artifact manifest is the root of its own subgraph.
 
-Note that since the content of the config blob of the artifacf and the signature are the same, their digest are identical. As a result, there will be only config blob stored in the CAS, identified by its digest. In the graph, the signature manifest and the artifact manifest points to the same node of config blob.
-This is a common case and it's why artifacts are modeled as graphs instead of trees.
+Note that because the config blob of the artifact and the artifact's signature is the same, it is stored only once in the CAS and appears as only one node. This is a common case and it's why artifacts are modeled as graphs instead of trees.
 
 ## Index of Artifacts
 
 A Index can also be created for collecting multiple manifests.
-For example, an Index manifest referencing the artifact manifest `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb` and another random manifest `"sha256:eba50b7b7dfdf6294a375a3376b2b74e3b926c75119f7da04b1c671c7de662c9"` would look like:
+For example, an Index referencing two manifests would look like:
 
 ```json
 {
@@ -138,9 +141,10 @@ For example, an Index manifest referencing the artifact manifest `sha256:314c7f2
 }
 ```
 
-When stored in a CAS, a digest will be computed from the signature manifest content. For this particular Index manifest, the digest is `sha256:9c7c6bfa51dac3c9dfeffc7a0a795c30101f1f60afa64739767cedd92f574570`.
+When stored in a CAS, the digest computed for this Index is:
+`sha256:9c7c6bfa51dac3c9dfeffc7a0a795c30101f1f60afa64739767cedd92f574570`.
 
-The relationship of the Index manifest and the artifacts in the CAS can be modeled as the graph below:
+The relationship between the Index and the artifacts in the CAS can be modeled as the graph below:
 
 ```mermaid
 graph TD;
@@ -157,11 +161,11 @@ AnotherManifest--layers-->Layer2["Layer blob 2<br>(sha256:a94890...)"]
 
 ```
 
-In this graph, the Index is the root of the whole graph and the two manifests are the root of the sub-graphs of two artifacts, respectively.
+In this diagram, the Index serves as the root of the overall graph, with each manifest defining the root of its corresponding artifact subgraph.
 
 ## Graph Concepts
 
-Combining the cases above, there can be a complex Directed Acyclic Graph (DAG):
+A complex DAG may combine artifacts, their referrers, and Indexes referencing them. The following example demonstrates such a graph:
 
 ```mermaid
 graph TD;
@@ -181,21 +185,20 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
-In this graph, all nodes being pointed to by another node is a `Successor` of that node. For instance:
+For any node in the graph, the following definitions apply:
 
-- `b0` is a successor of `m0` and `m2`
-- `m0` is a successor of `m2` and `i0`
+- **Successor:** Any node that is pointed to by a given node. For instance:
+  - Blob `b0` is a successor of both `m0` and `m2`
+  - Manifest `m0` is a successor of `m2` and `i0`
+  
+- **Predecessor:** Any non-leaf node that directly points to a given node. For instance:
+  - Manifest `m0` is a predecessor of `b0`, `b1`, and `b2`
+  - Manifest `m2` is a predecessor of `b0`, `b5`, and `m0`
+  - Index `i0` is a predecessor of `m0` and `m1`
 
-Vice versa, all non-leaf nodes that directly pointing to another node is a `Predecessor` of that node. For instance:
+These definitions apply to nodes of any type—manifests, indexes, or arbitrary blobs.
 
-- `m0` is a predecessor of `b0`, `b1`, and `b2`
-- `m2` is a predecessor of `b0`, `b5`, and `m0`
-- `i0` is a predecessor of `m0` and `m1`
-
-The concepts of successor and predecessor can be applied to nodes of any types, including Manifest, Index, arbitary blobs, etc. But it is not the same case for `subject` and referrers.
-
-A manifest containing a `subject` field is considered a referrer of the subject manifest. According to [OCI image-spec v1.1.0](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md), Image Manifest and Image Index can contain a `subject` field referencing to another manifest.
-This means that the referrer and the `subject` both must be a manifest.
+However, the referrer relationship is different. A manifest (Image Manifest and Index Manifest are both of manifest type) with a `subject` field is considered a referrer of that subject manifest. According to [OCI image-spec v1.1.0](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md), both the `referrer` and the `subject` must be manifests.
 
 So, it is worth noting that:
 
@@ -220,9 +223,7 @@ Referrers(b0) == []
 
 ### Copy
 
-Given the root node of a Directed Acyclic Graph (DAG), `Copy` is a function to replicate the graph reachable from the root node from a Content-Addressable Storage (CAS) to another.
-
-`Copy` can be achieved by recursively calling `Successors()` to traverse all nodes in the graph copying them in a certain order.
+Given the root node of a Directed Acyclic Graph (DAG), the `Copy` function replicates the graph reachable from that root node from one Content-Addressable Storage (CAS) to another. This is achieved by recursively invoking the `Successors()` function to traverse and copy all descendant nodes in a certain order.
 
 Taking the graph above as an example:
 
@@ -260,9 +261,7 @@ Blob0["Blob b0"]
 
 ### Extended Copy
 
-Given any node in a Directed Acyclic Graph (DAG), `ExtendedCopy` is a function to replicate the graph reachable from the given node from a Content-Addressable Storage (CAS) to another.
-
-It is important to note that Extended Copy is possible only if the source CAS supports predecessor finding. The source CAS may index the predecessor relationship when storing the DAG.
+As an extension to the `Copy` function, the `ExtendedCopy` function is designed to replicate the entire graph reachable from any given node in a DAG. This method requires that the source CAS supports predecessor finding (i.e., it indexes predecessor relationships when storing the graph).
 
 The predecessor relationship for the example graph looks like this:
 
@@ -284,9 +283,9 @@ M1--predecessor-->I0
 M0--predecessor-->I0["Index i0"]
 ```
 
-With the predecessor finding capability, `ExtendedCopy` can be achieved by recursively calling `Predecessors()` to find the root nodes and calling `Copy` on each root node.
+With the predecessor finding capability, `ExtendedCopy` recursively calls `Predecessors()` to discover root nodes, then applies `Copy` on each discovered root. For instance:
 
-For example, `ExtendedCopy(b5)` finds out the root node `m2` starting from `b5`, and copies the graph rooted by `m2`:
+`ExtendedCopy(b5)` finds out the root node `m2` starting from `b5`, and copies the graph rooted at `m2`:
 
 ```mermaid
 graph TD;
@@ -300,7 +299,7 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
-`ExtendedCopy(m1)` finds out the root node `i1` starting from `m1`, and copies the graph rooted by `i1`:
+`ExtendedCopy(m1)` determines the root node `i0` from `m1`, and copies the graph rooted by `i0`:
 
 ```mermaid
 graph TD;
@@ -316,7 +315,7 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
-`ExtendedCopy(b0)` finds out the root node `m2` and `i0` starting from `b0`, and copies the whole graph rooted by `m2` and `i0`:
+`ExtendedCopy(b0)` finds multiple root nodes `m2` and `i0` starting from `b0`, then copies the combined graph rooted at  `m2` and `i0`:
 
 ```mermaid
 graph TD;
@@ -338,7 +337,7 @@ M0--layers-->Blob2["Blob b2"]
 
 #### Referrers API
 
-Many CASs, such as artifact registries, supports referrers finding through [Referrers API](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers), but they do not support general predecessor finding. For such CASs, the `Predecessors` function is equivalent to `Referrers` function.
+Many CAS implementations, such as artifact registries, supports referrers discovery via the [Referrers API](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers) but do not support general predecessor finding. In these systems, the `Predecessors` function essentially operates as `Referrers`.
 
 The referrer/subject relationship for the example graph looks like this:
 
@@ -349,9 +348,9 @@ M2["Manifest m2"]--subject-->M0["Manifest m0"]
 M0--referrer-->M2
 ```
 
-When Extended-Copying graphs from a source artifact registries to another CAS, since the predecessor finding functionality is limited, the nodes can be copied are also limited.
+When Extended-Copying graphs from a source artifact registries to another CAS, since the predecessor finding functionality is limited, the nodes that can be copied are also limited.
 
-For example, `ExtendedCopy(m0)` finds out the root node `m2` starting from `m0`, and copies the graph rooted by `m2`:
+For example, `ExtendedCopy(m0)` finds out the root node `m2` starting from `m0`, and copies the graph rooted at `m2`:
 
 ```mermaid
 graph TD;
@@ -364,7 +363,5 @@ M0["Manifest m0"]--config-->Blob0["Blob b0"]
 M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
-
-// TODO: refine
 
 // TODO: add links
