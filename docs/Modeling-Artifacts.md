@@ -2,7 +2,7 @@
 
 In ORAS Go v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) stored in [Content-Addressable Storages (CASs)](https://en.wikipedia.org/wiki/Content-addressable_storage).
 
-In this model, an artifact is represented as a rooted DAG whose root node is an [OCI Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md). Artifacts may be grouped by an [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.0/image-index.md), which is also a rooted DAG.
+In this model, an artifact is represented as a rooted DAG whose root node is an [OCI Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md). Artifacts may be grouped by an [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-index.md), which is also a rooted DAG.
 
 ## Simple Artifact
 
@@ -43,7 +43,8 @@ The following example demonstrates an artifact manifest:
 }
 ```
 
-This manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest is computed from the manifest content. In this instance, the digest is `sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`.
+This manifest indicates that the artifact contains a config blob and two layer blobs. When stored in a CAS, a digest is computed from the manifest content. In this instance, the digest is:
+`sha256:314c7f20dd44ee1cca06af399a67f7c463a9f586830d630802d9e365933da9fb`.
 
 The artifact stored in CAS can be represented by the graph below:
 
@@ -115,11 +116,11 @@ Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 
 In this model, the signature manifest acts as the root for the combined graph, while the artifact manifest is the root of its own subgraph.
 
-Note that because the config blob of the artifact and the artifact's signature is the same, it is stored only once in the CAS and appears as only one node. This is a common case and it's why artifacts are modeled as graphs instead of trees.
+Note that because the config blob of the artifact and the signature is the same, it is stored only once in the CAS and appears as only one node. This is a common case and it's why artifacts are modeled as graphs instead of trees.
 
 ## Index of Artifacts
 
-A Index can also be created for collecting multiple manifests.
+An [Index]((https://github.com/opencontainers/image-spec/blob/v1.1.1/image-index.md)) can also be created for collecting multiple manifests.
 For example, an Index referencing two manifests would look like:
 
 ```json
@@ -161,11 +162,11 @@ AnotherManifest--layers-->Layer2["Layer blob 2<br>(sha256:a94890...)"]
 
 ```
 
-In this diagram, the Index serves as the root of the overall graph, with each manifest defining the root of its corresponding artifact subgraph.
+In this graph, the Index serves as the root of the overall graph, with each manifest defining the root of its corresponding artifact subgraph.
 
 ## Graph Concepts
 
-A complex DAG may combine artifacts, their referrers, and Indexes referencing them. The following example demonstrates such a graph:
+A complex DAG may integrate artifacts, their referrers, and the Indexes that reference them. The following example demonstrates such a graph:
 
 ```mermaid
 graph TD;
@@ -198,7 +199,7 @@ For any node in the graph, the following definitions apply:
 
 These definitions apply to nodes of any type—manifests, indexes, or arbitrary blobs.
 
-However, the referrer relationship is different. A manifest (Image Manifest and Index Manifest are both of manifest type) with a `subject` field is considered a referrer of that subject manifest. According to [OCI image-spec v1.1.0](https://github.com/opencontainers/image-spec/blob/v1.1.0/manifest.md), both the `referrer` and the `subject` must be manifests.
+However, the referrer relationship is different. A manifest (including [Image Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md) and [Index](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-index.md)) with a `subject` field is considered a referrer of that subject manifest. According to [OCI image-spec v1.1.1](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md), both the `referrer` and the `subject` must be manifests.
 
 So, it is worth noting that:
 
@@ -299,7 +300,7 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
-`ExtendedCopy(m1)` determines the root node `i0` from `m1`, and copies the graph rooted by `i0`:
+`ExtendedCopy(m1)` determines the root node `i0` from `m1`, and copies the graph rooted at `i0`:
 
 ```mermaid
 graph TD;
@@ -348,7 +349,7 @@ M2["Manifest m2"]--subject-->M0["Manifest m0"]
 M0--referrer-->M2
 ```
 
-When Extended-Copying graphs from a source artifact registries to another CAS, since the predecessor finding functionality is limited, the nodes that can be copied are also limited.
+When replicating graphs from source artifact registries to another CAS, the limited predecessor finding functionality restricts the set of nodes that can be copied.
 
 For example, `ExtendedCopy(m0)` finds out the root node `m2` starting from `m0`, and copies the graph rooted at `m2`:
 
@@ -364,4 +365,3 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
-// TODO: add links
