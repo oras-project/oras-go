@@ -25,7 +25,7 @@ Based on the graph-modeling concepts and descriptors, the following major interf
 
 ### Storage
 
-The `Storage` interface represents a content-addressable storage (CAS) where content is accessed via descriptors. It provides the following functions:
+The [`Storage`](https://pkg.go.dev/oras.land/oras-go/v2/content#Storage) interface represents a content-addressable storage (CAS) where content is accessed via descriptors. It provides the following functions:
 
 - `Fetch`: Retrieves the content identified by the descriptor from the CAS.
 - `Exists`: Check whether the described content is present in the CAS.
@@ -63,7 +63,7 @@ Blob3["Blob b3"]
 
 #### GraphStorage
 
-The `GraphStorage` interface extends [`Storage`](#storage) by adding support for predecessor finding. It provides the following functions:
+The [`GraphStorage`](https://pkg.go.dev/oras.land/oras-go/v2/content#GraphStorage) interface extends [`Storage`](#storage) by adding support for predecessor finding. It provides the following functions:
 
 - `Fetch`
 - `Exists`
@@ -79,7 +79,7 @@ Predecessors(m0) == []
 
 ### Target
 
-The `Target` interface represents a CAS with tagging capability. It provides the following functions:
+The [`Target`](https://pkg.go.dev/oras.land/oras-go/v2#Target) interface represents a CAS with tagging capability. It provides the following functions:
 
 - `Fetch`
 - `Exists`
@@ -124,7 +124,7 @@ TagV1>"Tag: v1"]-.->M0
 
 ### GraphTarget
 
-The `GraphTarget` interface combines the capabilities of [`GraphStorage`](#graphstorage) and [`Target`](#target). It provides the following functions:
+The [`GraphTarget`](https://pkg.go.dev/oras.land/oras-go/v2#GraphTarget) interface combines the capabilities of [`GraphStorage`](#graphstorage) and [`Target`](#target). It provides the following functions:
 
 - `Fetch`
 - `Exists`
@@ -204,7 +204,7 @@ The OCI Layout offers several advantages:
 
 ### File Store
 
-The file store, available in the [`content/file`]((https://pkg.go.dev/oras.land/oras-go/v2/content/file)) package, supports both content-addressable and location-addressable storage. It is designed for packaging arbitrary files and allows adding blobs directly from the local file system.
+The file store, available in the [`content/file`](https://pkg.go.dev/oras.land/oras-go/v2/content/file) package, supports both content-addressable and location-addressable storage. It is designed for packaging arbitrary files and allows adding blobs directly from the local file system.
 
 When a blob is added, a descriptor is generated for it, including an annotation `"org.opencontainers.image.title"` to indicate the blob's name. 
 
@@ -306,7 +306,7 @@ Below is a mapping of major repository functions to their corresponding registry
 | `Push`         | PUT `/v2/<name>/manifests/<reference>`                                                                                                                                                                                    |
 | `Resolve`      | HEAD `/v2/<name>/manifests/<reference>`                                                                                                                                                                                   |
 | `Tag`          | PUT `/v2/<name>/manifests/<reference>`                                                                                                                                                                                    |
-| `Predecessors` | GET `/v2/<name>/referrers/<digest>?artifactType=<artifactType>`<br>Fallback to [`Referrers Tag Schema`](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#unavailable-referrers-api) if unavailable |
+| `Predecessors` | GET `/v2/<name>/referrers/<digest>?artifactType=<artifactType>`<br>Fallback to `Referrers Tag Schema` if unavailable |
 
 #### Blob Store Mappings
 
