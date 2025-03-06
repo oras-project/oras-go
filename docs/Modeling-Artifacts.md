@@ -1,6 +1,6 @@
 # Modeling Artifacts
 
-In ORAS Go v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) stored in [Content-Addressable Storages (CASs)](https://en.wikipedia.org/wiki/Content-addressable_storage).
+In `oras-go` v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) stored in [Content-Addressable Storages (CASs)](https://en.wikipedia.org/wiki/Content-addressable_storage).
 
 In this model, an artifact is represented as a rooted DAG whose root node is an [OCI Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md). Artifacts may be grouped by an [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-index.md), which is also a rooted DAG.
 
@@ -63,7 +63,7 @@ In this graph, the manifest is the root of the graph, and the config or layer bl
 
 ## Artifact with Subject
 
-When an artifact manifest is signed using tools such as `notation`, a signature manifest is created and attached to the artifact manifest being signed. The signature manifest references a signature blob and specifies a `subject` field that points to the target artifact manifest.
+When an artifact manifest is signed using tools such as [`notation`](https://github.com/notaryproject/notation), a signature manifest is created and attached to the artifact manifest being signed. The signature manifest references a signature blob and specifies a `subject` field that points to the target artifact manifest.
 
 The following example demonstrates a signature manifest:
 
@@ -209,17 +209,17 @@ So, it is worth noting that:
 Defining functions `Predecessors()`, `Successors()`, and `Referrers()`, the example result would be:
 
 ```
-Successors(m0) == [b0, b1, b2]
+  Successors(m0) == [b0, b1, b2]
 Predecessors(m0) == [m2, i0]
-Referrers(m0) == [m2]
+   Referrers(m0) == [m2]
 
-Successors(m2) == [m0, b0, b5]
+  Successors(m2) == [m0, b0, b5]
 Predecessors(m2) == []
-Referrers(m2) == []
+   Referrers(m2) == []
 
-Successors(b0) == []
+  Successors(b0) == []
 Predecessors(b0) == [m0, m2]
-Referrers(b0) == []
+   Referrers(b0) == []
 ```
 
 ### Copy
