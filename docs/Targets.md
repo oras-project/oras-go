@@ -68,7 +68,7 @@ The [`GraphStorage`](https://pkg.go.dev/oras.land/oras-go/v2/content#GraphStorag
 - `Fetch`
 - `Exists`
 - `Push`
-- **`Prdecessors`**: Finds out the nodes directly pointing to a given node in the graph.
+- **`Predecessors`**: Finds out the nodes directly pointing to a given node in the graph.
 
 For the [same graph](#storage), the `Predecessors` function would act as follows:
 
