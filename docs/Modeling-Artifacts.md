@@ -120,7 +120,7 @@ Note that because the config blob of the artifact and the signature is the same,
 
 ## Index of Artifacts
 
-An [Index](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-index.md) can also be created for collecting multiple manifests.
+An [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-index.md) can also be created for collecting multiple manifests.
 For example, an Index referencing two manifests would look like:
 
 ```json
@@ -264,7 +264,7 @@ Blob0["Blob b0"]
 
 As an extension to the `Copy` function, the `ExtendedCopy` function is designed to replicate the entire graph reachable from any given node in a DAG. This method requires that the source CAS supports predecessor finding (i.e., it indexes predecessor relationships when storing the graph).
 
-The predecessor relationship for the example graph looks like this:
+The predecessor relationship for the [example graph](#graph-concepts) looks like this:
 
 ```mermaid
 graph TD;
@@ -336,11 +336,14 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
-#### Referrers API
+#### Referrers API / Referrers Tag Schema
 
-Many CAS implementations, such as artifact registries, supports referrers discovery via the [Referrers API](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers) but do not support general predecessor finding. In these systems, the `Predecessors` function essentially operates as `Referrers`.
+Many CAS implementations, such as artifact registries, supports referrers discovery via the [Referrers API](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers) but do not support general predecessor finding.
+When interacting with artifact registries, if Referrers API is not available, `oras-go` will fallback to the [Referrers Tag Schema](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#referrers-tag-schema) approach, which simulates the behavior of the Referrers API through some client-side efforts.
 
-The referrer/subject relationship for the example graph looks like this:
+In these systems, the `Predecessors` function essentially operates as `Referrers`.
+
+The referrer/subject relationship for the [example graph](#graph-concepts) looks like this:
 
 ```mermaid
 graph TD;
@@ -351,7 +354,7 @@ M0--referrer-->M2
 
 When replicating graphs from source artifact registries to another CAS, the limited predecessor finding functionality restricts the set of nodes that can be copied.
 
-For example, `ExtendedCopy(m0)` finds out the root node `m2` starting from `m0`, and copies the graph rooted at `m2`:
+For example, `ExtendedCopy(m0)` can only find the root node `m2` starting from `m0` and will the graph rooted at `m2`. In this case, `i0` is not reachable from `m0` because there is no referrer/subject relationship between `i0` and `m2`.
 
 ```mermaid
 graph TD;
@@ -365,3 +368,11 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
+`ExtendedCopy(m1)` finds no referrer of `m1`, so it just copies the graph rooted `m1`.
+
+```mermaid
+graph TD;
+
+M1["Manifest m1"]--config-->Blob3["Blob b3"]
+M1--layers-->Blob4["Blob b4"]
+```
