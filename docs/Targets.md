@@ -299,7 +299,7 @@ Below is a mapping of major repository functions to their corresponding registry
 
 #### Manifest Store Mappings
 
-| Funciton Name  | API endpoint                                                                                                                                                                                                              |
+| Function Name  | API endpoint                                                                                                                                                                                                              |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Fetch`        | GET `/v2/<name>/manifests/<reference>`                                                                                                                                                                                    |
 | `Exists`       | HEAD `/v2/<name>/manifests/<reference>`                                                                                                                                                                                   |
@@ -310,7 +310,7 @@ Below is a mapping of major repository functions to their corresponding registry
 
 #### Blob Store Mappings
 
-| Funciton Name | API endpoint                                                                                   |
+| Function Name | API endpoint                                                                                   |
 | ------------- | ---------------------------------------------------------------------------------------------- |
 | `Fetch`       | GET `/v2/<name>/blobs/<reference>`                                                             |
 | `Exists`      | HEAD `/v2/<name>/blobs/<reference>`                                                            |
@@ -323,7 +323,7 @@ Below is a mapping of major repository functions to their corresponding registry
 | ---------------- | ---------------------------------------------------------------------------------- | ------------------------------ | --------------------------- | ------------------------------------------ |
 | Memory Store     | Stores everything in memory                                                        | No                             | Yes                         | Memory caching, testing                    |
 | OCI Store        | Stores content in OCI-Image layout on the file system                              | Yes                            | Yes                         | Local cache or copy of remote repositories |
-| File Store       | Stores location-addressable content on file system                                 | Partial (For named blobs only) | Yes                         | Packaging arbitary files                   |
+| File Store       | Stores location-addressable content on file system                                 | Partial (For named blobs only) | Yes                         | Packaging arbitrary files                   |
 | Repository Store | Communicates with remote artifact repositories (e.g. `ghcr.io`, `docker.io`, etc.) | Yes                            | Partial (via Referrers API) | Accessing remote repositories              |
 
 ### How to choose the appropriate content store
@@ -333,7 +333,7 @@ flowchart TD;
 
 Q1{"Access remote repository?"}
 Q1--Y-->Repository["Repository Store"]
-Q1--N-->Q2{"Reading/writing arbitary files?"}
+Q1--N-->Q2{"Reading/writing arbitrary files?"}
 Q2--Y-->File["File Store"]
 Q2--N-->Q3{"Need persistent storage?"}
 Q3--Y-->OCI["OCI Store"]
