@@ -95,7 +95,7 @@ The following example demonstrates a signature manifest:
 }
 ```
 
-This signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its `subject` refers to the digest of the artifact manifest in the above example. This siganature manifest is considered a `Referrer` of the artifact manifest.
+This signature manifest indicates that the signature artifact contains one config blob and one layer blob, and its `subject` refers to the digest of the artifact manifest in the [above example](#simple-artifact). This signature manifest is considered a `Referrer` of the artifact manifest.
 
 When stored in the CAS, the digest computed from the signature manifest content is:
 `sha256:e5727bebbcbbd9996446c34622ca96af67a54219edd58d261112f1af06e2537c`.
@@ -120,7 +120,7 @@ Note that because the config blob of the artifact and the signature is the same,
 
 ## Index of Artifacts
 
-An [Index]((https://github.com/opencontainers/image-spec/blob/v1.1.1/image-index.md)) can also be created for collecting multiple manifests.
+An [Index](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-index.md) can also be created for collecting multiple manifests.
 For example, an Index referencing two manifests would look like:
 
 ```json
@@ -214,7 +214,7 @@ Predecessors(m0) == [m2, i0]
 Referrers(m0) == [m2]
 
 Successors(m2) == [m0, b0, b5]
-Predessors(m2) == []
+Predecessors(m2) == []
 Referrers(m2) == []
 
 Successors(b0) == []
@@ -226,7 +226,7 @@ Referrers(b0) == []
 
 Given the root node of a Directed Acyclic Graph (DAG), the `Copy` function replicates the graph reachable from that root node from one Content-Addressable Storage (CAS) to another. This is achieved by recursively invoking the `Successors()` function to traverse and copy all descendant nodes in a certain order.
 
-Taking the graph above as an example:
+Taking the [graph above](#graph-concepts) as an example:
 
 `Copy(m0)` copies the graph rooted by the node `m0`, including `m0` itself and all of its successors `b0`, `b1`, and `b2`.
 
