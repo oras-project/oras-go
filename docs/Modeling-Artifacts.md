@@ -59,7 +59,7 @@ Manifest--layers-->Layer1["Layer blob 1<br>(sha256:7d865e...)"]
 
 This graph is a [Merkle](https://en.wikipedia.org/wiki/Merkle_tree) Directed Acyclic Graph (DAG), where every object is a node uniquely identified by its digest. Since the digests are computed from the content and the content is fixed, every node itself in the graph is immutable.
 
-In this graph, The manifest is the root of the graph, and the config or layer blobs are the leaf nodes referenced by the root.
+In this graph, the manifest is the root of the graph, and the config or layer blobs are the leaf nodes referenced by the root.
 
 ## Artifact with Subject
 
