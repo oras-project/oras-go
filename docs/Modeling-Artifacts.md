@@ -238,7 +238,7 @@ M0--layers-->Blob1["Blob b1"]
 M0--layers-->Blob2["Blob b2"]
 ```
 
-`Copy(m2)` copies the graph rooted by the node `m2`, including itself and all nodes reachable from it.
+`Copy(m2)` copies the graph rooted at the node `m2`, including `m2` itself, its successor `b5`, and the subgraph rooted at `m0`.
 
 ```mermaid
 graph TD;
