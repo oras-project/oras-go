@@ -354,7 +354,7 @@ M0--referrer-->M2
 
 When replicating graphs from source artifact registries to another CAS, the limited predecessor finding functionality restricts the set of nodes that can be copied.
 
-For example, `ExtendedCopy(m0)` can only find the root node `m2` starting from `m0` and will the graph rooted at `m2`. In this case, `i0` is not reachable from `m0` because there is no referrer/subject relationship between `i0` and `m2`.
+For example, `ExtendedCopy(m0)` can only find the root node `m2` starting from `m0` and will copy the graph rooted at `m2`. In this case, `i0` is not reachable from `m0` because there is no referrer/subject relationship between `i0` and `m2`.
 
 ```mermaid
 graph TD;
