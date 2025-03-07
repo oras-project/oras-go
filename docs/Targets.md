@@ -206,9 +206,15 @@ The OCI Layout offers several advantages:
 
 The file store, available in the [`content/file`](https://pkg.go.dev/oras.land/oras-go/v2/content/file) package, supports both content-addressable and location-addressable storage. It is designed for packaging arbitrary files or directories and allows adding them directly from the local file system.
 
-When a file or directory is added, a descriptor is generated with necessary annotations to store related metadata.
+When a file or directory is added, the file store creates a descriptor containing annotations with essential metadata. The process differs depending on whether a file or a directory is added:
 
-For example, consider the following directory structure on the disk:
+- **File Addition**: When a file is added, its contents are stored as a blob. A descriptor is generated from the blob with an `"org.opencontainers.image.title"` annotation indicating the original file name.
+- **Directory Addition**: When a directory is added, it is first tar-archived and compressed into a blob. The descriptor generated for a directory includes multiple annotations:
+  - `"org.opencontainers.image.title"`: Indicates the original directory name.
+  - `"io.deis.oras.content.digest"`**(ORAS-specific)**: Represents the digest of the tar'ed content before compression.
+  - `"io.deis.oras.content.unpack"`**(ORAS-specific)**: A flag indicating that the blob represents a directory that needs to be decompressed and un-tar'ed.
+
+For example, consider the following directory structure on disk:
 
 ```bash
 $ tree
@@ -228,7 +234,7 @@ $ cat mydir/bar.txt
 bar
 ```
 
-Adding a single file, such as `hello.txt`, generates a descriptor for the file blob with an `"org.opencontainers.image.title"` annotation indicating the file's name:
+Adding the file `hello.txt` results in a blob with a descriptor similar to this:
 
 ```json
 {
@@ -241,7 +247,7 @@ Adding a single file, such as `hello.txt`, generates a descriptor for the file b
 }
 ```
 
-Adding a directory, such as `mydir`, packs and compresses it into a directory blob, generating a descriptor with multiple annotations:
+Adding the directory `mydir` results in a tar-archived and compressed blob with a descriptor similar to this:
 
 ```json
 {
@@ -255,10 +261,6 @@ Adding a directory, such as `mydir`, packs and compresses it into a directory bl
   }
 }
 ```
-
-In addition to the `"org.opencontainers.image.title"` annotation, two ORAS-specific annotations are included:
-- `"io.deis.oras.content.digest"`: Represents the digest of the original content before compression.
-- `"io.deis.oras.content.unpack"`: Indicates that the blob is a directory and needs to be decompressed and unpacked.
 
 To create an artifact, a manifest needs to be [packed](https://pkg.go.dev/oras.land/oras-go/v2#PackManifest) to reference the two blobs and will also be stored in the file store. The manifest content might look like this:
 
@@ -299,7 +301,7 @@ To create an artifact, a manifest needs to be [packed](https://pkg.go.dev/oras.l
 }
 ```
 
-In the file store, named blobs are location-addressed by file paths, while other content (e.g., manifests and config blobs) is stored in fallback storage. The default fallback storage is a limited in-memory CAS.
+In the file store, blobs with names are location-addressed by file paths, while other content (e.g., manifests and config blobs) is maintained in fallback storage. By default, the fallback storage is a limited in-memory CAS store.
 
 For the above example, the graph stored in the file store would be like this:
 
@@ -311,7 +313,7 @@ Manifest--layers-->Layer0["hello.txt<br>(on disk)"]
 Manifest--layers-->Layer1["mydir<br>(on disk)"]
 ```
 
-Unlike the OCI store, only named contents (e.g., `hello.txt` and `mydir`) are persisted in the file store, while all metadata are stored in memory.
+Unlike the OCI store, only named contents (e.g., `hello.txt` and `mydir`) are persisted on disk in the file store, while all metadata are stored in memory.
 
 > [!IMPORTANT]
 > Once the file store is terminated, it cannot be restored to its original state from the file system.
