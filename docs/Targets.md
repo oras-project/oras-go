@@ -28,8 +28,8 @@ Based on the graph-modeling concepts and descriptors, the following major interf
 The [`Storage`](https://pkg.go.dev/oras.land/oras-go/v2/content#Storage) interface represents a content-addressable storage (CAS) where content is accessed via descriptors. It provides the following functions:
 
 - `Fetch`: Retrieves the content identified by the descriptor from the CAS.
-- `Exists`: Check whether the described content is present in the CAS.
-- `Push`: Add content matching the expected descriptor to the CAS.
+- `Exists`: Checks whether the described content is present in the CAS.
+- `Push`: Adds content matching the expected descriptor to the CAS.
 
 For example, consider the following graph stored in a `Storage`, where node names are aliases for descriptors:
 
@@ -122,7 +122,7 @@ TagBar>"Tag: bar"]-.->M0
 TagV1>"Tag: v1"]-.->M0
 ```
 
-### GraphTarget
+#### GraphTarget
 
 The [`GraphTarget`](https://pkg.go.dev/oras.land/oras-go/v2#GraphTarget) interface combines the capabilities of [`GraphStorage`](#graphstorage) and [`Target`](#target). It provides the following functions:
 
@@ -140,7 +140,7 @@ In `oras-go` v2, a content store is an implementation of the [`Target`](#target)
 The library provides four built-in content stores:
 
 - [Memory Store](#memory-store): Stores everything in memory.
-- [OCI Store](#oci-store): Stores content in the OCI-Image layout on the file system.
+- [OCI Store](#oci-store): Stores content in the [OCI-Image layout]((https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md)) on the file system.
 - [File Store](#file-store): Stores location-addressable content on the file system.
 - [Repository Store](#repository-store): Communicates with remote artifact repositories (e.g. `ghcr.io`, `docker.io`).
 
@@ -153,7 +153,7 @@ The memory store, available in the [`content/memory`](https://pkg.go.dev/oras.la
 
 ### OCI Store
 
-The OCI store, available in the [`content/oci`](https://pkg.go.dev/oras.land/oras-go/v2/content/oci) package, follows the [`OCI image-spec v1.1.1`](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md) to store blob content on the file system. 
+The OCI store, available in the [`content/oci`](https://pkg.go.dev/oras.land/oras-go/v2/content/oci) package, follows the OCI [`image-spec v1.1.1`](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md) to store blob content on the file system. 
 
 For example, consider an artifact and its signature represented by the following graph:
 
@@ -191,12 +191,12 @@ In the layout:
 
 - All content, whether manifests or layer blobs, are all placed under the `blobs` directory. The path to each piece of content is determined by its digest.
 - The `index.json` file is an Image Index JSON object. It serves as the entry point for the graph and provides tagging functionality.
-- The `ingest` directory is used temporarily during blob processing. This directory is ORAS-specific and is not defined in the OCI specification.
+- The `ingest` directory is used temporarily during blob processing. It can be safely removed after the push operation and should be cleaned up before creating a tar archive of the OCI layout. This directory is not defined in the OCI specification. 
 - The `oci-layout` file is a marker of the base of the OCI Layout.
 
 The OCI Layout offers several advantages:
 
-- It is fully compliant with `OCI image-spec v1.1.1`, ensuring compatibility with tools beyond ORAS.
+- It is fully compliant with OCI `image-spec v1.1.1`, ensuring compatibility with tools beyond ORAS.
 - Its clean and straightforward structure makes it easy to manage and replicate.
 
 > [!TIP]
