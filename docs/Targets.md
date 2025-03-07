@@ -140,7 +140,7 @@ In `oras-go` v2, a content store is an implementation of the [`Target`](#target)
 The library provides four built-in content stores:
 
 - [Memory Store](#memory-store): Stores everything in memory.
-- [OCI Store](#oci-store): Stores content in the [OCI-Image layout]((https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md)) on the file system.
+- [OCI Store](#oci-store): Stores content in the [OCI-Image layout](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md) on the file system.
 - [File Store](#file-store): Stores location-addressable content on the file system.
 - [Repository Store](#repository-store): Communicates with remote artifact repositories (e.g. `ghcr.io`, `docker.io`).
 
