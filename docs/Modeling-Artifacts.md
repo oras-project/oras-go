@@ -338,7 +338,7 @@ M0--layers-->Blob2["Blob b2"]
 
 #### Referrers API / Referrers Tag Schema
 
-Many CAS implementations, such as artifact registries, supports referrers discovery via the [Referrers API](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers) but do not support general predecessor finding.
+Many CAS implementations, such as artifact registries, support referrers discovery via the [Referrers API](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers) but do not support general predecessor finding.
 When interacting with artifact registries, if Referrers API is not available, `oras-go` will fallback to the [Referrers Tag Schema](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#referrers-tag-schema) approach, which simulates the behavior of the Referrers API through some client-side efforts.
 
 In these systems, the `Predecessors` function essentially operates as `Referrers`.
