@@ -1,4 +1,4 @@
-# Targets in `oras-go` v2
+# Targets and Content Stores in `oras-go` v2
 
 > [!IMPORTANT]
 > Prerequisite reading: [Modeling Artifact](./Modeling-Artifacts.md)
