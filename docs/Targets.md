@@ -204,40 +204,69 @@ The OCI Layout offers several advantages:
 
 ### File Store
 
-The file store, available in the [`content/file`](https://pkg.go.dev/oras.land/oras-go/v2/content/file) package, supports both content-addressable and location-addressable storage. It is designed for packaging arbitrary files and allows adding blobs directly from the local file system.
+The file store, available in the [`content/file`](https://pkg.go.dev/oras.land/oras-go/v2/content/file) package, supports both content-addressable and location-addressable storage. It is designed for packaging arbitrary files or directories and allows adding them directly from the local file system.
 
-When a blob is added, a descriptor is generated for it, including an annotation `"org.opencontainers.image.title"` to indicate the blob's name. 
+When a file or directory is added, a descriptor is generated with necessary annotations to store related metadata.
 
-For example, consider two files, `foo.txt` and `bar.txt`, on the disk:
+For example, consider the following directory structure on the disk:
 
 ```bash
-$ ls
-foo.txt bar.txt
+$ tree
+.
+├── hello.txt
+└── mydir
+    ├── bar.txt
+    └── foo.txt
 
-$ cat foo.txt
+$ cat hello.txt
+hello
+
+$ cat mydir/foo.txt
 foo
+
+$ cat mydir/bar.txt
+bar
 ```
 
-After adding `foo.txt` to the file store, its descriptor would look like this:
+Adding a single file, such as `hello.txt`, generates a descriptor for the file blob with an `"org.opencontainers.image.title"` annotation indicating the file's name:
 
 ```json
 {
-  "mediaType": "application/vnd.custom.type",
-  "digest": "sha256:b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
-  "size": 4,
+  "mediaType": "application/vnd.custom",
+  "digest": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+  "size": 6,
   "annotations": {
-    "org.opencontainers.image.title": "foo.txt"
+    "org.opencontainers.image.title": "hello.txt"
   }
 }
 ```
 
-A manifest needs to be created to reference the two file blobs and will be stored in the file store as well. The manifest content might look like this:
+Adding a directory, such as `mydir`, packs and compresses it into a directory blob, generating a descriptor with multiple annotations:
+
+```json
+{
+  "mediaType": "application/vnd.custom.tar+gzip",
+  "digest": "sha256:b14fa80f5afd3822dce52a711566586c8f89e5dc211e4b0d2819f219b102fe7a",
+  "size": 164,
+  "annotations": {
+    "io.deis.oras.content.digest": "sha256:9d418a0549e5bc45d195aacec889d30e520b9f2bd9feab57d57de6d9cdd66172",
+    "io.deis.oras.content.unpack": "true",
+    "org.opencontainers.image.title": "mydir"
+  }
+}
+```
+
+In addition to the `"org.opencontainers.image.title"` annotation, two ORAS-specific annotations are included:
+- `"io.deis.oras.content.digest"`: Represents the digest of the original content before compression.
+- `"io.deis.oras.content.unpack"`: Indicates that the blob is a directory and needs to be decompressed and unpacked.
+
+To create an artifact, a manifest needs to be [packed](https://pkg.go.dev/oras.land/oras-go/v2#PackManifest) to reference the two blobs and will also be stored in the file store. The manifest content might look like this:
 
 ```json
 {
   "schemaVersion": 2,
   "mediaType": "application/vnd.oci.image.manifest.v1+json",
-  "artifactType": "application/vnd.example+type",
+  "artifactType": "application/vnd.example",
   "config": {
     "mediaType": "application/vnd.oci.empty.v1+json",
     "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
@@ -246,24 +275,26 @@ A manifest needs to be created to reference the two file blobs and will be store
   },
   "layers": [
     {
-      "mediaType": "application/vnd.custom.type",
-      "digest": "sha256:b5bb9d8014a0f9b1d61e21e796d78dccdf1352f23cd32812f4850b878ae4944c",
-      "size": 4,
+      "mediaType": "application/vnd.custom",
+      "digest": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+      "size": 6,
       "annotations": {
-        "org.opencontainers.image.title": "foo.txt"
+        "org.opencontainers.image.title": "hello.txt"
       }
     },
     {
-      "mediaType": "application/vnd.custom.type",
-      "digest": "sha256:7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730",
-      "size": 4,
+      "mediaType": "application/vnd.custom.tar+gzip",
+      "digest": "sha256:b14fa80f5afd3822dce52a711566586c8f89e5dc211e4b0d2819f219b102fe7a",
+      "size": 164,
       "annotations": {
-        "org.opencontainers.image.title": "bar.txt"
+        "io.deis.oras.content.digest": "sha256:9d418a0549e5bc45d195aacec889d30e520b9f2bd9feab57d57de6d9cdd66172",
+        "io.deis.oras.content.unpack": "true",
+        "org.opencontainers.image.title": "mydir"
       }
     }
   ],
   "annotations": {
-    "org.opencontainers.image.created": "2025-01-23T10:57:27Z"
+    "org.opencontainers.image.created": "2025-03-07T08:34:23Z"
   }
 }
 ```
@@ -276,11 +307,11 @@ For the above example, the graph stored in the file store would be like this:
 graph TD;
 
 Manifest["Manifest<br>(in memory)"]--config-->Config["Config blob<br>(in memory)"]
-Manifest--layers-->Layer0["foo.txt<br>(on disk)"]
-Manifest--layers-->Layer1["bar.txt<br>(on disk)"]
+Manifest--layers-->Layer0["hello.txt<br>(on disk)"]
+Manifest--layers-->Layer1["mydir<br>(on disk)"]
 ```
 
-Unlike the OCI store, only named contents (e.g., `foo.txt` and `bar.txt`) are persisted in the file store, while all metadata are stored in memory.
+Unlike the OCI store, only named contents (e.g., `hello.txt` and `mydir`) are persisted in the file store, while all metadata are stored in memory.
 
 > [!IMPORTANT]
 > Once the file store is terminated, it cannot be restored to its original state from the file system.
@@ -299,13 +330,13 @@ Below is a mapping of major repository functions to their corresponding registry
 
 #### Manifest Store Mappings
 
-| Function Name  | API endpoint                                                                                                                                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Fetch`        | GET `/v2/<name>/manifests/<reference>`                                                                                                                                                                                    |
-| `Exists`       | HEAD `/v2/<name>/manifests/<reference>`                                                                                                                                                                                   |
-| `Push`         | PUT `/v2/<name>/manifests/<reference>`                                                                                                                                                                                    |
-| `Resolve`      | HEAD `/v2/<name>/manifests/<reference>`                                                                                                                                                                                   |
-| `Tag`          | PUT `/v2/<name>/manifests/<reference>`                                                                                                                                                                                    |
+| Function Name  | API endpoint                                                                                                         |
+| -------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `Fetch`        | GET `/v2/<name>/manifests/<reference>`                                                                               |
+| `Exists`       | HEAD `/v2/<name>/manifests/<reference>`                                                                              |
+| `Push`         | PUT `/v2/<name>/manifests/<reference>`                                                                               |
+| `Resolve`      | HEAD `/v2/<name>/manifests/<reference>`                                                                              |
+| `Tag`          | PUT `/v2/<name>/manifests/<reference>`                                                                               |
 | `Predecessors` | GET `/v2/<name>/referrers/<digest>?artifactType=<artifactType>`<br>Fallback to `Referrers Tag Schema` if unavailable |
 
 #### Blob Store Mappings
@@ -323,7 +354,7 @@ Below is a mapping of major repository functions to their corresponding registry
 | ---------------- | ---------------------------------------------------------------------------------- | ------------------------------ | --------------------------- | ------------------------------------------ |
 | Memory Store     | Stores everything in memory                                                        | No                             | Yes                         | Memory caching, testing                    |
 | OCI Store        | Stores content in OCI-Image layout on the file system                              | Yes                            | Yes                         | Local cache or copy of remote repositories |
-| File Store       | Stores location-addressable content on file system                                 | Partial (For named blobs only) | Yes                         | Packaging arbitrary files                   |
+| File Store       | Stores location-addressable content on file system                                 | Partial (For named blobs only) | Yes                         | Packaging arbitrary files                  |
 | Repository Store | Communicates with remote artifact repositories (e.g. `ghcr.io`, `docker.io`, etc.) | Yes                            | Partial (via Referrers API) | Accessing remote repositories              |
 
 ### How to choose the appropriate content store
