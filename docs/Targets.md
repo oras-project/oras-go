@@ -21,7 +21,7 @@ An example of a descriptor for an [OCI Image Manifest](https://github.com/openco
 
 ## Interfaces
 
-Based on the graph-modeling concepts and descriptors, the following major interfaces are defined in `oras-go` v2.
+`oras-go` v2 defines four major interfaces based on the graph-modeling concepts and descriptors: [`Storage`](#storage), [`GraphStorage`](#graphstorage), [`Target`](#target), and [`GraphTarget`](#graphtarget).
 
 ### Storage
 
@@ -61,14 +61,14 @@ M0--layers-->Blob2["Blob b2"]
 Blob3["Blob b3"]
 ```
 
-#### GraphStorage
+### GraphStorage
 
 The [`GraphStorage`](https://pkg.go.dev/oras.land/oras-go/v2/content#GraphStorage) interface extends [`Storage`](#storage) by adding support for predecessor finding. It provides the following functions:
 
 - `Fetch`
 - `Exists`
 - `Push`
-- **`Predecessors`**: Finds out the nodes directly pointing to a given node in the graph.
+- **`Predecessors`**: Finds the nodes directly pointing to a given node in the graph.
 
 For the [same graph](#storage), the `Predecessors` function would act as follows:
 
@@ -87,7 +87,7 @@ The [`Target`](https://pkg.go.dev/oras.land/oras-go/v2#Target) interface represe
 - **`Resolve`**: Resolves a tag string to a descriptor.
 - **`Tag`**: Associates a descriptor with a tag string.
 
-For example, consider a graph stored in a Target, where `m0` is associated with two tags, `"foo"` and `"bar"`:
+For example, consider a graph stored in a Target where `m0` is associated with two tags, `"foo"` and `"bar"`:
 
 ```mermaid
 graph TD;
@@ -122,7 +122,7 @@ TagBar>"Tag: bar"]-.->M0
 TagV1>"Tag: v1"]-.->M0
 ```
 
-#### GraphTarget
+### GraphTarget
 
 The [`GraphTarget`](https://pkg.go.dev/oras.land/oras-go/v2#GraphTarget) interface combines the capabilities of [`GraphStorage`](#graphstorage) and [`Target`](#target). It provides the following functions:
 
@@ -189,8 +189,9 @@ repo/
 
 In the layout:
 
-- All content, whether manifests or layer blobs, are all placed under the `blobs` directory. The path to each piece of content is determined by its digest.
-- The `index.json` file is an Image Index JSON object. It serves as the entry point for the graph and provides tagging functionality.
+- All content, whether manifests or layer blobs, are all placed under the `blobs` directory.
+- The path to each piece of content is determined by its digest.
+- The `index.json` file is an [Image Index](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md#index-example) JSON object. It serves as the entry point for the graph and provides tagging functionality.
 - The `ingest` directory is used temporarily during blob processing. It can be safely removed after the push operation and should be cleaned up before creating a tar archive of the OCI layout. This directory is not defined in the OCI specification. 
 - The `oci-layout` file is a marker of the base of the OCI Layout.
 
@@ -313,7 +314,7 @@ Manifest--layers-->Layer0["hello.txt<br>(on disk)"]
 Manifest--layers-->Layer1["mydir<br>(on disk)"]
 ```
 
-Unlike the OCI store, only named contents (e.g., `hello.txt` and `mydir`) are persisted on disk in the file store, while all metadata are stored in memory.
+Unlike the OCI store, the file store only persists named contents (e.g., `hello.txt` and `mydir`) on disk, while all metadata is stored in memory.
 
 > [!IMPORTANT]
 > Once the file store is terminated, it cannot be restored to its original state from the file system.
@@ -359,7 +360,7 @@ Below is a mapping of major repository functions to their corresponding registry
 | File Store       | Stores location-addressable content on file system                                 | Partial (For named blobs only) | Yes                         | Packaging arbitrary files                  |
 | Repository Store | Communicates with remote artifact repositories (e.g. `ghcr.io`, `docker.io`, etc.) | Yes                            | Partial (via Referrers API) | Accessing remote repositories              |
 
-### How to choose the appropriate content store
+### How to Choose the Appropriate Content Store
 
 ```mermaid
 flowchart TD;
