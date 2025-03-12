@@ -24,6 +24,16 @@ The version `2` is actively developed in the [`main`](https://github.com/oras-pr
 > [!Note]
 > The `main` branch follows [Go's Security Policy](https://github.com/golang/go/security/policy) and supports the two latest versions of Go (currently `1.23` and `1.24`).
 
+If you are seeking latest changes, you should use the [`main`](https://github.com/oras-project/oras-go/tree/main) branch (or a specific commit hash) over a tagged version when including the ORAS Go library in your project's `go.mod`.
+The Go Reference for the `main` branch is available [here](https://pkg.go.dev/oras.land/oras-go/v2@main).
+
+To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md).
+
+#### Documentation
+
+- [Project Documentation](./docs/README.md): Technical documentation for `oras-go` v2
+- [ORAS Website](https://oras.land/docs/Client_Libraries/go): Official ORAS website
+
 #### Usage Examples
 
 Common operations with ORAS Go:
@@ -32,11 +42,6 @@ Common operations with ORAS Go:
 - [Registry interaction examples](https://pkg.go.dev/oras.land/oras-go/v2/registry#pkg-examples)
 - [Repository interaction examples](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#pkg-examples)
 - [Authentication examples](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#pkg-examples)
-
-If you are seeking latest changes, you should use the [`main`](https://github.com/oras-project/oras-go/tree/main) branch (or a specific commit hash) over a tagged version when including the ORAS Go library in your project's `go.mod`.
-The Go Reference for the `main` branch is available [here](https://pkg.go.dev/oras.land/oras-go/v2@main).
-
-To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md).
 
 ### v1: mantainance only
 
@@ -51,11 +56,6 @@ All `v1.*` releases are based upon this branch.
 
 Since `v1` is in a maintenance state, you are highly encouraged
 to use releases with major version `2` for new features.
-
-## Documentation
-
-- [Project Documentation](./docs/README.md): Technical documentation for `oras-go` v2
-- [ORAS Website](https://oras.land/docs/Client_Libraries/go): Official ORAS website
 
 ## Community
 
