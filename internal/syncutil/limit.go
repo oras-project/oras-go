@@ -63,18 +63,26 @@ func (lr *LimitedRegion) End() {
 	lr.ended = true
 }
 
+type goErr struct {
+	error
+}
+
+var emptyGoErr goErr
+
 // GoFunc represents a function that can be invoked by Go.
 type GoFunc[T any] func(ctx context.Context, region *LimitedRegion, t T) error
 
 // Go concurrently invokes fn on items.
 func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], items ...T) error {
 	eg, egCtx := errgroup.WithContext(ctx)
-	var egErr atomic.Value
+	var firstErr atomic.Value
+	firstErr.Store(emptyGoErr)
+
 	for _, item := range items {
 		region := LimitRegion(egCtx, limiter)
 		if err := region.Start(); err != nil {
-			if egErr, ok := egErr.Load().(error); ok && egErr != nil {
-				return egErr
+			if egErr, ok := firstErr.Load().(goErr); ok && egErr.error != nil {
+				return egErr.error
 			}
 			return err
 		}
@@ -83,7 +91,7 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 				defer region.End()
 				err := fn(egCtx, region, t)
 				if err != nil {
-					egErr.CompareAndSwap(nil, err)
+					firstErr.CompareAndSwap(nil, goErr{error: err})
 					return err
 				}
 				return nil
