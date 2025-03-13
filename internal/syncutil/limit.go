@@ -90,6 +90,8 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 			return func() error {
 				defer region.End()
 				err := fn(egCtx, region, t)
+				// TODO: remove egErr
+				// TODO: need to cancel egCtx before releasing (region.End)
 				if err != nil {
 					firstErr.CompareAndSwap(nil, goErr{error: err})
 					return err
