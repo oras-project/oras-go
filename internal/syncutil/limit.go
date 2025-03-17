@@ -17,7 +17,6 @@ package syncutil
 
 import (
 	"context"
-	"sync/atomic"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
@@ -35,6 +34,7 @@ func LimitRegion(ctx context.Context, limiter *semaphore.Weighted) *LimitedRegio
 	if limiter == nil {
 		return nil
 	}
+	// initially marked as ended (i.e. not running)
 	return &LimitedRegion{
 		ctx:     ctx,
 		limiter: limiter,
@@ -68,29 +68,31 @@ type GoFunc[T any] func(ctx context.Context, region *LimitedRegion, t T) error
 
 // Go concurrently invokes fn on items.
 func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], items ...T) error {
+	// Create an explicit cancelable context so we can trigger cancellation immediately on error.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	eg, egCtx := errgroup.WithContext(ctx)
-	var egErr atomic.Value
+
 	for _, item := range items {
 		region := LimitRegion(egCtx, limiter)
 		if err := region.Start(); err != nil {
-			if egErr, ok := egErr.Load().(error); ok && egErr != nil {
-				return egErr
-			}
 			return err
 		}
-		eg.Go(func(t T) func() error {
+
+		// Capture the current item and region before launching the goroutine.
+		eg.Go(func(t T, reg *LimitedRegion) func() error {
 			return func() error {
-				defer region.End()
-				err := fn(egCtx, region, t)
-				// TODO: remove egErr
-				// TODO: need to cancel egCtx before releasing (region.End)
-				if err != nil {
-					egErr.CompareAndSwap(nil, err)
+				// When done (or upon error), release the semaphore permit.
+				defer reg.End()
+				if err := fn(egCtx, reg, t); err != nil {
+					// Cancel the context immediately so that other goroutines notice the failure.
+					cancel()
 					return err
 				}
 				return nil
 			}
-		}(item))
+		}(item, region))
 	}
 	return eg.Wait()
 }
