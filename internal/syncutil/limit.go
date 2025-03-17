@@ -67,11 +67,8 @@ func (lr *LimitedRegion) End() {
 type GoFunc[T any] func(ctx context.Context, region *LimitedRegion, t T) error
 
 // Go concurrently invokes fn on items.
-// It records the first “real” error (via sync.Once) and cancels the context.
-// Tasks that see cancellation before running f() return nil, so that Wait()
-// eventually returns your recorded error (if any).
 func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], items ...T) error {
-	// Create an explicit cancelable context.
+	// create an explicit cancelable context.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
