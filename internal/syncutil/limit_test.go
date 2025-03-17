@@ -25,17 +25,13 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// TestLimitedRegionAllSuccess verifies that when no errors occur, all goroutines run to completion
-// and the semaphore is properly released.
-func TestLimitedRegionAllSuccess(t *testing.T) {
-	// Create a semaphore with capacity 2.
-	sem := semaphore.NewWeighted(2)
+func TestLimitedRegion_Success(t *testing.T) {
+	limiter := semaphore.NewWeighted(2)
 	ctx := context.Background()
 	var counter int32
 
-	// Use numbers 1..5; our dummy function just sleeps a little and increments counter.
-	err := Go(ctx, sem, func(ctx context.Context, region *LimitedRegion, i int) error {
-		// Simulate work.
+	err := Go(ctx, limiter, func(ctx context.Context, region *LimitedRegion, i int) error {
+		// just sleeps a little and increments counter to simulate task
 		time.Sleep(10 * time.Millisecond)
 		atomic.AddInt32(&counter, 1)
 		return nil
@@ -45,56 +41,48 @@ func TestLimitedRegionAllSuccess(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	// After everything finishes, we expect counter to be 5.
-	if atomic.LoadInt32(&counter) != 5 {
-		t.Errorf("expected counter==5, got %d", counter)
+	// after everything finishes, we expect counter to be 5
+	if want := 5; atomic.LoadInt32(&counter) != int32(want) {
+		t.Errorf("expected counter == %v, got %v", want, counter)
 	}
 
-	// When all work is done the semaphore should have all permits available.
-	// Try acquiring the full weight—if the permits weren't all released,
-	// TryAcquire would return false.
-	if !sem.TryAcquire(2) {
+	// when all work is done the semaphore should have all permits available
+	if !limiter.TryAcquire(2) {
 		t.Error("semaphore permits were not fully released at the end")
 	}
-	// Release the permits we just acquired.
-	sem.Release(2)
+	limiter.Release(2)
 }
 
-// TestLimitedRegionCancellation verifies that if an early error occurs,
-// the overall Go call returns the original error (instead of just context.Canceled)
-// and semaphore permits are released.
-func TestLimitedRegionCancellation(t *testing.T) {
-	sem := semaphore.NewWeighted(2)
+func TestLimitedRegion_Cancellation(t *testing.T) {
+	limiter := semaphore.NewWeighted(2)
 	ctx := context.Background()
 	var counter int32
 
-	// We choose a special item (e.g. value 42) to trigger an error.
-	errTest := errors.New("intentional error")
-	err := Go(ctx, sem, func(ctx context.Context, region *LimitedRegion, i int) error {
-		if i == 42 {
+	errTest := errors.New("test error")
+	err := Go(ctx, limiter, func(ctx context.Context, region *LimitedRegion, i int) error {
+		if i < 0 {
+			// trigger an error on negative values
 			return errTest
 		}
+		// just sleeps a little and increments counter to simulate task
 		time.Sleep(50 * time.Millisecond)
 		atomic.AddInt32(&counter, 1)
 		return nil
-	}, 1, 42, 3, 4)
+	}, 1, -1, 2, 0, -2)
 
-	// We expect the first error to be errTest.
-	if err == nil {
-		t.Fatal("expected an error, but got nil")
-	}
+	// we expect the first error to be errTest.
 	if !errors.Is(err, errTest) {
 		t.Fatalf("expected error %v; got %v", errTest, err)
 	}
 
-	// After everything finishes, we expect counter to be smaller than 4.
-	if atomic.LoadInt32(&counter) >= 4 {
-		t.Errorf("expected counter < 4, got %d", counter)
+	// after everything finishes, we expect counter to be smaller than 5.
+	if max := 5; atomic.LoadInt32(&counter) >= int32(max) {
+		t.Errorf("expected counter < %v, got %v", max, counter)
 	}
 
-	// Ensure that the semaphore is fully released.
-	if !sem.TryAcquire(2) {
+	// when all work is done the semaphore should have all permits available
+	if !limiter.TryAcquire(2) {
 		t.Error("semaphore permit was not released after error cancellation")
 	}
-	sem.Release(2)
+	limiter.Release(2)
 }

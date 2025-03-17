@@ -82,30 +82,30 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 				// record the first error occurred
 				firstErr = err
 			})
-			// when error occurs, cancel other tasks
+			// when an error occurs, cancel other tasks
 			cancel()
 			// continue loop instead of returning to allow already scheduled
-			// goroutines to finish their deferred reg.End() calls
+			// goroutines to finish their deferred region.End() calls
 			continue
 		}
 
-		eg.Go(func(t T, reg *LimitedRegion) func() error {
+		eg.Go(func(t T, lr *LimitedRegion) func() error {
 			return func() error {
-				defer reg.End()
+				defer lr.End()
 
 				select {
 				case <-egCtx.Done():
-					// skip the task if the context is already canceled
+					// skip the task if the context is already cancelled
 					return nil
 				default:
 				}
 
-				if err := fn(egCtx, reg, t); err != nil {
+				if err := fn(egCtx, lr, t); err != nil {
 					once.Do(func() {
 						// record the first error occurred
 						firstErr = err
 					})
-					// when error occurs, cancel other tasks
+					// when an error occurs, cancel other tasks
 					cancel()
 					return err
 				}

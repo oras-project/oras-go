@@ -38,9 +38,7 @@ type LimitedGroup struct {
 // first.
 func LimitGroup(ctx context.Context, limit int) (*LimitedGroup, context.Context) {
 	grp, ctx := errgroup.WithContext(ctx)
-	if limit > 0 {
-		grp.SetLimit(limit)
-	}
+	grp.SetLimit(limit)
 	return &LimitedGroup{grp: grp, ctx: ctx}, ctx
 }
 
@@ -57,7 +55,6 @@ func (g *LimitedGroup) Go(f func() error) {
 		case <-g.ctx.Done():
 			return g.ctx.Err()
 		default:
-			// f() needs to check if the context is cancelled by itself?
 			return f()
 		}
 	})

@@ -23,8 +23,7 @@ import (
 	"time"
 )
 
-// TestLimitedGroupSuccess verifies that all functions complete without error.
-func TestLimitedGroupSuccess(t *testing.T) {
+func TestLimitedGroup_Success(t *testing.T) {
 	ctx := context.Background()
 	numTasks := 5
 
@@ -32,10 +31,9 @@ func TestLimitedGroupSuccess(t *testing.T) {
 	lg, _ := LimitGroup(ctx, 2)
 	var counter int32
 
-	for i := 0; i < numTasks; i++ {
-		// Capture i if needed.
+	for range numTasks {
 		lg.Go(func() error {
-			// Simulate some work.
+			// simulate some work.
 			time.Sleep(10 * time.Millisecond)
 			atomic.AddInt32(&counter, 1)
 			return nil
@@ -51,25 +49,22 @@ func TestLimitedGroupSuccess(t *testing.T) {
 	}
 }
 
-// TestLimitedGroupError confirms that if one task returns an error,
-// the act of canceling prevents further work and that Wait returns the original error.
-func TestLimitedGroupError(t *testing.T) {
+func TestLimitedGroup_Error(t *testing.T) {
 	ctx := context.Background()
 	lg, _ := LimitGroup(ctx, 2)
-	errTest := errors.New("intentional error")
+	errTest := errors.New("test error")
 	var executed int32
 
-	// This task will eventually return an error.
 	lg.Go(func() error {
-		// Delay a bit so that other tasks are scheduled.
+		// delay a bit so that other tasks are scheduled.
 		time.Sleep(20 * time.Millisecond)
 		atomic.AddInt32(&executed, 1)
 		return errTest
 	})
 
-	// This task simulates a slower, normal task.
+	// simulates a slower, normal task.
 	lg.Go(func() error {
-		// Wait until cancellation is (hopefully) in effect.
+		// wait until cancellation is (hopefully) in effect.
 		time.Sleep(50 * time.Millisecond)
 		atomic.AddInt32(&executed, 1)
 		return nil
@@ -80,26 +75,23 @@ func TestLimitedGroupError(t *testing.T) {
 		t.Fatalf("expected error %v, got %v", errTest, err)
 	}
 
-	// Since execution stops as soon as an error is encountered,
-	// it's possible that the second task never does its work.
 	if atomic.LoadInt32(&executed) < 1 {
 		t.Errorf("expected at least one task executed, got %d", executed)
 	}
 }
 
-// TestLimitedGroupLimit verifies that the concurrency limit is respected.
-func TestLimitedGroupLimit(t *testing.T) {
+func TestLimitedGroup_Limit(t *testing.T) {
 	ctx := context.Background()
 	limit := 2
 	lg, _ := LimitGroup(ctx, limit)
 	var concurrent, maxConcurrent int32
 	numTasks := 10
 
-	for i := 0; i < numTasks; i++ {
+	for range numTasks {
 		lg.Go(func() error {
-			// Increment the count of concurrently active tasks.
+			// increment the count of concurrently active tasks.
 			cur := atomic.AddInt32(&concurrent, 1)
-			// Update the max concurrent tasks if needed.
+			// update the max concurrent tasks if needed.
 			for {
 				prevMax := atomic.LoadInt32(&maxConcurrent)
 				if cur > prevMax {
@@ -111,7 +103,7 @@ func TestLimitedGroupLimit(t *testing.T) {
 				}
 			}
 
-			// Simulate a short task.
+			// simulate a short task.
 			time.Sleep(20 * time.Millisecond)
 			atomic.AddInt32(&concurrent, -1)
 			return nil
