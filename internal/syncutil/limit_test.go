@@ -46,26 +46,25 @@ func TestLimitedRegionAllSuccess(t *testing.T) {
 }
 
 // TestLimitedRegionCancellation verifies that if an early error occurs,
-// (a) the overall Go call returns the error and (b) semaphore permits are released.
+// the overall Go call returns the original error (instead of just context.Canceled)
+// and semaphore permits are released.
 func TestLimitedRegionCancellation(t *testing.T) {
 	sem := semaphore.NewWeighted(2)
 	ctx := context.Background()
 	var counter int32
 
-	// We choose a special item (e.g. value 42) to trigger error.
+	// We choose a special item (e.g. value 42) to trigger an error.
 	errTest := errors.New("intentional error")
 	err := Go(ctx, sem, func(ctx context.Context, region *LimitedRegion, i int) error {
-		// If we see the trigger value, return an error immediately.
 		if i == 42 {
 			return errTest
 		}
-		// Otherwise, simulate some work that takes time.
 		time.Sleep(50 * time.Millisecond)
 		atomic.AddInt32(&counter, 1)
 		return nil
 	}, 1, 42, 3, 4)
 
-	// In our design the first error should cancel work and be returned.
+	// We expect the first error to be errTest.
 	if err == nil {
 		t.Fatal("expected an error, but got nil")
 	}
@@ -73,8 +72,12 @@ func TestLimitedRegionCancellation(t *testing.T) {
 		t.Fatalf("expected error %v; got %v", errTest, err)
 	}
 
-	// Some of the non-error tasks may have been short-circuited.
-	// Regardless, once Go returns the semaphore should be fully released.
+	// After everything finishes, we expect counter to be smaller than 4.
+	if atomic.LoadInt32(&counter) >= 4 {
+		t.Errorf("expected counter < 4, got %d", counter)
+	}
+
+	// Ensure that the semaphore is fully released.
 	if !sem.TryAcquire(2) {
 		t.Error("semaphore permit was not released after error cancellation")
 	}

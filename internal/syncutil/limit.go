@@ -17,6 +17,7 @@ package syncutil
 
 import (
 	"context"
+	"sync"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
@@ -34,7 +35,6 @@ func LimitRegion(ctx context.Context, limiter *semaphore.Weighted) *LimitedRegio
 	if limiter == nil {
 		return nil
 	}
-	// initially marked as ended (i.e. not running)
 	return &LimitedRegion{
 		ctx:     ctx,
 		limiter: limiter,
@@ -67,26 +67,51 @@ func (lr *LimitedRegion) End() {
 type GoFunc[T any] func(ctx context.Context, region *LimitedRegion, t T) error
 
 // Go concurrently invokes fn on items.
+// It records the first “real” error (via sync.Once) and cancels the context.
+// Tasks that see cancellation before running f() return nil, so that Wait()
+// eventually returns your recorded error (if any).
 func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], items ...T) error {
-	// Create an explicit cancelable context so we can trigger cancellation immediately on error.
+	// Create an explicit cancelable context.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	eg, egCtx := errgroup.WithContext(ctx)
+	var once sync.Once
+	var firstErr error
 
 	for _, item := range items {
 		region := LimitRegion(egCtx, limiter)
 		if err := region.Start(); err != nil {
-			return err
+			once.Do(func() {
+				firstErr = err
+			})
+			// Cancel other work and skip scheduling this task.
+			cancel()
+			// Instead of returning immediately, continue so that all previously
+			// scheduled goroutines can run their deferred reg.End() calls.
+			continue
 		}
 
-		// Capture the current item and region before launching the goroutine.
+		// Capture item and region so the closure gets its own copy.
 		eg.Go(func(t T, reg *LimitedRegion) func() error {
 			return func() error {
-				// When done (or upon error), release the semaphore permit.
+				// Always ensure the acquired permit is released.
 				defer reg.End()
+
+				// If the context is already canceled (by a previous error),
+				// skip executing fn() to avoid returning context.Canceled.
+				select {
+				case <-egCtx.Done():
+					return nil
+				default:
+				}
+
+				// Call the provided function.
 				if err := fn(egCtx, reg, t); err != nil {
-					// Cancel the context immediately so that other goroutines notice the failure.
+					once.Do(func() {
+						firstErr = err
+					})
+					// Cancel other goroutines.
 					cancel()
 					return err
 				}
@@ -94,5 +119,12 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 			}
 		}(item, region))
 	}
-	return eg.Wait()
+
+	if err := eg.Wait(); err != nil {
+		if firstErr != nil {
+			return firstErr
+		}
+		return err
+	}
+	return nil
 }
