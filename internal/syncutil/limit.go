@@ -68,7 +68,6 @@ type GoFunc[T any] func(ctx context.Context, region *LimitedRegion, t T) error
 
 // Go concurrently invokes fn on items.
 func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], items ...T) error {
-	// create an explicit cancelable context.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -80,35 +79,33 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 		region := LimitRegion(egCtx, limiter)
 		if err := region.Start(); err != nil {
 			once.Do(func() {
+				// record the first error occurred
 				firstErr = err
 			})
-			// Cancel other work and skip scheduling this task.
+			// when error occurs, cancel other tasks
 			cancel()
-			// Instead of returning immediately, continue so that all previously
-			// scheduled goroutines can run their deferred reg.End() calls.
+			// continue loop instead of returning to allow already scheduled
+			// goroutines to finish their deferred reg.End() calls
 			continue
 		}
 
-		// Capture item and region so the closure gets its own copy.
 		eg.Go(func(t T, reg *LimitedRegion) func() error {
 			return func() error {
-				// Always ensure the acquired permit is released.
 				defer reg.End()
 
-				// If the context is already canceled (by a previous error),
-				// skip executing fn() to avoid returning context.Canceled.
 				select {
 				case <-egCtx.Done():
+					// skip the task if the context is already canceled
 					return nil
 				default:
 				}
 
-				// Call the provided function.
 				if err := fn(egCtx, reg, t); err != nil {
 					once.Do(func() {
+						// record the first error occurred
 						firstErr = err
 					})
-					// Cancel other goroutines.
+					// when error occurs, cancel other tasks
 					cancel()
 					return err
 				}
