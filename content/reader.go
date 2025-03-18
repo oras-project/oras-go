@@ -22,6 +22,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/errdef"
 )
 
 var (
@@ -98,22 +99,22 @@ func (vr *VerifyReader) Verify() error {
 }
 
 // NewVerifyReader wraps r for reading content with verification against desc.
+// If the digest is invalid or unsupported, the method will panic.
+//
+// Deprecated: NewVerifyReader is deprecated and should not be used.
+// Use [NewVerifyReader] instead, which validates desc.Digest before use.
 func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
-	verifier := desc.Digest.Verifier()
-	lr := &io.LimitedReader{
-		R: io.TeeReader(r, verifier),
-		N: desc.Size,
+	vr, err := NewVerifyReaderSafe(r, desc)
+	if err != nil {
+		panic(err)
 	}
-	return &VerifyReader{
-		base:     lr,
-		verifier: verifier,
-	}
+	return vr
 }
 
-// NewVerifyReader wraps r for reading content with verification against desc.
+// NewVerifyReaderSafe wraps r for reading content with verification against desc.
 func NewVerifyReaderSafe(r io.Reader, desc ocispec.Descriptor) (*VerifyReader, error) {
 	if err := desc.Digest.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", errdef.ErrInvalidDigest, err)
 	}
 	verifier := desc.Digest.Verifier()
 	lr := &io.LimitedReader{
@@ -135,7 +136,10 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	}
 	buf := make([]byte, desc.Size)
 
-	vr := NewVerifyReader(r, desc)
+	vr, err := NewVerifyReaderSafe(r, desc)
+	if err != nil {
+		return nil, err
+	}
 	if n, err := io.ReadFull(vr, buf); err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) {
 			return nil, fmt.Errorf("read failed: expected content size of %d, got %d, for digest %s: %w", desc.Size, n, desc.Digest.String(), err)

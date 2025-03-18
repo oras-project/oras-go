@@ -37,7 +37,10 @@ func (fn CloserFunc) Close() error {
 // The copied content is verified against the size and the digest.
 func CopyBuffer(dst io.Writer, src io.Reader, buf []byte, desc ocispec.Descriptor) error {
 	// verify while copying
-	vr := content.NewVerifyReader(src, desc)
+	vr, err := content.NewVerifyReaderSafe(src, desc)
+	if err != nil {
+		return fmt.Errorf("unable to create verify reader: %w", err)
+	}
 	if _, err := io.CopyBuffer(dst, vr, buf); err != nil {
 		return fmt.Errorf("copy failed: %w", err)
 	}

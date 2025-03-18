@@ -24,6 +24,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/errdef"
 )
 
 func TestVerifyReader_Read(t *testing.T) {
@@ -188,13 +189,27 @@ func TestReadAll_ReadSizeLargerThanDescriptorSize(t *testing.T) {
 	}
 }
 
-func TestReadAll_InvalidDigest(t *testing.T) {
+func TestReadAll_MismatchedDigest(t *testing.T) {
 	content := []byte("example content")
 	desc := NewDescriptorFromBytes("test", []byte("another content"))
 	r := bytes.NewReader([]byte(content))
 	_, err := ReadAll(r, desc)
 	if err == nil || !errors.Is(err, ErrMismatchedDigest) {
 		t.Errorf("ReadAll() error = %v, want %v", err, ErrMismatchedDigest)
+	}
+}
+
+func TestReadAll_InvalidDigest(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    "invalid-digest",
+		Size:      int64(len(content)),
+	}
+	r := bytes.NewReader([]byte(content))
+	_, err := ReadAll(r, desc)
+	if !errors.Is(err, errdef.ErrInvalidDigest) {
+		t.Errorf("ReadAll() error = %v, want %v", err, errdef.ErrInvalidDigest)
 	}
 }
 
@@ -222,5 +237,19 @@ func TestReadAll_InvalidDescriptorSize(t *testing.T) {
 	_, err := ReadAll(r, desc)
 	if err == nil || !errors.Is(err, ErrInvalidDescriptorSize) {
 		t.Errorf("ReadAll() error = %v, want %v", err, ErrInvalidDescriptorSize)
+	}
+}
+
+func TestNewVerifyReaderSafe_InvalidDigest(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    "invalid-digest",
+		Size:      int64(len(content)),
+	}
+
+	_, err := NewVerifyReaderSafe(bytes.NewReader(content), desc)
+	if !errors.Is(err, errdef.ErrInvalidDigest) {
+		t.Errorf("NewVerifyReaderSafe() error = %v, want %v", err, errdef.ErrInvalidDigest)
 	}
 }
