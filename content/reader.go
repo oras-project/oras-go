@@ -110,6 +110,22 @@ func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
 	}
 }
 
+// NewVerifyReader wraps r for reading content with verification against desc.
+func NewVerifyReaderSafe(r io.Reader, desc ocispec.Descriptor) (*VerifyReader, error) {
+	if err := desc.Digest.Validate(); err != nil {
+		return nil, err
+	}
+	verifier := desc.Digest.Verifier()
+	lr := &io.LimitedReader{
+		R: io.TeeReader(r, verifier),
+		N: desc.Size,
+	}
+	return &VerifyReader{
+		base:     lr,
+		verifier: verifier,
+	}, nil
+}
+
 // ReadAll safely reads the content described by the descriptor.
 // The read content is verified against the size and the digest
 // using a VerifyReader.
