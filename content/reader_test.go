@@ -27,6 +27,8 @@ import (
 	"oras.land/oras-go/v2/errdef"
 )
 
+// TODO: test safer reader
+
 func TestVerifyReader_Read(t *testing.T) {
 	// matched content and descriptor with small buffer
 	content := []byte("example content")

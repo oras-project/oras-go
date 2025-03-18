@@ -105,6 +105,7 @@ func (e *ReferrersError) IsReferrersIndexDelete() bool {
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#unavailable-referrers-api
 func buildReferrersTag(desc ocispec.Descriptor) string {
 	// TODO: what if desc.Digest is not a valid digest?
+	// TODO: fix panic
 	alg := desc.Digest.Algorithm().String()
 	encoded := desc.Digest.Encoded()
 	return alg + "-" + encoded

@@ -61,6 +61,29 @@ func Test_buildReferrersTag(t *testing.T) {
 	}
 }
 
+func Test_buildReferrersTag_Bad(t *testing.T) {
+	tests := []struct {
+		name string
+		desc ocispec.Descriptor
+		want string
+	}{
+		{
+			name: "zero digest",
+			desc: ocispec.Descriptor{
+				Digest: "invalid-digest",
+			},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildReferrersTag(tt.desc); got != tt.want {
+				t.Errorf("getReferrersTag() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_isReferrersFilterApplied(t *testing.T) {
 	tests := []struct {
 		name      string
