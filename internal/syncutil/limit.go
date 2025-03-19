@@ -84,9 +84,9 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 			})
 			// when an error occurs, cancel other tasks
 			cancel()
-			// continue loop instead of returning to allow already scheduled
+			// break loop instead of returning to allow already scheduled
 			// goroutines to finish their deferred region.End() calls
-			continue
+			break
 		}
 
 		eg.Go(func(t T, lr *LimitedRegion) func() error {
