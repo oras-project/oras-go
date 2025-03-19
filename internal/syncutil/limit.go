@@ -100,9 +100,8 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 		}(item, region))
 	}
 
-	egErr := eg.Wait()
-	if causeErr := context.Cause(ctx); causeErr != nil {
-		return causeErr
+	if err := eg.Wait(); err != nil {
+		cancel(err)
 	}
-	return egErr
+	return context.Cause(ctx)
 }
