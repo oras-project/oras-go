@@ -70,7 +70,7 @@ func TestLimitedRegion_Cancellation(t *testing.T) {
 		return nil
 	}, 1, -1, 2, 0, -2)
 
-	// we expect the first error to be errTest.
+	// we expect the returned error to be errTest.
 	if !errors.Is(err, errTest) {
 		t.Fatalf("expected error %v; got %v", errTest, err)
 	}
