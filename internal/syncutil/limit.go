@@ -71,7 +71,7 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// record the first occurred error only
+	// capture the first error occurred
 	var once sync.Once
 	var firstErr error
 	cancelWithErr := func(err error) {
@@ -86,7 +86,7 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 		region := LimitRegion(egCtx, limiter)
 		if err := region.Start(); err != nil {
 			cancelWithErr(err)
-			// break loop instead of returning to allow already scheduled
+			// break loop instead of returning to allow previously scheduled
 			// goroutines to finish their deferred region.End() calls
 			break
 		}
@@ -111,6 +111,7 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 		}(item, region))
 	}
 
+	// return the first meaningful error, avoiding "context cancelled"
 	egErr := eg.Wait()
 	if firstErr != nil {
 		return firstErr
