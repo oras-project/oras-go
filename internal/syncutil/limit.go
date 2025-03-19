@@ -17,7 +17,6 @@ package syncutil
 
 import (
 	"context"
-	"sync"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
@@ -68,24 +67,14 @@ type GoFunc[T any] func(ctx context.Context, region *LimitedRegion, t T) error
 
 // Go concurrently invokes fn on items.
 func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], items ...T) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// capture the first error occurred
-	var once sync.Once
-	var firstErr error
-	cancelWithErr := func(err error) {
-		once.Do(func() {
-			firstErr = err
-		})
-		cancel()
-	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	for _, item := range items {
 		region := LimitRegion(egCtx, limiter)
 		if err := region.Start(); err != nil {
-			cancelWithErr(err)
+			cancel(err)
 			// break loop instead of returning to allow previously scheduled
 			// goroutines to finish their deferred region.End() calls
 			break
@@ -103,7 +92,7 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 				}
 
 				if err := fn(egCtx, lr, t); err != nil {
-					cancelWithErr(err)
+					cancel(err)
 					return err
 				}
 				return nil
@@ -111,10 +100,9 @@ func Go[T any](ctx context.Context, limiter *semaphore.Weighted, fn GoFunc[T], i
 		}(item, region))
 	}
 
-	// return the first meaningful error, avoiding "context cancelled"
 	egErr := eg.Wait()
-	if firstErr != nil {
-		return firstErr
+	if causeErr := context.Cause(ctx); causeErr != nil {
+		return causeErr
 	}
 	return egErr
 }
