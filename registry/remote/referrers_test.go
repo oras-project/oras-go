@@ -61,6 +61,13 @@ func Test_buildReferrersTag(t *testing.T) {
 			},
 			wantErr: errdef.ErrInvalidDigest,
 		},
+		{
+			name: "unregistred algorithm",
+			desc: ocispec.Descriptor{
+				Digest: "blake3:28960eef7d587ab6d1627b7efe30c7a07ce2dce4871d339fdfb607cb0776e064",
+			},
+			wantErr: errdef.ErrInvalidDigest,
+		},
 		// TODO: unsupported algorithms
 	}
 	for _, tt := range tests {

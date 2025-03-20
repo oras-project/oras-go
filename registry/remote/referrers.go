@@ -107,6 +107,7 @@ func (e *ReferrersError) IsReferrersIndexDelete() bool {
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#unavailable-referrers-api
 func buildReferrersTag(desc ocispec.Descriptor) (string, error) {
 	if err := desc.Digest.Validate(); err != nil {
+		// TODO: do not wrap the error?
 		return "", fmt.Errorf("failed to build referrers tag for %s: %w: %v", desc.Digest, errdef.ErrInvalidDigest, err)
 	}
 	alg := desc.Digest.Algorithm().String()
