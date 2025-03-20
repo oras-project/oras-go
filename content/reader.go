@@ -98,15 +98,14 @@ func (vr *VerifyReader) Verify() error {
 }
 
 // NewVerifyReader wraps r for reading content with verification against desc.
-// If the digest is invalid or unsupported, the method will panic.
+//
+// IMPORTANT: Ensure desc.Digest is valid before using this function.
+// If the digest is invalid, this function returns nil.
 //
 // Deprecated: NewVerifyReader is deprecated and should not be used.
-// Use [NewVerifyReader] instead, which validates desc.Digest before use.
+// Use [NewVerifyReaderSafe] instead, which validates desc.Digest before use.
 func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
-	vr, err := NewVerifyReaderSafe(r, desc)
-	if err != nil {
-		panic(err)
-	}
+	vr, _ := NewVerifyReaderSafe(r, desc)
 	return vr
 }
 
