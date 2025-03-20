@@ -100,7 +100,7 @@ func (vr *VerifyReader) Verify() error {
 // NewVerifyReader wraps r for reading content with verification against desc.
 //
 // IMPORTANT: Ensure desc.Digest is valid before using this function.
-// If the digest is invalid, this function returns nil.
+// If the digest is invalid (or unsupported), this function will return nil.
 //
 // Deprecated: NewVerifyReader is deprecated and should not be used.
 // Use [NewVerifyReaderSafe] instead, which validates desc.Digest before use.
