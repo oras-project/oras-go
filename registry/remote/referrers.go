@@ -17,10 +17,12 @@ package remote
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
 )
 
@@ -103,12 +105,13 @@ func (e *ReferrersError) IsReferrersIndexDelete() bool {
 // buildReferrersTag builds the referrers tag for the given manifest descriptor.
 // Format: <algorithm>-<digest>
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#unavailable-referrers-api
-func buildReferrersTag(desc ocispec.Descriptor) string {
-	// TODO: what if desc.Digest is not a valid digest?
-	// TODO: fix panic
+func buildReferrersTag(desc ocispec.Descriptor) (string, error) {
+	if err := desc.Digest.Validate(); err != nil {
+		return "", fmt.Errorf("failed to build referrers tag for %s: %w: %v", desc.Digest, errdef.ErrInvalidDigest, err)
+	}
 	alg := desc.Digest.Algorithm().String()
 	encoded := desc.Digest.Encoded()
-	return alg + "-" + encoded
+	return alg + "-" + encoded, nil
 }
 
 // isReferrersFilterApplied checks if requsted is in the applied filter list.
