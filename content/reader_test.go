@@ -17,6 +17,7 @@ package content
 
 import (
 	"bytes"
+	"crypto/sha1"
 	_ "crypto/sha256"
 	"errors"
 	"io"
@@ -210,8 +211,24 @@ func TestReadAll_InvalidDigest(t *testing.T) {
 	}
 	r := bytes.NewReader([]byte(content))
 	_, err := ReadAll(r, desc)
-	if !errors.Is(err, errdef.ErrInvalidDigest) {
-		t.Errorf("ReadAll() error = %v, want %v", err, errdef.ErrInvalidDigest)
+	if wantErr := digest.ErrDigestInvalidFormat; !errors.Is(err, wantErr) {
+		t.Errorf("ReadAll() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestReadAll_UnsupportedAlgorithm_SHA1(t *testing.T) {
+	content := []byte("example content")
+	h := sha1.New()
+	h.Write(content)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.NewDigestFromBytes("sha1", h.Sum(nil)),
+		Size:      int64(len(content)),
+	}
+	r := bytes.NewReader([]byte(content))
+	_, err := ReadAll(r, desc)
+	if wantErr := digest.ErrDigestUnsupported; !errors.Is(err, wantErr) {
+		t.Errorf("ReadAll() error = %v, want %v", err, wantErr)
 	}
 }
 

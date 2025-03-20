@@ -22,7 +22,6 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/descriptor"
 )
 
@@ -107,8 +106,7 @@ func (e *ReferrersError) IsReferrersIndexDelete() bool {
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#unavailable-referrers-api
 func buildReferrersTag(desc ocispec.Descriptor) (string, error) {
 	if err := desc.Digest.Validate(); err != nil {
-		// TODO: do not wrap the error?
-		return "", fmt.Errorf("failed to build referrers tag for %s: %w: %v", desc.Digest, errdef.ErrInvalidDigest, err)
+		return "", fmt.Errorf("failed to build referrers tag for %s: %w", desc.Digest, err)
 	}
 	alg := desc.Digest.Algorithm().String()
 	encoded := desc.Digest.Encoded()

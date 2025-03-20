@@ -22,7 +22,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/errdef"
 )
 
 var (
@@ -114,7 +113,7 @@ func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
 // NewVerifyReaderSafe wraps r for reading content with verification against desc.
 func NewVerifyReaderSafe(r io.Reader, desc ocispec.Descriptor) (*VerifyReader, error) {
 	if err := desc.Digest.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %v", errdef.ErrInvalidDigest, err)
+		return nil, fmt.Errorf("failed to validate %s: %w", desc.Digest, err)
 	}
 	verifier := desc.Digest.Verifier()
 	lr := &io.LimitedReader{

@@ -22,7 +22,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/internal/spec"
 )
 
@@ -59,16 +58,15 @@ func Test_buildReferrersTag(t *testing.T) {
 			desc: ocispec.Descriptor{
 				Digest: "invalid-digest",
 			},
-			wantErr: errdef.ErrInvalidDigest,
+			wantErr: digest.ErrDigestInvalidFormat,
 		},
 		{
-			name: "unregistred algorithm",
+			name: "unregistred algorithm: sha1",
 			desc: ocispec.Descriptor{
-				Digest: "blake3:28960eef7d587ab6d1627b7efe30c7a07ce2dce4871d339fdfb607cb0776e064",
+				Digest: "sha1:0ff30941ca5acd879fd809e8c937d9f9e6dd1615",
 			},
-			wantErr: errdef.ErrInvalidDigest,
+			wantErr: digest.ErrDigestUnsupported,
 		},
-		// TODO: unsupported algorithms
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
