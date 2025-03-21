@@ -16,6 +16,7 @@ limitations under the License.
 package remote
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -26,9 +27,10 @@ import (
 
 func Test_buildReferrersTag(t *testing.T) {
 	tests := []struct {
-		name string
-		desc ocispec.Descriptor
-		want string
+		name    string
+		desc    ocispec.Descriptor
+		want    string
+		wantErr error
 	}{
 		{
 			name: "zero digest",
@@ -51,10 +53,29 @@ func Test_buildReferrersTag(t *testing.T) {
 			},
 			want: "sha512-ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff",
 		},
+		{
+			name: "bad digest",
+			desc: ocispec.Descriptor{
+				Digest: "invalid-digest",
+			},
+			wantErr: digest.ErrDigestInvalidFormat,
+		},
+		{
+			name: "unregistred algorithm: sha1",
+			desc: ocispec.Descriptor{
+				Digest: "sha1:0ff30941ca5acd879fd809e8c937d9f9e6dd1615",
+			},
+			wantErr: digest.ErrDigestUnsupported,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := buildReferrersTag(tt.desc); got != tt.want {
+			got, err := buildReferrersTag(tt.desc)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("getReferrersTag() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
 				t.Errorf("getReferrersTag() = %v, want %v", got, tt.want)
 			}
 		})
