@@ -18,6 +18,7 @@ package file
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	_ "crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -3350,6 +3351,81 @@ func TestStore_resolveWritePath_Overwrite(t *testing.T) {
 
 		if _, err := s.resolveWritePath("\x00invalid:path/test.txt"); err == nil {
 			t.Error("resolveWritePath() error = nil, wantErr = true")
+		}
+	})
+}
+
+func TestStore_BadDigest(t *testing.T) {
+	data := []byte("hello world")
+	ref := "foobar"
+
+	t.Run("invalid digest", func(t *testing.T) {
+		desc := ocispec.Descriptor{
+			MediaType: "application/test",
+			Size:      int64(len(data)),
+			Digest:    "invalid-digest",
+		}
+
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal("Store.New() error =", err)
+		}
+		ctx := context.Background()
+		if err := s.Push(ctx, desc, bytes.NewReader(data)); !errors.Is(err, digest.ErrDigestInvalidFormat) {
+			t.Errorf("Store.Push() error = %v, wantErr %v", err, digest.ErrDigestInvalidFormat)
+
+		}
+
+		if err := s.Tag(ctx, desc, ref); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Store.Tag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		}
+
+		if _, err := s.Exists(ctx, desc); err != nil {
+			t.Errorf("Store.Exists() error = %v, wantErr %v", err, nil)
+		}
+
+		if _, err := s.Fetch(ctx, desc); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Store.Fetch() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		}
+
+		if _, err := s.Predecessors(ctx, desc); err != nil {
+			t.Errorf("Store.Predecessors() error = %v, wantErr %v", err, nil)
+		}
+	})
+
+	t.Run("unsupported digest (sha1)", func(t *testing.T) {
+		h := sha1.New()
+		h.Write(data)
+		desc := ocispec.Descriptor{
+			MediaType: "application/test",
+			Size:      int64(len(data)),
+			Digest:    digest.NewDigestFromBytes("sha1", h.Sum(nil)),
+		}
+
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal("Store.New() error =", err)
+		}
+		ctx := context.Background()
+		if err := s.Push(ctx, desc, bytes.NewReader(data)); !errors.Is(err, digest.ErrDigestUnsupported) {
+			t.Errorf("Store.Push() error = %v, wantErr %v", err, digest.ErrDigestUnsupported)
+
+		}
+
+		if err := s.Tag(ctx, desc, ref); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Store.Tag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		}
+
+		if _, err := s.Exists(ctx, desc); err != nil {
+			t.Errorf("Store.Exists() error = %v, wantErr %v", err, nil)
+		}
+
+		if _, err := s.Fetch(ctx, desc); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Store.Fetch() error = %v, wantErr %v", err, errdef.ErrNotFound)
+		}
+
+		if _, err := s.Predecessors(ctx, desc); err != nil {
+			t.Errorf("Store.Predecessors() error = %v, wantErr %v", err, nil)
 		}
 	})
 }

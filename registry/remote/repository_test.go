@@ -18,6 +18,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -2503,6 +2504,143 @@ func TestRepository_Referrers_TagSchemaFallback_ClientFiltering(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
+	}
+}
+
+func TestRepository_BadDigest(t *testing.T) {
+	data := []byte("hello world")
+	// ref := "foobar"
+	invalidDesc := ocispec.Descriptor{
+		MediaType: "application/test",
+		Digest:    "invalid-digest",
+		Size:      int64(len(data)),
+	}
+
+	h := sha1.New()
+	h.Write(data)
+	unsupportedDesc := ocispec.Descriptor{
+		MediaType: "application/test",
+		Size:      int64(len(data)),
+		Digest:    digest.NewDigestFromBytes("sha1", h.Sum(nil)),
+	}
+	descs := []ocispec.Descriptor{invalidDesc, unsupportedDesc}
+	for _, desc := range descs {
+		t.Run("Test push", func(t *testing.T) {
+			uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+					w.Header().Set("Location", "/v2/test/blobs/uploads/"+uuid)
+					w.WriteHeader(http.StatusAccepted)
+					return
+				case r.Method == http.MethodPut && r.URL.Path == "/v2/test/blobs/uploads/"+uuid:
+					if contentType := r.Header.Get("Content-Type"); contentType != "application/octet-stream" {
+						w.WriteHeader(http.StatusBadRequest)
+						break
+					}
+					if contentDigest := r.URL.Query().Get("digest"); contentDigest != desc.Digest.String() {
+						w.WriteHeader(http.StatusBadRequest)
+						break
+					}
+					buf := bytes.NewBuffer(nil)
+					if _, err := buf.ReadFrom(r.Body); err != nil {
+						t.Errorf("fail to read: %v", err)
+					}
+					w.Header().Set("Docker-Content-Digest", desc.Digest.String())
+					w.WriteHeader(http.StatusCreated)
+					return
+				default:
+					w.WriteHeader(http.StatusForbidden)
+				}
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+
+			repo, err := NewRepository(uri.Host + "/test")
+			if err != nil {
+				t.Fatalf("NewRepository() error = %v", err)
+			}
+			repo.PlainHTTP = true
+			ctx := context.Background()
+			if err := repo.Push(ctx, desc, bytes.NewReader(data)); err != nil {
+				t.Errorf("Repository.Push() error = %v", err)
+			}
+		})
+
+		t.Run("Test exists", func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodHead {
+					t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				switch r.URL.Path {
+				case "/v2/test/blobs/" + desc.Digest.String():
+					w.Header().Set("Content-Type", "application/octet-stream")
+					w.Header().Set("Docker-Content-Digest", desc.Digest.String())
+					w.Header().Set("Content-Length", strconv.Itoa(int(desc.Size)))
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+
+			repo, err := NewRepository(uri.Host + "/test")
+			if err != nil {
+				t.Fatalf("NewRepository() error = %v", err)
+			}
+			repo.PlainHTTP = true
+			ctx := context.Background()
+
+			if _, err = repo.Exists(ctx, desc); err == nil {
+				t.Errorf("Repository.Exists() error = nil, wantErr %v", true)
+			}
+		})
+
+		t.Run("Test fetch", func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				switch r.URL.Path {
+				case "/v2/test/blobs/" + desc.Digest.String():
+					w.Header().Set("Content-Type", "application/octet-stream")
+					w.Header().Set("Docker-Content-Digest", desc.Digest.String())
+					if _, err := w.Write(data); err != nil {
+						t.Errorf("failed to write %q: %v", r.URL, err)
+					}
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+
+			repo, err := NewRepository(uri.Host + "/test")
+			if err != nil {
+				t.Fatalf("NewRepository() error = %v", err)
+			}
+			repo.PlainHTTP = true
+			store := repo.Blobs()
+			ctx := context.Background()
+
+			if _, err = store.Fetch(ctx, desc); err == nil {
+				t.Errorf("Repository.Fetch() error = nil, wantErr %v", true)
+			}
+		})
 	}
 }
 

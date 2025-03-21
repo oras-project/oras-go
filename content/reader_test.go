@@ -276,7 +276,7 @@ func TestReadAll_MismatchedDigest(t *testing.T) {
 	}
 }
 
-func TestReadAll_InvalidDigest(t *testing.T) {
+func TestReadAll_BadDigest(t *testing.T) {
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
@@ -333,7 +333,7 @@ func TestReadAll_InvalidDescriptorSize(t *testing.T) {
 	}
 }
 
-func TestNewVerifyReaderSafe_InvalidDigest(t *testing.T) {
+func TestNewVerifyReaderSafe_BadDigest(t *testing.T) {
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
