@@ -103,14 +103,14 @@ func (vr *VerifyReader) Verify() error {
 // If the digest is invalid (or unsupported), this function will return nil.
 //
 // Deprecated: NewVerifyReader is deprecated and should not be used.
-// Use [NewVerifyReaderSafe] instead, which validates desc.Digest before use.
+// Use [NewVerifyReaderValidated] instead, which validates desc.Digest before use.
 func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
-	vr, _ := NewVerifyReaderSafe(r, desc)
+	vr, _ := NewVerifyReaderValidated(r, desc)
 	return vr
 }
 
-// NewVerifyReaderSafe wraps r for reading content with verification against desc.
-func NewVerifyReaderSafe(r io.Reader, desc ocispec.Descriptor) (*VerifyReader, error) {
+// NewVerifyReaderValidated wraps r for reading content with verification against desc.
+func NewVerifyReaderValidated(r io.Reader, desc ocispec.Descriptor) (*VerifyReader, error) {
 	if err := desc.Digest.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate %s: %w", desc.Digest, err)
 	}
@@ -134,7 +134,7 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	}
 	buf := make([]byte, desc.Size)
 
-	vr, err := NewVerifyReaderSafe(r, desc)
+	vr, err := NewVerifyReaderValidated(r, desc)
 	if err != nil {
 		return nil, err
 	}

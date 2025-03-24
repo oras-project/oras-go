@@ -29,7 +29,7 @@ func ExampleVerifyReader() {
 	blob := []byte("hello world")
 	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, blob)
 	r := bytes.NewReader(blob)
-	vr, err := content.NewVerifyReaderSafe(r, desc)
+	vr, err := content.NewVerifyReaderValidated(r, desc)
 	if err != nil {
 		panic(err)
 	}

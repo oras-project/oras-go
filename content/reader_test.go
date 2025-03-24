@@ -62,7 +62,7 @@ func TestNewVerifyReaderSafe(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		reader := bytes.NewReader(content)
-		vr, err := NewVerifyReaderSafe(reader, desc)
+		vr, err := NewVerifyReaderValidated(reader, desc)
 		if err != nil {
 			t.Fatalf("NewVerifyReaderSafe() error = %v", err)
 		}
@@ -74,7 +74,7 @@ func TestNewVerifyReaderSafe(t *testing.T) {
 	t.Run("invalid digest", func(t *testing.T) {
 		desc.Digest = "invalid-digest"
 		reader := bytes.NewReader(content)
-		_, err := NewVerifyReaderSafe(reader, desc)
+		_, err := NewVerifyReaderValidated(reader, desc)
 		if wantErr := digest.ErrDigestInvalidFormat; !errors.Is(err, wantErr) {
 			t.Errorf("NewVerifyReaderSafe() error = %v, want %v", err, wantErr)
 		}
@@ -86,7 +86,7 @@ func TestVerifyReader_Read(t *testing.T) {
 	content := []byte("example content")
 	desc := NewDescriptorFromBytes("test", content)
 	r := bytes.NewReader(content)
-	vr, err := NewVerifyReaderSafe(r, desc)
+	vr, err := NewVerifyReaderValidated(r, desc)
 	if err != nil {
 		t.Fatal("NewVerifyReaderSafe() error = ", err)
 	}
@@ -106,7 +106,7 @@ func TestVerifyReader_Read(t *testing.T) {
 	content = []byte("foo foo")
 	desc = NewDescriptorFromBytes("test", content)
 	r = bytes.NewReader(content)
-	vr, err = NewVerifyReaderSafe(r, desc)
+	vr, err = NewVerifyReaderValidated(r, desc)
 	if err != nil {
 		t.Fatal("NewVerifyReaderSafe() error = ", err)
 	}
@@ -124,7 +124,7 @@ func TestVerifyReader_Read(t *testing.T) {
 
 	// mismatched content and descriptor with sufficient buffer
 	r = bytes.NewReader([]byte("bar"))
-	vr, err = NewVerifyReaderSafe(r, desc)
+	vr, err = NewVerifyReaderValidated(r, desc)
 	if err != nil {
 		t.Fatal("NewVerifyReaderSafe() error = ", err)
 	}
@@ -143,7 +143,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 	content := []byte("example content")
 	desc := NewDescriptorFromBytes("test", content)
 	r := bytes.NewReader(content)
-	vr, err := NewVerifyReaderSafe(r, desc)
+	vr, err := NewVerifyReaderValidated(r, desc)
 	if err != nil {
 		t.Fatal("NewVerifyReaderSafe() error = ", err)
 	}
@@ -166,7 +166,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)) - 1,
 	}
-	vr, err = NewVerifyReaderSafe(r, desc)
+	vr, err = NewVerifyReaderValidated(r, desc)
 	if err != nil {
 		t.Fatal("NewVerifyReaderSafe() error = ", err)
 	}
@@ -190,7 +190,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)) + 1,
 	}
-	vr, err = NewVerifyReaderSafe(r, desc)
+	vr, err = NewVerifyReaderValidated(r, desc)
 	if err != nil {
 		t.Fatal("NewVerifyReaderSafe() error = ", err)
 	}
@@ -210,7 +210,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 	content = []byte("bar")
 	r = bytes.NewReader(content)
 	desc = NewDescriptorFromBytes("test", []byte("foo"))
-	vr, err = NewVerifyReaderSafe(r, desc)
+	vr, err = NewVerifyReaderValidated(r, desc)
 	if err != nil {
 		t.Fatal("NewVerifyReaderSafe() error = ", err)
 	}
@@ -341,7 +341,7 @@ func TestNewVerifyReaderSafe_BadDigest(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	_, err := NewVerifyReaderSafe(bytes.NewReader(content), desc)
+	_, err := NewVerifyReaderValidated(bytes.NewReader(content), desc)
 	if !errors.Is(err, digest.ErrDigestInvalidFormat) {
 		t.Errorf("NewVerifyReaderSafe() error = %v, want %v", err, digest.ErrDigestInvalidFormat)
 	}
