@@ -1805,6 +1805,52 @@ func TestRepository_Referrers_TagSchemaFallback_ContentType(t *testing.T) {
 	}
 }
 
+func TestRepository_Referrers_TagSchemaFallback_BadDigest(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "invalid-digest",
+		Size:      int64(len(manifest)),
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		referrersUrl := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		referrersTag := strings.Replace(manifestDesc.Digest.String(), ":", "-", 1)
+		tagSchemaUrl := "/v2/test/manifests/" + referrersTag
+		if r.Method == http.MethodGet ||
+			r.URL.Path == referrersUrl ||
+			r.URL.Path == tagSchemaUrl {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	ctx := context.Background()
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	if state := repo.loadReferrersState(); state != referrersStateUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	}
+	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		return nil
+	}); err == nil {
+		t.Errorf("Repository.Referrers() error = nil, wantErr %v", true)
+	}
+	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+}
+
 func TestRepository_Referrers_BadRequest(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
@@ -2509,7 +2555,6 @@ func TestRepository_Referrers_TagSchemaFallback_ClientFiltering(t *testing.T) {
 
 func TestRepository_BadDigest(t *testing.T) {
 	data := []byte("hello world")
-	// ref := "foobar"
 	invalidDesc := ocispec.Descriptor{
 		MediaType: "application/test",
 		Digest:    "invalid-digest",
@@ -2639,6 +2684,41 @@ func TestRepository_BadDigest(t *testing.T) {
 
 			if _, err = store.Fetch(ctx, desc); err == nil {
 				t.Errorf("Repository.Fetch() error = nil, wantErr %v", true)
+			}
+		})
+
+		t.Run("Test resolve", func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodHead {
+					t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusMethodNotAllowed)
+					return
+				}
+				switch r.URL.Path {
+				case "/v2/test/blobs/" + desc.Digest.String():
+					w.Header().Set("Content-Type", "application/octet-stream")
+					w.Header().Set("Docker-Content-Digest", desc.Digest.String())
+					w.Header().Set("Content-Length", strconv.Itoa(int(desc.Size)))
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+
+			repoName := uri.Host + "/test"
+			repo, err := NewRepository(repoName)
+			if err != nil {
+				t.Fatalf("NewRepository() error = %v", err)
+			}
+			repo.PlainHTTP = true
+			ctx := context.Background()
+
+			if _, err = repo.Blobs().Resolve(ctx, desc.Digest.String()); err == nil {
+				t.Errorf("Repository.Resolve() error = nil, wantErr %v", true)
 			}
 		})
 	}
@@ -6703,6 +6783,41 @@ func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(
 			}
 		}
 	}
+}
+
+func Test_ManifestStore_updateReferrersIndex_BadDigest(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	repo, err := NewRepository("localhost:5000/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	store := manifestStore{repo: repo}
+
+	t.Run("invalid digest", func(t *testing.T) {
+		subject := ocispec.Descriptor{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Digest:    "invalid-digest",
+			Size:      int64(len(manifest)),
+		}
+		ctx := context.Background()
+		if err := store.updateReferrersIndex(ctx, subject, referrerChange{}); !errors.Is(err, digest.ErrDigestInvalidFormat) {
+			t.Errorf("updateReferrersIndex() error = %v, wantErr %v", err, digest.ErrDigestInvalidFormat)
+		}
+	})
+
+	t.Run("unsupported algorithm", func(t *testing.T) {
+		h := sha1.New()
+		h.Write(manifest)
+		subject := ocispec.Descriptor{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Size:      int64(len(manifest)),
+			Digest:    digest.NewDigestFromBytes("sha1", h.Sum(nil)),
+		}
+		ctx := context.Background()
+		if err := store.updateReferrersIndex(ctx, subject, referrerChange{}); !errors.Is(err, digest.ErrDigestUnsupported) {
+			t.Errorf("updateReferrersIndex() error = %v, wantErr %v", err, digest.ErrDigestUnsupported)
+		}
+	})
 }
 
 type testTransport struct {
