@@ -1,10 +1,11 @@
 module oras.land/oras-go
 
 go 1.23.6
+toolchain go1.24.1
 
 require (
 	github.com/containerd/containerd v1.7.27
-	github.com/distribution/distribution/v3 v3.0.0-rc.3
+	github.com/distribution/distribution/v3 v3.0.0-rc.4
 	github.com/docker/cli v28.0.2+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/docker v28.0.2+incompatible
@@ -81,7 +82,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.32.0 // indirect
 	go.opentelemetry.io/otel/trace v1.32.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.3.1 // indirect
-	golang.org/x/net v0.33.0 // indirect
+	golang.org/x/net v0.36.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241104194629-dd2ea8efbc28 // indirect
