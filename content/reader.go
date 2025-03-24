@@ -98,21 +98,11 @@ func (vr *VerifyReader) Verify() error {
 }
 
 // NewVerifyReader wraps r for reading content with verification against desc.
-//
-// IMPORTANT: Ensure desc.Digest is valid before using this function.
-// If the digest is invalid (or unsupported), this function will return nil.
-//
-// Deprecated: NewVerifyReader is deprecated and should not be used.
-// Use [NewVerifyReaderValidated] instead, which validates desc.Digest before use.
 func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
-	vr, _ := NewVerifyReaderValidated(r, desc)
-	return vr
-}
-
-// NewVerifyReaderValidated wraps r for reading content with verification against desc.
-func NewVerifyReaderValidated(r io.Reader, desc ocispec.Descriptor) (*VerifyReader, error) {
 	if err := desc.Digest.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to validate %s: %w", desc.Digest, err)
+		return &VerifyReader{
+			err: fmt.Errorf("failed to validate %s: %w", desc.Digest, err),
+		}
 	}
 	verifier := desc.Digest.Verifier()
 	lr := &io.LimitedReader{
@@ -122,7 +112,7 @@ func NewVerifyReaderValidated(r io.Reader, desc ocispec.Descriptor) (*VerifyRead
 	return &VerifyReader{
 		base:     lr,
 		verifier: verifier,
-	}, nil
+	}
 }
 
 // ReadAll safely reads the content described by the descriptor.
@@ -134,10 +124,7 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	}
 	buf := make([]byte, desc.Size)
 
-	vr, err := NewVerifyReaderValidated(r, desc)
-	if err != nil {
-		return nil, err
-	}
+	vr := NewVerifyReader(r, desc)
 	if n, err := io.ReadFull(vr, buf); err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) {
 			return nil, fmt.Errorf("read failed: expected content size of %d, got %d, for digest %s: %w", desc.Size, n, desc.Digest.String(), err)

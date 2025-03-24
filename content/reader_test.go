@@ -27,69 +27,12 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func TestNewVerifyReader(t *testing.T) {
-	content := []byte("test content")
-	desc := ocispec.Descriptor{
-		Size:   int64(len(content)),
-		Digest: digest.FromBytes(content),
-	}
-
-	t.Run("success", func(t *testing.T) {
-		reader := bytes.NewReader(content)
-		vr := NewVerifyReader(reader, desc)
-		if vr == nil {
-			t.Errorf("VerifyReader is nil, want non-nil")
-		}
-	})
-
-	t.Run("invalid digest", func(t *testing.T) {
-		desc.Digest = "invalid-digest"
-		reader := bytes.NewReader(content)
-		vr := NewVerifyReader(reader, desc)
-		if vr != nil {
-			t.Errorf("VerifyReader is not nil, want nil")
-		}
-	})
-}
-
-func TestNewVerifyReaderSafe(t *testing.T) {
-	// Test normal case
-	content := []byte("test content")
-	desc := ocispec.Descriptor{
-		Size:   int64(len(content)),
-		Digest: digest.FromBytes(content),
-	}
-
-	t.Run("success", func(t *testing.T) {
-		reader := bytes.NewReader(content)
-		vr, err := NewVerifyReaderValidated(reader, desc)
-		if err != nil {
-			t.Fatalf("NewVerifyReaderSafe() error = %v", err)
-		}
-		if vr == nil {
-			t.Errorf("VerifyReader is nil, want non-nil")
-		}
-	})
-
-	t.Run("invalid digest", func(t *testing.T) {
-		desc.Digest = "invalid-digest"
-		reader := bytes.NewReader(content)
-		_, err := NewVerifyReaderValidated(reader, desc)
-		if wantErr := digest.ErrDigestInvalidFormat; !errors.Is(err, wantErr) {
-			t.Errorf("NewVerifyReaderSafe() error = %v, want %v", err, wantErr)
-		}
-	})
-}
-
 func TestVerifyReader_Read(t *testing.T) {
 	// matched content and descriptor with small buffer
 	content := []byte("example content")
 	desc := NewDescriptorFromBytes("test", content)
 	r := bytes.NewReader(content)
-	vr, err := NewVerifyReaderValidated(r, desc)
-	if err != nil {
-		t.Fatal("NewVerifyReaderSafe() error = ", err)
-	}
+	vr := NewVerifyReader(r, desc)
 	buf := make([]byte, 5)
 	n, err := vr.Read(buf)
 	if err != nil {
@@ -106,10 +49,7 @@ func TestVerifyReader_Read(t *testing.T) {
 	content = []byte("foo foo")
 	desc = NewDescriptorFromBytes("test", content)
 	r = bytes.NewReader(content)
-	vr, err = NewVerifyReaderValidated(r, desc)
-	if err != nil {
-		t.Fatal("NewVerifyReaderSafe() error = ", err)
-	}
+	vr = NewVerifyReader(r, desc)
 	buf = make([]byte, len(content))
 	n, err = vr.Read(buf)
 	if err != nil {
@@ -124,7 +64,7 @@ func TestVerifyReader_Read(t *testing.T) {
 
 	// mismatched content and descriptor with sufficient buffer
 	r = bytes.NewReader([]byte("bar"))
-	vr, err = NewVerifyReaderValidated(r, desc)
+	vr = NewVerifyReader(r, desc)
 	if err != nil {
 		t.Fatal("NewVerifyReaderSafe() error = ", err)
 	}
@@ -143,10 +83,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 	content := []byte("example content")
 	desc := NewDescriptorFromBytes("test", content)
 	r := bytes.NewReader(content)
-	vr, err := NewVerifyReaderValidated(r, desc)
-	if err != nil {
-		t.Fatal("NewVerifyReaderSafe() error = ", err)
-	}
+	vr := NewVerifyReader(r, desc)
 	buf := make([]byte, len(content))
 	if _, err := vr.Read(buf); err != nil {
 		t.Fatal("Read() error = ", err)
@@ -166,10 +103,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)) - 1,
 	}
-	vr, err = NewVerifyReaderValidated(r, desc)
-	if err != nil {
-		t.Fatal("NewVerifyReaderSafe() error = ", err)
-	}
+	vr = NewVerifyReader(r, desc)
 	buf = make([]byte, len(content))
 	if _, err := vr.Read(buf); err != nil {
 		t.Fatal("Read() error = ", err)
@@ -190,10 +124,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)) + 1,
 	}
-	vr, err = NewVerifyReaderValidated(r, desc)
-	if err != nil {
-		t.Fatal("NewVerifyReaderSafe() error = ", err)
-	}
+	vr = NewVerifyReader(r, desc)
 	buf = make([]byte, len(content))
 	if _, err := vr.Read(buf); err != nil {
 		t.Fatal("Read() error = ", err)
@@ -210,10 +141,7 @@ func TestVerifyReader_Verify(t *testing.T) {
 	content = []byte("bar")
 	r = bytes.NewReader(content)
 	desc = NewDescriptorFromBytes("test", []byte("foo"))
-	vr, err = NewVerifyReaderValidated(r, desc)
-	if err != nil {
-		t.Fatal("NewVerifyReaderSafe() error = ", err)
-	}
+	vr = NewVerifyReader(r, desc)
 	buf = make([]byte, len(content))
 	if _, err := vr.Read(buf); err != nil {
 		t.Fatal("Read() error = ", err)
@@ -276,7 +204,7 @@ func TestReadAll_MismatchedDigest(t *testing.T) {
 	}
 }
 
-func TestReadAll_BadDigest(t *testing.T) {
+func TestReadAll_InvalidDigest(t *testing.T) {
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
@@ -330,19 +258,5 @@ func TestReadAll_InvalidDescriptorSize(t *testing.T) {
 	_, err := ReadAll(r, desc)
 	if err == nil || !errors.Is(err, ErrInvalidDescriptorSize) {
 		t.Errorf("ReadAll() error = %v, want %v", err, ErrInvalidDescriptorSize)
-	}
-}
-
-func TestNewVerifyReaderSafe_BadDigest(t *testing.T) {
-	content := []byte("example content")
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    "invalid-digest",
-		Size:      int64(len(content)),
-	}
-
-	_, err := NewVerifyReaderValidated(bytes.NewReader(content), desc)
-	if !errors.Is(err, digest.ErrDigestInvalidFormat) {
-		t.Errorf("NewVerifyReaderSafe() error = %v, want %v", err, digest.ErrDigestInvalidFormat)
 	}
 }
