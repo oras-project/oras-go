@@ -594,7 +594,10 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 // only referrers of the same artifact type are fed to fn.
 // reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#backwards-compatibility
 func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
-	referrersTag := buildReferrersTag(desc)
+	referrersTag, err := buildReferrersTag(desc)
+	if err != nil {
+		return err
+	}
 	_, referrers, err := r.referrersFromIndex(ctx, referrersTag)
 	if err != nil {
 		if errors.Is(err, errdef.ErrNotFound) {
@@ -1451,7 +1454,10 @@ func (s *manifestStore) indexReferrersForPush(ctx context.Context, desc ocispec.
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pushing-manifests-with-subject
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-manifests
 func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispec.Descriptor, change referrerChange) (err error) {
-	referrersTag := buildReferrersTag(subject)
+	referrersTag, err := buildReferrersTag(subject)
+	if err != nil {
+		return err
+	}
 
 	var oldIndexDesc *ocispec.Descriptor
 	var oldReferrers []ocispec.Descriptor

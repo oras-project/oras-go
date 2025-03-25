@@ -17,6 +17,7 @@ package content
 
 import (
 	"bytes"
+	"crypto/sha1"
 	_ "crypto/sha256"
 	"errors"
 	"io"
@@ -64,6 +65,9 @@ func TestVerifyReader_Read(t *testing.T) {
 	// mismatched content and descriptor with sufficient buffer
 	r = bytes.NewReader([]byte("bar"))
 	vr = NewVerifyReader(r, desc)
+	if err != nil {
+		t.Fatal("NewVerifyReaderSafe() error = ", err)
+	}
 	buf = make([]byte, 5)
 	n, err = vr.Read(buf)
 	if err != nil {
@@ -97,7 +101,8 @@ func TestVerifyReader_Verify(t *testing.T) {
 	desc = ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
 		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)) - 1}
+		Size:      int64(len(content)) - 1,
+	}
 	vr = NewVerifyReader(r, desc)
 	buf = make([]byte, len(content))
 	if _, err := vr.Read(buf); err != nil {
@@ -117,7 +122,8 @@ func TestVerifyReader_Verify(t *testing.T) {
 	desc = ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
 		Digest:    digest.FromBytes(content),
-		Size:      int64(len(content)) + 1}
+		Size:      int64(len(content)) + 1,
+	}
 	vr = NewVerifyReader(r, desc)
 	buf = make([]byte, len(content))
 	if _, err := vr.Read(buf); err != nil {
@@ -188,13 +194,43 @@ func TestReadAll_ReadSizeLargerThanDescriptorSize(t *testing.T) {
 	}
 }
 
-func TestReadAll_InvalidDigest(t *testing.T) {
+func TestReadAll_MismatchedDigest(t *testing.T) {
 	content := []byte("example content")
 	desc := NewDescriptorFromBytes("test", []byte("another content"))
 	r := bytes.NewReader([]byte(content))
 	_, err := ReadAll(r, desc)
 	if err == nil || !errors.Is(err, ErrMismatchedDigest) {
 		t.Errorf("ReadAll() error = %v, want %v", err, ErrMismatchedDigest)
+	}
+}
+
+func TestReadAll_InvalidDigest(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    "invalid-digest",
+		Size:      int64(len(content)),
+	}
+	r := bytes.NewReader([]byte(content))
+	_, err := ReadAll(r, desc)
+	if wantErr := digest.ErrDigestInvalidFormat; !errors.Is(err, wantErr) {
+		t.Errorf("ReadAll() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestReadAll_UnsupportedAlgorithm_SHA1(t *testing.T) {
+	content := []byte("example content")
+	h := sha1.New()
+	h.Write(content)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.NewDigestFromBytes("sha1", h.Sum(nil)),
+		Size:      int64(len(content)),
+	}
+	r := bytes.NewReader([]byte(content))
+	_, err := ReadAll(r, desc)
+	if wantErr := digest.ErrDigestUnsupported; !errors.Is(err, wantErr) {
+		t.Errorf("ReadAll() error = %v, want %v", err, wantErr)
 	}
 }
 
