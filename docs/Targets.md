@@ -122,6 +122,8 @@ TagBar>"Tag: bar"]-.->M0
 TagV1>"Tag: v1"]-.->M0
 ```
 
+TODO: moving tags
+
 ### GraphTarget
 
 The [`GraphTarget`](https://pkg.go.dev/oras.land/oras-go/v2#GraphTarget) interface combines the capabilities of [`GraphStorage`](#graphstorage) and [`Target`](#target). It provides the following functions:
