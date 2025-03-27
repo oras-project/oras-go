@@ -36,20 +36,19 @@ var (
 type CopyErrorOrigin = string
 
 const (
-	CopyErrorOriginUnknown     CopyErrorOrigin = "unknown"
+	CopyErrorOriginUnknown     CopyErrorOrigin = "unknown" // TODO: unknown or no applicable?
 	CopyErrorOriginSource      CopyErrorOrigin = "source"
 	CopyErrorOriginDestination CopyErrorOrigin = "destination"
 )
 
 // TODO: should we put this in the oras package?
 type CopyError struct {
-	Op      string
-	Origin  CopyErrorOrigin
-	Err     error
-	Message string
+	Op     string
+	Origin CopyErrorOrigin
+	Err    error
 }
 
-func NewCopyError(op string, origin CopyErrorOrigin, err error, message string) error {
+func NewCopyError(op string, origin CopyErrorOrigin, err error) error {
 	switch origin {
 	case CopyErrorOriginSource, CopyErrorOriginDestination:
 	default:
@@ -57,22 +56,19 @@ func NewCopyError(op string, origin CopyErrorOrigin, err error, message string) 
 	}
 
 	return &CopyError{
-		Op:      op,
-		Origin:  origin,
-		Err:     err,
-		Message: message,
+		Op:     op,
+		Origin: origin,
+		Err:    err,
 	}
 }
 
 func (e *CopyError) Error() string {
 	// what if message is empty?
 	switch e.Origin {
-	case CopyErrorOriginSource:
-		return fmt.Sprintf("error copying from source when performing %s: %s: %v", e.Op, e.Message, e.Err)
-	case CopyErrorOriginDestination:
-		return fmt.Sprintf("error copying to destination when performing %s: %s: %v", e.Op, e.Message, e.Err)
+	case CopyErrorOriginSource, CopyErrorOriginDestination:
+		return fmt.Sprintf("error copying when performing %s on %s: %v", e.Op, e.Origin, e.Err)
 	default:
-		return fmt.Sprintf("error copying when performing %s: %s: %v", e.Op, e.Message, e.Err)
+		return fmt.Sprintf("error copying when performing %s: %v", e.Op, e.Err)
 	}
 }
 

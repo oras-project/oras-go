@@ -131,10 +131,10 @@ type CopyGraphOptions struct {
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
-		return ocispec.Descriptor{}, errdef.NewCopyError("validation", errdef.CopyErrorOriginSource, errors.New("nil source target"), "")
+		return ocispec.Descriptor{}, errdef.NewCopyError("validation", errdef.CopyErrorOriginSource, errors.New("nil source target"))
 	}
 	if dst == nil {
-		return ocispec.Descriptor{}, errdef.NewCopyError("validation", errdef.CopyErrorOriginDestination, errors.New("nil destination target"), "")
+		return ocispec.Descriptor{}, errdef.NewCopyError("validation", errdef.CopyErrorOriginDestination, errors.New("nil destination target"))
 	}
 	if dstRef == "" {
 		dstRef = srcRef
@@ -147,15 +147,14 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
 	root, err := resolveRoot(ctx, src, srcRef, proxy)
 	if err != nil {
-		msg := fmt.Sprintf("failed to resolve %s", srcRef)
-		return ocispec.Descriptor{}, errdef.NewCopyError("resolveRoot", errdef.CopyErrorOriginSource, err, msg)
+		return ocispec.Descriptor{}, errdef.NewCopyError("resolveRoot", errdef.CopyErrorOriginSource, err)
 	}
 
 	if opts.MapRoot != nil {
 		proxy.StopCaching = true
 		root, err = opts.MapRoot(ctx, proxy, root)
 		if err != nil {
-			return ocispec.Descriptor{}, errdef.NewCopyError("MapRoot", errdef.CopyErrorOriginSource, err, "")
+			return ocispec.Descriptor{}, errdef.NewCopyError("MapRoot", errdef.CopyErrorOriginSource, err)
 		}
 		proxy.StopCaching = false
 	}
@@ -223,7 +222,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		// skip if a rooted sub-DAG exists
 		exists, err := dst.Exists(ctx, desc)
 		if err != nil {
-			return err
+			return errdef.NewCopyError("Exists", errdef.CopyErrorOriginDestination, err)
 		}
 		if exists {
 			if opts.OnCopySkipped != nil {
@@ -237,7 +236,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		// find successors while non-leaf nodes will be fetched and cached
 		successors, err := opts.FindSuccessors(ctx, proxy, desc)
 		if err != nil {
-			return err
+			return errdef.NewCopyError("FindSuccessors", errdef.CopyErrorOriginSource, err)
 		}
 		successors = removeForeignLayers(successors)
 
@@ -250,12 +249,13 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 			for _, node := range successors {
 				done, committed := tracker.TryCommit(node)
 				if committed {
-					return fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
+					err := fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
+					return errdef.NewCopyError("copyGraph", errdef.CopyErrorOriginUnknown, err)
 				}
 				select {
 				case <-done:
 				case <-ctx.Done():
-					return ctx.Err()
+					errdef.NewCopyError("copyGraph", errdef.CopyErrorOriginUnknown, ctx.Err())
 				}
 			}
 			if err := region.Start(); err != nil {
@@ -265,7 +265,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 
 		exists, err = proxy.Cache.Exists(ctx, desc)
 		if err != nil {
-			return err
+			return errdef.NewCopyError("Cache.Exists", errdef.CopyErrorOriginSource, err)
 		}
 		if exists {
 			return copyNode(ctx, proxy.Cache, dst, desc, opts)
@@ -320,12 +320,16 @@ func mountOrCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst conte
 					return nil, err
 				}
 			}
-			return src.Fetch(ctx, desc)
+			rc, err := src.Fetch(ctx, desc)
+			if err != nil {
+				return nil, errdef.NewCopyError("Fetch", errdef.CopyErrorOriginSource, err)
+			}
+			return rc, nil
 		}
 
 		// Mount or copy
 		if err := mounter.Mount(ctx, desc, sourceRepository, getContent); err != nil && !errors.Is(err, skipSource) {
-			return err
+			return errdef.NewCopyError("Mount", errdef.CopyErrorOriginDestination, err)
 		}
 
 		if !mountFailed {
@@ -353,12 +357,12 @@ func mountOrCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst conte
 func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
-		return err
+		return errdef.NewCopyError("Fetch", errdef.CopyErrorOriginSource, err)
 	}
 	defer rc.Close()
 	err = dst.Push(ctx, desc, rc)
 	if err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-		return err
+		return errdef.NewCopyError("Push", errdef.CopyErrorOriginDestination, err)
 	}
 	return nil
 }
@@ -390,13 +394,13 @@ func copyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Stor
 func copyCachedNodeWithReference(ctx context.Context, src *cas.Proxy, dst registry.ReferencePusher, desc ocispec.Descriptor, dstRef string) error {
 	rc, err := src.FetchCached(ctx, desc)
 	if err != nil {
-		return err
+		return errdef.NewCopyError("FetchCached", errdef.CopyErrorOriginSource, err)
 	}
 	defer rc.Close()
 
 	err = dst.PushReference(ctx, desc, rc, dstRef)
 	if err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-		return err
+		return errdef.NewCopyError("PushReference", errdef.CopyErrorOriginDestination, err)
 	}
 	return nil
 }
@@ -435,7 +439,7 @@ func resolveRoot(ctx context.Context, src ReadOnlyTarget, srcRef string, proxy *
 }
 
 // prepareCopy prepares the hooks for copy.
-func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Proxy, root ocispec.Descriptor, opts *CopyOptions) error {
+func prepareCopy(_ context.Context, dst Target, dstRef string, proxy *cas.Proxy, root ocispec.Descriptor, opts *CopyOptions) error {
 	if refPusher, ok := dst.(registry.ReferencePusher); ok {
 		// optimize performance for ReferencePusher targets
 		preCopy := opts.PreCopy
@@ -468,7 +472,7 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 			if content.Equal(desc, root) {
 				// for root node, tag it after copying it
 				if err := dst.Tag(ctx, root, dstRef); err != nil {
-					return err
+					return errdef.NewCopyError("Tag", errdef.CopyErrorOriginDestination, err)
 				}
 			}
 			if postCopy != nil {
@@ -500,7 +504,10 @@ func prepareCopy(ctx context.Context, dst Target, dstRef string, proxy *cas.Prox
 				return err
 			}
 		}
-		return dst.Tag(ctx, root, dstRef)
+		if err := dst.Tag(ctx, root, dstRef); err != nil {
+			return errdef.NewCopyError("Tag", errdef.CopyErrorOriginDestination, err)
+		}
+		return nil
 	}
 
 	return nil
