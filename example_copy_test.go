@@ -199,7 +199,7 @@ func ExampleCopy_remoteToRemote() {
 	if err != nil {
 		panic(err) // Handle error
 	}
-	dst, err := reg.Repository(ctx, "target")
+	dst, err := reg.Repository(ctx, "destination")
 	if err != nil {
 		panic(err) // Handle error
 	}
@@ -225,7 +225,7 @@ func ExampleCopy_remoteToRemoteWithMount() {
 	if err != nil {
 		panic(err) // Handle error
 	}
-	dst, err := reg.Repository(ctx, "target")
+	dst, err := reg.Repository(ctx, "destination")
 	if err != nil {
 		panic(err) // Handle error
 	}
@@ -241,7 +241,7 @@ func ExampleCopy_remoteToRemoteWithMount() {
 
 	// Enable cross-repository blob mounting
 	opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
-		// the slice of source repositores may also come from a database of known locations of blobs
+		// the slice of source repositories may also come from a database of known locations of blobs
 		return []string{"source/repository/name"}, nil
 	}
 
@@ -326,7 +326,7 @@ func ExampleCopy_localToRemote() {
 		panic(err) // Handle error
 	}
 	ctx := context.Background()
-	dst, err := reg.Repository(ctx, "target")
+	dst, err := reg.Repository(ctx, "destination")
 	if err != nil {
 		panic(err) // Handle error
 	}
@@ -345,24 +345,30 @@ func ExampleCopy_localToRemote() {
 // ExampleCopyArtifactManifestRemoteToLocal gives an example of copying
 // an artifact manifest from a remote repository into memory.
 func Example_copyArtifactManifestRemoteToLocal() {
+	// 0. Connect to a remote repository
 	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
 	if err != nil {
 		panic(err)
 	}
+
+	// 1. Create a memory store
 	dst := memory.New()
 	ctx := context.Background()
 
+	// 2. Resolve the descriptor of the artifact from the digest
 	exampleDigest := "sha256:70c29a81e235dda5c2cebb8ec06eafd3cca346cbd91f15ac74cefd98681c5b3d"
 	descriptor, err := src.Resolve(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
 	}
+
+	// 3. Copy the artifact from the remote repository
 	err = oras.CopyGraph(ctx, src, dst, descriptor, oras.DefaultCopyGraphOptions)
 	if err != nil {
 		panic(err)
 	}
 
-	// verify that the artifact manifest described by the descriptor exists in dst
+	// 4. Verify that the artifact manifest described by the descriptor exists in dst
 	contentExists, err := dst.Exists(ctx, descriptor)
 	if err != nil {
 		panic(err)
@@ -377,13 +383,17 @@ func Example_copyArtifactManifestRemoteToLocal() {
 // copying an artifact along with its referrers from a remote repository into
 // memory.
 func Example_extendedCopyArtifactAndReferrersRemoteToLocal() {
+	// 0. Connect to a remote repository
 	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
 	if err != nil {
 		panic(err)
 	}
+
+	// 1. Create a memory store
 	dst := memory.New()
 	ctx := context.Background()
 
+	// 2. Copy the artifact and its referrers from the remote repository
 	tagName := "latest"
 	// ExtendedCopy will copy the artifact tagged by "latest" along with all of its
 	// referrers from src to dst.

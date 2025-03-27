@@ -34,7 +34,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/internal/spec"
 	. "oras.land/oras-go/v2/registry/internal/doc"
 	"oras.land/oras-go/v2/registry/remote"
 )
@@ -48,7 +47,7 @@ const (
 	exampleUploadUUid     = "0bc84d80-837c-41d9-824e-1907463c53b3"
 	// For ExampleRepository_Push_artifactReferenceManifest:
 	ManifestDigest          = "sha256:a3f9d449466b9b7194c3a76ca4890d792e11eb4e62e59aa8b4c3cce0a56f129d"
-	ReferenceManifestDigest = "sha256:2d30397701742b04550891851529abe6b071e4fae920a91897d34612662a3bf6"
+	ReferenceManifestDigest = "sha256:a510c27b6bfbb3976fbdd80b42db476f306a9f693095ac0fe114f36bb01ebe87"
 	// For Example_pushAndIgnoreReferrersIndexError:
 	referrersAPIUnavailableRepositoryName = "no-referrers-api"
 	referrerDigest                        = "sha256:4caba1e18385eb152bd92e9fee1dc01e47c436e594123b3c2833acfcad9883e2"
@@ -70,21 +69,31 @@ var (
 	})
 	exampleManifestDescriptor   = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, exampleManifest)
 	exampleManifestDigest       = exampleManifestDescriptor.Digest.String()
-	exampleSignatureManifest, _ = json.Marshal(spec.Artifact{
-		MediaType:    spec.MediaTypeArtifactManifest,
+	exampleSignatureManifest, _ = json.Marshal(ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Config:       content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, []byte("config bytes")),
 		ArtifactType: "example/signature",
+		Layers:       []ocispec.Descriptor{exampleLayerDescriptor},
 		Subject:      &exampleManifestDescriptor})
 	exampleSignatureManifestDescriptor = ocispec.Descriptor{
-		MediaType:    spec.MediaTypeArtifactManifest,
+		MediaType:    ocispec.MediaTypeImageManifest,
 		ArtifactType: "example/signature",
 		Digest:       digest.FromBytes(exampleSignatureManifest),
 		Size:         int64(len(exampleSignatureManifest))}
-	exampleSBoMManifest, _ = json.Marshal(spec.Artifact{
-		MediaType:    spec.MediaTypeArtifactManifest,
+	exampleSBoMManifest, _ = json.Marshal(ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Config:       content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, []byte("config bytes")),
 		ArtifactType: "example/SBoM",
+		Layers:       []ocispec.Descriptor{exampleLayerDescriptor},
 		Subject:      &exampleManifestDescriptor})
 	exampleSBoMManifestDescriptor = ocispec.Descriptor{
-		MediaType:    spec.MediaTypeArtifactManifest,
+		MediaType:    ocispec.MediaTypeImageManifest,
 		ArtifactType: "example/SBoM",
 		Digest:       digest.FromBytes(exampleSBoMManifest),
 		Size:         int64(len(exampleSBoMManifest))}
@@ -97,13 +106,17 @@ var (
 		MediaType: "application/tar",
 		Digest:    digest.FromBytes([]byte(blobContent)),
 		Size:      int64(len(blobContent))}
-	exampleManifestWithBlobs, _ = json.Marshal(spec.Artifact{
-		MediaType:    spec.MediaTypeArtifactManifest,
+	exampleManifestWithBlobs, _ = json.Marshal(ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Config:       content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, []byte("config bytes")),
 		ArtifactType: "example/manifest",
-		Blobs:        []ocispec.Descriptor{blobDescriptor},
+		Layers:       []ocispec.Descriptor{blobDescriptor},
 		Subject:      &exampleManifestDescriptor})
 	exampleManifestWithBlobsDescriptor = ocispec.Descriptor{
-		MediaType:    spec.MediaTypeArtifactManifest,
+		MediaType:    ocispec.MediaTypeImageManifest,
 		ArtifactType: "example/manifest",
 		Digest:       digest.FromBytes(exampleManifestWithBlobs),
 		Size:         int64(len(exampleManifestWithBlobs))}
@@ -156,22 +169,22 @@ func TestMain(m *testing.M) {
 			w.Header().Set("OCI-Subject", "sha256:a3f9d449466b9b7194c3a76ca4890d792e11eb4e62e59aa8b4c3cce0a56f129d")
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSignatureManifestDescriptor.Digest) && m == "GET":
-			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Content-Digest", string(exampleSignatureManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSignatureManifest)))
 			w.Write(exampleSignatureManifest)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleSBoMManifestDescriptor.Digest) && m == "GET":
-			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Content-Digest", string(exampleSBoMManifestDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleSBoMManifest)))
 			w.Write(exampleSBoMManifest)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleManifestWithBlobsDescriptor.Digest) && m == "GET":
-			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Content-Digest", string(exampleManifestWithBlobsDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(exampleManifestWithBlobs)))
 			w.Write(exampleManifestWithBlobs)
 		case p == fmt.Sprintf("/v2/%s/blobs/%s", exampleRepositoryName, blobDescriptor.Digest) && m == "GET":
-			w.Header().Set("Content-Type", spec.MediaTypeArtifactManifest)
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 			w.Header().Set("Content-Digest", string(blobDescriptor.Digest))
 			w.Header().Set("Content-Length", strconv.Itoa(len(blobContent)))
 			w.Write([]byte(blobContent))
@@ -319,7 +332,7 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	}
 	ctx := context.Background()
 
-	// 1. assemble the referenced artifact manifest
+	// 1. assemble the referenced manifest
 	manifest := ocispec.Manifest{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
@@ -339,9 +352,13 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 		panic(err)
 	}
 
-	// 3. assemble the reference artifact manifest
-	referenceManifest := spec.Artifact{
-		MediaType:    spec.MediaTypeArtifactManifest,
+	// 3. assemble the reference manifest
+	referenceManifest := ocispec.Manifest{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Config:       content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, []byte("config bytes")),
 		ArtifactType: "sbom/example",
 		Subject:      &manifestDescriptor,
 	}
@@ -349,7 +366,7 @@ func ExampleRepository_Push_artifactReferenceManifest() {
 	if err != nil {
 		panic(err)
 	}
-	referenceManifestDescriptor := content.NewDescriptorFromBytes(spec.MediaTypeArtifactManifest, referenceManifestContent)
+	referenceManifestDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, referenceManifestContent)
 	// 4. push the reference manifest descriptor and content
 	err = repo.Push(ctx, referenceManifestDescriptor, bytes.NewReader(referenceManifestContent))
 	if err != nil {
@@ -502,13 +519,13 @@ func ExampleRepository_Fetch_artifactReferenceManifest() {
 		panic(err)
 	}
 	// Output:
-	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/SBoM","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7","size":337}}
-	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/signature","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7","size":337}}
+	// {"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"example/SBoM","config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:fa7972d3a05c37631474cd92cbd08c3986a84b5db9e884b6fddfa8a2d41bae4d","size":12},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}],"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7","size":337}}
+	// {"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"example/signature","config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:fa7972d3a05c37631474cd92cbd08c3986a84b5db9e884b6fddfa8a2d41bae4d","size":12},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}],"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7","size":337}}
 }
 
-// ExampleRepository_fetchArtifactBlobs gives an example of pulling the blobs
-// of an artifact manifest.
-func ExampleRepository_fetchArtifactBlobs() {
+// ExampleRepository_fetchManifestLayers gives an example of pulling the layers
+// of an image manifest.
+func ExampleRepository_fetchManifestLayers() {
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
 	if err != nil {
 		panic(err)
@@ -516,7 +533,7 @@ func ExampleRepository_fetchArtifactBlobs() {
 	ctx := context.Background()
 
 	// 1. Fetch the artifact manifest by digest.
-	exampleDigest := "sha256:f3550fd0947402d140fd0470702abc92c69f7e9b08d5ca2438f42f8a0ea3fd97"
+	exampleDigest := "sha256:1224272f27dd616e7db5c809bb8919f84b0fc7b0b357d1df0828c21f533f58bd"
 	descriptor, rc, err := repo.FetchReference(ctx, exampleDigest)
 	if err != nil {
 		panic(err)
@@ -530,11 +547,11 @@ func ExampleRepository_fetchArtifactBlobs() {
 	fmt.Println(string(pulledContent))
 
 	// 2. Parse the pulled manifest and fetch its blobs.
-	var pulledManifest spec.Artifact
+	var pulledManifest ocispec.Manifest
 	if err := json.Unmarshal(pulledContent, &pulledManifest); err != nil {
 		panic(err)
 	}
-	for _, blob := range pulledManifest.Blobs {
+	for _, blob := range pulledManifest.Layers {
 		content, err := content.FetchAll(ctx, repo, blob)
 		if err != nil {
 			panic(err)
@@ -543,7 +560,7 @@ func ExampleRepository_fetchArtifactBlobs() {
 	}
 
 	// Output:
-	// {"mediaType":"application/vnd.oci.artifact.manifest.v1+json","artifactType":"example/manifest","blobs":[{"mediaType":"application/tar","digest":"sha256:8d6497c94694a292c04f85cd055d8b5c03eda835dd311e20dfbbf029ff9748cc","size":20}],"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7","size":337}}
+	// {"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"example/manifest","config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:fa7972d3a05c37631474cd92cbd08c3986a84b5db9e884b6fddfa8a2d41bae4d","size":12},"layers":[{"mediaType":"application/tar","digest":"sha256:8d6497c94694a292c04f85cd055d8b5c03eda835dd311e20dfbbf029ff9748cc","size":20}],"subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:b53dc03a49f383ba230d8ac2b78a9c4aec132e4a9f36cc96524df98163202cc7","size":337}}
 	// example blob content
 }
 
