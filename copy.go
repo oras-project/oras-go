@@ -131,10 +131,10 @@ type CopyGraphOptions struct {
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
-		return ocispec.Descriptor{}, errors.New("nil source target")
+		return ocispec.Descriptor{}, errdef.NewCopyError("validation", errdef.CopyErrorOriginSource, errors.New("nil source target"), "")
 	}
 	if dst == nil {
-		return ocispec.Descriptor{}, errors.New("nil destination target")
+		return ocispec.Descriptor{}, errdef.NewCopyError("validation", errdef.CopyErrorOriginDestination, errors.New("nil destination target"), "")
 	}
 	if dstRef == "" {
 		dstRef = srcRef
@@ -147,14 +147,15 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
 	root, err := resolveRoot(ctx, src, srcRef, proxy)
 	if err != nil {
-		return ocispec.Descriptor{}, fmt.Errorf("failed to resolve %s: %w", srcRef, err)
+		msg := fmt.Sprintf("failed to resolve %s", srcRef)
+		return ocispec.Descriptor{}, errdef.NewCopyError("resolveRoot", errdef.CopyErrorOriginSource, err, msg)
 	}
 
 	if opts.MapRoot != nil {
 		proxy.StopCaching = true
 		root, err = opts.MapRoot(ctx, proxy, root)
 		if err != nil {
-			return ocispec.Descriptor{}, err
+			return ocispec.Descriptor{}, errdef.NewCopyError("MapRoot", errdef.CopyErrorOriginSource, err, "")
 		}
 		proxy.StopCaching = false
 	}

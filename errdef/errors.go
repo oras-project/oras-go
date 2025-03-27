@@ -15,7 +15,10 @@ limitations under the License.
 
 package errdef
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Common errors used in ORAS
 var (
@@ -29,3 +32,50 @@ var (
 	ErrUnsupported        = errors.New("unsupported")
 	ErrUnsupportedVersion = errors.New("unsupported version")
 )
+
+type CopyErrorOrigin = string
+
+const (
+	CopyErrorOriginUnknown     CopyErrorOrigin = "unknown"
+	CopyErrorOriginSource      CopyErrorOrigin = "source"
+	CopyErrorOriginDestination CopyErrorOrigin = "destination"
+)
+
+// TODO: should we put this in the oras package?
+type CopyError struct {
+	Op      string
+	Origin  CopyErrorOrigin
+	Err     error
+	Message string
+}
+
+func NewCopyError(op string, origin CopyErrorOrigin, err error, message string) error {
+	switch origin {
+	case CopyErrorOriginSource, CopyErrorOriginDestination:
+	default:
+		origin = CopyErrorOriginUnknown
+	}
+
+	return &CopyError{
+		Op:      op,
+		Origin:  origin,
+		Err:     err,
+		Message: message,
+	}
+}
+
+func (e *CopyError) Error() string {
+	// what if message is empty?
+	switch e.Origin {
+	case CopyErrorOriginSource:
+		return fmt.Sprintf("error copying from source when performing %s: %s: %v", e.Op, e.Message, e.Err)
+	case CopyErrorOriginDestination:
+		return fmt.Sprintf("error copying to destination when performing %s: %s: %v", e.Op, e.Message, e.Err)
+	default:
+		return fmt.Sprintf("error copying when performing %s: %s: %v", e.Op, e.Message, e.Err)
+	}
+}
+
+func (e *CopyError) Unwrap() error {
+	return e.Err
+}
