@@ -131,10 +131,10 @@ type CopyGraphOptions struct {
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
-		return ocispec.Descriptor{}, NewCopyError("validation", CopyErrorOriginSource, errors.New("nil source target"))
+		return ocispec.Descriptor{}, newCopyError("validation", CopyErrorOriginSource, errors.New("nil source target"))
 	}
 	if dst == nil {
-		return ocispec.Descriptor{}, NewCopyError("validation", CopyErrorOriginDestination, errors.New("nil destination target"))
+		return ocispec.Descriptor{}, newCopyError("validation", CopyErrorOriginDestination, errors.New("nil destination target"))
 	}
 	if dstRef == "" {
 		dstRef = srcRef
@@ -147,14 +147,14 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
 	root, err := resolveRoot(ctx, src, srcRef, proxy)
 	if err != nil {
-		return ocispec.Descriptor{}, NewCopyError("resolveRoot", CopyErrorOriginSource, err)
+		return ocispec.Descriptor{}, newCopyError("resolveRoot", CopyErrorOriginSource, err)
 	}
 
 	if opts.MapRoot != nil {
 		proxy.StopCaching = true
 		root, err = opts.MapRoot(ctx, proxy, root)
 		if err != nil {
-			return ocispec.Descriptor{}, NewCopyError("MapRoot", CopyErrorOriginSource, err)
+			return ocispec.Descriptor{}, newCopyError("MapRoot", CopyErrorOriginSource, err)
 		}
 		proxy.StopCaching = false
 	}
@@ -222,7 +222,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		// skip if a rooted sub-DAG exists
 		exists, err := dst.Exists(ctx, desc)
 		if err != nil {
-			return NewCopyError("Exists", CopyErrorOriginDestination, err)
+			return newCopyError("Exists", CopyErrorOriginDestination, err)
 		}
 		if exists {
 			if opts.OnCopySkipped != nil {
@@ -236,7 +236,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		// find successors while non-leaf nodes will be fetched and cached
 		successors, err := opts.FindSuccessors(ctx, proxy, desc)
 		if err != nil {
-			return NewCopyError("FindSuccessors", CopyErrorOriginSource, err)
+			return newCopyError("FindSuccessors", CopyErrorOriginSource, err)
 		}
 		successors = removeForeignLayers(successors)
 
@@ -250,12 +250,12 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 				done, committed := tracker.TryCommit(node)
 				if committed {
 					err := fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
-					return NewCopyError("copyGraph", CopyErrorOriginUnknown, err)
+					return newCopyError("copyGraph", CopyErrorOriginInternal, err)
 				}
 				select {
 				case <-done:
 				case <-ctx.Done():
-					NewCopyError("copyGraph", CopyErrorOriginUnknown, ctx.Err())
+					newCopyError("copyGraph", CopyErrorOriginInternal, ctx.Err())
 				}
 			}
 			if err := region.Start(); err != nil {
@@ -265,7 +265,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 
 		exists, err = proxy.Cache.Exists(ctx, desc)
 		if err != nil {
-			return NewCopyError("Cache.Exists", CopyErrorOriginSource, err)
+			return newCopyError("Cache.Exists", CopyErrorOriginSource, err)
 		}
 		if exists {
 			return copyNode(ctx, proxy.Cache, dst, desc, opts)
@@ -322,14 +322,14 @@ func mountOrCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst conte
 			}
 			rc, err := src.Fetch(ctx, desc)
 			if err != nil {
-				return nil, NewCopyError("Fetch", CopyErrorOriginSource, err)
+				return nil, newCopyError("Fetch", CopyErrorOriginSource, err)
 			}
 			return rc, nil
 		}
 
 		// Mount or copy
 		if err := mounter.Mount(ctx, desc, sourceRepository, getContent); err != nil && !errors.Is(err, skipSource) {
-			return NewCopyError("Mount", CopyErrorOriginDestination, err)
+			return newCopyError("Mount", CopyErrorOriginDestination, err)
 		}
 
 		if !mountFailed {
@@ -357,12 +357,12 @@ func mountOrCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst conte
 func doCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, desc ocispec.Descriptor) error {
 	rc, err := src.Fetch(ctx, desc)
 	if err != nil {
-		return NewCopyError("Fetch", CopyErrorOriginSource, err)
+		return newCopyError("Fetch", CopyErrorOriginSource, err)
 	}
 	defer rc.Close()
 	err = dst.Push(ctx, desc, rc)
 	if err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-		return NewCopyError("Push", CopyErrorOriginDestination, err)
+		return newCopyError("Push", CopyErrorOriginDestination, err)
 	}
 	return nil
 }
@@ -394,13 +394,13 @@ func copyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Stor
 func copyCachedNodeWithReference(ctx context.Context, src *cas.Proxy, dst registry.ReferencePusher, desc ocispec.Descriptor, dstRef string) error {
 	rc, err := src.FetchCached(ctx, desc)
 	if err != nil {
-		return NewCopyError("FetchCached", CopyErrorOriginSource, err)
+		return newCopyError("FetchCached", CopyErrorOriginSource, err)
 	}
 	defer rc.Close()
 
 	err = dst.PushReference(ctx, desc, rc, dstRef)
 	if err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
-		return NewCopyError("PushReference", CopyErrorOriginDestination, err)
+		return newCopyError("PushReference", CopyErrorOriginDestination, err)
 	}
 	return nil
 }
@@ -472,7 +472,7 @@ func prepareCopy(_ context.Context, dst Target, dstRef string, proxy *cas.Proxy,
 			if content.Equal(desc, root) {
 				// for root node, tag it after copying it
 				if err := dst.Tag(ctx, root, dstRef); err != nil {
-					return NewCopyError("Tag", CopyErrorOriginDestination, err)
+					return newCopyError("Tag", CopyErrorOriginDestination, err)
 				}
 			}
 			if postCopy != nil {
@@ -505,7 +505,7 @@ func prepareCopy(_ context.Context, dst Target, dstRef string, proxy *cas.Proxy,
 			}
 		}
 		if err := dst.Tag(ctx, root, dstRef); err != nil {
-			return NewCopyError("Tag", CopyErrorOriginDestination, err)
+			return newCopyError("Tag", CopyErrorOriginDestination, err)
 		}
 		return nil
 	}

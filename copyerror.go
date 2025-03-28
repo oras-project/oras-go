@@ -17,28 +17,28 @@ package oras
 
 import "fmt"
 
-type CopyErrorOrigin = string
+// CopyErrorOrigin defines the source of a copy error.
+type CopyErrorOrigin string
 
 const (
-	CopyErrorOriginUnknown     CopyErrorOrigin = "unknown"
-	CopyErrorOriginSource      CopyErrorOrigin = "source"
+	// CopyErrorOriginSource indicates the error occurred at the source side.
+	CopyErrorOriginSource CopyErrorOrigin = "source"
+
+	// CopyErrorOriginDestination indicates the error occurred at the destination side.
 	CopyErrorOriginDestination CopyErrorOrigin = "destination"
+
+	// CopyErrorOriginInternal indicates the error occurred internally.
+	CopyErrorOriginInternal CopyErrorOrigin = "internal"
 )
 
+// CopyError represents an error encountered during a copy operation.
 type CopyError struct {
 	Op     string
 	Origin CopyErrorOrigin
 	Err    error
 }
 
-func NewCopyError(op string, origin CopyErrorOrigin, err error) error {
-	switch origin {
-	case CopyErrorOriginSource, CopyErrorOriginDestination:
-	default:
-		// TODO: should we do this?
-		origin = CopyErrorOriginUnknown
-	}
-
+func newCopyError(op string, origin CopyErrorOrigin, err error) error {
 	return &CopyError{
 		Op:     op,
 		Origin: origin,
@@ -47,12 +47,7 @@ func NewCopyError(op string, origin CopyErrorOrigin, err error) error {
 }
 
 func (e *CopyError) Error() string {
-	switch e.Origin {
-	case CopyErrorOriginSource, CopyErrorOriginDestination:
-		return fmt.Sprintf("error copying when performing %s on %s target: %v", e.Op, e.Origin, e.Err)
-	default:
-		return fmt.Sprintf("error copying when performing %s: %v", e.Op, e.Err)
-	}
+	return fmt.Sprintf("[%s] failed to perform %s: %v", e.Origin, e.Op, e.Err)
 }
 
 func (e *CopyError) Unwrap() error {
