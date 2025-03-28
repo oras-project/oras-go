@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 )
@@ -67,7 +66,7 @@ func TestMain(m *testing.M) {
 }
 
 // Example_packFiles gives an example of adding files and generating a manifest
-// referencing the files.
+// referencing the files as defined in image-spec v1.1.1.
 func Example_packFiles() {
 	store, err := file.New(workingDir)
 	if err != nil {
@@ -79,20 +78,18 @@ func Example_packFiles() {
 	// 1. Add files into the file store
 	mediaType := "example/file"
 	fileNames := []string{"foo.txt", "bar.txt"}
-	fileDescriptors := make([]ocispec.Descriptor, 0, len(fileNames))
 	for _, name := range fileNames {
 		fileDescriptor, err := store.Add(ctx, name, mediaType, "")
 		if err != nil {
 			panic(err)
 		}
-		fileDescriptors = append(fileDescriptors, fileDescriptor)
 
 		fmt.Printf("file descriptor for %s: %v\n", name, fileDescriptor)
 	}
 
 	// 2. Generate a manifest referencing the files
 	artifactType := "example/test"
-	manifestDescriptor, err := oras.Pack(ctx, store, artifactType, fileDescriptors, oras.PackOptions{})
+	manifestDescriptor, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_1, artifactType, oras.PackManifestOptions{})
 	if err != nil {
 		panic(err)
 	}
@@ -101,5 +98,5 @@ func Example_packFiles() {
 	// Output:
 	// file descriptor for foo.txt: {example/file sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae 3 [] map[org.opencontainers.image.title:foo.txt] [] <nil> }
 	// file descriptor for bar.txt: {example/file sha256:fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9 3 [] map[org.opencontainers.image.title:bar.txt] [] <nil> }
-	// manifest media type: application/vnd.oci.artifact.manifest.v1+json
+	// manifest media type: application/vnd.oci.image.manifest.v1+json
 }
