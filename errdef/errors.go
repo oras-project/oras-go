@@ -17,7 +17,6 @@ package errdef
 
 import (
 	"errors"
-	"fmt"
 )
 
 // Common errors used in ORAS
@@ -32,46 +31,3 @@ var (
 	ErrUnsupported        = errors.New("unsupported")
 	ErrUnsupportedVersion = errors.New("unsupported version")
 )
-
-type CopyErrorOrigin = string
-
-const (
-	CopyErrorOriginUnknown     CopyErrorOrigin = "unknown" // TODO: unknown or no applicable?
-	CopyErrorOriginSource      CopyErrorOrigin = "source"
-	CopyErrorOriginDestination CopyErrorOrigin = "destination"
-)
-
-// TODO: should we put this in the oras package?
-type CopyError struct {
-	Op     string
-	Origin CopyErrorOrigin
-	Err    error
-}
-
-func NewCopyError(op string, origin CopyErrorOrigin, err error) error {
-	switch origin {
-	case CopyErrorOriginSource, CopyErrorOriginDestination:
-	default:
-		origin = CopyErrorOriginUnknown
-	}
-
-	return &CopyError{
-		Op:     op,
-		Origin: origin,
-		Err:    err,
-	}
-}
-
-func (e *CopyError) Error() string {
-	// what if message is empty?
-	switch e.Origin {
-	case CopyErrorOriginSource, CopyErrorOriginDestination:
-		return fmt.Sprintf("error copying when performing %s on %s: %v", e.Op, e.Origin, e.Err)
-	default:
-		return fmt.Sprintf("error copying when performing %s: %v", e.Op, e.Err)
-	}
-}
-
-func (e *CopyError) Unwrap() error {
-	return e.Err
-}
