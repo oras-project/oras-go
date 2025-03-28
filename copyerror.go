@@ -38,6 +38,7 @@ type CopyError struct {
 	Err    error
 }
 
+// newCopyError creates a new CopyError.
 func newCopyError(op string, origin CopyErrorOrigin, err error) error {
 	return &CopyError{
 		Op:     op,
@@ -46,10 +47,12 @@ func newCopyError(op string, origin CopyErrorOrigin, err error) error {
 	}
 }
 
+// Error implements the error interface for CopyError.
 func (e *CopyError) Error() string {
 	return fmt.Sprintf("[%s] failed to perform %s: %v", e.Origin, e.Op, e.Err)
 }
 
+// Unwrap implements the errors.Unwrap interface for CopyError.
 func (e *CopyError) Unwrap() error {
 	return e.Err
 }
