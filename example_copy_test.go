@@ -346,7 +346,8 @@ func ExampleCopy_localToRemote() {
 // an artifact manifest from a remote repository into memory.
 func Example_copyArtifactManifestRemoteToLocal() {
 	// 0. Connect to a remote repository
-	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
+	repositoryName := "source"
+	src, err := remote.NewRepository(fmt.Sprintf("%s/%s", remoteHost, repositoryName))
 	if err != nil {
 		panic(err)
 	}
@@ -384,7 +385,8 @@ func Example_copyArtifactManifestRemoteToLocal() {
 // memory.
 func Example_extendedCopyArtifactAndReferrersRemoteToLocal() {
 	// 0. Connect to a remote repository
-	src, err := remote.NewRepository(fmt.Sprintf("%s/source", remoteHost))
+	repositoryName := "source"
+	src, err := remote.NewRepository(fmt.Sprintf("%s/%s", remoteHost, repositoryName))
 	if err != nil {
 		panic(err)
 	}
