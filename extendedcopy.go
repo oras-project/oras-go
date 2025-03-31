@@ -76,10 +76,10 @@ type ExtendedCopyGraphOptions struct {
 // Returns the descriptor of the tagged node on successful copy.
 func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, dst Target, dstRef string, opts ExtendedCopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
-		return ocispec.Descriptor{}, errors.New("nil source graph target")
+		return ocispec.Descriptor{}, newCopyError("validation", CopyErrorOriginSource, errors.New("nil source target"))
 	}
 	if dst == nil {
-		return ocispec.Descriptor{}, errors.New("nil destination target")
+		return ocispec.Descriptor{}, newCopyError("validation", CopyErrorOriginDestination, errors.New("nil destination target"))
 	}
 	if dstRef == "" {
 		dstRef = srcRef
@@ -87,7 +87,7 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 
 	node, err := src.Resolve(ctx, srcRef)
 	if err != nil {
-		return ocispec.Descriptor{}, err
+		return ocispec.Descriptor{}, newCopyError("resolve", CopyErrorOriginSource, err)
 	}
 
 	if err := ExtendedCopyGraph(ctx, src, dst, node, opts.ExtendedCopyGraphOptions); err != nil {
@@ -95,7 +95,7 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 	}
 
 	if err := dst.Tag(ctx, node, dstRef); err != nil {
-		return ocispec.Descriptor{}, err
+		return ocispec.Descriptor{}, newCopyError("tag", CopyErrorOriginDestination, err)
 	}
 
 	return node, nil
@@ -109,7 +109,7 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
 	roots, err := findRoots(ctx, src, node, opts)
 	if err != nil {
-		return err
+		return newCopyError("findRoots", CopyErrorOriginSource, err)
 	}
 
 	// if Concurrency is not set or invalid, use the default concurrency
