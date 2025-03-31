@@ -122,7 +122,7 @@ func TestCopyError_Error(t *testing.T) {
 				Origin: CopyErrorOriginSource,
 				Err:    errTest,
 			},
-			want: "[source] failed to perform pull: test error",
+			want: `source error: failed to perform "pull": test error`,
 		},
 		{
 			name: "destination error",
@@ -131,7 +131,7 @@ func TestCopyError_Error(t *testing.T) {
 				Origin: CopyErrorOriginDestination,
 				Err:    errTest,
 			},
-			want: "[destination] failed to perform push: test error",
+			want: `destination error: failed to perform "push": test error`,
 		},
 		{
 			name: "internal error",
@@ -140,7 +140,7 @@ func TestCopyError_Error(t *testing.T) {
 				Origin: CopyErrorOriginInternal,
 				Err:    errTest,
 			},
-			want: "[internal] failed to perform copy: test error",
+			want: `internal error: failed to perform "copy": test error`,
 		},
 		{
 			name: "undefined origin",
@@ -149,7 +149,7 @@ func TestCopyError_Error(t *testing.T) {
 				Origin: "somewhere",
 				Err:    errTest,
 			},
-			want: "[somewhere] failed to perform test: test error",
+			want: `somewhere error: failed to perform "test": test error`,
 		},
 		{
 			name: "nil error",
@@ -158,7 +158,7 @@ func TestCopyError_Error(t *testing.T) {
 				Origin: CopyErrorOriginInternal,
 				Err:    nil,
 			},
-			want: "[internal] failed to perform test: <nil>",
+			want: `internal error: failed to perform "test": <nil>`,
 		},
 	}
 
