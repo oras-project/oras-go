@@ -67,7 +67,7 @@ func TestMain(m *testing.M) {
 }
 
 // Example_packFiles gives an example of adding files and generating a manifest
-// referencing the files.
+// referencing the files as defined in image-spec v1.1.1.
 func Example_packFiles() {
 	store, err := file.New(workingDir)
 	if err != nil {
@@ -92,7 +92,10 @@ func Example_packFiles() {
 
 	// 2. Generate a manifest referencing the files
 	artifactType := "example/test"
-	manifestDescriptor, err := oras.Pack(ctx, store, artifactType, fileDescriptors, oras.PackOptions{})
+	opts := oras.PackManifestOptions{
+		Layers: fileDescriptors,
+	}
+	manifestDescriptor, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_1, artifactType, opts)
 	if err != nil {
 		panic(err)
 	}
@@ -101,5 +104,5 @@ func Example_packFiles() {
 	// Output:
 	// file descriptor for foo.txt: {example/file sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae 3 [] map[org.opencontainers.image.title:foo.txt] [] <nil> }
 	// file descriptor for bar.txt: {example/file sha256:fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9 3 [] map[org.opencontainers.image.title:bar.txt] [] <nil> }
-	// manifest media type: application/vnd.oci.artifact.manifest.v1+json
+	// manifest media type: application/vnd.oci.image.manifest.v1+json
 }
