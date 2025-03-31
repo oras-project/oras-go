@@ -92,7 +92,10 @@ func Example_packFiles() {
 
 	// 2. Generate a manifest referencing the files
 	artifactType := "example/test"
-	manifestDescriptor, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_1, artifactType, oras.PackManifestOptions{Layers: fileDescriptors})
+	opts := oras.PackManifestOptions{
+		Layers: fileDescriptors,
+	}
+	manifestDescriptor, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_1, artifactType, opts)
 	if err != nil {
 		panic(err)
 	}
