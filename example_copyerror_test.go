@@ -23,7 +23,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 )
 
-// ExampleCopyError demonstrates how to check CopyError objects returned from
+// ExampleCopyError demonstrates how to check CopyError returned from
 // copy operations.
 func ExampleCopyError() {
 	src := memory.New()
@@ -41,7 +41,7 @@ func ExampleCopyError() {
 	// Type assertion to check if it's a CopyError
 	copyErr, ok := err.(*oras.CopyError)
 	if !ok {
-		fmt.Printf("Unexpected error type: %T\n", err)
+		fmt.Printf("Not a copy error: %T\n", err)
 		return
 	}
 
