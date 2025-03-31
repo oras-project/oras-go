@@ -189,7 +189,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func ExampleCopy_remoteToRemote() {
+func ExampleCopy_repositoryToRepository() {
 	reg, err := remote.NewRegistry(remoteHost)
 	if err != nil {
 		panic(err) // Handle error
@@ -215,7 +215,7 @@ func ExampleCopy_remoteToRemote() {
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
-func ExampleCopy_remoteToRemoteWithMount() {
+func ExampleCopy_repositoryToRepositoryWithMount() {
 	reg, err := remote.NewRegistry(remoteHost)
 	if err != nil {
 		panic(err) // Handle error
@@ -255,7 +255,7 @@ func ExampleCopy_remoteToRemoteWithMount() {
 	// Final sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
-func ExampleCopy_remoteToLocal() {
+func ExampleCopy_repositoryToMemory() {
 	reg, err := remote.NewRegistry(remoteHost)
 	if err != nil {
 		panic(err) // Handle error
@@ -279,7 +279,7 @@ func ExampleCopy_remoteToLocal() {
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
-func ExampleCopy_localToLocal() {
+func ExampleCopy_memoryToMemory() {
 	src := exampleMemoryStore
 	dst := memory.New()
 
@@ -295,7 +295,7 @@ func ExampleCopy_localToLocal() {
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
-func ExampleCopy_localToOciFile() {
+func ExampleCopy_memoryToOciFile() {
 	src := exampleMemoryStore
 	tempDir, err := os.MkdirTemp("", "oras_oci_example_*")
 	if err != nil {
@@ -319,7 +319,7 @@ func ExampleCopy_localToOciFile() {
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
-func ExampleCopy_localToRemote() {
+func ExampleCopy_memoryToRepository() {
 	src := exampleMemoryStore
 	reg, err := remote.NewRegistry(remoteHost)
 	if err != nil {
@@ -342,9 +342,9 @@ func ExampleCopy_localToRemote() {
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
-// ExampleCopyArtifactManifestRemoteToLocal gives an example of copying
+// ExampleCopyArtifactFromRepositoryToMemory gives an example of copying
 // an artifact manifest from a remote repository into memory.
-func Example_copyArtifactManifestRemoteToLocal() {
+func Example_copyArtifactFromRepositoryToMemory() {
 	// 0. Connect to a remote repository
 	repositoryName := "source"
 	src, err := remote.NewRepository(fmt.Sprintf("%s/%s", remoteHost, repositoryName))
@@ -380,10 +380,10 @@ func Example_copyArtifactManifestRemoteToLocal() {
 	// true
 }
 
-// ExampleExtendedCopyArtifactAndReferrersRemoteToLocal gives an example of
+// ExampleExtendedCopyArtifactAndReferrersFromRepository gives an example of
 // copying an artifact along with its referrers from a remote repository into
 // memory.
-func Example_extendedCopyArtifactAndReferrersRemoteToLocal() {
+func Example_extendedCopyArtifactAndReferrersFromRepository() {
 	// 0. Connect to a remote repository
 	repositoryName := "source"
 	src, err := remote.NewRepository(fmt.Sprintf("%s/%s", remoteHost, repositoryName))

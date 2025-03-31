@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"io"
 
+	_ "crypto/sha256"
+
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 )
