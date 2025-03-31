@@ -42,6 +42,9 @@ type CopyError struct {
 
 // newCopyError creates a new CopyError.
 func newCopyError(op string, origin CopyErrorOrigin, err error) error {
+	if err == nil {
+		return nil
+	}
 	return &CopyError{
 		Op:     op,
 		Origin: origin,
