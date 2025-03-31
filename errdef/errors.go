@@ -15,9 +15,7 @@ limitations under the License.
 
 package errdef
 
-import (
-	"errors"
-)
+import "errors"
 
 // Common errors used in ORAS
 var (
