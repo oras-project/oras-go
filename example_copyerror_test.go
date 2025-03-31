@@ -34,7 +34,7 @@ func ExampleCopyError() {
 	nonExistentRef := "non-existent-reference"
 	_, err := oras.Copy(ctx, src, nonExistentRef, dst, "", oras.DefaultCopyOptions)
 	if err == nil {
-		fmt.Println("Copy succeeded")
+		fmt.Println("copy succeeded")
 		return
 	}
 
@@ -45,14 +45,14 @@ func ExampleCopyError() {
 		return
 	}
 
-	fmt.Println("CopyErr.Origin:", copyErr.Origin)
-	fmt.Println("CopyErr.Op:", copyErr.Op)
-	fmt.Println("CopyErr.Err:", copyErr.Err)
-	fmt.Println("CopyErr.Error():", copyErr.Error())
+	fmt.Println("copyErr.Origin:", copyErr.Origin)
+	fmt.Println("copyErr.Op:", copyErr.Op)
+	fmt.Println("copyErr.Err:", copyErr.Err)
+	fmt.Println("copyErr.Error():", copyErr.Error())
 
 	// Output:
-	// CopyErr.Origin: source
-	// CopyErr.Op: resolveRoot
-	// CopyErr.Err: not found
-	// CopyErr.Error(): source error: failed to perform "resolveRoot": not found
+	// copyErr.Origin: source
+	// copyErr.Op: resolveRoot
+	// copyErr.Err: not found
+	// copyErr.Error(): source error: failed to perform "resolveRoot": not found
 }
