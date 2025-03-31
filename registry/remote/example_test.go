@@ -324,8 +324,8 @@ func ExampleRepository_Push() {
 	// Push finished
 }
 
-// ExampleRepository_Push_artifactReferenceManifest gives an example snippet for pushing a reference manifest.
-func ExampleRepository_Push_artifactReferenceManifest() {
+// ExampleRepository_Push_referrerManifest gives an example snippet for pushing a manifest as a referrer to another manifest.
+func ExampleRepository_Push_referrerManifest() {
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
 	if err != nil {
 		panic(err)
@@ -483,9 +483,9 @@ func ExampleRepository_Fetch_manifestByDigest() {
 	// {"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:569224ae188c06e97b9fcadaeb2358fb0fb7c4eb105d49aee2620b2719abea43","size":22},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:ef79e47691ad1bc702d7a256da6323ec369a8fc3159b4f1798a47136f3b38c10","size":21}]}
 }
 
-// ExampleRepository_Fetch_artifactReferenceManifest gives an example of fetching
+// ExampleRepository_Fetch_referrerManifest gives an example of fetching
 // the referrers of a given manifest by using the Referrers API.
-func ExampleRepository_Fetch_artifactReferenceManifest() {
+func ExampleRepository_Fetch_referrerManifest() {
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
 	if err != nil {
 		panic(err)

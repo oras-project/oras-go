@@ -295,7 +295,7 @@ func ExampleCopy_memoryToMemory() {
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
-func ExampleCopy_memoryToOciFile() {
+func ExampleCopy_memoryToOCIStore() {
 	src := exampleMemoryStore
 	tempDir, err := os.MkdirTemp("", "oras_oci_example_*")
 	if err != nil {
@@ -342,9 +342,9 @@ func ExampleCopy_memoryToRepository() {
 	// sha256:7cbb44b44e8ede5a89cf193db3f5f2fd019d89697e6b87e8ed2589e60649b0d1
 }
 
-// ExampleCopyArtifactFromRepositoryToMemory gives an example of copying
-// an artifact manifest from a remote repository into memory.
-func Example_copyArtifactFromRepositoryToMemory() {
+// ExampleCopyArtifactFromRepository gives an example of copying
+// an artifact from a remote repository into memory.
+func Example_copyArtifactFromRepository() {
 	// 0. Connect to a remote repository
 	repositoryName := "source"
 	src, err := remote.NewRepository(fmt.Sprintf("%s/%s", remoteHost, repositoryName))

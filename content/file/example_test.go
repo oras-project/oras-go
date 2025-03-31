@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 )
@@ -78,18 +79,20 @@ func Example_packFiles() {
 	// 1. Add files into the file store
 	mediaType := "example/file"
 	fileNames := []string{"foo.txt", "bar.txt"}
+	fileDescriptors := make([]ocispec.Descriptor, 0, len(fileNames))
 	for _, name := range fileNames {
 		fileDescriptor, err := store.Add(ctx, name, mediaType, "")
 		if err != nil {
 			panic(err)
 		}
+		fileDescriptors = append(fileDescriptors, fileDescriptor)
 
 		fmt.Printf("file descriptor for %s: %v\n", name, fileDescriptor)
 	}
 
 	// 2. Generate a manifest referencing the files
 	artifactType := "example/test"
-	manifestDescriptor, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_1, artifactType, oras.PackManifestOptions{})
+	manifestDescriptor, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_1, artifactType, oras.PackManifestOptions{Layers: fileDescriptors})
 	if err != nil {
 		panic(err)
 	}
