@@ -17,8 +17,6 @@ package oras
 
 import "fmt"
 
-// TODO: examples
-
 // CopyErrorOrigin defines the source of a copy error.
 type CopyErrorOrigin string
 
