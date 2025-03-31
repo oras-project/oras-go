@@ -1834,16 +1834,32 @@ func TestExtededCopy_Error(t *testing.T) {
 	t.Run("src target is nil", func(t *testing.T) {
 		ctx := context.Background()
 		dst := memory.New()
-		if _, err := oras.ExtendedCopy(ctx, nil, "", dst, "", oras.DefaultExtendedCopyOptions); err == nil {
-			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		_, err := oras.ExtendedCopy(ctx, nil, "", dst, "", oras.DefaultExtendedCopyOptions)
+		if err == nil {
+			t.Errorf("ExtendedCopy() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("ExtendedCopy() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginSource; copyErr.Origin != want {
+			t.Fatalf("CopyError origin = %v, want %v", copyErr.Origin, want)
 		}
 	})
 
 	t.Run("dst target is nil", func(t *testing.T) {
 		ctx := context.Background()
 		src := memory.New()
-		if _, err := oras.ExtendedCopy(ctx, src, "", nil, "", oras.DefaultExtendedCopyOptions); err == nil {
-			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		_, err := oras.ExtendedCopy(ctx, src, "", nil, "", oras.DefaultExtendedCopyOptions)
+		if err == nil {
+			t.Errorf("ExtendedCopy() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("ExtendedCopy() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
+			t.Fatalf("CopyError origin = %v, want %v", copyErr.Origin, want)
 		}
 	})
 }

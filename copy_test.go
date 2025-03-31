@@ -2318,20 +2318,36 @@ func TestCopy_ReferencePusher(t *testing.T) {
 	}
 }
 
-func TestCopy_Error(t *testing.T) {
+func TestCopy_CopyError(t *testing.T) {
 	t.Run("src target is nil", func(t *testing.T) {
 		ctx := context.Background()
 		dst := memory.New()
-		if _, err := oras.Copy(ctx, nil, "", dst, "", oras.DefaultCopyOptions); err == nil {
-			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		_, err := oras.Copy(ctx, nil, "", dst, "", oras.DefaultCopyOptions)
+		if err == nil {
+			t.Fatalf("Copy() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginSource; copyErr.Origin != want {
+			t.Fatalf("CopyError origin = %v, want %v", copyErr.Origin, want)
 		}
 	})
 
 	t.Run("dst target is nil", func(t *testing.T) {
 		ctx := context.Background()
 		src := memory.New()
-		if _, err := oras.Copy(ctx, src, "", nil, "", oras.DefaultCopyOptions); err == nil {
+		_, err := oras.Copy(ctx, src, "", nil, "", oras.DefaultCopyOptions)
+		if err == nil {
 			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
+			t.Fatalf("CopyError origin = %v, want %v", copyErr.Origin, want)
 		}
 	})
 
@@ -2339,8 +2355,16 @@ func TestCopy_Error(t *testing.T) {
 		ctx := context.Background()
 		src := memory.New()
 		dst := memory.New()
-		if _, err := oras.Copy(ctx, src, "whatever", dst, "", oras.DefaultCopyOptions); err == nil {
+		_, err := oras.Copy(ctx, src, "whatever", dst, "", oras.DefaultCopyOptions)
+		if err == nil {
 			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginSource; copyErr.Origin != want {
+			t.Fatalf("CopyError origin = %v, want %v", copyErr.Origin, want)
 		}
 	})
 }
