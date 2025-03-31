@@ -41,7 +41,7 @@ func ExampleCopyError() {
 	// Type assertion to check if it's a CopyError
 	copyErr, ok := err.(*oras.CopyError)
 	if !ok {
-		fmt.Printf("Not a copy error: %T\n", err)
+		fmt.Println("err is not a CopyError")
 		return
 	}
 
