@@ -255,7 +255,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 				select {
 				case <-done:
 				case <-ctx.Done():
-					newCopyError("copyGraph", CopyErrorOriginInternal, ctx.Err())
+					return newCopyError("copyGraph", CopyErrorOriginInternal, ctx.Err())
 				}
 			}
 			if err := region.Start(); err != nil {
