@@ -1830,7 +1830,7 @@ func TestExtendedCopyGraph_FilterArtifactTypeAndAnnotationWithMultipleRegex_Refe
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
 }
 
-func TestExtededCopy_CopyError(t *testing.T) {
+func TestExtendedCopy_CopyError(t *testing.T) {
 	t.Run("src target is nil", func(t *testing.T) {
 		ctx := context.Background()
 		dst := memory.New()
