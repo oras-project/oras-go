@@ -2368,6 +2368,44 @@ func TestCopy_CopyError(t *testing.T) {
 		}
 	})
 
+	t.Run("tag error", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		dst := &badTagger{
+			Target: memory.New(),
+		}
+		srcRef := "test"
+
+		// prepare test content
+		manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/test", oras.PackManifestOptions{})
+		if err != nil {
+			t.Fatalf("failed to pack test content: %v", err)
+		}
+		if err := src.Tag(ctx, manifestDesc, srcRef); err != nil {
+			t.Fatalf("failed to tag test content on src: %v", err)
+		}
+
+		// test copy
+		_, err = oras.Copy(ctx, src, srcRef, dst, "", oras.DefaultCopyOptions)
+		if err == nil {
+			t.Errorf("Copy() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
+			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+		if wantErr := errTag; !errors.Is(copyErr.Err, wantErr) {
+			t.Errorf("CopyError error = %v, wantErr %v", copyErr.Err, wantErr)
+		}
+	})
+
+}
+
+func TestCopyGraph_CopyError(t *testing.T) {
+
 	t.Run("exists error", func(t *testing.T) {
 		ctx := context.Background()
 		src := memory.New()
@@ -2446,6 +2484,7 @@ var (
 	errExists = errors.New("exists error")
 	errPush   = errors.New("push error")
 	errFetch  = errors.New("fetch error")
+	errTag    = errors.New("tag error")
 )
 
 type badExister struct {
@@ -2470,4 +2509,12 @@ type badPusher struct {
 
 func (bp *badPusher) Push(_ context.Context, _ ocispec.Descriptor, _ io.Reader) error {
 	return errPush
+}
+
+type badTagger struct {
+	oras.Target
+}
+
+func (bt *badTagger) Tag(_ context.Context, _ ocispec.Descriptor, _ string) error {
+	return errTag
 }

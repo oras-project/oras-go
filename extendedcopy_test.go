@@ -1903,7 +1903,7 @@ func TestExtendedCopy_CopyError(t *testing.T) {
 	t.Run("tag error", func(t *testing.T) {
 		ctx := context.Background()
 		src := memory.New()
-		dst := &badTagger{
+		dst := &badGraphTagger{
 			GraphTarget: memory.New(),
 		}
 		srcRef := "test"
@@ -1929,18 +1929,18 @@ func TestExtendedCopy_CopyError(t *testing.T) {
 		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
 			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
 		}
-		if wantErr := errTag; !errors.Is(copyErr.Err, wantErr) {
+		if wantErr := errGraphTag; !errors.Is(copyErr.Err, wantErr) {
 			t.Errorf("CopyError error = %v, wantErr %v", copyErr.Err, wantErr)
 		}
 	})
 }
 
-type badTagger struct {
+type badGraphTagger struct {
 	oras.GraphTarget
 }
 
-var errTag = errors.New("tag error")
+var errGraphTag = errors.New("graph tag error")
 
-func (bt *badTagger) Tag(_ context.Context, _ ocispec.Descriptor, _ string) error {
-	return errTag
+func (bgt *badGraphTagger) Tag(_ context.Context, _ ocispec.Descriptor, _ string) error {
+	return errGraphTag
 }
