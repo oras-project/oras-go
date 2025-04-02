@@ -2367,4 +2367,107 @@ func TestCopy_CopyError(t *testing.T) {
 			t.Fatalf("CopyError origin = %v, want %v", copyErr.Origin, want)
 		}
 	})
+
+	t.Run("exists error", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		dst := &badExister{
+			memory.New(),
+		}
+		err := oras.CopyGraph(ctx, src, dst, ocispec.Descriptor{}, oras.DefaultCopyGraphOptions)
+		if err == nil {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("CopyGraph() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
+			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+		if wantErr := errExists; !errors.Is(copyErr.Err, wantErr) {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", copyErr.Err, wantErr)
+		}
+	})
+
+	t.Run("fetch error", func(t *testing.T) {
+		ctx := context.Background()
+		src := &badFetcher{
+			memory.New(),
+		}
+		dst := memory.New()
+		err := oras.CopyGraph(ctx, src, dst, ocispec.Descriptor{}, oras.DefaultCopyGraphOptions)
+		if err == nil {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("CopyGraph() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginSource; copyErr.Origin != want {
+			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+		if wantErr := errFetch; !errors.Is(copyErr.Err, wantErr) {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", copyErr.Err, wantErr)
+		}
+	})
+
+	t.Run("push error", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		dst := &badPusher{
+			memory.New(),
+		}
+
+		// prepare test content
+		manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/test", oras.PackManifestOptions{})
+		if err != nil {
+			t.Fatalf("failed to pack test content: %v", err)
+		}
+
+		err = oras.CopyGraph(ctx, src, dst, manifestDesc, oras.DefaultCopyGraphOptions)
+		if err == nil {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("CopyGraph() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
+			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+		if wantErr := errPush; !errors.Is(copyErr.Err, wantErr) {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", copyErr.Err, wantErr)
+		}
+	})
+}
+
+var (
+	errExists = errors.New("exists error")
+	errPush   = errors.New("push error")
+	errFetch  = errors.New("fetch error")
+)
+
+type badExister struct {
+	content.Storage
+}
+
+func (be *badExister) Exists(_ context.Context, _ ocispec.Descriptor) (bool, error) {
+	return false, errExists
+}
+
+type badFetcher struct {
+	content.Storage
+}
+
+func (bf *badFetcher) Fetch(_ context.Context, _ ocispec.Descriptor) (io.ReadCloser, error) {
+	return nil, errFetch
+}
+
+type badPusher struct {
+	content.Storage
+}
+
+func (bp *badPusher) Push(_ context.Context, _ ocispec.Descriptor, _ io.Reader) error {
+	return errPush
 }
