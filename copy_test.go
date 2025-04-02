@@ -2478,6 +2478,71 @@ func TestCopyGraph_CopyError(t *testing.T) {
 			t.Errorf("CopyGraph() error = %v, wantErr %v", copyErr.Err, wantErr)
 		}
 	})
+
+	t.Run("mount fetch error", func(t *testing.T) {
+		ctx := context.Background()
+		src := &badFetcher{
+			memory.New(),
+		}
+		dst := &testMounter{
+			memory.New(),
+		}
+
+		opts := oras.CopyGraphOptions{
+			MountFrom: func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+				return []string{"source"}, nil
+			},
+		}
+		err := oras.CopyGraph(ctx, src, dst, ocispec.Descriptor{}, opts)
+		if err == nil {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("CopyGraph() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginInternal; copyErr.Origin != want {
+			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+		if wantErr := errFetch; !errors.Is(copyErr.Err, wantErr) {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", copyErr.Err, wantErr)
+		}
+	})
+
+	t.Run("mount error", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		dst := &badMounter{
+			memory.New(),
+		}
+
+		// prepare test content
+		manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/test", oras.PackManifestOptions{})
+		if err != nil {
+			t.Fatalf("failed to pack test content: %v", err)
+		}
+
+		// test copy graph
+		opts := oras.CopyGraphOptions{
+			MountFrom: func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+				return []string{"source"}, nil
+			},
+		}
+		err = oras.CopyGraph(ctx, src, dst, manifestDesc, opts)
+		if err == nil {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("CopyGraph() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginInternal; copyErr.Origin != want {
+			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+		if wantErr := errMount; !errors.Is(copyErr.Err, wantErr) {
+			t.Errorf("CopyGraph() error = %v, wantErr %v", copyErr.Err, wantErr)
+		}
+	})
 }
 
 var (
@@ -2485,6 +2550,7 @@ var (
 	errPush   = errors.New("push error")
 	errFetch  = errors.New("fetch error")
 	errTag    = errors.New("tag error")
+	errMount  = errors.New("mount error")
 )
 
 type badExister struct {
@@ -2517,4 +2583,24 @@ type badTagger struct {
 
 func (bt *badTagger) Tag(_ context.Context, _ ocispec.Descriptor, _ string) error {
 	return errTag
+}
+
+type testMounter struct {
+	oras.Target
+}
+
+func (tm *testMounter) Mount(_ context.Context, _ ocispec.Descriptor, _ string, getContent func() (io.ReadCloser, error)) error {
+	_, err := getContent()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type badMounter struct {
+	oras.Target
+}
+
+func (bm *badMounter) Mount(_ context.Context, _ ocispec.Descriptor, _ string, _ func() (io.ReadCloser, error)) error {
+	return errMount
 }

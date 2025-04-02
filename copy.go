@@ -322,14 +322,14 @@ func mountOrCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst conte
 			}
 			rc, err := src.Fetch(ctx, desc)
 			if err != nil {
-				return nil, newCopyError("Fetch", CopyErrorOriginSource, err)
+				return nil, err
 			}
 			return rc, nil
 		}
 
 		// Mount or copy
 		if err := mounter.Mount(ctx, desc, sourceRepository, getContent); err != nil && !errors.Is(err, skipSource) {
-			return newCopyError("Mount", CopyErrorOriginDestination, err)
+			return newCopyError("Mount", CopyErrorOriginInternal, err)
 		}
 
 		if !mountFailed {
