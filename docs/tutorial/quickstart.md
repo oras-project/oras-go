@@ -149,8 +149,10 @@ fmt.Println(desc.Digest)
 
 Congratulations! You’ve completed this tutorial.
 
-Suggested next step:
+Suggested next steps:
 * Explore more [examples](https://pkg.go.dev/oras.land/oras-go/v2#pkg-overview) in the documentation.
+* Learn about how `oras-go` v2 [models artifacts](https://github.com/oras-project/oras-go/blob/main/docs/Modeling-Artifacts.md).
+* Learn about [Targets and Content Stores](https://github.com/oras-project/oras-go/blob/main/docs/Targets.md) in `oras-go` v2.
 
 ## Completed Code
 
