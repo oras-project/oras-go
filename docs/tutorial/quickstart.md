@@ -209,7 +209,7 @@ func main() {
 	}
 
 	// 3. Push layers to the repository
-    // push config layer
+	// push config layer
 	configLayer := []byte("example config layer")
 	configLayerDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, configLayer)
 	err = repo.Push(ctx, configLayerDescriptor, bytes.NewReader(configLayer))
@@ -218,7 +218,7 @@ func main() {
 	}
 	fmt.Println("Pushed config layer")
 
-    // push manifest layer
+	// push manifest layer
 	manifestLayer := []byte("example manifest layer")
 	manifestLayerDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, manifestLayer)
 	err = repo.Push(ctx, manifestLayerDescriptor, bytes.NewReader(manifestLayer))
