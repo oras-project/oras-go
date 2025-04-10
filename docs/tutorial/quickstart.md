@@ -178,7 +178,7 @@ import (
 )
 
 func main() {
-	// 1. Connect to a remote repository with basic auth authentication
+	// 1. Connect to a remote repository with basic authentication
 	ctx := context.Background()
 	registry := "myregistry.example.io"
 	repository := "myrepo"
