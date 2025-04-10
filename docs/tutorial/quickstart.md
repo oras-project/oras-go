@@ -79,7 +79,7 @@ fmt.Println("Pushed manifest layer")
 
 ## Push a manifest to the repository with the tag "quickstart"
 
-The following code snippet demonstrates how to assemble a manifest and push it to the repository using the [(*Repository) PushReference](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.PushReference) method.
+The following code snippet demonstrates how to assemble a manifest and push it to the repository with the tag "quickstart" using the [(*Repository) PushReference](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.PushReference) method.
 
 ```
 tag := "quickstart"
@@ -137,7 +137,6 @@ ociTarget, err := oci.New(ociDir)
 if err != nil {
 	panic(err)
 }
-
 desc, err = oras.Copy(ctx, repo, tag, ociTarget, "quickstartOCI", oras.DefaultCopyOptions)
 if err != nil {
 	panic(err)
@@ -150,7 +149,7 @@ fmt.Println(desc.Digest)
 Congratulations! You’ve completed this tutorial.
 
 Suggested next steps:
-* Explore more [examples](https://pkg.go.dev/oras.land/oras-go/v2#pkg-overview) in the documentation.
+* Check out more [examples](https://pkg.go.dev/oras.land/oras-go/v2#pkg-overview) in the documentation.
 * Learn about how `oras-go` v2 [models artifacts](https://github.com/oras-project/oras-go/blob/main/docs/Modeling-Artifacts.md).
 * Learn about [Targets and Content Stores](https://github.com/oras-project/oras-go/blob/main/docs/Targets.md) in `oras-go` v2.
 
@@ -273,7 +272,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
 	desc, err = oras.Copy(ctx, repo, tag, ociTarget, "quickstartOCI", oras.DefaultCopyOptions)
 	if err != nil {
 		panic(err)
