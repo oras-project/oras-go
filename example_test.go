@@ -16,12 +16,15 @@ limitations under the License.
 package oras_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	oras "oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
+	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -201,4 +204,110 @@ func Example_pushFilesToRemoteRepository() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+// ExamplePushArtifactAndReferrerToRemoteRepository gives an example of pushing
+// an artifact and its referrer to a remote repository.
+func Example_pushArtifactAndReferrerToRemoteRepository() {
+	// 1. assemble the referenced manifest in memory with tag "v1"
+	ctx := context.Background()
+	src := memory.New()
+	manifestDescriptor, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/vnd.example+type", oras.PackManifestOptions{})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("created manifest")
+
+	tag := "v1"
+	err = src.Tag(ctx, manifestDescriptor, tag)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("tagged manifest")
+
+	// 2. assemble the referrer  manifest in memory
+	referrerPackOpts := oras.PackManifestOptions{
+		Subject: &manifestDescriptor,
+	}
+	_, err = oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "sbom/example", referrerPackOpts)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("created referrer")
+
+	// 3. Connect to a remote repository with basic authentication
+	registry := "myregistry.example.com"
+	repository := "myrepo"
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", registry, repository))
+	if err != nil {
+		panic(err)
+	}
+	// Note: The below code can be omitted if authentication is not required.
+	repo.Client = &auth.Client{
+		Client: retry.DefaultClient,
+		Cache:  auth.NewCache(),
+		Credential: auth.StaticCredential(registry, auth.Credential{
+			Username: "username",
+			Password: "password",
+		}),
+	}
+
+	// 4. Push the manifest and its referrer to the remote repository
+	desc, err := oras.ExtendedCopy(ctx, src, tag, repo, "", oras.DefaultExtendedCopyOptions)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Pushed: ", desc.Digest)
+}
+
+// ExampleAttachBlobToRemoteRepository gives an example of attaching a blob to an
+// existing artifact in a remote repository. The blob is packed as a manifest whose
+// subject is the existing artifact.
+func Example_attachBlobToRemoteRepository() {
+	// 1. Prepare the blob to be attached
+	blob := []byte("example blob")
+	blobDescriptor := content.NewDescriptorFromBytes(v1.MediaTypeImageLayer, blob)
+
+	// 2. Connect to a remote repository with basic authentication
+	registry := "myregistry.example.com"
+	repository := "myrepo"
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", registry, repository))
+	if err != nil {
+		panic(err)
+	}
+	// Note: The below code can be omitted if authentication is not required.
+	repo.Client = &auth.Client{
+		Client: retry.DefaultClient,
+		Cache:  auth.NewCache(),
+		Credential: auth.StaticCredential(registry, auth.Credential{
+			Username: "username",
+			Password: "password",
+		}),
+	}
+
+	// 3. Push the blob to the repository
+	ctx := context.Background()
+	err = repo.Push(ctx, blobDescriptor, bytes.NewReader(blob))
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Pushed the blob to the repository")
+
+	// 4. Resolve the subject descriptor
+	subjectDescriptor, err := repo.Resolve(ctx, "sha256:f3a0356fe9f82b925c2f15106d3932252f36c1c56fd35be6c369d274f433d177")
+	if err != nil {
+		panic(err)
+	}
+
+	// 5. Pack the blob as a manifest with version v1.1 and push it to the repository
+	packOpts := oras.PackManifestOptions{
+		Layers:  []v1.Descriptor{blobDescriptor},
+		Subject: &subjectDescriptor,
+	}
+	artifactType := "application/vnd.example+type"
+	desc, err := oras.PackManifest(ctx, repo, oras.PackManifestVersion1_1, artifactType, packOpts)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Pushed:", desc.Digest)
 }
