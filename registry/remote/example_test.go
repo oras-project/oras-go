@@ -661,12 +661,6 @@ func ExampleRepository_Fetch_layer() {
 	// layer content
 }
 
-// ExampleRepository_Attach_blobToArtifact gives example snippets for attaching
-// a blob to an existing artifact in a remote repository.
-func ExampleRepository_Attach_blobToArtifact() {
-
-}
-
 // ExampleRepository_Tag gives example snippets for tagging a descriptor.
 func ExampleRepository_Tag() {
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
