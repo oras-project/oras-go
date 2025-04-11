@@ -8,10 +8,10 @@ The tutorial includes the following sections:
 
 1. Connect to a remote repository.
 2. Show tags in the repository.
-3. Push layers to the repository.
+3. Push a layer to the repository.
 4. Push a manifest to the repository.
 5. Fetch the manifest from the repository.
-6. Pull the manifest from the repository.
+6. Copy the artifact from the repository.
 
 The complete code is provided at the end of this tutorial.
 
@@ -53,20 +53,11 @@ if err != nil {
 }
 ```
 
-## Push layers to the repository
+## Push a layer to the repository
 
-Before pushing a manifest, the layers it references must already exist in the repository. The following code snippet demonstrates how to push a config layer and a manifest layer using the [(*Repository) Push](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Push) method.
+All referenced layers must exist in the repository before a manifest can be pushed. The following code snippet demonstrates how to push a manifest layer using the [(*Repository) Push](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Push) method.
 
 ```
-// push config layer
-configLayer := []byte("example config layer")
-configLayerDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, configLayer)
-err = repo.Push(ctx, configLayerDescriptor, bytes.NewReader(configLayer))
-if err != nil {
-	panic(err)
-}
-fmt.Println("Pushed config layer")
-
 // push manifest layer
 manifestLayer := []byte("example manifest layer")
 manifestLayerDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, manifestLayer)
@@ -79,28 +70,23 @@ fmt.Println("Pushed manifest layer")
 
 ## Push a manifest to the repository with the tag "quickstart"
 
-The following code snippet demonstrates how to assemble a manifest and push it to the repository with the tag "quickstart" using the [(*Repository) PushReference](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.PushReference) method.
+The following code snippet demonstrates how to pack a manifest and push it to the repository with the tag "quickstart" using the [PackManifest](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0#PackManifest) and the [(*Repository) Tag](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Tag) methods.
 
 ```
 tag := "quickstart"
-manifest := ocispec.Manifest{
-	Versioned: specs.Versioned{
-		SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
-	},
-	MediaType: ocispec.MediaTypeImageManifest,
-	Config:    content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configLayer),
-	Layers:    []ocispec.Descriptor{manifestLayerDescriptor},
+packOpts := oras.PackManifestOptions{
+	Layers: []v1.Descriptor{manifestLayerDescriptor},
 }
-manifestContent, err := json.Marshal(manifest)
+artifactType := "application/vnd.example+type"
+desc, err := oras.PackManifest(ctx, repo, oras.PackManifestVersion1_1, artifactType, packOpts)
 if err != nil {
 	panic(err)
 }
-manifestDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestContent)
-err = repo.PushReference(ctx, manifestDescriptor, bytes.NewReader(manifestContent), tag)
+err = repo.Tag(ctx, desc, tag)
 if err != nil {
 	panic(err)
 }
-fmt.Println("Pushed manifest")
+fmt.Println("Pushed and tagged manifest")
 ```
 
 ## Fetch the manifest from the repository by tag
@@ -124,9 +110,9 @@ if err != nil {
 fmt.Println(string(fetchedManifestContent))
 ```
 
-## Pull the manifest to local OCI layout directory from the repository
+## Copy the artifact to local OCI layout directory from the repository
 
-The following code snippet demonstrates how to pull a manifest from the repository by its tag and save it to the current directory in the [OCI layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) format. The pull operation is performed using the [Copy](https://pkg.go.dev/oras.land/oras-go/v2#Copy) function.
+The following code snippet demonstrates how to copy an artifact from the repository by its tag and save it to the current directory in the [OCI layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) format. The copy operation is performed using the [Copy](https://pkg.go.dev/oras.land/oras-go/v2#Copy) function.
 
 ```
 ociDir, err := os.MkdirTemp(".", "oras_oci_example_*")
@@ -207,17 +193,7 @@ func main() {
 		panic(err)
 	}
 
-	// 3. Push layers to the repository
-	// push config layer
-	configLayer := []byte("example config layer")
-	configLayerDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, configLayer)
-	err = repo.Push(ctx, configLayerDescriptor, bytes.NewReader(configLayer))
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Pushed config layer")
-
-	// push manifest layer
+	// 3. Push a layer to the repository
 	manifestLayer := []byte("example manifest layer")
 	manifestLayerDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, manifestLayer)
 	err = repo.Push(ctx, manifestLayerDescriptor, bytes.NewReader(manifestLayer))
@@ -228,24 +204,19 @@ func main() {
 
 	// 4. Push a manifest to the repository with the tag "quickstart"
 	tag := "quickstart"
-	manifest := ocispec.Manifest{
-		Versioned: specs.Versioned{
-			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
-		},
-		MediaType: ocispec.MediaTypeImageManifest,
-		Config:    content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configLayer),
-		Layers:    []ocispec.Descriptor{manifestLayerDescriptor},
+	packOpts := oras.PackManifestOptions{
+		Layers: []v1.Descriptor{manifestLayerDescriptor},
 	}
-	manifestContent, err := json.Marshal(manifest)
+	artifactType := "application/vnd.example+type"
+	desc, err := oras.PackManifest(ctx, repo, oras.PackManifestVersion1_1, artifactType, packOpts)
 	if err != nil {
 		panic(err)
 	}
-	manifestDescriptor := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestContent)
-	err = repo.PushReference(ctx, manifestDescriptor, bytes.NewReader(manifestContent), tag)
+	err = repo.Tag(ctx, desc, tag)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Pushed manifest")
+	fmt.Println("Pushed and tagged manifest")
 
 	// 5. Fetch the manifest from the repository by tag
 	desc, err := repo.Resolve(ctx, tag)
