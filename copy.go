@@ -432,7 +432,7 @@ func resolveRoot(ctx context.Context, src ReadOnlyTarget, srcRef string, proxy *
 		if content.Equal(target, root) {
 			return rc, nil
 		}
-		return nil, newCopyError("FetcherFunc", CopyErrorOriginSource, errors.New("fetching only root node expected"))
+		return nil, errors.New("fetching only root node expected")
 	})
 	if _, err = content.Successors(ctx, fetcher, root); err != nil {
 		return ocispec.Descriptor{}, newCopyError("Successors", CopyErrorOriginSource, err)

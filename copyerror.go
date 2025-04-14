@@ -30,9 +30,12 @@ const (
 
 // CopyError represents an error encountered during a copy operation.
 type CopyError struct {
-	Op     string
+	// Op is the operation that caused the error.
+	Op string
+	// Origin indicates the source of the error.
 	Origin CopyErrorOrigin
-	Err    error
+	// Err is the underlying error.
+	Err error
 }
 
 // newCopyError creates a new CopyError.

@@ -53,6 +53,6 @@ func ExampleCopyError() {
 	// Output:
 	// copyErr.Origin: source
 	// copyErr.Op: Resolve
-	// copyErr.Err: not found
-	// copyErr.Error(): source error: failed to perform "Resolve": not found
+	// copyErr.Err: non-existent-reference: not found
+	// copyErr.Error(): source error: failed to perform "Resolve": non-existent-reference: not found
 }
