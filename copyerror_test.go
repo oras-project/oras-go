@@ -53,17 +53,6 @@ func TestNewCopyError(t *testing.T) {
 			},
 		},
 		{
-			name:   "internal error",
-			op:     "copy",
-			origin: CopyErrorOriginInternal,
-			err:    errTest,
-			want: &CopyError{
-				Op:     "copy",
-				Origin: CopyErrorOriginInternal,
-				Err:    errTest,
-			},
-		},
-		{
 			name:   "undefined origin",
 			op:     "test",
 			origin: "somewhere",
@@ -77,7 +66,7 @@ func TestNewCopyError(t *testing.T) {
 		{
 			name:   "nil error",
 			op:     "test",
-			origin: CopyErrorOriginInternal,
+			origin: CopyErrorOriginSource,
 			err:    nil,
 			want:   nil,
 		},
@@ -134,15 +123,6 @@ func TestCopyError_Error(t *testing.T) {
 			want: `destination error: failed to perform "push": test error`,
 		},
 		{
-			name: "internal error",
-			copyErr: &CopyError{
-				Op:     "copy",
-				Origin: CopyErrorOriginInternal,
-				Err:    errTest,
-			},
-			want: `internal error: failed to perform "copy": test error`,
-		},
-		{
 			name: "undefined origin",
 			copyErr: &CopyError{
 				Op:     "test",
@@ -155,10 +135,10 @@ func TestCopyError_Error(t *testing.T) {
 			name: "nil error",
 			copyErr: &CopyError{
 				Op:     "test",
-				Origin: CopyErrorOriginInternal,
+				Origin: CopyErrorOriginSource,
 				Err:    nil,
 			},
-			want: `internal error: failed to perform "test": <nil>`,
+			want: `source error: failed to perform "test": <nil>`,
 		},
 	}
 
@@ -196,15 +176,6 @@ func TestCopyError_Unwrap(t *testing.T) {
 			want: errTest,
 		},
 		{
-			name: "unwrap internal error",
-			copyErr: &CopyError{
-				Op:     "copy",
-				Origin: CopyErrorOriginInternal,
-				Err:    errTest,
-			},
-			want: errTest,
-		},
-		{
 			name: "undefined origin",
 			copyErr: &CopyError{
 				Op:     "test",
@@ -217,7 +188,7 @@ func TestCopyError_Unwrap(t *testing.T) {
 			name: "nil error",
 			copyErr: &CopyError{
 				Op:     "test",
-				Origin: CopyErrorOriginInternal,
+				Origin: CopyErrorOriginSource,
 				Err:    nil,
 			},
 			want: nil,

@@ -2532,7 +2532,7 @@ func TestCopyGraph_CopyError(t *testing.T) {
 		if !ok {
 			t.Fatalf("CopyGraph() error is not a CopyError: %v", err)
 		}
-		if want := oras.CopyErrorOriginInternal; copyErr.Origin != want {
+		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
 			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
 		}
 		if wantErr := errFetch; !errors.Is(copyErr.Err, wantErr) {
@@ -2567,7 +2567,7 @@ func TestCopyGraph_CopyError(t *testing.T) {
 		if !ok {
 			t.Fatalf("CopyGraph() error is not a CopyError: %v", err)
 		}
-		if want := oras.CopyErrorOriginInternal; copyErr.Origin != want {
+		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
 			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
 		}
 		if wantErr := errMount; !errors.Is(copyErr.Err, wantErr) {

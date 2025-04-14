@@ -26,9 +26,6 @@ const (
 
 	// CopyErrorOriginDestination indicates the error occurred at the destination side.
 	CopyErrorOriginDestination CopyErrorOrigin = "destination"
-
-	// CopyErrorOriginInternal indicates the error occurred internally.
-	CopyErrorOriginInternal CopyErrorOrigin = "internal"
 )
 
 // CopyError represents an error encountered during a copy operation.

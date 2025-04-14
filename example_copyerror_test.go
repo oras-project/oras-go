@@ -52,7 +52,7 @@ func ExampleCopyError() {
 
 	// Output:
 	// copyErr.Origin: source
-	// copyErr.Op: resolveRoot
+	// copyErr.Op: Resolve
 	// copyErr.Err: not found
-	// copyErr.Error(): source error: failed to perform "resolveRoot": not found
+	// copyErr.Error(): source error: failed to perform "Resolve": not found
 }
