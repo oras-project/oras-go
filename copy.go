@@ -147,7 +147,7 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
 	root, err := resolveRoot(ctx, src, srcRef, proxy)
 	if err != nil {
-		return ocispec.Descriptor{}, newCopyError("Copy", CopyErrorOriginSource, err)
+		return ocispec.Descriptor{}, err
 	}
 
 	if opts.MapRoot != nil {
@@ -410,7 +410,11 @@ func copyCachedNodeWithReference(ctx context.Context, src *cas.Proxy, dst regist
 func resolveRoot(ctx context.Context, src ReadOnlyTarget, srcRef string, proxy *cas.Proxy) (ocispec.Descriptor, error) {
 	refFetcher, ok := src.(registry.ReferenceFetcher)
 	if !ok {
-		return src.Resolve(ctx, srcRef)
+		desc, err := src.Resolve(ctx, srcRef)
+		if err != nil {
+			return ocispec.Descriptor{}, newCopyError("Resolve", CopyErrorOriginSource, err)
+		}
+		return desc, nil
 	}
 
 	// optimize performance for ReferenceFetcher targets
@@ -420,7 +424,7 @@ func resolveRoot(ctx context.Context, src ReadOnlyTarget, srcRef string, proxy *
 	}
 	root, rc, err := refProxy.FetchReference(ctx, srcRef)
 	if err != nil {
-		return ocispec.Descriptor{}, err
+		return ocispec.Descriptor{}, newCopyError("FetchReference", CopyErrorOriginSource, err)
 	}
 	defer rc.Close()
 	// cache root if it is a non-leaf node
@@ -428,10 +432,10 @@ func resolveRoot(ctx context.Context, src ReadOnlyTarget, srcRef string, proxy *
 		if content.Equal(target, root) {
 			return rc, nil
 		}
-		return nil, errors.New("fetching only root node expected")
+		return nil, newCopyError("FetcherFunc", CopyErrorOriginSource, errors.New("fetching only root node expected"))
 	})
 	if _, err = content.Successors(ctx, fetcher, root); err != nil {
-		return ocispec.Descriptor{}, err
+		return ocispec.Descriptor{}, newCopyError("Successors", CopyErrorOriginSource, err)
 	}
 
 	// TODO: optimize special case where root is a leaf node (i.e. a blob)

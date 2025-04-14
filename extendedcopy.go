@@ -116,7 +116,7 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 
 	roots, err := findRoots(ctx, src, node, opts)
 	if err != nil {
-		return newCopyError("ExtendedCopyGraph", CopyErrorOriginSource, err)
+		return err
 	}
 
 	// if Concurrency is not set or invalid, use the default concurrency
@@ -189,7 +189,7 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 
 		predecessors, err := opts.FindPredecessors(ctx, storage, currentNode)
 		if err != nil {
-			return nil, err
+			return nil, newCopyError("FindPredecessors", CopyErrorOriginSource, err)
 		}
 
 		// The current node has no predecessor node,
