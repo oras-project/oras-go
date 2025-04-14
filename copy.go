@@ -131,10 +131,10 @@ type CopyGraphOptions struct {
 // Returns the descriptor of the root node on successful copy.
 func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, dstRef string, opts CopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
-		return ocispec.Descriptor{}, newCopyError("validation", CopyErrorOriginSource, errors.New("nil source target"))
+		return ocispec.Descriptor{}, newCopyError("Copy", CopyErrorOriginSource, errors.New("nil source target"))
 	}
 	if dst == nil {
-		return ocispec.Descriptor{}, newCopyError("validation", CopyErrorOriginDestination, errors.New("nil destination target"))
+		return ocispec.Descriptor{}, newCopyError("Copy", CopyErrorOriginDestination, errors.New("nil destination target"))
 	}
 	if dstRef == "" {
 		dstRef = srcRef
@@ -147,7 +147,7 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
 	root, err := resolveRoot(ctx, src, srcRef, proxy)
 	if err != nil {
-		return ocispec.Descriptor{}, newCopyError("resolveRoot", CopyErrorOriginSource, err)
+		return ocispec.Descriptor{}, newCopyError("Resolve", CopyErrorOriginSource, err)
 	}
 
 	if opts.MapRoot != nil {
@@ -174,6 +174,12 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 // from the source CAS to the destination CAS.
 // The root node (e.g. a manifest of the artifact) is identified by a descriptor.
 func CopyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Storage, root ocispec.Descriptor, opts CopyGraphOptions) error {
+	if src == nil {
+		return newCopyError("CopyGraph", CopyErrorOriginSource, errors.New("nil source target"))
+	}
+	if dst == nil {
+		return newCopyError("CopyGraph", CopyErrorOriginDestination, errors.New("nil destination target"))
+	}
 	return copyGraph(ctx, src, dst, root, nil, nil, nil, opts)
 }
 
@@ -250,12 +256,12 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 				done, committed := tracker.TryCommit(node)
 				if committed {
 					err := fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
-					return newCopyError("copyGraph", CopyErrorOriginInternal, err)
+					return newCopyError("CopyGraph", CopyErrorOriginInternal, err)
 				}
 				select {
 				case <-done:
 				case <-ctx.Done():
-					return newCopyError("copyGraph", CopyErrorOriginInternal, ctx.Err())
+					return newCopyError("CopyGraph", CopyErrorOriginInternal, ctx.Err())
 				}
 			}
 			if err := region.Start(); err != nil {
@@ -394,7 +400,7 @@ func copyNode(ctx context.Context, src content.ReadOnlyStorage, dst content.Stor
 func copyCachedNodeWithReference(ctx context.Context, src *cas.Proxy, dst registry.ReferencePusher, desc ocispec.Descriptor, dstRef string) error {
 	rc, err := src.FetchCached(ctx, desc)
 	if err != nil {
-		return newCopyError("FetchCached", CopyErrorOriginSource, err)
+		return newCopyError("Fetch", CopyErrorOriginSource, err)
 	}
 	defer rc.Close()
 

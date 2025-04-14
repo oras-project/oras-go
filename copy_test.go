@@ -2405,6 +2405,37 @@ func TestCopy_CopyError(t *testing.T) {
 }
 
 func TestCopyGraph_CopyError(t *testing.T) {
+	t.Run("src target is nil", func(t *testing.T) {
+		ctx := context.Background()
+		dst := memory.New()
+		err := oras.CopyGraph(ctx, nil, dst, ocispec.Descriptor{}, oras.DefaultCopyGraphOptions)
+		if err == nil {
+			t.Fatalf("Copy() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginSource; copyErr.Origin != want {
+			t.Fatalf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+	})
+
+	t.Run("dst target is nil", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		err := oras.CopyGraph(ctx, src, nil, ocispec.Descriptor{}, oras.DefaultCopyGraphOptions)
+		if err == nil {
+			t.Fatalf("Copy() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
+			t.Fatalf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+	})
 
 	t.Run("exists error", func(t *testing.T) {
 		ctx := context.Background()
