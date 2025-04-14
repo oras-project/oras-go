@@ -147,7 +147,7 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	proxy := cas.NewProxyWithLimit(src, cas.NewMemory(), opts.MaxMetadataBytes)
 	root, err := resolveRoot(ctx, src, srcRef, proxy)
 	if err != nil {
-		return ocispec.Descriptor{}, newCopyError("Resolve", CopyErrorOriginSource, err)
+		return ocispec.Descriptor{}, newCopyError("Copy", CopyErrorOriginSource, err)
 	}
 
 	if opts.MapRoot != nil {

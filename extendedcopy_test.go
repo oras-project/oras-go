@@ -1935,6 +1935,42 @@ func TestExtendedCopy_CopyError(t *testing.T) {
 	})
 }
 
+func TestExtendedCopyGraph_CopyError(t *testing.T) {
+
+	t.Run("src target is nil", func(t *testing.T) {
+		ctx := context.Background()
+		dst := memory.New()
+		err := oras.ExtendedCopyGraph(ctx, nil, dst, ocispec.Descriptor{}, oras.DefaultExtendedCopyGraphOptions)
+		if err == nil {
+			t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("ExtendedCopyGraph() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginSource; copyErr.Origin != want {
+			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+	})
+
+	t.Run("dst target is nil", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		err := oras.ExtendedCopyGraph(ctx, src, nil, ocispec.Descriptor{}, oras.DefaultExtendedCopyGraphOptions)
+		if err == nil {
+			t.Errorf("ExtendedCopyGraph() error = %v, wantErr %v", err, true)
+		}
+		copyErr, ok := err.(*oras.CopyError)
+		if !ok {
+			t.Fatalf("ExtendedCopyGraph() error is not a CopyError: %v", err)
+		}
+		if want := oras.CopyErrorOriginDestination; copyErr.Origin != want {
+			t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+		}
+	})
+
+}
+
 type badGraphTagger struct {
 	oras.GraphTarget
 }

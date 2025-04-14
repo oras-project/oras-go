@@ -76,10 +76,10 @@ type ExtendedCopyGraphOptions struct {
 // Returns the descriptor of the tagged node on successful copy.
 func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, dst Target, dstRef string, opts ExtendedCopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
-		return ocispec.Descriptor{}, newCopyError("validation", CopyErrorOriginSource, errors.New("nil source target"))
+		return ocispec.Descriptor{}, newCopyError("ExtendedCopy", CopyErrorOriginSource, errors.New("nil source target"))
 	}
 	if dst == nil {
-		return ocispec.Descriptor{}, newCopyError("validation", CopyErrorOriginDestination, errors.New("nil destination target"))
+		return ocispec.Descriptor{}, newCopyError("ExtendedCopy", CopyErrorOriginDestination, errors.New("nil destination target"))
 	}
 	if dstRef == "" {
 		dstRef = srcRef
@@ -87,7 +87,7 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 
 	node, err := src.Resolve(ctx, srcRef)
 	if err != nil {
-		return ocispec.Descriptor{}, newCopyError("resolve", CopyErrorOriginSource, err)
+		return ocispec.Descriptor{}, newCopyError("Resolve", CopyErrorOriginSource, err)
 	}
 
 	if err := ExtendedCopyGraph(ctx, src, dst, node, opts.ExtendedCopyGraphOptions); err != nil {
@@ -95,7 +95,7 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 	}
 
 	if err := dst.Tag(ctx, node, dstRef); err != nil {
-		return ocispec.Descriptor{}, newCopyError("tag", CopyErrorOriginDestination, err)
+		return ocispec.Descriptor{}, newCopyError("Tag", CopyErrorOriginDestination, err)
 	}
 
 	return node, nil
@@ -107,9 +107,16 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 // predecessor manifests referencing it.
 // The node (e.g. a manifest of the artifact) is identified by a descriptor.
 func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
+	if src == nil {
+		return newCopyError("ExtendedCopyGraph", CopyErrorOriginSource, errors.New("nil source target"))
+	}
+	if dst == nil {
+		return newCopyError("ExtendedCopyGraph", CopyErrorOriginDestination, errors.New("nil destination target"))
+	}
+
 	roots, err := findRoots(ctx, src, node, opts)
 	if err != nil {
-		return newCopyError("findRoots", CopyErrorOriginSource, err)
+		return newCopyError("ExtendedCopyGraph", CopyErrorOriginSource, err)
 	}
 
 	// if Concurrency is not set or invalid, use the default concurrency
