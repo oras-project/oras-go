@@ -255,13 +255,12 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 			for _, node := range successors {
 				done, committed := tracker.TryCommit(node)
 				if committed {
-					err := fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
-					return newCopyError("CopyGraph", CopyErrorOriginInternal, err)
+					return fmt.Errorf("%s: %s: successor not committed", desc.Digest, node.Digest)
 				}
 				select {
 				case <-done:
 				case <-ctx.Done():
-					return newCopyError("CopyGraph", CopyErrorOriginInternal, ctx.Err())
+					return ctx.Err()
 				}
 			}
 			if err := region.Start(); err != nil {
@@ -271,7 +270,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 
 		exists, err = proxy.Cache.Exists(ctx, desc)
 		if err != nil {
-			return newCopyError("Cache.Exists", CopyErrorOriginSource, err)
+			return fmt.Errorf("failed to check cache existence: %s: %w", desc.Digest, err)
 		}
 		if exists {
 			return copyNode(ctx, proxy.Cache, dst, desc, opts)
@@ -326,16 +325,12 @@ func mountOrCopyNode(ctx context.Context, src content.ReadOnlyStorage, dst conte
 					return nil, err
 				}
 			}
-			rc, err := src.Fetch(ctx, desc)
-			if err != nil {
-				return nil, err
-			}
-			return rc, nil
+			return src.Fetch(ctx, desc)
 		}
 
 		// Mount or copy
 		if err := mounter.Mount(ctx, desc, sourceRepository, getContent); err != nil && !errors.Is(err, skipSource) {
-			return newCopyError("Mount", CopyErrorOriginInternal, err)
+			return newCopyError("Mount", CopyErrorOriginDestination, err)
 		}
 
 		if !mountFailed {
