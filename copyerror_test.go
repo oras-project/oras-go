@@ -203,3 +203,39 @@ func TestCopyError_Unwrap(t *testing.T) {
 		})
 	}
 }
+
+func TestCopyError_Nested(t *testing.T) {
+	msg := "custom error"
+	err := &CopyError{
+		Op:     "test",
+		Origin: CopyErrorOriginSource,
+		Err: &customErr{
+			Msg: msg,
+		},
+	}
+
+	var cpErr *CopyError
+	if !errors.As(err, &cpErr) {
+		t.Fatalf("expected %T, got %T", cpErr, err)
+	}
+
+	var ce *customErr
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected %T, got %T", ce, err)
+	}
+	if ce.Msg != msg {
+		t.Errorf("expected %q, got %q", msg, ce.Msg)
+	}
+}
+
+type customErr struct {
+	Msg string
+}
+
+func (e *customErr) Error() string {
+	return e.Msg
+}
+
+func (e *customErr) Unwrap() error {
+	return nil
+}
