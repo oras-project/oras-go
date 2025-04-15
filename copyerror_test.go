@@ -55,11 +55,11 @@ func TestNewCopyError(t *testing.T) {
 		{
 			name:   "undefined origin",
 			op:     "test",
-			origin: "somewhere",
+			origin: -1,
 			err:    errTest,
 			want: &CopyError{
 				Op:     "test",
-				Origin: "somewhere",
+				Origin: -1,
 				Err:    errTest,
 			},
 		},
@@ -111,7 +111,7 @@ func TestCopyError_Error(t *testing.T) {
 				Origin: CopyErrorOriginSource,
 				Err:    errTest,
 			},
-			want: `source error: failed to perform "pull": test error`,
+			want: `failed to perform "pull" on source: test error`,
 		},
 		{
 			name: "destination error",
@@ -120,16 +120,16 @@ func TestCopyError_Error(t *testing.T) {
 				Origin: CopyErrorOriginDestination,
 				Err:    errTest,
 			},
-			want: `destination error: failed to perform "push": test error`,
+			want: `failed to perform "push" on destination: test error`,
 		},
 		{
 			name: "undefined origin",
 			copyErr: &CopyError{
 				Op:     "test",
-				Origin: "somewhere",
+				Origin: -1,
 				Err:    errTest,
 			},
-			want: `somewhere error: failed to perform "test": test error`,
+			want: `failed to perform "test": test error`,
 		},
 		{
 			name: "nil error",
@@ -138,7 +138,7 @@ func TestCopyError_Error(t *testing.T) {
 				Origin: CopyErrorOriginSource,
 				Err:    nil,
 			},
-			want: `source error: failed to perform "test": <nil>`,
+			want: `failed to perform "test" on source: <nil>`,
 		},
 	}
 
@@ -179,7 +179,7 @@ func TestCopyError_Unwrap(t *testing.T) {
 			name: "undefined origin",
 			copyErr: &CopyError{
 				Op:     "test",
-				Origin: "somewhere",
+				Origin: -1,
 				Err:    errTest,
 			},
 			want: errTest,

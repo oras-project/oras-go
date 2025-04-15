@@ -18,15 +18,27 @@ package oras
 import "fmt"
 
 // CopyErrorOrigin defines the source of a copy error.
-type CopyErrorOrigin string
+type CopyErrorOrigin int
 
 const (
 	// CopyErrorOriginSource indicates the error occurred at the source side.
-	CopyErrorOriginSource CopyErrorOrigin = "source"
+	CopyErrorOriginSource CopyErrorOrigin = 1
 
 	// CopyErrorOriginDestination indicates the error occurred at the destination side.
-	CopyErrorOriginDestination CopyErrorOrigin = "destination"
+	CopyErrorOriginDestination CopyErrorOrigin = 2
 )
+
+// String returns the string representation of the CopyErrorOrigin.
+func (o CopyErrorOrigin) String() string {
+	switch o {
+	case CopyErrorOriginSource:
+		return "source"
+	case CopyErrorOriginDestination:
+		return "destination"
+	default:
+		return "unknown"
+	}
+}
 
 // CopyError represents an error encountered during a copy operation.
 type CopyError struct {
@@ -52,7 +64,12 @@ func newCopyError(op string, origin CopyErrorOrigin, err error) error {
 
 // Error implements the error interface for CopyError.
 func (e *CopyError) Error() string {
-	return fmt.Sprintf("%s error: failed to perform %q: %v", e.Origin, e.Op, e.Err)
+	switch e.Origin {
+	case CopyErrorOriginSource, CopyErrorOriginDestination:
+		return fmt.Sprintf("failed to perform %q on %s: %v", e.Op, e.Origin, e.Err)
+	default:
+		return fmt.Sprintf("failed to perform %q: %v", e.Op, e.Err)
+	}
 }
 
 // Unwrap implements the errors.Unwrap interface for CopyError.

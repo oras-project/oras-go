@@ -17,6 +17,7 @@ package oras_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"oras.land/oras-go/v2"
@@ -30,29 +31,28 @@ func ExampleCopyError() {
 	dst := memory.New()
 	ctx := context.Background()
 
-	// Try to copy a non-existent reference
+	// Try to copy a non-existent reference, which is expected to fail
 	nonExistentRef := "non-existent-reference"
 	_, err := oras.Copy(ctx, src, nonExistentRef, dst, "", oras.DefaultCopyOptions)
-	if err == nil {
-		fmt.Println("copy succeeded")
+	if err != nil {
+		// Check if the error is a CopyError and print its details
+		var copyErr *oras.CopyError
+		if errors.As(err, &copyErr) {
+			fmt.Println("copyErr.Origin:", copyErr.Origin)
+			fmt.Println("copyErr.Op:", copyErr.Op)
+			fmt.Println("copyErr.Err:", copyErr.Err)
+			fmt.Println("copyErr.Error():", copyErr.Error())
+		} else {
+			fmt.Println("err is not a CopyError:", err)
+		}
 		return
 	}
 
-	// Type assertion to check if it's a CopyError
-	copyErr, ok := err.(*oras.CopyError)
-	if !ok {
-		fmt.Println("err is not a CopyError")
-		return
-	}
-
-	fmt.Println("copyErr.Origin:", copyErr.Origin)
-	fmt.Println("copyErr.Op:", copyErr.Op)
-	fmt.Println("copyErr.Err:", copyErr.Err)
-	fmt.Println("copyErr.Error():", copyErr.Error())
+	fmt.Println("Copy succeeded unexpectedly")
 
 	// Output:
 	// copyErr.Origin: source
 	// copyErr.Op: Resolve
 	// copyErr.Err: non-existent-reference: not found
-	// copyErr.Error(): source error: failed to perform "Resolve": non-existent-reference: not found
+	// copyErr.Error(): failed to perform "Resolve" on source: non-existent-reference: not found
 }
