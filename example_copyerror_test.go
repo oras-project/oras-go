@@ -42,9 +42,10 @@ func ExampleCopyError() {
 			fmt.Println("copyErr.Op:", copyErr.Op)
 			fmt.Println("copyErr.Err:", copyErr.Err)
 			fmt.Println("copyErr.Error():", copyErr.Error())
-		} else {
-			fmt.Println("err is not a CopyError:", err)
+			return
 		}
+
+		fmt.Println("err is not a CopyError:", err)
 		return
 	}
 
