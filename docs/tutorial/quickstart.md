@@ -79,7 +79,7 @@ func main() {
 ```
 
 ## Show tags in the repository
-Paste the following code snippet into `main.go` after the last section. This code uses the [(*Repository) Tags](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Tags) method from the [remote](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote) package to list the tags in the repository.
+The following code snippet uses the [(*Repository) Tags](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Tags) method from the [remote](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote) package to list the tags in the repository. Paste the code into `main.go` after the last section.
 
 ```
 // 2. Show the tags in the repository
@@ -101,7 +101,10 @@ At the command line, use [`go get`](https://golang.org/cmd/go/#hdr-Add_dependenc
 
 ```
 go get .
-go get: added github.com/gin-gonic/gin v1.7.2
+go: added github.com/opencontainers/go-digest v1.0.0
+go: added github.com/opencontainers/image-spec v1.1.0
+go: added golang.org/x/sync v0.6.0
+go: added oras.land/oras-go/v2 v2.5.0
 ```
 
 Run the code.
@@ -113,7 +116,7 @@ You should see the tags in the repository.
 
 ## Push a layer to the repository
 
-All referenced layers must exist in the repository before a manifest can be pushed. The following code snippet demonstrates how to push a manifest layer using the [(*Repository) Push](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Push) method.
+All referenced layers must exist in the repository before a manifest can be pushed. The following code snippet demonstrates how to push a manifest layer using the [(*Repository) Push](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Push) method. Paste the code into `main.go` after the last section.
 
 ```
 // 3. push a layer to the repository
@@ -128,11 +131,10 @@ fmt.Println("Pushed manifest layer")
 
 ## Push a manifest to the repository with the tag "quickstart"
 
-The following code snippet demonstrates how to pack a manifest and push it to the repository with the tag "quickstart" using the [PackManifest](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0#PackManifest) and the [(*Repository) Tag](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Tag) methods.
+The following code snippet demonstrates how to pack a manifest and push it to the repository with the tag "quickstart" using the [PackManifest](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0#PackManifest) and the [(*Repository) Tag](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Tag) methods. Paste the code into `main.go` after the last section.
 
 ```
 // 4. Push a manifest to the repository with the tag "quickstart"
-tag := "quickstart"
 packOpts := oras.PackManifestOptions{
 	Layers: []v1.Descriptor{layerDescriptor},
 }
@@ -141,6 +143,7 @@ desc, err := oras.PackManifest(ctx, repo, oras.PackManifestVersion1_1, artifactT
 if err != nil {
 	panic(err)
 }
+tag := "quickstart"
 err = repo.Tag(ctx, desc, tag)
 if err != nil {
 	panic(err)
@@ -150,7 +153,7 @@ fmt.Println("Pushed and tagged manifest")
 
 ## Fetch the manifest from the repository by tag
 
-The following code snippet demonstrates how to fetch a manifest from the repository by its tag. First, the descriptor associated with the tag is resolved using [(*Repository) Resolve](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Resolve). Then, the content is fetched using [(*Repository) Fetch](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Fetch). Finally, the content is read using [ReadAll](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/content#ReadAll) from the [content](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/content) package.
+The following code snippet demonstrates how to fetch a manifest from the repository by its tag. First, the descriptor associated with the tag is resolved using [(*Repository) Resolve](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Resolve). Then, the content is fetched using [(*Repository) Fetch](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Fetch). Finally, the content is read using [ReadAll](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/content#ReadAll) from the [content](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/content) package. Paste the code into `main.go` after the last section.
 
 ```
 // 5. Fetch the manifest from the repository by tag
@@ -170,12 +173,36 @@ if err != nil {
 fmt.Println(string(fetchedManifestContent))
 ```
 
-## Copy the artifact to local OCI layout directory from the repository
-
-The following code snippet demonstrates how to copy an artifact from the repository by its tag and save it to the current directory in the [OCI layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) format. The copy operation is performed using the [Copy](https://pkg.go.dev/oras.land/oras-go/v2#Copy) function.
+## Parse the fetched manifest content and get the layers
+The following code snippet demonstrates how to parse the fetched manifest content and get the layers. Paste the code into `main.go` after the last section.
 
 ```
-// 6. Pull the manifest to local OCI layout directory with a tag "quickstartOCI"
+// 6. Parse the fetched manifest content and get the layers
+var manifest v1.Manifest
+if err := json.Unmarshal(fetchedManifestContent, &manifest); err != nil {
+	panic(err)
+}
+layers := manifest.Layers
+for _, layer := range layers {
+	rc, err = repo.Fetch(ctx, layer)
+	if err != nil {
+		panic(err)
+	}
+	defer rc.Close() // don't forget to close
+	layerContent, err := content.ReadAll(rc, layer)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(layerContent))
+}
+```
+
+## Copy the artifact to local OCI layout directory from the repository
+
+The following code snippet demonstrates how to copy an artifact from the repository by its tag and save it to the current directory in the [OCI layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) format. The copy operation is performed using the [Copy](https://pkg.go.dev/oras.land/oras-go/v2#Copy) function. Paste the code into `main.go` after the last section.
+
+```
+// 7. Pull the manifest to local OCI layout directory with a tag "quickstartOCI"
 ociDir, err := os.MkdirTemp(".", "oras_oci_example_*")
 if err != nil {
 	panic(err)
@@ -189,6 +216,25 @@ if err != nil {
 	panic(err)
 }
 fmt.Println(desc.Digest)
+```
+
+## Run the code
+
+Run the code.
+```
+go run .
+```
+
+You should see the following output on the terminal and an OCI layout folder in the current directory.
+```
+tag1
+tag2
+tag3
+Pushed manifest layer
+Pushed and tagged manifest
+{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.example+type","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:4f19474743ecb04b60156ea41b73e06fdf6a5b758e007b788aaa92595dcd3a49","size":22}],"annotations":{"org.opencontainers.image.created":"2025-04-17T06:18:50Z"}}
+example manifest layer
+sha256:701e11481c908603b2a595c67f52da23b8fd13fb57257bb44e1a4329b69c975c
 ```
 
 ## Conclusion
@@ -262,7 +308,6 @@ func main() {
 	fmt.Println("Pushed manifest layer")
 
 	// 4. Push a manifest to the repository with the tag "quickstart"
-	tag := "quickstart"
 	packOpts := oras.PackManifestOptions{
 		Layers: []v1.Descriptor{layerDescriptor},
 	}
@@ -271,6 +316,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	tag := "quickstart"
 	err = repo.Tag(ctx, desc, tag)
 	if err != nil {
 		panic(err)
@@ -293,7 +339,26 @@ func main() {
 	}
 	fmt.Println(string(fetchedManifestContent))
 
-	// 6. Pull the manifest to local OCI layout directory with a tag "quickstartOCI"
+	// 6. Parse the fetched manifest content and get the layers
+	var manifest v1.Manifest
+	if err := json.Unmarshal(fetchedManifestContent, &manifest); err != nil {
+		panic(err)
+	}
+	layers := manifest.Layers
+	for _, layer := range layers {
+		rc, err = repo.Fetch(ctx, layer)
+		if err != nil {
+			panic(err)
+		}
+		defer rc.Close() // don't forget to close
+		layerContent, err := content.ReadAll(rc, layer)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println(string(layerContent))
+	}
+
+	// 7. Pull the manifest to local OCI layout directory with a tag "quickstartOCI"
 	ociDir, err := os.MkdirTemp(".", "oras_oci_example_*")
 	if err != nil {
 		panic(err)
@@ -308,5 +373,4 @@ func main() {
 	}
 	fmt.Println(desc.Digest)
 }
-
 ```
