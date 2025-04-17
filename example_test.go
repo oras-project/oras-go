@@ -239,7 +239,7 @@ func Example_attachBlobToRemoteRepository() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Pushed the blob to the repository")
+	fmt.Println("pushed the blob to the repository")
 
 	// 4. Pack the blob as a manifest with version v1.1 and push it to the repository
 	packOpts := oras.PackManifestOptions{
@@ -251,5 +251,5 @@ func Example_attachBlobToRemoteRepository() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Attached %s to %s\n", referrerDescriptor.Digest, subjectDescriptor.Digest)
+	fmt.Printf("attached %s to %s\n", referrerDescriptor.Digest, subjectDescriptor.Digest)
 }

@@ -462,5 +462,5 @@ func Example_extendedCopyArtifactAndReferrersToRepository() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Pushed: ", desc.Digest)
+	fmt.Println("pushed: ", desc.Digest)
 }
