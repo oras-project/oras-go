@@ -12,7 +12,8 @@ The tutorial includes the following sections:
 4. Push a layer to the repository.
 5. Push a manifest to the repository.
 6. Fetch the manifest from the repository.
-7. Copy the artifact from the repository.
+7. Parse the fetched manifest content and get the layers.
+8. Copy the artifact from the repository.
 
 The complete code is provided at the end of this tutorial.
 
