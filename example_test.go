@@ -16,13 +16,11 @@ limitations under the License.
 package oras_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	oras "oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/registry/remote"
@@ -209,7 +207,7 @@ func Example_pushFilesToRemoteRepository() {
 // existing artifact in a remote repository. The blob is packed as a manifest whose
 // subject is the existing artifact.
 func Example_attachBlobToRemoteRepository() {
-	// 1. Connect to a remote repository with basic authentication
+	// 0. Connect to a remote repository with basic authentication
 	registry := "myregistry.example.com"
 	repository := "myrepo"
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", registry, repository))
@@ -226,25 +224,24 @@ func Example_attachBlobToRemoteRepository() {
 		}),
 	}
 
-	// 2. Resolve the subject descriptor
+	// 1. Resolve the subject descriptor
 	ctx := context.Background()
 	subjectDescriptor, err := repo.Resolve(ctx, "sha256:f3a0356fe9f82b925c2f15106d3932252f36c1c56fd35be6c369d274f433d177")
 	if err != nil {
 		panic(err)
 	}
 
-	// 3. Prepare the blob to be attached
+	// 2. Prepare the blob to be attached
 	blob := []byte("example blob")
-	blobDescriptor := content.NewDescriptorFromBytes(v1.MediaTypeImageLayer, blob)
 
-	// 4. Push the blob to the repository
-	err = repo.Push(ctx, blobDescriptor, bytes.NewReader(blob))
+	// 3. Push the blob to the repository
+	blobDescriptor, err := oras.PushBytes(ctx, repo, v1.MediaTypeImageLayer, blob)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println("Pushed the blob to the repository")
 
-	// 5. Pack the blob as a manifest with version v1.1 and push it to the repository
+	// 4. Pack the blob as a manifest with version v1.1 and push it to the repository
 	packOpts := oras.PackManifestOptions{
 		Layers:  []v1.Descriptor{blobDescriptor},
 		Subject: &subjectDescriptor,

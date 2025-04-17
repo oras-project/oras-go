@@ -414,7 +414,7 @@ func Example_extendedCopyArtifactAndReferrersFromRepository() {
 // ExampleExtendedCopyArtifactAndReferrersToRepository is an example of pushing
 // an artifact and its referrer to a remote repository.
 func Example_extendedCopyArtifactAndReferrersToRepository() {
-	// 1. assemble the referenced manifest in memory with tag "v1"
+	// 0. Assemble the referenced manifest in memory with tag "v1"
 	ctx := context.Background()
 	src := memory.New()
 	manifestDescriptor, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/vnd.example+type", oras.PackManifestOptions{})
@@ -430,7 +430,7 @@ func Example_extendedCopyArtifactAndReferrersToRepository() {
 	}
 	fmt.Println("tagged manifest: ", manifestDescriptor.Digest)
 
-	// 2. assemble the referrer manifest in memory
+	// 1. Assemble the referrer manifest in memory
 	referrerPackOpts := oras.PackManifestOptions{
 		Subject: &manifestDescriptor,
 	}
@@ -440,7 +440,7 @@ func Example_extendedCopyArtifactAndReferrersToRepository() {
 	}
 	fmt.Println("created referrer: ", referrerDescriptor)
 
-	// 3. Connect to a remote repository with basic authentication
+	// 2. Connect to a remote repository with basic authentication
 	registry := "myregistry.example.com"
 	repository := "myrepo"
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", registry, repository))
@@ -457,7 +457,7 @@ func Example_extendedCopyArtifactAndReferrersToRepository() {
 		}),
 	}
 
-	// 4. Push the manifest and its referrer to the remote repository
+	// 3. Push the manifest and its referrer to the remote repository
 	desc, err := oras.ExtendedCopy(ctx, src, tag, repo, "", oras.DefaultExtendedCopyOptions)
 	if err != nil {
 		panic(err)
