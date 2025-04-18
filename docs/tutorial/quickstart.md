@@ -202,7 +202,7 @@ ociTarget, err := oci.New(ociDir)
 if err != nil {
 	panic(err)
 }
-desc, err = oras.Copy(ctx, repo, tag, ociTarget, "quickstartOCI", oras.DefaultCopyOptions)
+_, err = oras.Copy(ctx, repo, tag, ociTarget, "quickstartOCI", oras.DefaultCopyOptions)
 if err != nil {
 	panic(err)
 }
@@ -348,7 +348,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	desc, err = oras.Copy(ctx, repo, tag, ociTarget, "quickstartOCI", oras.DefaultCopyOptions)
+	_, err = oras.Copy(ctx, repo, tag, ociTarget, "quickstartOCI", oras.DefaultCopyOptions)
 	if err != nil {
 		panic(err)
 	}
