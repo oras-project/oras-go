@@ -46,7 +46,7 @@ In your text editor, create a file `main.go` in which to write your code.
 
 ## Connect to a remote repository with basic authentication
 
-Paste the following into `main.go` and save the file. This code demonstrates how to use [NewRepository](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#NewRepository) from the [remote](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote) package to connect to a remote repository. Basic authentication (using a username and password) is handled by the [auth](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote/auth) package. Other authentication methods, such as identity token authentication, are also supported.
+Paste the following into `main.go` and save the file. This code demonstrates how to use [NewRepository](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#NewRepository) from the [remote](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote) package to connect to a remote repository. Basic authentication (using a username and password) is handled by the [auth](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote/auth) package. Other authentication methods, such as refresh token authentication, are also supported.
 
 ```
 package main
