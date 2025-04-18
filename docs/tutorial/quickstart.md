@@ -22,7 +22,7 @@ The complete code is provided at the end of this tutorial.
 Open a command prompt and cd to your home directory.
 
 On Linux or Mac:
-```
+```shell
 cd
 ```
 On Windows:
@@ -31,13 +31,13 @@ cd %HOMEPATH%
 ```
 
 Create a directory for your code.
-```
+```shell
 mkdir oras-go-v2-quickstart
 cd oras-go-v2-quickstart
 ```
 Create a module in which you can manage dependencies.
 
-```
+```shell
 go mod init quickstart/oras-go-v2
 go: creating new go.mod: quickstart/oras-go-v2
 ```
@@ -127,7 +127,7 @@ err = repo.Push(ctx, layerDescriptor, bytes.NewReader(layer))
 if err != nil {
 	panic(err)
 }
-fmt.Println("Pushed manifest layer")
+fmt.Println("Pushed manifest layer:", layerDescriptor.Digest)
 ```
 
 ## Push a manifest to the repository with the tag "quickstart"
@@ -154,7 +154,7 @@ fmt.Println("Pushed and tagged manifest")
 
 ## Fetch the manifest from the repository by tag
 
-The following code snippet demonstrates how to fetch a manifest from the repository by its tag. First, the descriptor associated with the tag is resolved using [(*Repository) Resolve](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Resolve). Then, the content is fetched using [(*Repository) Fetch](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Fetch). Finally, the content is read using [ReadAll](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/content#ReadAll) from the [content](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/content) package. Paste the code into `main.go` after the last section.
+The following code snippet demonstrates how to fetch a manifest from the repository by its tag. First, the descriptor associated with the tag is resolved using [(*Repository) Resolve](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/registry/remote#Repository.Resolve). Then, the content is fetched and read using [FetchAll](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/content#FetchAll) from the [content](https://pkg.go.dev/oras.land/oras-go/v2@v2.5.0/content) package. Paste the code into `main.go` after the last section.
 
 ```
 // 5. Fetch the manifest from the repository by tag
@@ -162,12 +162,7 @@ desc, err = repo.Resolve(ctx, tag)
 if err != nil {
 	panic(err)
 }
-rc, err := repo.Fetch(ctx, desc)
-if err != nil {
-	panic(err)
-}
-defer rc.Close() // don't forget to close
-fetchedManifestContent, err := content.ReadAll(rc, desc)
+fetchedManifestContent, err := content.FetchAll(ctx, repo, desc)
 if err != nil {
 	panic(err)
 }
@@ -185,12 +180,7 @@ if err := json.Unmarshal(fetchedManifestContent, &manifest); err != nil {
 }
 layers := manifest.Layers
 for _, layer := range layers {
-	rc, err = repo.Fetch(ctx, layer)
-	if err != nil {
-		panic(err)
-	}
-	defer rc.Close() // don't forget to close
-	layerContent, err := content.ReadAll(rc, layer)
+	layerContent, err := content.FetchAll(ctx, repo, layer)
 	if err != nil {
 		panic(err)
 	}
@@ -203,7 +193,7 @@ for _, layer := range layers {
 The following code snippet demonstrates how to copy an artifact from the repository by its tag and save it to the current directory in the [OCI layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) format. The copy operation is performed using the [Copy](https://pkg.go.dev/oras.land/oras-go/v2#Copy) function. Paste the code into `main.go` after the last section.
 
 ```
-// 7. Pull the manifest to local OCI layout directory with a tag "quickstartOCI"
+// 7. Copy the artifact to local OCI layout directory with a tag "quickstartOCI"
 ociDir, err := os.MkdirTemp(".", "oras_oci_example_*")
 if err != nil {
 	panic(err)
@@ -216,7 +206,7 @@ desc, err = oras.Copy(ctx, repo, tag, ociTarget, "quickstartOCI", oras.DefaultCo
 if err != nil {
 	panic(err)
 }
-fmt.Println(desc.Digest)
+fmt.Println("Copied the artifact")
 ```
 
 ## Run the code
@@ -231,11 +221,11 @@ You should see the following output on the terminal and an OCI layout folder in 
 tag1
 tag2
 tag3
-Pushed manifest layer
+Pushed manifest layer: sha256:4f19474743ecb04b60156ea41b73e06fdf6a5b758e007b788aaa92595dcd3a49
 Pushed and tagged manifest
-{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.example+type","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:4f19474743ecb04b60156ea41b73e06fdf6a5b758e007b788aaa92595dcd3a49","size":22}],"annotations":{"org.opencontainers.image.created":"2025-04-17T06:18:50Z"}}
+{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.example+type","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:4f19474743ecb04b60156ea41b73e06fdf6a5b758e007b788aaa92595dcd3a49","size":22}],"annotations":{"org.opencontainers.image.created":"2025-04-18T03:15:26Z"}}
 example manifest layer
-sha256:701e11481c908603b2a595c67f52da23b8fd13fb57257bb44e1a4329b69c975c
+Copied the artifact
 ```
 
 ## Conclusion
@@ -306,7 +296,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Pushed manifest layer")
+	fmt.Println("Pushed manifest layer:", layerDescriptor.Digest)
 
 	// 4. Push a manifest to the repository with the tag "quickstart"
 	packOpts := oras.PackManifestOptions{
@@ -329,12 +319,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	rc, err := repo.Fetch(ctx, desc)
-	if err != nil {
-		panic(err)
-	}
-	defer rc.Close() // don't forget to close
-	fetchedManifestContent, err := content.ReadAll(rc, desc)
+	fetchedManifestContent, err := content.FetchAll(ctx, repo, desc)
 	if err != nil {
 		panic(err)
 	}
@@ -347,19 +332,14 @@ func main() {
 	}
 	layers := manifest.Layers
 	for _, layer := range layers {
-		rc, err = repo.Fetch(ctx, layer)
-		if err != nil {
-			panic(err)
-		}
-		defer rc.Close() // don't forget to close
-		layerContent, err := content.ReadAll(rc, layer)
+		layerContent, err := content.FetchAll(ctx, repo, layer)
 		if err != nil {
 			panic(err)
 		}
 		fmt.Println(string(layerContent))
 	}
 
-	// 7. Pull the manifest to local OCI layout directory with a tag "quickstartOCI"
+	// 7. Copy the artifact to local OCI layout directory with a tag "quickstartOCI"
 	ociDir, err := os.MkdirTemp(".", "oras_oci_example_*")
 	if err != nil {
 		panic(err)
@@ -372,6 +352,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(desc.Digest)
+	fmt.Println("Copied the artifact")
 }
 ```
