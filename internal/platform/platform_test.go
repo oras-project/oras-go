@@ -344,9 +344,8 @@ func TestSelectManifest(t *testing.T) {
 		OS:           os_1,
 	}
 	_, err = SelectManifest(ctx, storage, root, &targetPlatform)
-	expected = fmt.Sprintf("fail to recognize platform from unknown config %s: expect %s", docker.MediaTypeConfig, ocispec.MediaTypeImageConfig)
-	if err.Error() != expected {
-		t.Fatalf("SelectManifest() error = %v, wantErr %v", err, expected)
+	if wantErr := errdef.ErrUnsupported; !errors.Is(err, wantErr) {
+		t.Errorf("SelectManifest() error = %v, wantErr %v", err, wantErr)
 	}
 
 	// generate test content with null config blob
