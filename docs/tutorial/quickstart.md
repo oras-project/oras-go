@@ -19,16 +19,7 @@ The complete code is provided at the end of this tutorial.
 
 ## Create a folder for your code
 
-Open a command prompt and cd to your home directory.
-
-On Linux or Mac:
-```shell
-cd
-```
-On Windows:
-```shell
-cd %HOMEPATH%
-```
+Open a command prompt and cd to your working directory.
 
 Create a directory for your code.
 ```shell
@@ -40,6 +31,15 @@ Create a module in which you can manage dependencies.
 ```shell
 go mod init quickstart/oras-go-v2
 go: creating new go.mod: quickstart/oras-go-v2
+```
+
+Import the `oras-go v2` package.
+```shell
+go get oras.land/oras-go/v2
+go: added github.com/opencontainers/go-digest v1.0.0
+go: added github.com/opencontainers/image-spec v1.1.0
+go: added golang.org/x/sync v0.6.0
+go: added oras.land/oras-go/v2 v2.5.0
 ```
 
 In your text editor, create a file `main.go` in which to write your code.
@@ -93,14 +93,10 @@ for _, tag := range tags {
 
 ### Run the code
 
-At the command line, use [`go get`](https://golang.org/cmd/go/#hdr-Add_dependencies_to_current_module_and_install_them) to add the `oras.land/oras-go/v2` module as a dependency for your module. Use a dot argument to mean "get dependencies for code in the current directory."
+Run `go mod tidy` to clean up dependencies.
 
 ```shell
-go get .
-go: added github.com/opencontainers/go-digest v1.0.0
-go: added github.com/opencontainers/image-spec v1.1.0
-go: added golang.org/x/sync v0.6.0
-go: added oras.land/oras-go/v2 v2.5.0
+go mod tidy
 ```
 
 Run the code.
@@ -112,7 +108,15 @@ You should see the tags in the repository.
 
 ## Push a layer to the repository
 
-All referenced layers must exist in the repository before a manifest can be pushed. The following code snippet demonstrates how to push a manifest layer with [PushBytes](https://pkg.go.dev/oras.land/oras-go/v2#PushBytes). Paste the code into `main.go` after the last section. // todo: add about import v1 and rename it to ocispec
+All referenced layers must exist in the repository before a manifest can be pushed, so we need to push manifest layers before we can push a manifest. 
+
+Paste the following line to the `import` block of the `main.go` file.
+
+```go
+ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+```
+
+The following code snippet demonstrates how to push a manifest layer with [PushBytes](https://pkg.go.dev/oras.land/oras-go/v2#PushBytes). Paste the code into `main.go` after the last section.
 
 ```go
 // 3. push a layer to the repository
@@ -124,6 +128,16 @@ if err != nil {
 fmt.Println("Pushed manifest layer:", layerDescriptor.Digest)
 ```
 
+Run `go mod tidy` to clean up dependencies.
+
+```shell
+go mod tidy
+```
+
+Run the code.
+```shell
+go run .
+```
 ## Push a manifest to the repository with the tag "quickstart"
 
 The following code snippet demonstrates how to pack a manifest and push it to the repository with the tag "quickstart" using the [PackManifest](https://pkg.go.dev/oras.land/oras-go/v2#PackManifest) and the [(*Repository) Tag](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#Repository.Tag) methods. Paste the code into `main.go` after the last section.
@@ -168,7 +182,7 @@ var manifest ocispec.Manifest
 if err := json.Unmarshal(fetchedManifestContent, &manifest); err != nil {
 	panic(err)
 }
-for _, layer := manifest.Layers {
+for _, layer := range manifest.Layers {
 	layerContent, err := content.FetchAll(ctx, repo, layer)
 	if err != nil {
 		panic(err)
