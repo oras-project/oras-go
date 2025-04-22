@@ -202,3 +202,54 @@ func Example_pushFilesToRemoteRepository() {
 		panic(err)
 	}
 }
+
+// ExampleAttachBlobToRemoteRepository gives an example of attaching a blob to an
+// existing artifact in a remote repository. The blob is packed as a manifest whose
+// subject is the existing artifact.
+func Example_attachBlobToRemoteRepository() {
+	// 0. Connect to a remote repository with basic authentication
+	registry := "myregistry.example.com"
+	repository := "myrepo"
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", registry, repository))
+	if err != nil {
+		panic(err)
+	}
+	// Note: The below code can be omitted if authentication is not required.
+	repo.Client = &auth.Client{
+		Client: retry.DefaultClient,
+		Cache:  auth.NewCache(),
+		Credential: auth.StaticCredential(registry, auth.Credential{
+			Username: "username",
+			Password: "password",
+		}),
+	}
+
+	// 1. Resolve the subject descriptor
+	ctx := context.Background()
+	subjectDescriptor, err := repo.Resolve(ctx, "sha256:f3a0356fe9f82b925c2f15106d3932252f36c1c56fd35be6c369d274f433d177")
+	if err != nil {
+		panic(err)
+	}
+
+	// 2. Prepare the blob to be attached
+	blob := []byte("example blob")
+
+	// 3. Push the blob to the repository
+	blobDescriptor, err := oras.PushBytes(ctx, repo, v1.MediaTypeImageLayer, blob)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("pushed the blob to the repository")
+
+	// 4. Pack the blob as a manifest with version v1.1 and push it to the repository
+	packOpts := oras.PackManifestOptions{
+		Layers:  []v1.Descriptor{blobDescriptor},
+		Subject: &subjectDescriptor,
+	}
+	artifactType := "application/vnd.example+type"
+	referrerDescriptor, err := oras.PackManifest(ctx, repo, oras.PackManifestVersion1_1, artifactType, packOpts)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("attached %s to %s\n", referrerDescriptor.Digest, subjectDescriptor.Digest)
+}

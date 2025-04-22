@@ -36,6 +36,8 @@ import (
 	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
 var exampleMemoryStore oras.Target
@@ -407,4 +409,58 @@ func Example_extendedCopyArtifactAndReferrersFromRepository() {
 	fmt.Println(desc.Digest)
 	// Output:
 	// sha256:f396bc4d300934a39ca28ab0d5ac8a3573336d7d63c654d783a68cd1e2057662
+}
+
+// ExampleExtendedCopyArtifactAndReferrersToRepository is an example of pushing
+// an artifact and its referrer to a remote repository.
+func Example_extendedCopyArtifactAndReferrersToRepository() {
+	// 0. Assemble the referenced manifest in memory with tag "v1"
+	ctx := context.Background()
+	src := memory.New()
+	manifestDescriptor, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/vnd.example+type", oras.PackManifestOptions{})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("created manifest: ", manifestDescriptor)
+
+	tag := "v1"
+	err = src.Tag(ctx, manifestDescriptor, tag)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("tagged manifest: ", manifestDescriptor.Digest)
+
+	// 1. Assemble the referrer manifest in memory
+	referrerPackOpts := oras.PackManifestOptions{
+		Subject: &manifestDescriptor,
+	}
+	referrerDescriptor, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "sbom/example", referrerPackOpts)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("created referrer: ", referrerDescriptor)
+
+	// 2. Connect to a remote repository with basic authentication
+	registry := "myregistry.example.com"
+	repository := "myrepo"
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", registry, repository))
+	if err != nil {
+		panic(err)
+	}
+	// Note: The below code can be omitted if authentication is not required.
+	repo.Client = &auth.Client{
+		Client: retry.DefaultClient,
+		Cache:  auth.NewCache(),
+		Credential: auth.StaticCredential(registry, auth.Credential{
+			Username: "username",
+			Password: "password",
+		}),
+	}
+
+	// 3. Push the manifest and its referrer to the remote repository
+	desc, err := oras.ExtendedCopy(ctx, src, tag, repo, "", oras.DefaultExtendedCopyOptions)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("pushed: ", desc.Digest)
 }
