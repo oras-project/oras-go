@@ -1090,3 +1090,105 @@ func Test_PackManifest_UnsupportedPackManifestVersion(t *testing.T) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
 }
+
+func Test_validateMediaType(t *testing.T) {
+	tests := []struct {
+		name      string
+		mediaType string
+		wantErr   bool
+	}{
+		{
+			name:      "valid media type - common",
+			mediaType: "application/vnd.oci.image.manifest.v1+json",
+			wantErr:   false,
+		},
+		{
+			name:      "valid media type - without +",
+			mediaType: "text/plain",
+			wantErr:   false,
+		},
+		{
+			name:      "valid media type - json+ld",
+			mediaType: "application/json+ld",
+			wantErr:   false,
+		},
+		{
+			name:      "valid media type - with dot",
+			mediaType: "application/x.foo",
+			wantErr:   false,
+		},
+		{
+			name:      "valid media type - with dash",
+			mediaType: "application/x-foo",
+			wantErr:   false,
+		},
+		{
+			name:      "valid media type - with caret",
+			mediaType: "application/vnd.foo^bar",
+			wantErr:   false,
+		},
+		{
+			name:      "invalid media type - empty string",
+			mediaType: "",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid media type - missing subtype",
+			mediaType: "application/",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid media type - missing type",
+			mediaType: "/vnd.oci.image.manifest.v1",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid media type - no slash",
+			mediaType: "applicationvnd.oci.image.manifest.v1",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid media type - multiple slashes",
+			mediaType: "application/something/v1",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid media type - type starts with non-alphanumeric",
+			mediaType: "-application/vnd.oci.image.manifest.v1",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid media type - subtype starts with non-alphanumeric",
+			mediaType: "application/-vnd.oci.image.manifest.v1",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid media type - invalid char in type",
+			mediaType: "application%/vnd.oci.image.manifest.v1",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid media type - invalid char in subtype",
+			mediaType: "application/vnd.oci.image.manifest.v1%json",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid media type - contains space",
+			mediaType: "application/vnd oci",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateMediaType(tt.mediaType)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateMediaType(%q) error = %v, wantErr %v", tt.mediaType, err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && !errors.Is(err, errdef.ErrInvalidMediaType) {
+				t.Errorf("validateMediaType(%q) error not wrapping errdef.ErrInvalidMediaType: %v", tt.mediaType, err)
+			}
+		})
+	}
+}
