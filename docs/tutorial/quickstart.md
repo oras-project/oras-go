@@ -77,6 +77,13 @@ func main() {
 ```
 
 ## Show tags in the repository
+Add these two lines to the `import` block of `main.go`.
+
+```go
+"context"
+"fmt"
+```
+
 The following code snippet uses the [(*Repository) Tags](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#Repository.Tags) method to list the tags in the repository. Paste the code into `main.go` after the last section.
 
 ```go
@@ -112,10 +119,11 @@ You should see the tags in the repository.
 
 All referenced layers must exist in the repository before a manifest can be pushed, so we need to push manifest layers before we can push a manifest. 
 
-Paste the following line to the `import` block of the `main.go` file.
+Add these two lines to the `import` block of `main.go`.
 
 ```go
 ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+"oras.land/oras-go/v2"
 ```
 
 The following code snippet demonstrates how to push a manifest layer with [PushBytes](https://pkg.go.dev/oras.land/oras-go/v2#PushBytes). Paste the code into `main.go` after the last section.
@@ -130,9 +138,9 @@ if err != nil {
 fmt.Println("Pushed manifest layer:", layerDescriptor.Digest)
 ```
 
-Run `go mod tidy` to clean up dependencies.
-
 ### Run the code
+
+Run `go mod tidy` to clean up dependencies.
 
 ```console
 $ go mod tidy
@@ -178,6 +186,13 @@ fmt.Println(string(fetchedManifestContent))
 ```
 
 ## Parse the fetched manifest content and get the layers
+
+Add these two lines to the `import` block of `main.go`.
+```go
+"encoding/json"
+"oras.land/oras-go/v2/content"
+```
+
 The following code snippet demonstrates how to parse the fetched manifest content and get the layers. [FetchAll](https://pkg.go.dev/oras.land/oras-go/v2/content#FetchAll) from the [content](https://pkg.go.dev/oras.land/oras-go/v2/content) package is used to read and fetch the content identified by a descriptor. Paste the code into `main.go` after the last section.
 
 ```go
@@ -196,6 +211,12 @@ for _, layer := range manifest.Layers {
 ```
 
 ## Copy the artifact to local OCI layout directory from the repository
+
+Add these two lines to the `import` block of `main.go`.
+```go
+"os"
+"oras.land/oras-go/v2/content/oci"
+```
 
 The following code snippet demonstrates how to copy an artifact from the repository by its tag and save it to the current directory in the [OCI layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) format. The copy operation is performed using [Copy](https://pkg.go.dev/oras.land/oras-go/v2#Copy). Paste the code into `main.go` after the last section.
 
@@ -223,7 +244,7 @@ Run the code.
 $ go run .
 ```
 
-You should see the following output on the terminal and an OCI layout folder in the current directory.
+You should see a similar output on the terminal as below and an OCI layout folder in the current directory.
 ```
 tag1
 tag2
