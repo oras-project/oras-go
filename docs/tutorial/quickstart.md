@@ -104,13 +104,13 @@ if err != nil {
 
 Run `go mod tidy` to clean up dependencies.
 
-```console
-$ go mod tidy
+```shell
+go mod tidy
 ```
 
 Run the code.
-```console
-$ go run .
+```shell
+go run .
 ```
 
 You should see the tags in the repository.
@@ -142,13 +142,13 @@ fmt.Println("Pushed manifest layer:", layerDescriptor.Digest)
 
 Run `go mod tidy` to clean up dependencies.
 
-```console
-$ go mod tidy
+```shell
+go mod tidy
 ```
 
 Run the code.
-```console
-$ go run .
+```shell
+go run .
 ```
 ## Push a manifest to the repository with the tag "quickstart"
 
@@ -240,8 +240,8 @@ fmt.Println("Copied the artifact")
 ## Run the code
 
 Run the code.
-```console
-$ go run .
+```shell
+go run .
 ```
 
 You should see a similar output on the terminal as below and an OCI layout folder in the current directory.
