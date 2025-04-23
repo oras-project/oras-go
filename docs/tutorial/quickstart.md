@@ -28,14 +28,14 @@ cd oras-go-v2-quickstart
 ```
 Create a module in which you can manage dependencies.
 
-```shell
-go mod init quickstart/oras-go-v2
+```console
+$ go mod init quickstart/oras-go-v2
 go: creating new go.mod: quickstart/oras-go-v2
 ```
 
 Import the `oras-go v2` package.
-```shell
-go get oras.land/oras-go/v2
+```console
+$ go get oras.land/oras-go/v2
 go: added github.com/opencontainers/go-digest v1.0.0
 go: added github.com/opencontainers/image-spec v1.1.0
 go: added golang.org/x/sync v0.6.0
@@ -44,9 +44,9 @@ go: added oras.land/oras-go/v2 v2.5.0
 
 In your text editor, create a file `main.go` in which to write your code.
 
-## Connect to a remote repository with basic authentication
+## Connect to a remote repository with token authentication
 
-Paste the following into `main.go` and save the file. This code demonstrates how to use [NewRepository](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#NewRepository) from the [registry/remote](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) package to connect to a remote repository. Basic authentication (using a username and password) is handled by the [registry/remote/auth](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth) package. Other authentication methods, such as refresh token authentication, are also supported.
+Paste the following into `main.go` and save the file. This code demonstrates how to use [NewRepository](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#NewRepository) from the [registry/remote](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) package to connect to a remote repository. Token authentication (using a username and password, see reference [here](https://distribution.github.io/distribution/spec/auth/token/)) is handled by the [registry/remote/auth](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth) package. Other authentication methods, such as refresh token authentication, are also supported.
 
 ```go
 package main
@@ -58,7 +58,7 @@ import (
 )
 
 func main() {
-	// 1. Connect to a remote repository with basic authentication
+	// 1. Connect to a remote repository with token authentication
 	ref := "example.registry.com/myrepo"
 	repo, err := remote.NewRepository(ref)
 	if err != nil {
@@ -77,17 +77,19 @@ func main() {
 ```
 
 ## Show tags in the repository
-The following code snippet uses [Tags](https://pkg.go.dev/oras.land/oras-go/v2/registry#Tags) from the [registry](https://pkg.go.dev/oras.land/oras-go/v2/registry) package to list the tags in the repository. Paste the code into `main.go` after the last section.
+The following code snippet uses the [(*Repository) Tags](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#Repository.Tags) method to list the tags in the repository. Paste the code into `main.go` after the last section.
 
 ```go
 // 2. Show the tags in the repository
 ctx := context.Background()
-tags, err := registry.Tags(ctx, repo)
+err = repo.Tags(ctx, "", func(tags []string) error {
+	for _, tag := range tags {
+		fmt.Println(tag)
+	}
+	return nil
+})
 if err != nil {
 	panic(err)
-}
-for _, tag := range tags {
-	fmt.Println(tag)
 }
 ```
 
@@ -95,13 +97,13 @@ for _, tag := range tags {
 
 Run `go mod tidy` to clean up dependencies.
 
-```shell
-go mod tidy
+```console
+$ go mod tidy
 ```
 
 Run the code.
-```shell
-go run .
+```console
+$ go run .
 ```
 
 You should see the tags in the repository.
@@ -130,13 +132,15 @@ fmt.Println("Pushed manifest layer:", layerDescriptor.Digest)
 
 Run `go mod tidy` to clean up dependencies.
 
-```shell
-go mod tidy
+### Run the code
+
+```console
+$ go mod tidy
 ```
 
 Run the code.
-```shell
-go run .
+```console
+$ go run .
 ```
 ## Push a manifest to the repository with the tag "quickstart"
 
@@ -215,8 +219,8 @@ fmt.Println("Copied the artifact")
 ## Run the code
 
 Run the code.
-```shell
-go run .
+```console
+$ go run .
 ```
 
 You should see the following output on the terminal and an OCI layout folder in the current directory.
@@ -264,7 +268,7 @@ import (
 )
 
 func main() {
-	// 1. Connect to a remote repository with basic authentication
+	// 1. Connect to a remote repository with token authentication
 	ref := "example.registry.com/myrepo"
 	repo, err := remote.NewRepository(ref)
 	if err != nil {
@@ -282,12 +286,14 @@ func main() {
 
 	// 2. Show the tags in the repository
 	ctx := context.Background()
-	tags, err := registry.Tags(ctx, repo)
+	err = repo.Tags(ctx, "", func(tags []string) error {
+		for _, tag := range tags {
+			fmt.Println(tag)
+		}
+			return nil
+	})
 	if err != nil {
 		panic(err)
-	}
-	for _, tag := range tags {
-		fmt.Println(tag)
 	}
 
 	// 3. push a layer to the repository
