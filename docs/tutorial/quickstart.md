@@ -138,18 +138,6 @@ if err != nil {
 fmt.Println("Pushed manifest layer:", layerDescriptor.Digest)
 ```
 
-### Run the code
-
-Run `go mod tidy` to clean up dependencies.
-
-```shell
-go mod tidy
-```
-
-Run the code.
-```shell
-go run .
-```
 ## Push a manifest to the repository with the tag "quickstart"
 
 The following code snippet demonstrates how to pack a manifest and push it to the repository with the tag "quickstart" using the [PackManifest](https://pkg.go.dev/oras.land/oras-go/v2#PackManifest) and the [(*Repository) Tag](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#Repository.Tag) methods. Paste the code into `main.go` after the last section.
