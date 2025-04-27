@@ -4,13 +4,13 @@ This directory contains the fundamentals and a quickstart tutorial for `oras-go`
 
 ## Fundamentals
 
-It is recommended to read the following documentation in order:
+It is highly recommended to read the following documentation in order:
 
 1. [Modeling Artifacts](./Modeling-Artifacts.md)
-2. [Targets and Content Stores in `oras-go` v2](Targets.md)
+2. [Targets and Content Stores in `oras-go` v2](./Targets.md)
 
 ## Quickstart Tutotrial
 
 - [Quickstart: Managing OCI Artifacts with `oras-go` v2](./tutorial/quickstart.md)
 
-For additional information about the ORAS project, visit the [ORAS website](https://oras.land/).
+For more information about the ORAS project, visit the [ORAS website](https://oras.land/).
