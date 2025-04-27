@@ -25,7 +25,7 @@ import (
 
 // References:
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#error-codes
-//   - https://docs.docker.com/registry/spec/api/#errors-2
+//   - https://distribution.github.io/distribution/spec/api/#errors-2
 const (
 	ErrorCodeBlobUnknown         = "BLOB_UNKNOWN"
 	ErrorCodeBlobUploadInvalid   = "BLOB_UPLOAD_INVALID"
@@ -46,7 +46,7 @@ const (
 // registry.
 // References:
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#error-codes
-//   - https://docs.docker.com/registry/spec/api/#errors-2
+//   - https://distribution.github.io/distribution/spec/api/#errors-2
 type Error struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -74,7 +74,7 @@ func (e Error) Error() string {
 // server.
 // References:
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#error-codes
-//   - https://docs.docker.com/registry/spec/api/#errors-2
+//   - https://distribution.github.io/distribution/spec/api/#errors-2
 type Errors []Error
 
 // Error returns a error string describing the error.

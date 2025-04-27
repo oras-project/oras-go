@@ -52,7 +52,7 @@ const (
 	// uploaded blob.
 	//
 	// References:
-	//   - https://docs.docker.com/registry/spec/api/#digest-header
+	//   - https://distribution.github.io/distribution/spec/api/#digest-header
 	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pull
 	headerDockerContentDigest = "Docker-Content-Digest"
 
@@ -112,7 +112,7 @@ type Repository struct {
 
 	// TagListPageSize specifies the page size when invoking the tag list API.
 	// If zero, the page size is determined by the remote registry.
-	// Reference: https://docs.docker.com/registry/spec/api/#tags
+	// Reference: https://distribution.github.io/distribution/spec/api/#tags
 	TagListPageSize int
 
 	// ReferrerListPageSize specifies the page size when invoking the Referrers
@@ -394,7 +394,7 @@ func (r *Repository) ParseReference(reference string) (registry.Reference, error
 //
 // References:
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#content-discovery
-//   - https://docs.docker.com/registry/spec/api/#tags
+//   - https://distribution.github.io/distribution/spec/api/#tags
 func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
 	ctx = auth.AppendRepositoryScope(ctx, r.Reference, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
@@ -758,7 +758,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 		// check server range request capability.
 		// Docker spec allows range header form of "Range: bytes=<start>-<end>".
 		// However, the remote server may still not RFC 7233 compliant.
-		// Reference: https://docs.docker.com/registry/spec/api/#blob
+		// Reference: https://distribution.github.io/distribution/spec/api/#blob
 		if rangeUnit := resp.Header.Get("Accept-Ranges"); rangeUnit == "bytes" {
 			return httputil.NewReadSeekCloser(s.repo.client(), req, resp.Body, target.Size), nil
 		}
@@ -845,8 +845,8 @@ func (s *blobStore) sibling(otherRepoName string) *blobStore {
 // authentication errors.
 //
 // References:
-//   - https://docs.docker.com/registry/spec/api/#pushing-an-image
-//   - https://docs.docker.com/registry/spec/api/#initiate-blob-upload
+//   - https://distribution.github.io/distribution/spec/api/#pushing-an-image
+//   - https://distribution.github.io/distribution/spec/api/#initiate-blob-upload
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	// start an upload
@@ -1019,7 +1019,7 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 		// check server range request capability.
 		// Docker spec allows range header form of "Range: bytes=<start>-<end>".
 		// However, the remote server may still not RFC 7233 compliant.
-		// Reference: https://docs.docker.com/registry/spec/api/#blob
+		// Reference: https://distribution.github.io/distribution/spec/api/#blob
 		if rangeUnit := resp.Header.Get("Accept-Ranges"); rangeUnit == "bytes" {
 			return desc, httputil.NewReadSeekCloser(s.repo.client(), req, resp.Body, desc.Size), nil
 		}

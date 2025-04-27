@@ -199,7 +199,7 @@ func ExampleClient_Do_clientConfigurations() {
 	client.SetUserAgent("example user agent")
 	// Tokens carry restrictions about what resources they can access and how.
 	// Such restrictions are represented and enforced as Scopes.
-	// Reference: https://docs.docker.com/registry/spec/auth/scope/
+	// Reference: https://distribution.github.io/distribution/spec/auth/scope/
 	scopes := []string{
 		"repository:dst:pull,push",
 		"repository:src:pull",

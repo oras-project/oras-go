@@ -30,7 +30,7 @@ import (
 
 // Repository is an ORAS target and an union of the blob and the manifest CASs.
 //
-// As specified by https://docs.docker.com/registry/spec/api/, it is natural to
+// As specified by https://distribution.github.io/distribution/spec/api/, it is natural to
 // assume that content.Resolver interface only works for manifests. Tagging a
 // blob may be resulted in an `ErrUnsupported` error. However, this interface
 // does not restrict tagging blobs.
@@ -110,7 +110,7 @@ type TagLister interface {
 	//
 	// References:
 	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#content-discovery
-	//   - https://docs.docker.com/registry/spec/api/#tags
+	//   - https://distribution.github.io/distribution/spec/api/#tags
 	// See also `Tags()` in this package.
 	Tags(ctx context.Context, last string, fn func(tags []string) error) error
 }
