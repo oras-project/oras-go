@@ -12,8 +12,8 @@
 
 Gain insights into the fundamental concepts:
 
-1. [Modeling Artifacts](docs/Modeling-Artifacts.md)
-2. [Targets and Content Stores](docs/Targets.md)
+- [Modeling Artifacts](docs/Modeling-Artifacts.md)
+- [Targets and Content Stores](docs/Targets.md)
 
 ### Quickstart
 

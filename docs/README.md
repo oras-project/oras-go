@@ -6,8 +6,8 @@ This directory contains the fundamentals and a quickstart tutorial for `oras-go`
 
 It is highly recommended to read the following documentation in order:
 
-1. [Modeling Artifacts](./Modeling-Artifacts.md)
-2. [Targets and Content Stores in `oras-go` v2](./Targets.md)
+- [Modeling Artifacts](./Modeling-Artifacts.md)
+- [Targets and Content Stores in `oras-go` v2](./Targets.md)
 
 ## Quickstart Tutotrial
 
