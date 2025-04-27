@@ -4,7 +4,7 @@
 <a href="https://oras.land/"><img src="https://oras.land/img/oras.svg" alt="ORAS logo" width="100px"></a>
 </p>
 
-`oras-go` is a Go library for managing OCI artifacts, compliant with the [OCI Image Format Specification](https://github.com/opencontainers/image-spec) and the [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec). It provides a unified API for pushing, pulling, and managing artifacts across OCI-compliant registries, local file systems, and in-memory stores.
+`oras-go` is a Go library for managing OCI artifacts, compliant with the [OCI Image Format Specification](https://github.com/opencontainers/image-spec) and the [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec). It provides unified APIs for pushing, pulling, and managing artifacts across OCI-compliant registries, local file systems, and in-memory stores.
 
 ## Versioning
 
@@ -22,7 +22,7 @@ This project adheres to [Semantic Versioning](https://semver.org/):
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go/v2)](https://goreportcard.com/report/oras.land/oras-go/v2)
 [![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go/v2.svg)](https://pkg.go.dev/oras.land/oras-go/v2)
 
-The version `2` is actively developed in the [`main`](https://github.com/oras-project/oras-go/tree/main) branch with all new features.
+The major version `2` is actively developed in the [`main`](https://github.com/oras-project/oras-go/tree/main) branch with all new features.
 
 > [!Note]
 > The `main` branch follows [Go's Security Policy](https://github.com/golang/go/security/policy) and supports the two latest versions of Go (currently `1.23` and `1.24`).
