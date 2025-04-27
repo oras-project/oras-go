@@ -15,7 +15,7 @@ This project adheres to [Semantic Versioning](https://semver.org/):
 
 ## Project Status
 
-### v2: stable
+### v2 (stable)
 
 [![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=main)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Amain)
 [![codecov](https://codecov.io/gh/oras-project/oras-go/branch/main/graph/badge.svg)](https://codecov.io/gh/oras-project/oras-go)
@@ -32,7 +32,7 @@ The Go Reference for the `main` branch is available [here](https://pkg.go.dev/or
 
 To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
 
-### v1: maintenance
+### v1 (maintenance)
 
 [![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=v1)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Av1)
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go)](https://goreportcard.com/report/oras.land/oras-go)
@@ -55,18 +55,19 @@ Step-by-step tutorial demonstrating OCI artifact management:
 
 - [Quickstart: Managing OCI Artifacts with `oras-go` v2](docs/tutorial/quickstart.md)
 
-### Examples
+### Common Examples
 
-Sample code on pkg.go.dev:
+Sample code for common use cases:
 
 - [Artifact copying](https://pkg.go.dev/oras.land/oras-go/v2#pkg-examples)
 - [Registry operations](https://pkg.go.dev/oras.land/oras-go/v2/registry#pkg-examples)
 - [Repository operations](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#pkg-examples)
 - [Authentication](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#pkg-examples)
+- [Credentials management](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/credentials#pkg-examples)
 
 ## Community
 
-- Slack: `#oras` channel on CNCF Slack
+- Slack: [`#oras`](https://cloud-native.slack.com/archives/CJ1KHJM5Z) channel on CNCF Slack
 - Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - Security Policy: [SECURITY.md](SECURITY.md)
 - Reviewing Guide: [Reviewing Guide](https://github.com/oras-project/community/blob/main/REVIEWING.md)
