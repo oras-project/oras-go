@@ -9,7 +9,7 @@ It is highly recommended to read the following documentation in order:
 - [Modeling Artifacts](./Modeling-Artifacts.md)
 - [Targets and Content Stores in `oras-go` v2](./Targets.md)
 
-## Quickstart Tutotrial
+## Quickstart Tutorial
 
 - [Quickstart: Managing OCI Artifacts with `oras-go` v2](./tutorial/quickstart.md)
 
