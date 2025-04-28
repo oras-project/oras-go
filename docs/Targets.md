@@ -122,6 +122,23 @@ TagBar>"Tag: bar"]-.->M0
 TagV1>"Tag: v1"]-.->M0
 ```
 
+A descriptor can have multiple tags, but each tag is associated with only one descriptor. Reusing a tag for a different descriptor removes its previous association.
+
+If the tag `"bar"` is reused on another manifest `m1`, the graph would update as follows:
+
+```mermaid
+graph TD;
+
+M0["Manifest m0"]--config-->Blob0["Blob b0"]
+M0--layers-->Blob1["Blob b1"]
+M0--layers-->Blob2["Blob b2"]
+M1["Manifest m1"]
+
+TagFoo>"Tag: foo"]-.->M0
+TagV1>"Tag: v1"]-.->M0
+TagBar>"Tag: bar"]-.->M1
+```
+
 ### GraphTarget
 
 The [`GraphTarget`](https://pkg.go.dev/oras.land/oras-go/v2#GraphTarget) interface combines the capabilities of [`GraphStorage`](#graphstorage) and [`Target`](#target). It provides the following functions:
