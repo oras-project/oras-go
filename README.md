@@ -1,10 +1,18 @@
 # ORAS Go library
 
+[![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=main)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Amain)
+[![codecov](https://codecov.io/gh/oras-project/oras-go/branch/main/graph/badge.svg)](https://codecov.io/gh/oras-project/oras-go)
+[![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go/v2)](https://goreportcard.com/report/oras.land/oras-go/v2)
+[![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go/v2.svg)](https://pkg.go.dev/oras.land/oras-go/v2)
+
 <p align="left">
 <a href="https://oras.land/"><img src="https://oras.land/img/oras.svg" alt="ORAS logo" width="100px"></a>
 </p>
 
 `oras-go` is a Go library for managing OCI artifacts, compliant with the [OCI Image Format Specification](https://github.com/opencontainers/image-spec) and the [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec). It provides unified APIs for pushing, pulling, and managing artifacts across OCI-compliant registries, local file systems, and in-memory stores.
+
+> [!Note]
+> The `main` branch follows [Go's Security Policy](https://github.com/golang/go/security/policy) and supports the two latest versions of Go (currently `1.23` and `1.24`).
 
 ## Getting Started
 
@@ -33,31 +41,12 @@ Check out sample code for common use cases:
 
 Find more API examples at [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
 
+
 ## Versioning
 
-This project adheres to [Semantic Versioning](https://semver.org/):
-- **MAJOR**: Breaking changes
-- **MINOR**: Backward-compatible feature additions
-- **PATCH**: Backward-compatible bug fixes
+This project follows [Semantic Versioning](https://semver.org/)(`MAJOR.MINOR.PATCH`), with MAJOR for breaking changes, MINOR for backward-compatible features, and PATCH for backward-compatible fixes.
 
-## Project Status
-
-### v2 (stable)
-
-[![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=main)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Amain)
-[![codecov](https://codecov.io/gh/oras-project/oras-go/branch/main/graph/badge.svg)](https://codecov.io/gh/oras-project/oras-go)
-[![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go/v2)](https://goreportcard.com/report/oras.land/oras-go/v2)
-[![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go/v2.svg)](https://pkg.go.dev/oras.land/oras-go/v2)
-
-The major version `2` is actively developed in the [`main`](https://github.com/oras-project/oras-go/tree/main) branch with all new features.
-
-> [!Note]
-> The `main` branch follows [Go's Security Policy](https://github.com/golang/go/security/policy) and supports the two latest versions of Go (currently `1.23` and `1.24`).
-
-To access the latest features, import from the `main` branch (e.g., `go get oras.land/oras-go/v2@main`) instead of released tags.
-The Go Reference for the `main` branch is available [here](https://pkg.go.dev/oras.land/oras-go/v2@main).
-
-To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
+## Previous Major Versions
 
 ### v1 (maintenance)
 
@@ -66,6 +55,8 @@ To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
 [![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go.svg)](https://pkg.go.dev/oras.land/oras-go)
 
 The [`v1`](https://github.com/oras-project/oras-go/tree/v1) branch is maintained for dependency updates and security fixes only. All feature development happens in the [`main`](https://github.com/oras-project/oras-go/tree/main) branch.
+
+To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
 
 ## Community
 
