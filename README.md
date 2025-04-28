@@ -44,7 +44,7 @@ Find more API examples at [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
 
 ## Versioning
 
-This project follows [Semantic Versioning](https://semver.org/)(`MAJOR`.`MINOR`.`PATCH`), with `MAJOR` for breaking changes, `MINOR` for backward-compatible features, and `PATCH` for backward-compatible fixes.
+This project follows [Semantic Versioning](https://semver.org/) (`MAJOR`.`MINOR`.`PATCH`), with `MAJOR` for breaking changes, `MINOR` for backward-compatible features, and `PATCH` for backward-compatible fixes.
 
 ## Previous Major Versions
 
