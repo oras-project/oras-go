@@ -346,6 +346,47 @@ func TestConfig_GetCredential_emptyConfig(t *testing.T) {
 	}
 }
 
+func TestConfig_GetCredential_emptyFile(t *testing.T) {
+	cfg, err := Load("../../testdata/empty.json")
+	if err != nil {
+		t.Fatal("Load() error =", err)
+	}
+
+	tests := []struct {
+		name          string
+		serverAddress string
+		want          auth.Credential
+		wantErr       error
+	}{
+		{
+			name:          "Not found",
+			serverAddress: "registry.example.com",
+			want:          auth.EmptyCredential,
+			wantErr:       nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := cfg.GetCredential(tt.serverAddress)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("Config.GetCredential() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Config.GetCredential() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfig_GetCredential_whiteSpaceFile(t *testing.T) {
+	_, err := Load("../../testdata/whitespace.json")
+	expected := "failed to decode config file ../../testdata/whitespace.json: invalid config format: EOF"
+	if err == nil || expected != err.Error() {
+		t.Fatal("Load() error =", err)
+	}
+}
+
 func TestConfig_GetCredential_notExistConfig(t *testing.T) {
 	cfg, err := Load("whatever")
 	if err != nil {
