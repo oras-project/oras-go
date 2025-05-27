@@ -57,6 +57,20 @@ func TestLoad_badPath(t *testing.T) {
 	}
 }
 
+func TestLoad_emptyFile(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	err := os.WriteFile(configPath, []byte{}, 0666)
+	if err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	_, err = Load(configPath)
+	if err != nil {
+		t.Errorf("Load() error = %v, wantErr nil", err)
+	}
+}
+
 func TestLoad_badFormat(t *testing.T) {
 	tests := []struct {
 		name       string
