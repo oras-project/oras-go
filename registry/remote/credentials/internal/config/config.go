@@ -129,16 +129,13 @@ func Load(configPath string) (*Config, error) {
 
 	// decode config content if the config file exists
 	if err := json.NewDecoder(configFile).Decode(&cfg.content); err != nil {
-		if !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("failed to decode config file %s: %w: %v", configPath, ErrInvalidConfigFormat, err)
+		if errors.Is(err, io.EOF) {
+			// empty or whitespace only file
+			cfg.content = make(map[string]json.RawMessage)
+			cfg.authsCache = make(map[string]json.RawMessage)
+			return cfg, nil
 		}
-
-		// Check to see if the credential file was an empty file
-		fileInfo, statErr := configFile.Stat()
-		if statErr != nil || fileInfo.Size() != 0 {
-			// Parse error
-			return nil, fmt.Errorf("failed to decode config file %s: %w: %v", configPath, ErrInvalidConfigFormat, err)
-		}
+		return nil, fmt.Errorf("failed to decode config file %s: %w: %v", configPath, ErrInvalidConfigFormat, err)
 	}
 
 	if credsStoreBytes, ok := cfg.content[configFieldCredentialsStore]; ok {
