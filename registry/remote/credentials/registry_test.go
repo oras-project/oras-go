@@ -183,6 +183,11 @@ func Test_mapHostname(t *testing.T) {
 			want: "https://index.docker.io/v1/",
 		},
 		{
+			name: "map registry-1.docker.io to https://index.docker.io/v1/",
+			host: "registry-1.docker.io",
+			want: "https://index.docker.io/v1/",
+		},
+		{
 			name: "do not map other host names",
 			host: "localhost:2333",
 			want: "localhost:2333",
