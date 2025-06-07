@@ -302,7 +302,7 @@ func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service 
 	if cred.AccessToken != "" {
 		return cred.AccessToken, nil
 	}
-	if cred == EmptyCredential || (cred.RefreshToken == "" && !c.ForceAttemptOAuth2) {
+	if cred == EmptyCredential {
 		return c.fetchDistributionToken(ctx, realm, service, scopes, cred.Username, cred.Password)
 	}
 	return c.fetchOAuth2Token(ctx, realm, service, scopes, cred)
