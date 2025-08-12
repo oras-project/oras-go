@@ -106,6 +106,12 @@ func (vr *VerifyReader) Verify() error {
 
 // NewVerifyReader wraps r for reading content with verification against desc.
 func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
+	if err := desc.Digest.Validate(); err != nil {
+		return &VerifyReader{
+			err: fmt.Errorf("failed to validate %s: %w", desc.Digest, err),
+		}
+	}
+
 	var verifier digest.Verifier
 
 	// Ignore error, if we can't parse it assume zero
@@ -125,11 +131,6 @@ func NewVerifyReader(r io.Reader, desc ocispec.Descriptor) *VerifyReader {
 	}
 	if verifier == nil {
 		// Did not get a verifier for resume, make a new empty one
-		if err := desc.Digest.Validate(); err != nil {
-			return &VerifyReader{
-				err: fmt.Errorf("failed to validate %s: %w", desc.Digest, err),
-			}
-		}
 		verifier = desc.Digest.Verifier()
 	}
 
