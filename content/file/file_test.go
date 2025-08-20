@@ -237,9 +237,7 @@ func TestStore_RelativeRoot_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal("error calling Getwd(), error=", err)
 	}
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatal("error calling Chdir(), error=", err)
-	}
+	t.Chdir(tempDir)
 	s, err := New(".")
 	if err != nil {
 		t.Fatal("Store.New() error =", err)
@@ -249,9 +247,7 @@ func TestStore_RelativeRoot_Success(t *testing.T) {
 		t.Errorf("Store.workingDir = %s, want %s", s.workingDir, want)
 	}
 	// cd back to allow the temp directory to be removed
-	if err := os.Chdir(currDir); err != nil {
-		t.Fatal("error calling Chdir(), error=", err)
-	}
+	t.Chdir(currDir)
 	ctx := context.Background()
 
 	blob := []byte("hello world")

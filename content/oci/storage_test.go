@@ -95,9 +95,7 @@ func TestStorage_RelativeRoot_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal("error calling Getwd(), error=", err)
 	}
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatal("error calling Chdir(), error=", err)
-	}
+	t.Chdir(tempDir)
 	s, err := NewStorage(".")
 	if err != nil {
 		t.Fatal("New() error =", err)
@@ -106,9 +104,7 @@ func TestStorage_RelativeRoot_Success(t *testing.T) {
 		t.Errorf("Storage.root = %s, want %s", s.root, want)
 	}
 	// cd back to allow the temp directory to be removed
-	if err := os.Chdir(currDir); err != nil {
-		t.Fatal("error calling Chdir(), error=", err)
-	}
+	t.Chdir(currDir)
 	ctx := context.Background()
 
 	// test push

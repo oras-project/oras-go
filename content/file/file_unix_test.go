@@ -102,9 +102,7 @@ func TestStore_Dir_ExtractSymlinkRel(t *testing.T) {
 
 	// copy to another file store created from a relative root, to trigger extracting directory
 	tempDir = t.TempDir()
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatal("error calling Chdir(), error=", err)
-	}
+	t.Chdir(tempDir)
 	dstRel, err := New(".")
 	if err != nil {
 		t.Fatal("Store.New() error =", err)
@@ -211,9 +209,7 @@ func TestStore_Dir_ExtractSymlinkAbs(t *testing.T) {
 	if err := os.RemoveAll(dirPath); err != nil {
 		t.Fatal("error calling RemoveAll(), error =", err)
 	}
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatal("error calling Chdir(), error=", err)
-	}
+	t.Chdir(tempDir)
 	dstRel, err := New(".")
 	if err != nil {
 		t.Fatal("Store.New() error =", err)
