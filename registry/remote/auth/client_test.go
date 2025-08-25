@@ -661,24 +661,44 @@ func TestClient_Do_Bearer_Auth(t *testing.T) {
 		"repository:src:pull",
 	}
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/" {
+		if r.Method != http.MethodPost || r.URL.Path != "/" {
 			t.Error("unexecuted attempt of authorization service")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-		if auth := r.Header.Get("Authorization"); auth != header {
-			t.Errorf("unexpected auth: got %s, want %s", auth, header)
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("failed to parse form: %v", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query().Get("service"); got != service {
-			t.Errorf("unexpected service: got %s, want %s", got, service)
+		if got := r.PostForm.Get("grant_type"); got != "password" {
+			t.Errorf("unexpected grant type: %v, want %v", got, "password")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, scopes) {
-			t.Errorf("unexpected scope: got %s, want %s", got, scopes)
+		if got := r.PostForm.Get("service"); got != service {
+			t.Errorf("unexpected service: %v, want %v", got, service)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.PostForm.Get("client_id"); got != defaultClientID {
+			t.Errorf("unexpected client id: %v, want %v", got, defaultClientID)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		scope := strings.Join(scopes, " ")
+		if got := r.PostForm.Get("scope"); got != scope {
+			t.Errorf("unexpected scope: %v, want %v", got, scope)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.PostForm.Get("username"); got != username {
+			t.Errorf("unexpected username: %v, want %v", got, username)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.PostForm.Get("password"); got != password {
+			t.Errorf("unexpected password: %v, want %v", got, password)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -787,24 +807,44 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 		"repository:src:pull",
 	}
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/" {
+		if r.Method != http.MethodPost || r.URL.Path != "/" {
 			t.Error("unexecuted attempt of authorization service")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-		if auth := r.Header.Get("Authorization"); auth != header {
-			t.Errorf("unexpected auth: got %s, want %s", auth, header)
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("failed to parse form: %v", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query().Get("service"); got != service {
-			t.Errorf("unexpected service: got %s, want %s", got, service)
+		if got := r.PostForm.Get("grant_type"); got != "password" {
+			t.Errorf("unexpected grant type: %v, want %v", got, "password")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, scopes) {
-			t.Errorf("unexpected scope: got %s, want %s", got, scopes)
+		if got := r.PostForm.Get("service"); got != service {
+			t.Errorf("unexpected service: %v, want %v", got, service)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.PostForm.Get("client_id"); got != defaultClientID {
+			t.Errorf("unexpected client id: %v, want %v", got, defaultClientID)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		scope := strings.Join(scopes, " ")
+		if got := r.PostForm.Get("scope"); got != scope {
+			t.Errorf("unexpected scope: %v, want %v", got, scope)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.PostForm.Get("username"); got != username {
+			t.Errorf("unexpected username: %v, want %v", got, username)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.PostForm.Get("password"); got != password {
+			t.Errorf("unexpected password: %v, want %v", got, password)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -937,28 +977,27 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		"repository:src:pull",
 	}
 	as1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/" {
+		if r.Method != http.MethodPost || r.URL.Path != "/" {
 			t.Error("unexecuted attempt of authorization service")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username1+":"+password1))
-		if auth := r.Header.Get("Authorization"); auth != header {
-			t.Errorf("unexpected auth: got %s, want %s", auth, header)
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("failed to parse form: %v", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query().Get("service"); got != service1 {
-			t.Errorf("unexpected service: got %s, want %s", got, service1)
+		if got := r.PostForm.Get("service"); got != service1 {
+			t.Errorf("unexpected service: %v, want %v", got, service1)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, scopes1) {
-			t.Errorf("unexpected scope: got %s, want %s", got, scopes1)
+		scope := strings.Join(scopes1, " ")
+		if got := r.PostForm.Get("scope"); got != scope {
+			t.Errorf("unexpected scope: %v, want %v", got, scope)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-
 		atomic.AddInt64(&authCount1, 1)
 		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, accessToken1); err != nil {
 			t.Errorf("failed to write %q: %v", r.URL, err)
@@ -1007,28 +1046,27 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		"repository:dst:pull,push",
 	}
 	as2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/" {
+		if r.Method != http.MethodPost || r.URL.Path != "/" {
 			t.Error("unexecuted attempt of authorization service")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username2+":"+password2))
-		if auth := r.Header.Get("Authorization"); auth != header {
-			t.Errorf("unexpected auth: got %s, want %s", auth, header)
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("failed to parse form: %v", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query().Get("service"); got != service2 {
-			t.Errorf("unexpected service: got %s, want %s", got, service2)
+		if got := r.PostForm.Get("service"); got != service2 {
+			t.Errorf("unexpected service: %v, want %v", got, service2)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, scopes2) {
-			t.Errorf("unexpected scope: got %s, want %s", got, scopes2)
+		scope := strings.Join(scopes2, " ")
+		if got := r.PostForm.Get("scope"); got != scope {
+			t.Errorf("unexpected scope: %v, want %v", got, scope)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-
 		atomic.AddInt64(&authCount2, 1)
 		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, accessToken2); err != nil {
 			t.Errorf("failed to write %q: %v", r.URL, err)
@@ -3372,7 +3410,7 @@ func TestClient_Do_Invalid_Credential_Basic(t *testing.T) {
 
 func TestClient_Do_Invalid_Credential_Bearer(t *testing.T) {
 	username := "test_user"
-	password := "test_password"
+	bad_password := "bad credential"
 	accessToken := "test/access/token"
 	var requestCount, wantRequestCount int64
 	var successCount, wantSuccessCount int64
@@ -3383,18 +3421,24 @@ func TestClient_Do_Invalid_Credential_Bearer(t *testing.T) {
 		"repository:src:pull",
 	}
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/" {
+		if r.Method != http.MethodPost || r.URL.Path != "/" {
 			t.Error("unexecuted attempt of authorization service")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-		if auth := r.Header.Get("Authorization"); auth != header {
-			atomic.AddInt64(&authCount, 1)
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("failed to parse form: %v", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		t.Error("authentication should fail but succeeded")
+		if got := r.PostForm.Get("password"); got != bad_password {
+			t.Errorf("unexpected password: %v, want %v", got, bad_password)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		atomic.AddInt64(&authCount, 1)
+		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer as.Close()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -3430,7 +3474,7 @@ func TestClient_Do_Invalid_Credential_Bearer(t *testing.T) {
 			}
 			return Credential{
 				Username: username,
-				Password: "bad credential",
+				Password: bad_password,
 			}, nil
 		},
 	}
@@ -3545,26 +3589,49 @@ func TestClient_Do_Scheme_Change(t *testing.T) {
 	var authCount, wantAuthCount int64
 	var service string
 	scope := "repository:test:pull"
+	scopes := []string{
+		scope,
+	}
 	challengeBearerAuth := true
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/" {
+		if r.Method != http.MethodPost || r.URL.Path != "/" {
 			t.Error("unexecuted attempt of authorization service")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		header := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
-		if auth := r.Header.Get("Authorization"); auth != header {
-			t.Errorf("unexpected auth: got %s, want %s", auth, header)
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("failed to parse form: %v", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query().Get("service"); got != service {
-			t.Errorf("unexpected service: got %s, want %s", got, service)
+		if got := r.PostForm.Get("grant_type"); got != "password" {
+			t.Errorf("unexpected grant type: %v, want %v", got, "password")
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if got := r.URL.Query().Get("scope"); got != scope {
-			t.Errorf("unexpected scope: got %s, want %s", got, scope)
+		if got := r.PostForm.Get("service"); got != service {
+			t.Errorf("unexpected service: %v, want %v", got, service)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.PostForm.Get("client_id"); got != defaultClientID {
+			t.Errorf("unexpected client id: %v, want %v", got, defaultClientID)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		scope := strings.Join(scopes, " ")
+		if got := r.PostForm.Get("scope"); got != scope {
+			t.Errorf("unexpected scope: %v, want %v", got, scope)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.PostForm.Get("username"); got != username {
+			t.Errorf("unexpected username: %v, want %v", got, username)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if got := r.PostForm.Get("password"); got != password {
+			t.Errorf("unexpected password: %v, want %v", got, password)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
