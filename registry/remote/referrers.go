@@ -33,14 +33,14 @@ const zeroDigest = "sha256:00000000000000000000000000000000000000000000000000000
 type referrersState = int32
 
 const (
-	// referrersStateUnknown represents an unknown state of Referrers API.
-	referrersStateUnknown referrersState = iota
-	// referrersStateSupported represents that the repository is known to
+	// ReferrersStateUnknown represents an unknown state of Referrers API.
+	ReferrersStateUnknown referrersState = iota
+	// ReferrersStateSupported represents that the repository is known to
 	// support Referrers API.
-	referrersStateSupported
-	// referrersStateUnsupported represents that the repository is known to
+	ReferrersStateSupported
+	// ReferrersStateUnsupported represents that the repository is known to
 	// not support Referrers API.
-	referrersStateUnsupported
+	ReferrersStateUnsupported
 )
 
 // referrerOperation represents an operation on a referrer.

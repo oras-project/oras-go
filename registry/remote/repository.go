@@ -154,7 +154,7 @@ type Repository struct {
 	// NOTE: Must keep fields in sync with clone().
 
 	// referrersState represents that if the repository supports Referrers API.
-	// default: referrersStateUnknown
+	// default: ReferrersStateUnknown
 	referrersState referrersState
 
 	// referrersPingLock locks the pingReferrers() method and allows only
@@ -225,15 +225,15 @@ func (r *Repository) clone() *Repository {
 func (r *Repository) SetReferrersCapability(capable bool) error {
 	var state referrersState
 	if capable {
-		state = referrersStateSupported
+		state = ReferrersStateSupported
 	} else {
-		state = referrersStateUnsupported
+		state = ReferrersStateUnsupported
 	}
-	if swapped := atomic.CompareAndSwapInt32(&r.referrersState, referrersStateUnknown, state); !swapped {
+	if swapped := atomic.CompareAndSwapInt32(&r.referrersState, ReferrersStateUnknown, state); !swapped {
 		if fact := r.loadReferrersState(); fact != state {
 			return fmt.Errorf("%w: current capability = %v, new capability = %v",
 				ErrReferrersCapabilityAlreadySet,
-				fact == referrersStateSupported,
+				fact == ReferrersStateSupported,
 				capable)
 		}
 	}
@@ -474,14 +474,14 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers
 func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
 	state := r.loadReferrersState()
-	if state == referrersStateUnsupported {
+	if state == ReferrersStateUnsupported {
 		// The repository is known to not support Referrers API, fallback to
 		// referrers tag schema.
 		return r.referrersByTagSchema(ctx, desc, artifactType, fn)
 	}
 
 	err := r.referrersByAPI(ctx, desc, artifactType, fn)
-	if state == referrersStateSupported {
+	if state == ReferrersStateSupported {
 		// The repository is known to support Referrers API, no fallback.
 		return err
 	}
@@ -638,9 +638,9 @@ func (r *Repository) referrersFromIndex(ctx context.Context, referrersTag string
 // pingReferrers returns true if the Referrers API is available for r.
 func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 	switch r.loadReferrersState() {
-	case referrersStateSupported:
+	case ReferrersStateSupported:
 		return true, nil
-	case referrersStateUnsupported:
+	case ReferrersStateUnsupported:
 		return false, nil
 	}
 
@@ -650,9 +650,9 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 	defer r.referrersPingLock.Unlock()
 
 	switch r.loadReferrersState() {
-	case referrersStateSupported:
+	case ReferrersStateSupported:
 		return true, nil
-	case referrersStateUnsupported:
+	case ReferrersStateUnsupported:
 		return false, nil
 	}
 
@@ -1132,7 +1132,7 @@ func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) e
 func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.Descriptor) error {
 	switch target.MediaType {
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		if state := s.repo.loadReferrersState(); state == ReferrersStateSupported {
 			// referrers API is available, no client-side indexing needed
 			return s.repo.delete(ctx, target, true)
 		}
@@ -1363,7 +1363,7 @@ func (s *manifestStore) checkOCISubjectHeader(resp *http.Response) {
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
 	switch expected.MediaType {
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		if state := s.repo.loadReferrersState(); state == ReferrersStateSupported {
 			// referrers API is available, no client-side indexing needed
 			return s.push(ctx, expected, r, reference)
 		}
@@ -1379,7 +1379,7 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 			return err
 		}
 		// check referrers API availability again after push
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		if state := s.repo.loadReferrersState(); state == ReferrersStateSupported {
 			// the subject has been processed the registry, no client-side
 			// indexing needed
 			return nil
