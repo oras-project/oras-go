@@ -20,9 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/config"
 )
 
 // FileStore implements a credentials store using the docker configuration file
@@ -34,7 +31,7 @@ type FileStore struct {
 	// If DisablePut is set to true, Put() will return ErrPlaintextPutDisabled.
 	DisablePut bool
 
-	config *config.Config
+	config *Config
 }
 
 var (
@@ -50,7 +47,7 @@ var (
 //
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewFileStore(configPath string) (*FileStore, error) {
-	cfg, err := config.Load(configPath)
+	cfg, err := Load(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -58,18 +55,18 @@ func NewFileStore(configPath string) (*FileStore, error) {
 }
 
 // newFileStore creates a file credentials store based on the given config instance.
-func newFileStore(cfg *config.Config) *FileStore {
+func newFileStore(cfg *Config) *FileStore {
 	return &FileStore{config: cfg}
 }
 
 // Get retrieves credentials from the store for the given server address.
-func (fs *FileStore) Get(_ context.Context, serverAddress string) (auth.Credential, error) {
+func (fs *FileStore) Get(_ context.Context, serverAddress string) (Credential, error) {
 	return fs.config.GetCredential(serverAddress)
 }
 
 // Put saves credentials into the store for the given server address.
 // Returns ErrPlaintextPutDisabled if fs.DisablePut is set to true.
-func (fs *FileStore) Put(_ context.Context, serverAddress string, cred auth.Credential) error {
+func (fs *FileStore) Put(_ context.Context, serverAddress string, cred Credential) error {
 	if fs.DisablePut {
 		return ErrPlaintextPutDisabled
 	}
@@ -86,7 +83,7 @@ func (fs *FileStore) Delete(_ context.Context, serverAddress string) error {
 }
 
 // validateCredentialFormat validates the format of cred.
-func validateCredentialFormat(cred auth.Credential) error {
+func validateCredentialFormat(cred Credential) error {
 	if strings.ContainsRune(cred.Username, ':') {
 		// Username and password will be encoded in the base64(username:password)
 		// format in the file. The decoded result will be wrong if username
