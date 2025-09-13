@@ -232,7 +232,7 @@ func TestStorage_Push_Concurrent(t *testing.T) {
 
 	concurrency := 64
 	eg, egCtx := errgroup.WithContext(ctx)
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		eg.Go(func(i int) func() error {
 			return func() error {
 				if err := s.Push(egCtx, desc, bytes.NewReader(content)); err != nil {
@@ -346,7 +346,7 @@ func TestStorage_Fetch_Concurrent(t *testing.T) {
 	concurrency := 64
 	eg, egCtx := errgroup.WithContext(ctx)
 
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		eg.Go(func(i int) func() error {
 			return func() error {
 				rc, err := s.Fetch(egCtx, desc)

@@ -70,7 +70,7 @@ func (t *storageTracker) Exists(ctx context.Context, target ocispec.Descriptor) 
 }
 
 func TestStoreInterface(t *testing.T) {
-	var store interface{} = &Store{}
+	var store any = &Store{}
 	if _, ok := store.(oras.GraphTarget); !ok {
 		t.Error("&Store{} does not conform oras.Target")
 	}

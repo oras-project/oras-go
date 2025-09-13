@@ -273,8 +273,8 @@ func Test_concurrentCache_Set(t *testing.T) {
 		}
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		for j := 0; j < count; j++ {
+	for range 10 {
+		for j := range count {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -292,7 +292,7 @@ func Test_concurrentCache_Set(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		registry := registries[i&1]
 		key := keys[(i>>1)&1]
 
@@ -319,8 +319,8 @@ func Test_concurrentCache_Set(t *testing.T) {
 			return strconv.Itoa(i) + " repeated", nil
 		}
 	}
-	for i := 0; i < 10; i++ {
-		for j := 0; j < count; j++ {
+	for range 10 {
+		for j := range count {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -338,7 +338,7 @@ func Test_concurrentCache_Set(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		registry := registries[i&1]
 		key := keys[(i>>1)&1]
 
@@ -387,8 +387,8 @@ func Test_concurrentCache_Set_Fetch_Once(t *testing.T) {
 
 	// first round of fetch
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		for j := 0; j < len(count); j++ {
+	for range 10 {
+		for j := range count {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -407,15 +407,15 @@ func Test_concurrentCache_Set_Fetch_Once(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i := 0; i < len(count); i++ {
+	for i := range count {
 		if got := count[i]; got != 1 {
 			t.Errorf("fetch is called more than once: %d", got)
 		}
 	}
 
 	// repeated fetch
-	for i := 0; i < 10; i++ {
-		for j := 0; j < len(count); j++ {
+	for range 10 {
+		for j := range count {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -434,7 +434,7 @@ func Test_concurrentCache_Set_Fetch_Once(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i := 0; i < len(count); i++ {
+	for i := range count {
 		if got := count[i]; got != 2 {
 			t.Errorf("fetch is called more than once: %d", got)
 		}
@@ -463,8 +463,8 @@ func Test_concurrentCache_Set_Fetch_Failure(t *testing.T) {
 		}
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		for j := 0; j < count; j++ {
+	for range 10 {
+		for j := range count {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -479,7 +479,7 @@ func Test_concurrentCache_Set_Fetch_Failure(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		registry := registries[i&1]
 		key := keys[(i>>1)&1]
 
@@ -500,8 +500,8 @@ func Test_concurrentCache_Set_Fetch_Failure(t *testing.T) {
 			return strconv.Itoa(i), nil
 		}
 	}
-	for i := 0; i < 10; i++ {
-		for j := 0; j < count; j++ {
+	for range 10 {
+		for j := range count {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -519,7 +519,7 @@ func Test_concurrentCache_Set_Fetch_Failure(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		registry := registries[i&1]
 		key := keys[(i>>1)&1]
 

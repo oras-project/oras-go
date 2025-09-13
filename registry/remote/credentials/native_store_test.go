@@ -132,7 +132,7 @@ func (e *testExecuter) Execute(ctx context.Context, input io.Reader, action stri
 }
 
 func TestNativeStore_interface(t *testing.T) {
-	var ns interface{} = &nativeStore{}
+	var ns any = &nativeStore{}
 	if _, ok := ns.(Store); !ok {
 		t.Error("&NativeStore{} does not conform Store")
 	}
