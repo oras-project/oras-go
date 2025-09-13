@@ -3976,3 +3976,23 @@ func TestClient_fetchBasicAuth(t *testing.T) {
 		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
 	}
 }
+
+func TestClient_SetLegacyMode(t *testing.T) {
+	// Test that SetLegacyMode sets ForceAttemptOAuth2 to false
+	client := &Client{
+		ForceAttemptOAuth2: true, // start with true
+	}
+
+	// Verify initial state
+	if !client.ForceAttemptOAuth2 {
+		t.Error("expected ForceAttemptOAuth2 to be true initially")
+	}
+
+	// Call SetLegacyMode
+	client.SetLegacyMode()
+
+	// Verify ForceAttemptOAuth2 is now false
+	if client.ForceAttemptOAuth2 {
+		t.Error("expected ForceAttemptOAuth2 to be false after SetLegacyMode()")
+	}
+}

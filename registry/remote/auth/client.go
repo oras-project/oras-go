@@ -119,6 +119,8 @@ type Client struct {
 	// References:
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
+	// Deprecated: This will be removed in the future.
+	// Calling SetLegacyMode() will preserve ForceAttemptOAuth2 set to false
 	ForceAttemptOAuth2 bool
 }
 
@@ -162,6 +164,11 @@ func (c *Client) SetUserAgent(userAgent string) {
 		c.Header = http.Header{}
 	}
 	c.Header.Set("User-Agent", userAgent)
+}
+
+// SetLegacyMode favors basic auth even when the registry requests bearer.
+func (c *Client) SetLegacyMode() {
+	c.ForceAttemptOAuth2 = false
 }
 
 // Do sends the request to the remote server, attempting to resolve
