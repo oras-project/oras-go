@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package config
+package credentials
 
 import (
 	"bytes"
@@ -27,7 +27,6 @@ import (
 	"strings"
 	"sync"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/credentials/internal/ioutil"
 )
 
@@ -62,7 +61,7 @@ type AuthConfig struct {
 }
 
 // NewAuthConfig creates an authConfig based on cred.
-func NewAuthConfig(cred auth.Credential) AuthConfig {
+func NewAuthConfig(cred Credential) AuthConfig {
 	return AuthConfig{
 		Auth:          encodeAuth(cred.Username, cred.Password),
 		IdentityToken: cred.RefreshToken,
@@ -70,9 +69,9 @@ func NewAuthConfig(cred auth.Credential) AuthConfig {
 	}
 }
 
-// Credential returns an auth.Credential based on ac.
-func (ac AuthConfig) Credential() (auth.Credential, error) {
-	cred := auth.Credential{
+// Credential returns an Credential based on ac.
+func (ac AuthConfig) Credential() (Credential, error) {
+	cred := Credential{
 		Username:     ac.Username,
 		Password:     ac.Password,
 		RefreshToken: ac.IdentityToken,
@@ -83,7 +82,7 @@ func (ac AuthConfig) Credential() (auth.Credential, error) {
 		// override username and password
 		cred.Username, cred.Password, err = decodeAuth(ac.Auth)
 		if err != nil {
-			return auth.EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", ErrInvalidConfigFormat, err)
+			return EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", ErrInvalidConfigFormat, err)
 		}
 	}
 	return cred, nil
@@ -162,8 +161,8 @@ func Load(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// GetAuthConfig returns an auth.Credential for serverAddress.
-func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) {
+// GetAuthConfig returns an Credential for serverAddress.
+func (cfg *Config) GetCredential(serverAddress string) (Credential, error) {
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
@@ -181,18 +180,18 @@ func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) 
 			}
 		}
 		if !matched {
-			return auth.EmptyCredential, nil
+			return EmptyCredential, nil
 		}
 	}
 	var authCfg AuthConfig
 	if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
-		return auth.EmptyCredential, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
+		return EmptyCredential, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
 	}
 	return authCfg.Credential()
 }
 
 // PutAuthConfig puts cred for serverAddress.
-func (cfg *Config) PutCredential(serverAddress string, cred auth.Credential) error {
+func (cfg *Config) PutCredential(serverAddress string, cred Credential) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 

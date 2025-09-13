@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package config
+package credentials
 
 import (
 	"encoding/json"
@@ -23,8 +23,7 @@ import (
 	"reflect"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/config/configtest"
+	"oras.land/oras-go/v2/registry/remote/credentials/configtest"
 )
 
 func TestLoad_badPath(t *testing.T) {
@@ -65,17 +64,17 @@ func TestLoad_badFormat(t *testing.T) {
 	}{
 		{
 			name:       "Bad JSON format",
-			configPath: "../../testdata/bad_config",
+			configPath: "./testdata/bad_config",
 			wantErr:    true,
 		},
 		{
 			name:       "Invalid auths format",
-			configPath: "../../testdata/invalid_auths_config.json",
+			configPath: "./testdata/invalid_auths_config.json",
 			wantErr:    true,
 		},
 		{
 			name:       "No auths field",
-			configPath: "../../testdata/no_auths_config.json",
+			configPath: "./testdata/no_auths_config.json",
 			wantErr:    false,
 		},
 	}
@@ -91,7 +90,7 @@ func TestLoad_badFormat(t *testing.T) {
 }
 
 func TestConfig_GetCredential_validConfig(t *testing.T) {
-	cfg, err := Load("../../testdata/valid_auths_config.json")
+	cfg, err := Load("./testdata/valid_auths_config.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
 	}
@@ -99,13 +98,13 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          Credential
 		wantErr       bool
 	}{
 		{
 			name:          "Username and password",
 			serverAddress: "registry1.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -113,21 +112,21 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 		{
 			name:          "Identity token",
 			serverAddress: "registry2.example.com",
-			want: auth.Credential{
+			want: Credential{
 				RefreshToken: "identity_token",
 			},
 		},
 		{
 			name:          "Registry token",
 			serverAddress: "registry3.example.com",
-			want: auth.Credential{
+			want: Credential{
 				AccessToken: "registry_token",
 			},
 		},
 		{
 			name:          "Username and password, identity token and registry token",
 			serverAddress: "registry4.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username:     "username",
 				Password:     "password",
 				RefreshToken: "identity_token",
@@ -137,12 +136,12 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 		{
 			name:          "Empty credential",
 			serverAddress: "registry5.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 		{
 			name:          "Username and password, no auth",
 			serverAddress: "registry6.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -150,7 +149,7 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 		{
 			name:          "Auth overriding Username and password",
 			serverAddress: "registry7.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -158,12 +157,12 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 		{
 			name:          "Not in auths",
 			serverAddress: "foo.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 		{
 			name:          "No record",
 			serverAddress: "registry999.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 	}
 	for _, tt := range tests {
@@ -181,7 +180,7 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 }
 
 func TestConfig_GetCredential_legacyConfig(t *testing.T) {
-	cfg, err := Load("../../testdata/legacy_auths_config.json")
+	cfg, err := Load("./testdata/legacy_auths_config.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
 	}
@@ -189,13 +188,13 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          Credential
 		wantErr       bool
 	}{
 		{
 			name:          "Regular address matched",
 			serverAddress: "registry1.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username1",
 				Password: "password1",
 			},
@@ -203,7 +202,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 		{
 			name:          "Another entry for the same address matched",
 			serverAddress: "https://registry1.example.com/",
-			want: auth.Credential{
+			want: Credential{
 				Username: "foo",
 				Password: "bar",
 			},
@@ -211,12 +210,12 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 		{
 			name:          "Address with different scheme unmached",
 			serverAddress: "http://registry1.example.com/",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 		{
 			name:          "Address with http prefix matched",
 			serverAddress: "registry2.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username2",
 				Password: "password2",
 			},
@@ -224,7 +223,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 		{
 			name:          "Address with https prefix matched",
 			serverAddress: "registry3.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username3",
 				Password: "password3",
 			},
@@ -232,7 +231,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 		{
 			name:          "Address with http prefix and / suffix matched",
 			serverAddress: "registry4.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username4",
 				Password: "password4",
 			},
@@ -240,7 +239,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 		{
 			name:          "Address with https prefix and / suffix matched",
 			serverAddress: "registry5.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username5",
 				Password: "password5",
 			},
@@ -248,7 +247,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 		{
 			name:          "Address with https prefix and path suffix matched",
 			serverAddress: "registry6.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username6",
 				Password: "password6",
 			},
@@ -269,7 +268,7 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 }
 
 func TestConfig_GetCredential_invalidConfig(t *testing.T) {
-	cfg, err := Load("../../testdata/invalid_auths_entry_config.json")
+	cfg, err := Load("./testdata/invalid_auths_entry_config.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
 	}
@@ -277,25 +276,25 @@ func TestConfig_GetCredential_invalidConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          Credential
 		wantErr       bool
 	}{
 		{
 			name:          "Invalid auth encode",
 			serverAddress: "registry1.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       true,
 		},
 		{
 			name:          "Invalid auths format",
 			serverAddress: "registry2.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       true,
 		},
 		{
 			name:          "Invalid type",
 			serverAddress: "registry3.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       true,
 		},
 	}
@@ -314,7 +313,7 @@ func TestConfig_GetCredential_invalidConfig(t *testing.T) {
 }
 
 func TestConfig_GetCredential_empty(t *testing.T) {
-	cfg, err := Load("../../testdata/empty.json")
+	cfg, err := Load("./testdata/empty.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
 	}
@@ -322,13 +321,13 @@ func TestConfig_GetCredential_empty(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          Credential
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       nil,
 		},
 	}
@@ -347,7 +346,7 @@ func TestConfig_GetCredential_empty(t *testing.T) {
 }
 
 func TestConfig_GetCredential_whiteSpace(t *testing.T) {
-	cfg, err := Load("../../testdata/whitespace.json")
+	cfg, err := Load("./testdata/whitespace.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
 	}
@@ -355,13 +354,13 @@ func TestConfig_GetCredential_whiteSpace(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          Credential
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       nil,
 		},
 	}
@@ -388,13 +387,13 @@ func TestConfig_GetCredential_notExistConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          Credential
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       nil,
 		},
 	}
@@ -422,7 +421,7 @@ func TestConfig_PutCredential_notExistConfig(t *testing.T) {
 	}
 
 	server := "test.example.com"
-	cred := auth.Credential{
+	cred := Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
@@ -473,7 +472,7 @@ func TestConfig_PutCredential_addNew(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.json")
 	// prepare test content
 	server1 := "registry1.example.com"
-	cred1 := auth.Credential{
+	cred1 := Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
@@ -505,7 +504,7 @@ func TestConfig_PutCredential_addNew(t *testing.T) {
 		t.Fatal("Load() error =", err)
 	}
 	server2 := "registry2.example.com"
-	cred2 := auth.Credential{
+	cred2 := Credential{
 		Username:     "username_2",
 		Password:     "password_2",
 		RefreshToken: "refresh_token_2",
@@ -593,7 +592,7 @@ func TestConfig_PutCredential_updateOld(t *testing.T) {
 	if err != nil {
 		t.Fatal("Load() error =", err)
 	}
-	cred := auth.Credential{
+	cred := Credential{
 		Username:    "username",
 		Password:    "password",
 		AccessToken: "access_token",
@@ -641,14 +640,14 @@ func TestConfig_DeleteCredential(t *testing.T) {
 
 	// prepare test content
 	server1 := "registry1.example.com"
-	cred1 := auth.Credential{
+	cred1 := Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
 		AccessToken:  "access_token",
 	}
 	server2 := "registry2.example.com"
-	cred2 := auth.Credential{
+	cred2 := Credential{
 		Username:     "username_2",
 		Password:     "password_2",
 		RefreshToken: "refresh_token_2",
@@ -728,7 +727,7 @@ func TestConfig_DeleteCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Config.GetCredential() error = %v", err)
 	}
-	if want := auth.EmptyCredential; !reflect.DeepEqual(got, want) {
+	if want := EmptyCredential; !reflect.DeepEqual(got, want) {
 		t.Errorf("Config.GetCredential(%s) = %v, want %v", server1, got, want)
 	}
 	got, err = cfg.GetCredential(server2)
@@ -746,7 +745,7 @@ func TestConfig_DeleteCredential_lastConfig(t *testing.T) {
 
 	// prepare test content
 	server := "registry1.example.com"
-	cred := auth.Credential{
+	cred := Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
@@ -812,7 +811,7 @@ func TestConfig_DeleteCredential_lastConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Config.GetCredential() error = %v", err)
 	}
-	if want := auth.EmptyCredential; !reflect.DeepEqual(got, want) {
+	if want := EmptyCredential; !reflect.DeepEqual(got, want) {
 		t.Errorf("Config.GetCredential(%s) = %v, want %v", server, got, want)
 	}
 }
@@ -823,7 +822,7 @@ func TestConfig_DeleteCredential_notExistRecord(t *testing.T) {
 
 	// prepare test content
 	server := "registry1.example.com"
-	cred := auth.Credential{
+	cred := Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
@@ -918,7 +917,7 @@ func TestConfig_DeleteCredential_notExistConfig(t *testing.T) {
 }
 
 func TestConfig_GetCredentialHelper(t *testing.T) {
-	cfg, err := Load("../../testdata/credHelpers_config.json")
+	cfg, err := Load("./testdata/credHelpers_config.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
 	}
@@ -966,12 +965,12 @@ func TestConfig_CredentialsStore(t *testing.T) {
 	}{
 		{
 			name:       "creds store configured",
-			configPath: "../../testdata/credsStore_config.json",
+			configPath: "./testdata/credsStore_config.json",
 			want:       "teststore",
 		},
 		{
 			name:       "No creds store configured",
-			configPath: "../../testdata/credsHelpers_config.json",
+			configPath: "./testdata/credsHelpers_config.json",
 			want:       "",
 		},
 	}
