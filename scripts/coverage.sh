@@ -47,7 +47,7 @@ generate_cover_data() {
 generate_cover_data
 go tool cover -func "${profile}"
 
-if [ "${html}" == "true" ] ; then
+if [ "${html}" = "true" ] ; then
     go tool cover -html "${profile}"
 fi
 
