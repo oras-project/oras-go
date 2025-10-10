@@ -33,7 +33,10 @@ func createTestJWT(exp int64) string {
 		"iat": time.Now().Unix(),
 		"sub": "test",
 	}
-	claimsJSON, _ := json.Marshal(claims)
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal claims: %v", err))
+	}
 	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
 
 	// We don't need a real signature for testing expiration parsing
