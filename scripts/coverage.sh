@@ -17,6 +17,7 @@ set -euo pipefail
 
 covermode=${COVERMODE:-atomic}
 coverdir=$(mktemp -d /tmp/coverage.XXXXXXXXXX)
+trap 'rm -rf "${coverdir}"' EXIT
 profile="${coverdir}/cover.out"
 html=false
 target="./..." # by default the whole repository is tested
