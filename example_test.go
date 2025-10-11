@@ -50,7 +50,7 @@ func Example_pullFilesFromRemoteRepository() {
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(reg, auth.Credential{
+		Credential: credentials.StaticCredential(reg, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),
@@ -85,7 +85,7 @@ func Example_pullImageFromRemoteRepository() {
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(reg, auth.Credential{
+		Credential: credentials.StaticCredential(reg, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),
@@ -127,7 +127,7 @@ func Example_pullImageUsingDockerCredentials() {
 	repo.Client = &auth.Client{
 		Client:     retry.DefaultClient,
 		Cache:      auth.NewCache(),
-		Credential: credentials.Credential(credStore), // Use the credentials store
+		Credential: remote.Credential(credStore), // Use the credentials store
 	}
 
 	// 2. Copy from the remote repository to the OCI layout store
@@ -190,7 +190,7 @@ func Example_pushFilesToRemoteRepository() {
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(reg, auth.Credential{
+		Credential: credentials.StaticCredential(reg, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),
@@ -218,7 +218,7 @@ func Example_attachBlobToRemoteRepository() {
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(registry, auth.Credential{
+		Credential: credentials.StaticCredential(registry, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),
