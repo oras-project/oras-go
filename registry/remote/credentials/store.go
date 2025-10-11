@@ -23,16 +23,8 @@ package credentials
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"oras.land/oras-go/v2/internal/syncutil"
-)
-
-const (
-	dockerConfigDirEnv   = "DOCKER_CONFIG"
-	dockerConfigFileDir  = ".docker"
-	dockerConfigFileName = "config.json"
 )
 
 // Store is the interface that any credentials store must implement.
@@ -48,7 +40,7 @@ type Store interface {
 // DynamicStore dynamically determines which store to use based on the settings
 // in the config file.
 type DynamicStore struct {
-	config             *Config
+	config             Config
 	options            StoreOptions
 	detectedCredsStore string
 	setCredsStoreOnce  syncutil.OnceOrRetry
@@ -78,6 +70,11 @@ type StoreOptions struct {
 	//   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 	//   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 	DetectDefaultNativeStore bool
+
+	// ConfigurationPath overrides the default configuration file path.
+	// If specified, this path will be used instead of the default paths
+	// determined by NewStoreFromDocker or NewStoreFromRegistriesConf.
+	ConfigurationPath string
 }
 
 // NewStore returns a Store based on the given configuration file.
@@ -93,7 +90,7 @@ type StoreOptions struct {
 //   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
-	cfg, err := Load(configPath)
+	cfg, err := newConfigJson(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +106,8 @@ func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
 }
 
 // NewStoreFromDocker returns a Store based on the default docker config file.
-//   - If the $DOCKER_CONFIG environment variable is set,
+//   - If StoreOptions.ConfigurationPath is set, it will be used.
+//   - Otherwise, if the $DOCKER_CONFIG environment variable is set,
 //     $DOCKER_CONFIG/config.json will be used.
 //   - Otherwise, the default location $HOME/.docker/config.json will be used.
 //
@@ -119,11 +117,56 @@ func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
 //   - https://docs.docker.com/engine/reference/commandline/cli/#configuration-files
 //   - https://docs.docker.com/engine/reference/commandline/cli/#change-the-docker-directory
 func NewStoreFromDocker(opt StoreOptions) (*DynamicStore, error) {
-	configPath, err := getDockerConfigPath()
+	var configPath string
+	var err error
+
+	if opt.ConfigurationPath != "" {
+		configPath = opt.ConfigurationPath
+	} else {
+		configPath, err = getDockerConfigPath()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return NewStore(configPath, opt)
+}
+
+// NewStoreFromRegistriesConf returns a Store based on the containers registries.conf file.
+//   - If StoreOptions.ConfigurationPath is set, it will be used.
+//   - Otherwise, if $HOME/.config/containers/registries.conf exists, it will be used.
+//   - Otherwise, the system-wide location /etc/containers/registries.conf will be used.
+//
+// NewStoreFromRegistriesConf uses registriesConf internally and implements the Config interface.
+//
+// References:
+//   - https://github.com/containers/image/blob/main/docs/containers-registries.conf.5.md
+func NewStoreFromRegistriesConf(opt StoreOptions) (*DynamicStore, error) {
+	var configPath string
+	var err error
+
+	if opt.ConfigurationPath != "" {
+		configPath = opt.ConfigurationPath
+	} else {
+		configPath, err = getDefaultRegistriesConfPath()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	cfg, err := NewRegistriesConf(configPath)
 	if err != nil {
 		return nil, err
 	}
-	return NewStore(configPath, opt)
+
+	ds := &DynamicStore{
+		config:  cfg,
+		options: opt,
+	}
+	if opt.DetectDefaultNativeStore && !cfg.IsAuthConfigured() {
+		// no authentication configured, detect the default credentials store
+		ds.detectedCredsStore = getDefaultHelperSuffix()
+	}
+	return ds, nil
 }
 
 // Get retrieves credentials from the store for the given server address.
@@ -194,21 +237,6 @@ func (ds *DynamicStore) getStore(serverAddress string) Store {
 	fs := newFileStore(ds.config)
 	fs.DisablePut = !ds.options.AllowPlaintextPut
 	return fs
-}
-
-// getDockerConfigPath returns the path to the default docker config file.
-func getDockerConfigPath() (string, error) {
-	// first try the environment variable
-	configDir := os.Getenv(dockerConfigDirEnv)
-	if configDir == "" {
-		// then try home directory
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get user home directory: %w", err)
-		}
-		configDir = filepath.Join(homeDir, dockerConfigFileDir)
-	}
-	return filepath.Join(configDir, dockerConfigFileName), nil
 }
 
 // storeWithFallbacks is a store that has multiple fallback stores.

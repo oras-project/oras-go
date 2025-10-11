@@ -31,7 +31,7 @@ type FileStore struct {
 	// If DisablePut is set to true, Put() will return ErrPlaintextPutDisabled.
 	DisablePut bool
 
-	config *Config
+	config Config
 }
 
 var (
@@ -47,7 +47,7 @@ var (
 //
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewFileStore(configPath string) (*FileStore, error) {
-	cfg, err := Load(configPath)
+	cfg, err := newConfigJson(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func NewFileStore(configPath string) (*FileStore, error) {
 }
 
 // newFileStore creates a file credentials store based on the given config instance.
-func newFileStore(cfg *Config) *FileStore {
+func newFileStore(cfg Config) *FileStore {
 	return &FileStore{config: cfg}
 }
 

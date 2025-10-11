@@ -1014,3 +1014,111 @@ func TestNewStoreFromDocker(t *testing.T) {
 		t.Errorf("DynamicStore.Get() = %v, want %v", got, want)
 	}
 }
+
+func Test_getRegistriesConfPath_userPath(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Mock user home directory
+	homeDir := tempDir
+	t.Setenv("HOME", homeDir)
+
+	// Create user-specific registries.conf
+	configDir := filepath.Join(homeDir, ".config", "containers")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	userPath := filepath.Join(configDir, "registries.conf")
+	if err := os.WriteFile(userPath, []byte("# user config"), 0644); err != nil {
+		t.Fatalf("failed to write user config: %v", err)
+	}
+
+	got, err := getDefaultRegistriesConfPath()
+	if err != nil {
+		t.Fatal("getDefaultRegistriesConfPath() error =", err)
+	}
+	if got != userPath {
+		t.Errorf("getDefaultRegistriesConfPath() = %v, want %v", got, userPath)
+	}
+}
+
+func Test_getRegistriesConfPath_systemPath(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Mock user home directory without user-specific config
+	homeDir := tempDir
+	t.Setenv("HOME", homeDir)
+
+	got, err := getDefaultRegistriesConfPath()
+	if err != nil {
+		t.Fatal("getDefaultRegistriesConfPath() error =", err)
+	}
+	if want := "/etc/containers/registries.conf"; got != want {
+		t.Errorf("getDefaultRegistriesConfPath() = %v, want %v", got, want)
+	}
+}
+
+func TestNewStoreFromRegistriesConf(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Mock user home directory
+	homeDir := tempDir
+	t.Setenv("HOME", homeDir)
+
+	// Create user-specific registries.conf
+	configDir := filepath.Join(homeDir, ".config", "containers")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	configPath := filepath.Join(configDir, "registries.conf")
+	tomlContent := `[[registry]]
+prefix = "test.example.com"
+location = "internal.test.example.com"
+insecure = false
+`
+	if err := os.WriteFile(configPath, []byte(tomlContent), 0644); err != nil {
+		t.Fatalf("failed to write registries.conf: %v", err)
+	}
+
+	ctx := context.Background()
+
+	ds, err := NewStoreFromRegistriesConf(StoreOptions{AllowPlaintextPut: true})
+	if err != nil {
+		t.Fatal("NewStoreFromRegistriesConf() error =", err)
+	}
+
+	// Verify that the dynamic store was created with registriesConf
+	if ds.config == nil {
+		t.Fatal("DynamicStore.config is nil")
+	}
+
+	// Initially, no auth should be configured
+	if ds.config.IsAuthConfigured() {
+		t.Error("DynamicStore.config.IsAuthConfigured() = true, want false initially")
+	}
+
+	if got := ds.config.CredentialsStore(); got != "" {
+		t.Errorf("DynamicStore.config.CredentialsStore() = %v, want empty initially", got)
+	}
+
+	// Test putting a new credential (should work with AllowPlaintextPut)
+	serverAddr := "test.example.com"
+	cred := Credential{
+		Username: "testuser",
+		Password: "testpass",
+	}
+
+	if err := ds.Put(ctx, serverAddr, cred); err != nil {
+		t.Errorf("DynamicStore.Put() error = %v", err)
+	}
+
+	// Test getting the credential back
+	got, err := ds.Get(ctx, serverAddr)
+	if err != nil {
+		t.Fatal("DynamicStore.Get() error =", err)
+	}
+	if got != cred {
+		t.Errorf("DynamicStore.Get() = %v, want %v", got, cred)
+	}
+}
