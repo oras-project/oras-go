@@ -154,9 +154,15 @@ func (c *Client) SetUserAgent(userAgent string) {
 // Do sends the request to the remote server, attempting to resolve
 // authentication if 'Authorization' header is not set.
 //
+// When a registry indicates bearer auth support, the client first attempts
+// bearer authentication. If bearer auth fails with a 401 Unauthorized or 403
+// Forbidden response, the client falls back to basic authentication. This
+// fallback behavior allows compatibility with registries that advertise bearer
+// auth but may only accept basic auth as a fallback mechanism.
+//
 // On authentication failure due to bad credential,
-//   - Do returns error if it fails to fetch token for bearer auth.
-//   - Do returns the registry response without error for basic auth.
+//   - Do attempts basic auth as a fallback when bearer auth fails.
+//   - Do returns the registry response without error for basic auth failures.
 func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	if auth := originalReq.Header.Get(headerAuthorization); auth != "" {
 		return c.send(originalReq)
@@ -191,7 +197,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusUnauthorized {
+	if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
 		return resp, nil
 	}
 
@@ -235,7 +241,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 				if err != nil {
 					return nil, err
 				}
-				if resp.StatusCode != http.StatusUnauthorized {
+				if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
 					return resp, nil
 				}
 				resp.Body.Close()
@@ -261,7 +267,50 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	return c.send(req)
+	resp, err = c.send(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// If bearer auth was attempted but failed with 401 or 403, try basic auth as fallback
+	if scheme == SchemeBearer && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+		resp.Body.Close()
+
+		// Attempt basic auth fallback
+		token, err := cache.Set(ctx, host, SchemeBasic, "", func(ctx context.Context) (string, error) {
+			return c.fetchBasicAuth(ctx, host)
+		})
+		// If basic auth credentials are not available, skip fallback and return bearer failure
+		if err != nil {
+			// Check if basic credentials are not available or incomplete
+			if errors.Is(err, ErrBasicCredentialNotFound) ||
+				strings.Contains(err.Error(), "missing username or password") {
+				// No basic credentials available, return without authorization
+				// This will result in a 401 which is expected when no credentials are available
+				req = originalReq.Clone(ctx)
+				if err := rewindRequestBody(req); err != nil {
+					return nil, err
+				}
+				return c.send(req)
+			}
+			// Other errors in fetching basic auth should be reported
+			return nil, fmt.Errorf("%s %q: basic auth fallback failed: %w", resp.Request.Method, resp.Request.URL, err)
+		}
+
+		// Try request with basic auth
+		req = originalReq.Clone(ctx)
+		req.Header.Set(headerAuthorization, "Basic "+token)
+		if err := rewindRequestBody(req); err != nil {
+			return nil, err
+		}
+
+		resp, err = c.send(req)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return resp, nil
 }
 
 // fetchBasicAuth fetches a basic auth token for the basic challenge.

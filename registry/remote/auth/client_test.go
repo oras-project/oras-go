@@ -3978,3 +3978,109 @@ func TestClient_fetchBasicAuth(t *testing.T) {
 		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
 	}
 }
+
+func TestClient_Do_Bearer_Fallback_To_Basic(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
+	var authCount, wantAuthCount int64
+	var service string
+	scopes := []string{
+		"repository:test:pull",
+	}
+
+	// Auth server that returns a bearer token (but the registry will reject it)
+	bearerToken := "invalid_bearer_token"
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&authCount, 1)
+		// Return a bearer token that the registry will reject
+		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, bearerToken); err != nil {
+			t.Errorf("failed to write %q: %v", r.URL, err)
+		}
+	}))
+	defer as.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		auth := r.Header.Get("Authorization")
+		// Accept basic auth
+		basicHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+		if auth == basicHeader {
+			atomic.AddInt64(&successCount, 1)
+			return
+		}
+
+		// Reject the invalid bearer token and return 401
+		expectedBearer := "Bearer " + bearerToken
+		if auth == expectedBearer {
+			// Invalid token, return 401
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// For any other bearer auth, also reject
+		if strings.HasPrefix(auth, "Bearer ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// Initial request without auth - send bearer challenge
+		challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, strings.Join(scopes, " "))
+		w.Header().Set("Www-Authenticate", challenge)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (properties.Credential, error) {
+			if reg != uri.Host {
+				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
+				t.Error(err)
+				return properties.EmptyCredential, err
+			}
+			return properties.Credential{
+				Username: username,
+				Password: password,
+			}, nil
+		},
+	}
+
+	// Make request
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+
+	// Verify the sequence: initial request (401) -> bearer auth attempt (401 from auth server + 401 from registry) -> basic auth fallback (success)
+	// Request count: 1 (initial) + 1 (bearer attempt) + 1 (basic fallback) = 3
+	if wantRequestCount = 3; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+	if wantSuccessCount = 1; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
+	// Auth server is called once for bearer token fetch (which fails)
+	if wantAuthCount = 1; authCount != wantAuthCount {
+		t.Errorf("unexpected number of auth requests: %d, want %d", authCount, wantAuthCount)
+	}
+}
