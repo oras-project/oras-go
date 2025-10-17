@@ -20,7 +20,7 @@ ORAS Go: Go library for OCI artifact management. Provides unified APIs for push/
 
 ```
 oras-go/
-├── content/           # Content management & storage
+├── content/          # Content management & storage
 │   ├── file/         # File-based storage
 │   ├── memory/       # In-memory storage
 │   └── oci/          # OCI layout storage
