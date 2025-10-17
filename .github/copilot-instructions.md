@@ -4,7 +4,7 @@
 
 ORAS Go: Go library for OCI artifact management. Provides unified APIs for push/pull operations across OCI registries, file systems, and memory stores. Compliant with OCI Image Format and Distribution Specifications.
 
-**Stack:** Go (1.23+), OCI specifications
+**Stack:** Go, OCI specifications
 
 ## Code Standards
 
