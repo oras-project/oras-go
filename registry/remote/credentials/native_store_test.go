@@ -24,7 +24,6 @@ import (
 	"strings"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
 	"oras.land/oras-go/v2/registry/remote/credentials/trace"
 )
 
@@ -143,7 +142,7 @@ func TestNativeStore_basicAuth(t *testing.T) {
 		&testExecuter{},
 	}
 	// Put
-	err := ns.Put(context.Background(), basicAuthHost, auth.Credential{Username: testUsername, Password: testPassword})
+	err := ns.Put(context.Background(), basicAuthHost, Credential{Username: testUsername, Password: testPassword})
 	if err != nil {
 		t.Fatalf("basic auth test ns.Put fails: %v", err)
 	}
@@ -170,7 +169,7 @@ func TestNativeStore_refreshToken(t *testing.T) {
 		&testExecuter{},
 	}
 	// Put
-	err := ns.Put(context.Background(), bearerAuthHost, auth.Credential{RefreshToken: testRefreshToken})
+	err := ns.Put(context.Background(), bearerAuthHost, Credential{RefreshToken: testRefreshToken})
 	if err != nil {
 		t.Fatalf("refresh token test ns.Put fails: %v", err)
 	}
@@ -238,7 +237,7 @@ func TestNativeStore_trace(t *testing.T) {
 	}
 	ctx := trace.WithExecutableTrace(context.Background(), traceHook)
 	// Test ns.Put trace
-	err := ns.Put(ctx, traceHost, auth.Credential{Username: testUsername, Password: testPassword})
+	err := ns.Put(ctx, traceHost, Credential{Username: testUsername, Password: testPassword})
 	if err != nil {
 		t.Fatalf("trace test ns.Put fails: %v", err)
 	}
@@ -274,7 +273,7 @@ func TestNativeStore_noTrace(t *testing.T) {
 		&testExecuter{},
 	}
 	// Put
-	err := ns.Put(context.Background(), traceHost, auth.Credential{Username: testUsername, Password: testPassword})
+	err := ns.Put(context.Background(), traceHost, Credential{Username: testUsername, Password: testPassword})
 	if err != nil {
 		t.Fatalf("basic auth test ns.Put fails: %v", err)
 	}
@@ -304,7 +303,7 @@ func TestNativeStore_emptyTrace(t *testing.T) {
 	traceHook := &trace.ExecutableTrace{}
 	ctx := trace.WithExecutableTrace(context.Background(), traceHook)
 	// Put
-	err := ns.Put(ctx, traceHost, auth.Credential{Username: testUsername, Password: testPassword})
+	err := ns.Put(ctx, traceHost, Credential{Username: testUsername, Password: testPassword})
 	if err != nil {
 		t.Fatalf("basic auth test ns.Put fails: %v", err)
 	}
@@ -354,7 +353,7 @@ func TestNativeStore_multipleTrace(t *testing.T) {
 	trace3 := &trace.ExecutableTrace{}
 	ctx = trace.WithExecutableTrace(ctx, trace3)
 	// Test ns.Put trace
-	err := ns.Put(ctx, traceHost, auth.Credential{Username: testUsername, Password: testPassword})
+	err := ns.Put(ctx, traceHost, Credential{Username: testUsername, Password: testPassword})
 	if err != nil {
 		t.Fatalf("trace test ns.Put fails: %v", err)
 	}
