@@ -23,7 +23,14 @@ updates:
     schedule:
       interval: "daily"
 
-# update go dependencies for v1 branch
+  # update go dependencies for v2 branch
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    target-branch: "v2"
+
+  # update go dependencies for v1 branch
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
