@@ -20,9 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/config"
 )
 
 // memoryStore is a store that keeps credentials in memory.
@@ -40,16 +37,16 @@ func NewMemoryStore() Store {
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewMemoryStoreFromDockerConfig(c []byte) (Store, error) {
 	cfg := struct {
-		Auths map[string]config.AuthConfig `json:"auths"`
+		Auths map[string]authConfig `json:"auths"`
 	}{}
 	if err := json.Unmarshal(c, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal auth field: %w: %v", config.ErrInvalidConfigFormat, err)
+		return nil, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
 	}
 
 	s := &memoryStore{}
 	for addr, auth := range cfg.Auths {
 		// Normalize the auth key to hostname.
-		hostname := config.ToHostname(addr)
+		hostname := ToHostname(addr)
 		cred, err := auth.Credential()
 		if err != nil {
 			return nil, err
@@ -60,16 +57,16 @@ func NewMemoryStoreFromDockerConfig(c []byte) (Store, error) {
 }
 
 // Get retrieves credentials from the store for the given server address.
-func (ms *memoryStore) Get(_ context.Context, serverAddress string) (auth.Credential, error) {
+func (ms *memoryStore) Get(_ context.Context, serverAddress string) (Credential, error) {
 	cred, found := ms.store.Load(serverAddress)
 	if !found {
-		return auth.EmptyCredential, nil
+		return EmptyCredential, nil
 	}
-	return cred.(auth.Credential), nil
+	return cred.(Credential), nil
 }
 
 // Put saves credentials into the store for the given server address.
-func (ms *memoryStore) Put(_ context.Context, serverAddress string, cred auth.Credential) error {
+func (ms *memoryStore) Put(_ context.Context, serverAddress string, cred Credential) error {
 	ms.store.Store(serverAddress, cred)
 	return nil
 }

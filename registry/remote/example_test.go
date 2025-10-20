@@ -36,6 +36,8 @@ import (
 	"oras.land/oras-go/v2/content"
 	. "oras.land/oras-go/v2/registry/internal/doc"
 	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/credentials"
 )
 
 const (
@@ -912,4 +914,219 @@ func Example_pushAndIgnoreReferrersIndexError() {
 	// Output:
 	// ignoring error occurred during cleaning obsolete referrers index
 	// Push finished
+}
+
+func ExampleNewNativeStore() {
+	ns := credentials.NewNativeStore("pass")
+
+	ctx := context.Background()
+	// save credentials into the store
+	err := ns.Put(ctx, "localhost:5000", credentials.Credential{
+		Username: "username-example",
+		Password: "password-example",
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// get credentials from the store
+	cred, err := ns.Get(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(cred)
+
+	// delete the credentials from the store
+	err = ns.Delete(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+}
+
+func ExampleNewFileStore() {
+	fs, err := credentials.NewFileStore("example/path/config.json")
+	if err != nil {
+		panic(err)
+	}
+
+	ctx := context.Background()
+	// save credentials into the store
+	err = fs.Put(ctx, "localhost:5000", credentials.Credential{
+		Username: "username-example",
+		Password: "password-example",
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// get credentials from the store
+	cred, err := fs.Get(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(cred)
+
+	// delete the credentials from the store
+	err = fs.Delete(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+}
+
+func ExampleNewStore() {
+	// NewStore returns a Store based on the given configuration file. It will
+	// automatically determine which Store (file store or native store) to use.
+	// If the native store is not available, you can save your credentials in
+	// the configuration file by specifying AllowPlaintextPut: true, but keep
+	// in mind that this is an unsafe workaround.
+	// See the documentation for details.
+	store, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{
+		AllowPlaintextPut: true,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	ctx := context.Background()
+	// save credentials into the store
+	err = store.Put(ctx, "localhost:5000", credentials.Credential{
+		Username: "username-example",
+		Password: "password-example",
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// get credentials from the store
+	cred, err := store.Get(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(cred)
+
+	// delete the credentials from the store
+	err = store.Delete(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+}
+
+func ExampleNewStoreFromDocker() {
+	ds, err := credentials.NewStoreFromDocker(credentials.StoreOptions{
+		AllowPlaintextPut: true,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	ctx := context.Background()
+	// save credentials into the store
+	err = ds.Put(ctx, "localhost:5000", credentials.Credential{
+		Username: "username-example",
+		Password: "password-example",
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// get credentials from the store
+	cred, err := ds.Get(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(cred)
+
+	// delete the credentials from the store
+	err = ds.Delete(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+}
+
+func ExampleNewStoreWithFallbacks_configAsPrimaryStoreDockerAsFallback() {
+	primaryStore, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{
+		AllowPlaintextPut: true,
+	})
+	if err != nil {
+		panic(err)
+	}
+	fallbackStore, err := credentials.NewStoreFromDocker(credentials.StoreOptions{})
+	sf := credentials.NewStoreWithFallbacks(primaryStore, fallbackStore)
+
+	ctx := context.Background()
+	// save credentials into the store
+	err = sf.Put(ctx, "localhost:5000", credentials.Credential{
+		Username: "username-example",
+		Password: "password-example",
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// get credentials from the store
+	cred, err := sf.Get(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(cred)
+
+	// delete the credentials from the store
+	err = sf.Delete(ctx, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+}
+
+func ExampleLogin() {
+	store, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{
+		AllowPlaintextPut: true,
+	})
+	if err != nil {
+		panic(err)
+	}
+	registry, err := remote.NewRegistry("localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+	cred := credentials.Credential{
+		Username: "username-example",
+		Password: "password-example",
+	}
+	err = remote.Login(context.Background(), store, registry, cred)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Login succeeded")
+}
+
+func ExampleLogout() {
+	store, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{})
+	if err != nil {
+		panic(err)
+	}
+	err = remote.Logout(context.Background(), store, "localhost:5000")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Logout succeeded")
+}
+
+func ExampleCredential() {
+	store, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{})
+	if err != nil {
+		panic(err)
+	}
+
+	client := auth.DefaultClient
+	client.Credential = remote.Credential(store)
+
+	request, err := http.NewRequest(http.MethodGet, "localhost:5000", nil)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = client.Do(request)
+	if err != nil {
+		panic(err)
+	}
 }

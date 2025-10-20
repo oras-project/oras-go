@@ -21,9 +21,6 @@ import (
 	"os"
 	"reflect"
 	"testing"
-
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/config"
 )
 
 func TestMemoryStore_Create_fromInvalidConfig(t *testing.T) {
@@ -32,8 +29,8 @@ func TestMemoryStore_Create_fromInvalidConfig(t *testing.T) {
 		t.Fatalf("failed to read file: %v", err)
 	}
 	_, err = NewMemoryStoreFromDockerConfig(f)
-	if !errors.Is(err, config.ErrInvalidConfigFormat) {
-		t.Fatalf("Error: %s is expected", config.ErrInvalidConfigFormat)
+	if !errors.Is(err, ErrInvalidConfigFormat) {
+		t.Fatalf("Error: %s is expected", ErrInvalidConfigFormat)
 	}
 }
 
@@ -51,13 +48,13 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          Credential
 		wantErr       bool
 	}{
 		{
 			name:          "Username and password",
 			serverAddress: "registry1.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -65,21 +62,21 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Identity token",
 			serverAddress: "registry2.example.com",
-			want: auth.Credential{
+			want: Credential{
 				RefreshToken: "identity_token",
 			},
 		},
 		{
 			name:          "Registry token",
 			serverAddress: "registry3.example.com",
-			want: auth.Credential{
+			want: Credential{
 				AccessToken: "registry_token",
 			},
 		},
 		{
 			name:          "Username and password, identity token and registry token",
 			serverAddress: "registry4.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username:     "username",
 				Password:     "password",
 				RefreshToken: "identity_token",
@@ -89,12 +86,12 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Empty credential",
 			serverAddress: "registry5.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 		{
 			name:          "Username and password, no auth",
 			serverAddress: "registry6.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -102,7 +99,7 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Auth overriding Username and password",
 			serverAddress: "registry7.example.com",
-			want: auth.Credential{
+			want: Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -110,12 +107,12 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Not in auths",
 			serverAddress: "foo.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 		{
 			name:          "No record",
 			serverAddress: "registry999.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 	}
 	for _, tt := range tests {
@@ -143,13 +140,13 @@ func TestMemoryStore_Get_emptyConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          Credential
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       nil,
 		},
 	}
