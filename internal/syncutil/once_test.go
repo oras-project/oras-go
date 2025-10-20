@@ -28,10 +28,10 @@ import (
 )
 
 func TestOnce_Do(t *testing.T) {
-	var f []func() (interface{}, error)
-	for i := 0; i < 100; i++ {
-		f = append(f, func(i int) func() (interface{}, error) {
-			return func() (interface{}, error) {
+	var f []func() (any, error)
+	for i := range 100 {
+		f = append(f, func(i int) func() (any, error) {
+			return func() (any, error) {
 				return i + 1, errors.New(strconv.Itoa(i))
 			}
 		}(i))
@@ -39,7 +39,7 @@ func TestOnce_Do(t *testing.T) {
 
 	once := NewOnce()
 	first := make([]bool, len(f))
-	result := make([]interface{}, len(f))
+	result := make([]any, len(f))
 	err := make([]error, len(f))
 	var wg sync.WaitGroup
 	for i := 0; i < len(f); i++ {
@@ -89,14 +89,14 @@ func TestOnce_Do_Cancel_Context(t *testing.T) {
 	var wg sync.WaitGroup
 	var (
 		first  bool
-		result interface{}
+		result any
 		err    error
 	)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		ctx := context.Background()
-		first, result, err = once.Do(ctx, func() (interface{}, error) {
+		first, result, err = once.Do(ctx, func() (any, error) {
 			time.Sleep(200 * time.Millisecond)
 			return "foo", io.EOF
 		})
@@ -105,7 +105,7 @@ func TestOnce_Do_Cancel_Context(t *testing.T) {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	cancel()
-	first2, result2, err2 := once.Do(ctx, func() (interface{}, error) {
+	first2, result2, err2 := once.Do(ctx, func() (any, error) {
 		return "bar", nil
 	})
 	wg.Wait()
@@ -126,7 +126,7 @@ func TestOnce_Do_Cancel_Context(t *testing.T) {
 	if wantErr := context.Canceled; err2 != wantErr {
 		t.Fatalf("Once.Do() error = %v, wantErr %v", err2, wantErr)
 	}
-	if wantResult := interface{}(nil); !reflect.DeepEqual(result2, wantResult) {
+	if wantResult := any(nil); !reflect.DeepEqual(result2, wantResult) {
 		t.Fatalf("Once.Do() result = %v, want %v", result2, wantResult)
 	}
 }
@@ -135,7 +135,7 @@ func TestOnce_Do_Cancel_Function(t *testing.T) {
 	ctx := context.Background()
 	once := NewOnce()
 
-	first, result, err := once.Do(ctx, func() (interface{}, error) {
+	first, result, err := once.Do(ctx, func() (any, error) {
 		return "foo", context.Canceled
 	})
 	if wantFirst := false; first != wantFirst {
@@ -144,11 +144,11 @@ func TestOnce_Do_Cancel_Function(t *testing.T) {
 	if wantErr := context.Canceled; err != wantErr {
 		t.Fatalf("Once.Do() error = %v, wantErr %v", err, wantErr)
 	}
-	if wantResult := interface{}(nil); !reflect.DeepEqual(result, wantResult) {
+	if wantResult := any(nil); !reflect.DeepEqual(result, wantResult) {
 		t.Fatalf("Once.Do() result = %v, want %v", result, wantResult)
 	}
 
-	first, result, err = once.Do(ctx, func() (interface{}, error) {
+	first, result, err = once.Do(ctx, func() (any, error) {
 		return "bar", io.EOF
 	})
 	if wantFirst := true; first != wantFirst {
@@ -174,12 +174,12 @@ func TestOnce_Do_Cancel_Panic(t *testing.T) {
 				t.Fatalf("Once.Do() panic = %v, want %v", got, want)
 			}
 		}()
-		once.Do(ctx, func() (interface{}, error) {
+		once.Do(ctx, func() (any, error) {
 			panic("foo")
 		})
 	}()
 
-	first, result, err := once.Do(ctx, func() (interface{}, error) {
+	first, result, err := once.Do(ctx, func() (any, error) {
 		return "bar", io.EOF
 	})
 	if wantFirst := true; first != wantFirst {
@@ -197,7 +197,7 @@ func TestOnceOrRetry_Do(t *testing.T) {
 	var once OnceOrRetry
 	var count atomic.Int32
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -222,7 +222,7 @@ func TestOnceOrRetry_Do_Fail(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// test failure
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(wantErr error) {
 			defer wg.Done()
