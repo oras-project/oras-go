@@ -17,7 +17,6 @@ package credentials
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,34 +57,6 @@ type AuthConfig struct {
 
 	Username string `json:"username,omitempty"` // legacy field for compatibility
 	Password string `json:"password,omitempty"` // legacy field for compatibility
-}
-
-// NewAuthConfig creates an authConfig based on cred.
-func NewAuthConfig(cred Credential) AuthConfig {
-	return AuthConfig{
-		Auth:          encodeAuth(cred.Username, cred.Password),
-		IdentityToken: cred.RefreshToken,
-		RegistryToken: cred.AccessToken,
-	}
-}
-
-// Credential returns an Credential based on ac.
-func (ac AuthConfig) Credential() (Credential, error) {
-	cred := Credential{
-		Username:     ac.Username,
-		Password:     ac.Password,
-		RefreshToken: ac.IdentityToken,
-		AccessToken:  ac.RegistryToken,
-	}
-	if ac.Auth != "" {
-		var err error
-		// override username and password
-		cred.Username, cred.Password, err = decodeAuth(ac.Auth)
-		if err != nil {
-			return EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", ErrInvalidConfigFormat, err)
-		}
-	}
-	return cred, nil
 }
 
 // Config represents a docker configuration file.
@@ -161,8 +132,8 @@ func Load(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// GetAuthConfig returns an Credential for serverAddress.
-func (cfg *Config) GetCredential(serverAddress string) (Credential, error) {
+// GetAuthConfig returns an AuthConfig for serverAddress.
+func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
@@ -180,22 +151,21 @@ func (cfg *Config) GetCredential(serverAddress string) (Credential, error) {
 			}
 		}
 		if !matched {
-			return EmptyCredential, nil
+			return AuthConfig{}, nil
 		}
 	}
 	var authCfg AuthConfig
 	if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
-		return EmptyCredential, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
+		return AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
 	}
-	return authCfg.Credential()
+	return authCfg, nil
 }
 
-// PutAuthConfig puts cred for serverAddress.
-func (cfg *Config) PutCredential(serverAddress string, cred Credential) error {
+// PutAuthConfig puts authCfg for serverAddress.
+func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
-	authCfg := NewAuthConfig(cred)
 	authCfgBytes, err := json.Marshal(authCfg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal auth field: %w", err)
@@ -205,7 +175,7 @@ func (cfg *Config) PutCredential(serverAddress string, cred Credential) error {
 }
 
 // DeleteAuthConfig deletes the corresponding credential for serverAddress.
-func (cfg *Config) DeleteCredential(serverAddress string) error {
+func (cfg *Config) DeleteAuthConfig(serverAddress string) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
@@ -297,32 +267,6 @@ func (cfg *Config) saveFile() (returnErr error) {
 		return fmt.Errorf("failed to save config file: %w", err)
 	}
 	return nil
-}
-
-// encodeAuth base64-encodes username and password into base64(username:password).
-func encodeAuth(username, password string) string {
-	if username == "" && password == "" {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-}
-
-// decodeAuth decodes a base64 encoded string and returns username and password.
-func decodeAuth(authStr string) (username string, password string, err error) {
-	if authStr == "" {
-		return "", "", nil
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(authStr)
-	if err != nil {
-		return "", "", err
-	}
-	decodedStr := string(decoded)
-	username, password, ok := strings.Cut(decodedStr, ":")
-	if !ok {
-		return "", "", fmt.Errorf("auth '%s' does not conform the base64(username:password) format", decodedStr)
-	}
-	return username, password, nil
 }
 
 // ToHostname normalizes a server address to just its hostname, removing

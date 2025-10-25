@@ -89,7 +89,7 @@ func TestLoad_badFormat(t *testing.T) {
 	}
 }
 
-func TestConfig_GetCredential_validConfig(t *testing.T) {
+func TestConfig_GetAuthConfig_validConfig(t *testing.T) {
 	cfg, err := Load("./testdata/valid_auths_config.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
@@ -98,50 +98,48 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          Credential
+		want          AuthConfig
 		wantErr       bool
 	}{
 		{
 			name:          "Username and password",
 			serverAddress: "registry1.example.com",
-			want: Credential{
-				Username: "username",
-				Password: "password",
+			want: AuthConfig{
+				Auth: "dXNlcm5hbWU6cGFzc3dvcmQ=",
 			},
 		},
 		{
 			name:          "Identity token",
 			serverAddress: "registry2.example.com",
-			want: Credential{
-				RefreshToken: "identity_token",
+			want: AuthConfig{
+				IdentityToken: "identity_token",
 			},
 		},
 		{
 			name:          "Registry token",
 			serverAddress: "registry3.example.com",
-			want: Credential{
-				AccessToken: "registry_token",
+			want: AuthConfig{
+				RegistryToken: "registry_token",
 			},
 		},
 		{
 			name:          "Username and password, identity token and registry token",
 			serverAddress: "registry4.example.com",
-			want: Credential{
-				Username:     "username",
-				Password:     "password",
-				RefreshToken: "identity_token",
-				AccessToken:  "registry_token",
+			want: AuthConfig{
+				Auth:          "dXNlcm5hbWU6cGFzc3dvcmQ=",
+				IdentityToken: "identity_token",
+				RegistryToken: "registry_token",
 			},
 		},
 		{
 			name:          "Empty credential",
 			serverAddress: "registry5.example.com",
-			want:          EmptyCredential,
+			want:          AuthConfig{},
 		},
 		{
 			name:          "Username and password, no auth",
 			serverAddress: "registry6.example.com",
-			want: Credential{
+			want: AuthConfig{
 				Username: "username",
 				Password: "password",
 			},
@@ -149,37 +147,38 @@ func TestConfig_GetCredential_validConfig(t *testing.T) {
 		{
 			name:          "Auth overriding Username and password",
 			serverAddress: "registry7.example.com",
-			want: Credential{
-				Username: "username",
-				Password: "password",
+			want: AuthConfig{
+				Auth:     "dXNlcm5hbWU6cGFzc3dvcmQ=",
+				Username: "foo",
+				Password: "bar",
 			},
 		},
 		{
 			name:          "Not in auths",
 			serverAddress: "foo.example.com",
-			want:          EmptyCredential,
+			want:          AuthConfig{},
 		},
 		{
 			name:          "No record",
 			serverAddress: "registry999.example.com",
-			want:          EmptyCredential,
+			want:          AuthConfig{},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := cfg.GetCredential(tt.serverAddress)
+			got, err := cfg.GetAuthConfig(tt.serverAddress)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Config.GetCredential() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Config.GetAuthConfig() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Config.GetCredential() = %v, want %v", got, tt.want)
+				t.Errorf("Config.GetAuthConfig() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestConfig_GetCredential_legacyConfig(t *testing.T) {
+func TestConfig_GetAuthConfig_legacyConfig(t *testing.T) {
 	cfg, err := Load("./testdata/legacy_auths_config.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
@@ -188,86 +187,79 @@ func TestConfig_GetCredential_legacyConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          Credential
+		want          AuthConfig
 		wantErr       bool
 	}{
 		{
 			name:          "Regular address matched",
 			serverAddress: "registry1.example.com",
-			want: Credential{
-				Username: "username1",
-				Password: "password1",
+			want: AuthConfig{
+				Auth: "dXNlcm5hbWUxOnBhc3N3b3JkMQ==",
 			},
 		},
 		{
 			name:          "Another entry for the same address matched",
 			serverAddress: "https://registry1.example.com/",
-			want: Credential{
-				Username: "foo",
-				Password: "bar",
+			want: AuthConfig{
+				Auth: "Zm9vOmJhcg==",
 			},
 		},
 		{
 			name:          "Address with different scheme unmached",
 			serverAddress: "http://registry1.example.com/",
-			want:          EmptyCredential,
+			want:          AuthConfig{},
 		},
 		{
 			name:          "Address with http prefix matched",
 			serverAddress: "registry2.example.com",
-			want: Credential{
-				Username: "username2",
-				Password: "password2",
+			want: AuthConfig{
+				Auth: "dXNlcm5hbWUyOnBhc3N3b3JkMg==",
 			},
 		},
 		{
 			name:          "Address with https prefix matched",
 			serverAddress: "registry3.example.com",
-			want: Credential{
-				Username: "username3",
-				Password: "password3",
+			want: AuthConfig{
+				Auth: "dXNlcm5hbWUzOnBhc3N3b3JkMw==",
 			},
 		},
 		{
 			name:          "Address with http prefix and / suffix matched",
 			serverAddress: "registry4.example.com",
-			want: Credential{
-				Username: "username4",
-				Password: "password4",
+			want: AuthConfig{
+				Auth: "dXNlcm5hbWU0OnBhc3N3b3JkNA==",
 			},
 		},
 		{
 			name:          "Address with https prefix and / suffix matched",
 			serverAddress: "registry5.example.com",
-			want: Credential{
-				Username: "username5",
-				Password: "password5",
+			want: AuthConfig{
+				Auth: "dXNlcm5hbWU1OnBhc3N3b3JkNQ==",
 			},
 		},
 		{
 			name:          "Address with https prefix and path suffix matched",
 			serverAddress: "registry6.example.com",
-			want: Credential{
-				Username: "username6",
-				Password: "password6",
+			want: AuthConfig{
+				Auth: "dXNlcm5hbWU2OnBhc3N3b3JkNg==",
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := cfg.GetCredential(tt.serverAddress)
+			got, err := cfg.GetAuthConfig(tt.serverAddress)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Config.GetCredential() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Config.GetAuthConfig() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Config.GetCredential() = %v, want %v", got, tt.want)
+				t.Errorf("Config.GetAuthConfig() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestConfig_GetCredential_invalidConfig(t *testing.T) {
+func TestConfig_GetAuthConfig_invalidConfig(t *testing.T) {
 	cfg, err := Load("./testdata/invalid_auths_entry_config.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
@@ -276,43 +268,45 @@ func TestConfig_GetCredential_invalidConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          Credential
+		want          AuthConfig
 		wantErr       bool
 	}{
 		{
 			name:          "Invalid auth encode",
 			serverAddress: "registry1.example.com",
-			want:          EmptyCredential,
-			wantErr:       true,
+			want: AuthConfig{
+				Auth: "username:password",
+			},
+			wantErr: false,
 		},
 		{
 			name:          "Invalid auths format",
 			serverAddress: "registry2.example.com",
-			want:          EmptyCredential,
+			want:          AuthConfig{},
 			wantErr:       true,
 		},
 		{
 			name:          "Invalid type",
 			serverAddress: "registry3.example.com",
-			want:          EmptyCredential,
+			want:          AuthConfig{},
 			wantErr:       true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := cfg.GetCredential(tt.serverAddress)
+			got, err := cfg.GetAuthConfig(tt.serverAddress)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("Config.GetCredential() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Config.GetAuthConfig() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Config.GetCredential() = %v, want %v", got, tt.want)
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Config.GetAuthConfig() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestConfig_GetCredential_empty(t *testing.T) {
+func TestConfig_GetAuthConfig_empty(t *testing.T) {
 	cfg, err := Load("./testdata/empty.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
@@ -321,31 +315,31 @@ func TestConfig_GetCredential_empty(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          Credential
+		want          AuthConfig
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          EmptyCredential,
+			want:          AuthConfig{},
 			wantErr:       nil,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := cfg.GetCredential(tt.serverAddress)
+			got, err := cfg.GetAuthConfig(tt.serverAddress)
 			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("Config.GetCredential() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Config.GetAuthConfig() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Config.GetCredential() = %v, want %v", got, tt.want)
+				t.Errorf("Config.GetAuthConfig() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestConfig_GetCredential_whiteSpace(t *testing.T) {
+func TestConfig_GetAuthConfig_whiteSpace(t *testing.T) {
 	cfg, err := Load("./testdata/whitespace.json")
 	if err != nil {
 		t.Fatal("Load() error =", err)
@@ -354,31 +348,31 @@ func TestConfig_GetCredential_whiteSpace(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          Credential
+		want          AuthConfig
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          EmptyCredential,
+			want:          AuthConfig{},
 			wantErr:       nil,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := cfg.GetCredential(tt.serverAddress)
+			got, err := cfg.GetAuthConfig(tt.serverAddress)
 			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("Config.GetCredential() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Config.GetAuthConfig() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Config.GetCredential() = %v, want %v", got, tt.want)
+				t.Errorf("Config.GetAuthConfig() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestConfig_GetCredential_notExistConfig(t *testing.T) {
+func TestConfig_GetAuthConfig_notExistConfig(t *testing.T) {
 	cfg, err := Load("whatever")
 	if err != nil {
 		t.Fatal("Load() error =", err)
@@ -387,31 +381,31 @@ func TestConfig_GetCredential_notExistConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          Credential
+		want          AuthConfig
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          EmptyCredential,
+			want:          AuthConfig{},
 			wantErr:       nil,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := cfg.GetCredential(tt.serverAddress)
+			got, err := cfg.GetAuthConfig(tt.serverAddress)
 			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("Config.GetCredential() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Config.GetAuthConfig() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Config.GetCredential() = %v, want %v", got, tt.want)
+				t.Errorf("Config.GetAuthConfig() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestConfig_PutCredential_notExistConfig(t *testing.T) {
+func TestConfig_PutAuthConfig_notExistConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 
@@ -421,16 +415,15 @@ func TestConfig_PutCredential_notExistConfig(t *testing.T) {
 	}
 
 	server := "test.example.com"
-	cred := Credential{
-		Username:     "username",
-		Password:     "password",
-		RefreshToken: "refresh_token",
-		AccessToken:  "access_token",
+	authCfg := AuthConfig{
+		Auth:          "dXNlcm5hbWU6cGFzc3dvcmQ=",
+		IdentityToken: "refresh_token",
+		RegistryToken: "access_token",
 	}
 
 	// test put
-	if err := cfg.PutCredential(server, cred); err != nil {
-		t.Fatalf("Config.PutCredential() error = %v", err)
+	if err := cfg.PutAuthConfig(server, authCfg); err != nil {
+		t.Fatalf("Config.PutAuthConfig() error = %v", err)
 	}
 
 	// verify config file
@@ -458,25 +451,24 @@ func TestConfig_PutCredential_notExistConfig(t *testing.T) {
 	}
 
 	// verify get
-	got, err := cfg.GetCredential(server)
+	got, err := cfg.GetAuthConfig(server)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
 	}
-	if want := cred; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential() = %v, want %v", got, want)
+	if !reflect.DeepEqual(got, authCfg) {
+		t.Errorf("Config.GetAuthConfig() = %v, want %v", got, authCfg)
 	}
 }
 
-func TestConfig_PutCredential_addNew(t *testing.T) {
+func TestConfig_PutAuthConfig_addNew(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	// prepare test content
 	server1 := "registry1.example.com"
-	cred1 := Credential{
-		Username:     "username",
-		Password:     "password",
-		RefreshToken: "refresh_token",
-		AccessToken:  "access_token",
+	authCfg1 := AuthConfig{
+		Auth:          "dXNlcm5hbWU6cGFzc3dvcmQ=",
+		IdentityToken: "refresh_token",
+		RegistryToken: "access_token",
 	}
 
 	testCfg := configtest.Config{
@@ -484,8 +476,8 @@ func TestConfig_PutCredential_addNew(t *testing.T) {
 			server1: {
 				SomeAuthField: "whatever",
 				Auth:          "dXNlcm5hbWU6cGFzc3dvcmQ=",
-				IdentityToken: cred1.RefreshToken,
-				RegistryToken: cred1.AccessToken,
+				IdentityToken: "refresh_token",
+				RegistryToken: "access_token",
 			},
 		},
 		SomeConfigField: 123,
@@ -504,14 +496,13 @@ func TestConfig_PutCredential_addNew(t *testing.T) {
 		t.Fatal("Load() error =", err)
 	}
 	server2 := "registry2.example.com"
-	cred2 := Credential{
-		Username:     "username_2",
-		Password:     "password_2",
-		RefreshToken: "refresh_token_2",
-		AccessToken:  "access_token_2",
+	authCfg2 := AuthConfig{
+		Auth:          "dXNlcm5hbWVfMjpwYXNzd29yZF8y",
+		IdentityToken: "refresh_token_2",
+		RegistryToken: "access_token_2",
 	}
-	if err := cfg.PutCredential(server2, cred2); err != nil {
-		t.Fatalf("Config.PutCredential() error = %v", err)
+	if err := cfg.PutAuthConfig(server2, authCfg2); err != nil {
+		t.Fatalf("Config.PutAuthConfig() error = %v", err)
 	}
 
 	// verify config file
@@ -529,8 +520,8 @@ func TestConfig_PutCredential_addNew(t *testing.T) {
 			server1: {
 				SomeAuthField: "whatever",
 				Auth:          "dXNlcm5hbWU6cGFzc3dvcmQ=",
-				IdentityToken: cred1.RefreshToken,
-				RegistryToken: cred1.AccessToken,
+				IdentityToken: "refresh_token",
+				RegistryToken: "access_token",
 			},
 			server2: {
 				Auth:          "dXNlcm5hbWVfMjpwYXNzd29yZF8y",
@@ -545,24 +536,24 @@ func TestConfig_PutCredential_addNew(t *testing.T) {
 	}
 
 	// verify get
-	got, err := cfg.GetCredential(server1)
+	got, err := cfg.GetAuthConfig(server1)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
 	}
-	if want := cred1; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential(%s) = %v, want %v", server1, got, want)
+	if !reflect.DeepEqual(got, authCfg1) {
+		t.Errorf("Config.GetAuthConfig(%s) = %v, want %v", server1, got, authCfg1)
 	}
 
-	got, err = cfg.GetCredential(server2)
+	got, err = cfg.GetAuthConfig(server2)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
 	}
-	if want := cred2; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential(%s) = %v, want %v", server2, got, want)
+	if !reflect.DeepEqual(got, authCfg2) {
+		t.Errorf("Config.GetAuthConfig(%s) = %v, want %v", server2, got, authCfg2)
 	}
 }
 
-func TestConfig_PutCredential_updateOld(t *testing.T) {
+func TestConfig_PutAuthConfig_updateOld(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 
@@ -597,8 +588,9 @@ func TestConfig_PutCredential_updateOld(t *testing.T) {
 		Password:    "password",
 		AccessToken: "access_token",
 	}
-	if err := cfg.PutCredential(server, cred); err != nil {
-		t.Fatalf("Config.PutCredential() error = %v", err)
+	authCfg := NewAuthConfig(cred)
+	if err := cfg.PutAuthConfig(server, authCfg); err != nil {
+		t.Fatalf("Config.PutAuthConfig() error = %v", err)
 	}
 
 	// verify config file
@@ -625,16 +617,20 @@ func TestConfig_PutCredential_updateOld(t *testing.T) {
 	}
 
 	// verify get
-	got, err := cfg.GetCredential(server)
+	authCfg, err = cfg.GetAuthConfig(server)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
+	}
+	got, err := NewCredential(authCfg)
+	if err != nil {
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if want := cred; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential(%s) = %v, want %v", server, got, want)
+		t.Errorf("Config.GetAuthConfig(%s).Credential() = %v, want %v", server, got, want)
 	}
 }
 
-func TestConfig_DeleteCredential(t *testing.T) {
+func TestConfig_DeleteAuthConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 
@@ -682,24 +678,32 @@ func TestConfig_DeleteCredential(t *testing.T) {
 		t.Fatal("Load() error =", err)
 	}
 	// test get
-	got, err := cfg.GetCredential(server1)
+	authCfg, err := cfg.GetAuthConfig(server1)
 	if err != nil {
-		t.Fatalf("FileStore.GetCredential() error = %v", err)
+		t.Fatalf("FileStore.GetAuthConfig() error = %v", err)
+	}
+	got, err := NewCredential(authCfg)
+	if err != nil {
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if want := cred1; !reflect.DeepEqual(got, want) {
-		t.Errorf("FileStore.GetCredential(%s) = %v, want %v", server1, got, want)
+		t.Errorf("FileStore.GetAuthConfig(%s).Credential() = %v, want %v", server1, got, want)
 	}
-	got, err = cfg.GetCredential(server2)
+	authCfg, err = cfg.GetAuthConfig(server2)
 	if err != nil {
-		t.Fatalf("FileStore.GetCredential() error = %v", err)
+		t.Fatalf("FileStore.GetAuthConfig() error = %v", err)
+	}
+	got, err = NewCredential(authCfg)
+	if err != nil {
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if want := cred2; !reflect.DeepEqual(got, want) {
-		t.Errorf("FileStore.Get(%s) = %v, want %v", server2, got, want)
+		t.Errorf("FileStore.GetAuthConfig(%s).Credential() = %v, want %v", server2, got, want)
 	}
 
 	// test delete
-	if err := cfg.DeleteCredential(server1); err != nil {
-		t.Fatalf("Config.DeleteCredential() error = %v", err)
+	if err := cfg.DeleteAuthConfig(server1); err != nil {
+		t.Fatalf("Config.DeleteAuthConfig() error = %v", err)
 	}
 
 	// verify config file
@@ -723,23 +727,31 @@ func TestConfig_DeleteCredential(t *testing.T) {
 	}
 
 	// test get again
-	got, err = cfg.GetCredential(server1)
+	authCfg, err = cfg.GetAuthConfig(server1)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
+	}
+	got, err = NewCredential(authCfg)
+	if err != nil {
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if want := EmptyCredential; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential(%s) = %v, want %v", server1, got, want)
+		t.Errorf("Config.GetAuthConfig(%s).Credential() = %v, want %v", server1, got, want)
 	}
-	got, err = cfg.GetCredential(server2)
+	authCfg, err = cfg.GetAuthConfig(server2)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
+	}
+	got, err = NewCredential(authCfg)
+	if err != nil {
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if want := cred2; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential(%s) = %v, want %v", server2, got, want)
+		t.Errorf("Config.GetAuthConfig(%s).Credential() = %v, want %v", server2, got, want)
 	}
 }
 
-func TestConfig_DeleteCredential_lastConfig(t *testing.T) {
+func TestConfig_DeleteAuthConfig_lastConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 
@@ -775,17 +787,21 @@ func TestConfig_DeleteCredential_lastConfig(t *testing.T) {
 		t.Fatal("Load() error =", err)
 	}
 	// test get
-	got, err := cfg.GetCredential(server)
+	authCfg, err := cfg.GetAuthConfig(server)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
+	}
+	got, err := NewCredential(authCfg)
+	if err != nil {
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if want := cred; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential(%s) = %v, want %v", server, got, want)
+		t.Errorf("Config.GetAuthConfig(%s).Credential() = %v, want %v", server, got, want)
 	}
 
 	// test delete
-	if err := cfg.DeleteCredential(server); err != nil {
-		t.Fatalf("Config.DeleteCredential() error = %v", err)
+	if err := cfg.DeleteAuthConfig(server); err != nil {
+		t.Fatalf("Config.DeleteAuthConfig() error = %v", err)
 	}
 
 	// verify config file
@@ -807,16 +823,20 @@ func TestConfig_DeleteCredential_lastConfig(t *testing.T) {
 	}
 
 	// test get again
-	got, err = cfg.GetCredential(server)
+	authCfg, err = cfg.GetAuthConfig(server)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
+	}
+	got, err = NewCredential(authCfg)
+	if err != nil {
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if want := EmptyCredential; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential(%s) = %v, want %v", server, got, want)
+		t.Errorf("Config.GetAuthConfig(%s).Credential() = %v, want %v", server, got, want)
 	}
 }
 
-func TestConfig_DeleteCredential_notExistRecord(t *testing.T) {
+func TestConfig_DeleteAuthConfig_notExistRecord(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 
@@ -851,17 +871,21 @@ func TestConfig_DeleteCredential_notExistRecord(t *testing.T) {
 		t.Fatal("Load() error =", err)
 	}
 	// test get
-	got, err := cfg.GetCredential(server)
+	authCfg, err := cfg.GetAuthConfig(server)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
+	}
+	got, err := NewCredential(authCfg)
+	if err != nil {
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if want := cred; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential(%s) = %v, want %v", server, got, want)
+		t.Errorf("Config.GetAuthConfig(%s).Credential() = %v, want %v", server, got, want)
 	}
 
 	// test delete
-	if err := cfg.DeleteCredential("test.example.com"); err != nil {
-		t.Fatalf("Config.DeleteCredential() error = %v", err)
+	if err := cfg.DeleteAuthConfig("test.example.com"); err != nil {
+		t.Fatalf("Config.DeleteAuthConfig() error = %v", err)
 	}
 
 	// verify config file
@@ -885,16 +909,20 @@ func TestConfig_DeleteCredential_notExistRecord(t *testing.T) {
 	}
 
 	// test get again
-	got, err = cfg.GetCredential(server)
+	authCfg, err = cfg.GetAuthConfig(server)
 	if err != nil {
-		t.Fatalf("Config.GetCredential() error = %v", err)
+		t.Fatalf("Config.GetAuthConfig() error = %v", err)
+	}
+	got, err = NewCredential(authCfg)
+	if err != nil {
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if want := cred; !reflect.DeepEqual(got, want) {
-		t.Errorf("Config.GetCredential(%s) = %v, want %v", server, got, want)
+		t.Errorf("Config.GetAuthConfig(%s).Credential() = %v, want %v", server, got, want)
 	}
 }
 
-func TestConfig_DeleteCredential_notExistConfig(t *testing.T) {
+func TestConfig_DeleteAuthConfig_notExistConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 
@@ -905,8 +933,8 @@ func TestConfig_DeleteCredential_notExistConfig(t *testing.T) {
 
 	server := "test.example.com"
 	// test delete
-	if err := cfg.DeleteCredential(server); err != nil {
-		t.Fatalf("Config.DeleteCredential() error = %v", err)
+	if err := cfg.DeleteAuthConfig(server); err != nil {
+		t.Fatalf("Config.DeleteAuthConfig() error = %v", err)
 	}
 
 	// verify config file is not created

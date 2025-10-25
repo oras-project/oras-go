@@ -17,6 +17,7 @@ package credentials
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -61,7 +62,11 @@ func newFileStore(cfg *Config) *FileStore {
 
 // Get retrieves credentials from the store for the given server address.
 func (fs *FileStore) Get(_ context.Context, serverAddress string) (Credential, error) {
-	return fs.config.GetCredential(serverAddress)
+	authCfg, err := fs.config.GetAuthConfig(serverAddress)
+	if err != nil {
+		return EmptyCredential, err
+	}
+	return NewCredential(authCfg)
 }
 
 // Put saves credentials into the store for the given server address.
@@ -74,12 +79,13 @@ func (fs *FileStore) Put(_ context.Context, serverAddress string, cred Credentia
 		return err
 	}
 
-	return fs.config.PutCredential(serverAddress, cred)
+	authCfg := NewAuthConfig(cred)
+	return fs.config.PutAuthConfig(serverAddress, authCfg)
 }
 
 // Delete removes credentials from the store for the given server address.
 func (fs *FileStore) Delete(_ context.Context, serverAddress string) error {
-	return fs.config.DeleteCredential(serverAddress)
+	return fs.config.DeleteAuthConfig(serverAddress)
 }
 
 // validateCredentialFormat validates the format of cred.
@@ -91,4 +97,58 @@ func validateCredentialFormat(cred Credential) error {
 		return fmt.Errorf("%w: colons(:) are not allowed in username", ErrBadCredentialFormat)
 	}
 	return nil
+}
+
+// NewAuthConfig creates an authConfig based on cred.
+func NewAuthConfig(cred Credential) AuthConfig {
+	return AuthConfig{
+		Auth:          encodeAuth(cred.Username, cred.Password),
+		IdentityToken: cred.RefreshToken,
+		RegistryToken: cred.AccessToken,
+	}
+}
+
+// encodeAuth base64-encodes username and password into base64(username:password).
+func encodeAuth(username, password string) string {
+	if username == "" && password == "" {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+}
+
+// NewCredential creates a Credential based on authCfg.
+func NewCredential(authCfg AuthConfig) (Credential, error) {
+	cred := Credential{
+		Username:     authCfg.Username,
+		Password:     authCfg.Password,
+		RefreshToken: authCfg.IdentityToken,
+		AccessToken:  authCfg.RegistryToken,
+	}
+	if authCfg.Auth != "" {
+		var err error
+		// override username and password
+		cred.Username, cred.Password, err = decodeAuth(authCfg.Auth)
+		if err != nil {
+			return EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", ErrInvalidConfigFormat, err)
+		}
+	}
+	return cred, nil
+}
+
+// decodeAuth decodes a base64 encoded string and returns username and password.
+func decodeAuth(authStr string) (username string, password string, err error) {
+	if authStr == "" {
+		return "", "", nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(authStr)
+	if err != nil {
+		return "", "", err
+	}
+	decodedStr := string(decoded)
+	username, password, ok := strings.Cut(decodedStr, ":")
+	if !ok {
+		return "", "", fmt.Errorf("auth '%s' does not conform the base64(username:password) format", decodedStr)
+	}
+	return username, password, nil
 }
