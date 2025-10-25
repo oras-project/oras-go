@@ -82,7 +82,7 @@ func (m *storageMock) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.Re
 }
 
 func TestStoreInterface(t *testing.T) {
-	var store interface{} = &Store{}
+	var store any = &Store{}
 	if _, ok := store.(oras.Target); !ok {
 		t.Error("&Store{} does not conform oras.Target")
 	}
@@ -2227,7 +2227,7 @@ func TestStore_File_Push_Concurrent(t *testing.T) {
 
 	concurrency := 64
 	eg, egCtx := errgroup.WithContext(ctx)
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		eg.Go(func(i int) func() error {
 			return func() error {
 				if err := s.Push(egCtx, desc, bytes.NewReader(content)); err != nil {
@@ -2296,7 +2296,7 @@ func TestStore_File_Fetch_Concurrent(t *testing.T) {
 	concurrency := 64
 	eg, egCtx := errgroup.WithContext(ctx)
 
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		eg.Go(func(i int) func() error {
 			return func() error {
 				rc, err := s.Fetch(egCtx, desc)
