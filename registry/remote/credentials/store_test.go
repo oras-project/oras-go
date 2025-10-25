@@ -24,7 +24,7 @@ import (
 	"reflect"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/credentials/configtest"
+	"oras.land/oras-go/v2/registry/remote/internal/configuration/configtest"
 )
 
 // testStore implements the Store interface, used for testing purpose.
@@ -585,37 +585,37 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 	}{
 		{
 			name:          "Get cred helper: registry_helper1",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com",
 			want:          "registry1-helper",
 		},
 		{
 			name:          "Get cred helper: registry_helper2",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry2.example.com",
 			want:          "registry2-helper",
 		},
 		{
 			name:          "Empty cred helper configured",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry3.example.com",
 			want:          "",
 		},
 		{
 			name:          "No cred helper and creds store configured",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "whatever.example.com",
 			want:          "",
 		},
 		{
 			name:          "Choose cred helper over creds store",
-			configPath:    "testdata/credsStore_config.json",
+			configPath:    "../internal/configuration/testdata/credsStore_config.json",
 			serverAddress: "test.example.com",
 			want:          "test-helper",
 		},
 		{
 			name:          "No cred helper configured, choose cred store",
-			configPath:    "testdata/credsStore_config.json",
+			configPath:    "../internal/configuration/testdata/credsStore_config.json",
 			serverAddress: "whatever.example.com",
 			want:          "teststore",
 		},
@@ -634,7 +634,7 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 }
 
 func Test_DynamicStore_ConfigPath(t *testing.T) {
-	path := "../../testdata/credsStore_config.json"
+	path := "../internal/configuration/testdata/credsStore_config.json"
 	var err error
 	store, err := NewStore(path, StoreOptions{})
 	if err != nil {
@@ -654,22 +654,22 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 	}{
 		{
 			name:          "Cred helper configured for registry1.example.com",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com",
 		},
 		{
 			name:          "Cred helper configured for registry2.example.com",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry2.example.com",
 		},
 		{
 			name:          "Cred helper configured for test.example.com",
-			configPath:    "testdata/credsStore_config.json",
+			configPath:    "../internal/configuration/testdata/credsStore_config.json",
 			serverAddress: "test.example.com",
 		},
 		{
 			name:          "No cred helper configured, use creds store",
-			configPath:    "testdata/credsStore_config.json",
+			configPath:    "../internal/configuration/testdata/credsStore_config.json",
 			serverAddress: "whaterver.example.com",
 		},
 	}
@@ -695,12 +695,12 @@ func Test_DynamicStore_getStore_fileStore(t *testing.T) {
 	}{
 		{
 			name:          "Empty cred helper configured for registry3.example.com",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry3.example.com",
 		},
 		{
 			name:          "No cred helper configured",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "whatever.example.com",
 		},
 	}
