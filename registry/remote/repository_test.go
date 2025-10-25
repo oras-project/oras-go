@@ -3645,14 +3645,14 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 }
 
 func TestManifestStoreInterface(t *testing.T) {
-	var ms interface{} = &manifestStore{}
+	var ms any = &manifestStore{}
 	if _, ok := ms.(interfaces.ReferenceParser); !ok {
 		t.Error("&manifestStore{} does not conform interfaces.ReferenceParser")
 	}
 }
 
 func TestRepositoryMounterInterface(t *testing.T) {
-	var r interface{} = &Repository{}
+	var r any = &Repository{}
 	if _, ok := r.(registry.Mounter); !ok {
 		t.Error("&Repository{} does not conform to registry.Mounter")
 	}
@@ -7804,7 +7804,7 @@ func TestRepository_pingReferrers_Concurrent(t *testing.T) {
 	if state := repo.loadReferrersState(); state != referrersStateUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		eg.Go(func() func() error {
 			return func() error {
 				got, err := repo.pingReferrers(egCtx)

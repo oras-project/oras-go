@@ -40,7 +40,7 @@ import (
 )
 
 func TestStoreInterface(t *testing.T) {
-	var store interface{} = &Store{}
+	var store any = &Store{}
 	if _, ok := store.(oras.Target); !ok {
 		t.Error("&Store{} does not conform oras.Target")
 	}

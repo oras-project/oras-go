@@ -34,7 +34,7 @@ import (
 )
 
 func TestRegistryInterface(t *testing.T) {
-	var reg interface{} = &Registry{}
+	var reg any = &Registry{}
 	if _, ok := reg.(registry.Registry); !ok {
 		t.Error("&Registry{} does not conform registry.Registry")
 	}

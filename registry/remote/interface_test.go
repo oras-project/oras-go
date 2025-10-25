@@ -25,7 +25,7 @@ import (
 )
 
 func TestRepositoryInterface(t *testing.T) {
-	var repo interface{} = &remote.Repository{}
+	var repo any = &remote.Repository{}
 	if _, ok := repo.(registry.Repository); !ok {
 		t.Error("&Repository{} does not conform registry.Repository")
 	}

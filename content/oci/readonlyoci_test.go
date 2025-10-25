@@ -42,7 +42,7 @@ import (
 )
 
 func TestReadonlyStoreInterface(t *testing.T) {
-	var store interface{} = &ReadOnlyStore{}
+	var store any = &ReadOnlyStore{}
 	if _, ok := store.(oras.ReadOnlyGraphTarget); !ok {
 		t.Error("&ReadOnlyStore{} does not conform oras.ReadOnlyGraphTarget")
 	}
