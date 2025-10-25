@@ -17,12 +17,12 @@ package credentials
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/config"
+	"oras.land/oras-go/v2/registry/remote/internal/configuration"
 )
 
 // FileStore implements a credentials store using the docker configuration file
@@ -34,7 +34,7 @@ type FileStore struct {
 	// If DisablePut is set to true, Put() will return ErrPlaintextPutDisabled.
 	DisablePut bool
 
-	config *config.Config
+	config *configuration.Config
 }
 
 var (
@@ -50,7 +50,7 @@ var (
 //
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewFileStore(configPath string) (*FileStore, error) {
-	cfg, err := config.Load(configPath)
+	cfg, err := configuration.Load(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -58,18 +58,22 @@ func NewFileStore(configPath string) (*FileStore, error) {
 }
 
 // newFileStore creates a file credentials store based on the given config instance.
-func newFileStore(cfg *config.Config) *FileStore {
+func newFileStore(cfg *configuration.Config) *FileStore {
 	return &FileStore{config: cfg}
 }
 
 // Get retrieves credentials from the store for the given server address.
-func (fs *FileStore) Get(_ context.Context, serverAddress string) (auth.Credential, error) {
-	return fs.config.GetCredential(serverAddress)
+func (fs *FileStore) Get(_ context.Context, serverAddress string) (Credential, error) {
+	authCfg, err := fs.config.GetAuthConfig(serverAddress)
+	if err != nil {
+		return EmptyCredential, err
+	}
+	return NewCredential(authCfg)
 }
 
 // Put saves credentials into the store for the given server address.
 // Returns ErrPlaintextPutDisabled if fs.DisablePut is set to true.
-func (fs *FileStore) Put(_ context.Context, serverAddress string, cred auth.Credential) error {
+func (fs *FileStore) Put(_ context.Context, serverAddress string, cred Credential) error {
 	if fs.DisablePut {
 		return ErrPlaintextPutDisabled
 	}
@@ -77,16 +81,17 @@ func (fs *FileStore) Put(_ context.Context, serverAddress string, cred auth.Cred
 		return err
 	}
 
-	return fs.config.PutCredential(serverAddress, cred)
+	authCfg := NewAuthConfig(cred)
+	return fs.config.PutAuthConfig(serverAddress, authCfg)
 }
 
 // Delete removes credentials from the store for the given server address.
 func (fs *FileStore) Delete(_ context.Context, serverAddress string) error {
-	return fs.config.DeleteCredential(serverAddress)
+	return fs.config.DeleteAuthConfig(serverAddress)
 }
 
 // validateCredentialFormat validates the format of cred.
-func validateCredentialFormat(cred auth.Credential) error {
+func validateCredentialFormat(cred Credential) error {
 	if strings.ContainsRune(cred.Username, ':') {
 		// Username and password will be encoded in the base64(username:password)
 		// format in the file. The decoded result will be wrong if username
@@ -94,4 +99,58 @@ func validateCredentialFormat(cred auth.Credential) error {
 		return fmt.Errorf("%w: colons(:) are not allowed in username", ErrBadCredentialFormat)
 	}
 	return nil
+}
+
+// NewAuthConfig creates an authConfig based on cred.
+func NewAuthConfig(cred Credential) configuration.AuthConfig {
+	return configuration.AuthConfig{
+		Auth:          encodeAuth(cred.Username, cred.Password),
+		IdentityToken: cred.RefreshToken,
+		RegistryToken: cred.AccessToken,
+	}
+}
+
+// encodeAuth base64-encodes username and password into base64(username:password).
+func encodeAuth(username, password string) string {
+	if username == "" && password == "" {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+}
+
+// NewCredential creates a Credential based on authCfg.
+func NewCredential(authCfg configuration.AuthConfig) (Credential, error) {
+	cred := Credential{
+		Username:     authCfg.Username,
+		Password:     authCfg.Password,
+		RefreshToken: authCfg.IdentityToken,
+		AccessToken:  authCfg.RegistryToken,
+	}
+	if authCfg.Auth != "" {
+		var err error
+		// override username and password
+		cred.Username, cred.Password, err = decodeAuth(authCfg.Auth)
+		if err != nil {
+			return EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", configuration.ErrInvalidConfigFormat, err)
+		}
+	}
+	return cred, nil
+}
+
+// decodeAuth decodes a base64 encoded string and returns username and password.
+func decodeAuth(authStr string) (username string, password string, err error) {
+	if authStr == "" {
+		return "", "", nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(authStr)
+	if err != nil {
+		return "", "", err
+	}
+	decodedStr := string(decoded)
+	username, password, ok := strings.Cut(decodedStr, ":")
+	if !ok {
+		return "", "", fmt.Errorf("auth '%s' does not conform the base64(username:password) format", decodedStr)
+	}
+	return username, password, nil
 }
