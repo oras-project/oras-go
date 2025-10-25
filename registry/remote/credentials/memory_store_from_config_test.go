@@ -21,6 +21,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"oras.land/oras-go/v2/registry/remote/internal/configuration"
 )
 
 func TestMemoryStore_Create_fromInvalidConfig(t *testing.T) {
@@ -29,8 +31,8 @@ func TestMemoryStore_Create_fromInvalidConfig(t *testing.T) {
 		t.Fatalf("failed to read file: %v", err)
 	}
 	_, err = NewMemoryStoreFromDockerConfig(f)
-	if !errors.Is(err, ErrInvalidConfigFormat) {
-		t.Fatalf("Error: %s is expected", ErrInvalidConfigFormat)
+	if !errors.Is(err, configuration.ErrInvalidConfigFormat) {
+		t.Fatalf("Error: %s is expected", configuration.ErrInvalidConfigFormat)
 	}
 }
 

@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+
+	"oras.land/oras-go/v2/registry/remote/internal/configuration"
 )
 
 // memoryStore is a store that keeps credentials in memory.
@@ -37,16 +39,16 @@ func NewMemoryStore() Store {
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewMemoryStoreFromDockerConfig(c []byte) (Store, error) {
 	cfg := struct {
-		Auths map[string]AuthConfig `json:"auths"`
+		Auths map[string]configuration.AuthConfig `json:"auths"`
 	}{}
 	if err := json.Unmarshal(c, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
+		return nil, fmt.Errorf("failed to unmarshal auth field: %w: %v", configuration.ErrInvalidConfigFormat, err)
 	}
 
 	s := &memoryStore{}
 	for addr, auth := range cfg.Auths {
 		// Normalize the auth key to hostname.
-		hostname := ToHostname(addr)
+		hostname := configuration.ToHostname(addr)
 		cred, err := NewCredential(auth)
 		if err != nil {
 			return nil, err

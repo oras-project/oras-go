@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"oras.land/oras-go/v2/registry/remote/internal/configuration"
 )
 
 // FileStore implements a credentials store using the docker configuration file
@@ -32,7 +34,7 @@ type FileStore struct {
 	// If DisablePut is set to true, Put() will return ErrPlaintextPutDisabled.
 	DisablePut bool
 
-	config *Config
+	config *configuration.Config
 }
 
 var (
@@ -48,7 +50,7 @@ var (
 //
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewFileStore(configPath string) (*FileStore, error) {
-	cfg, err := Load(configPath)
+	cfg, err := configuration.Load(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +58,7 @@ func NewFileStore(configPath string) (*FileStore, error) {
 }
 
 // newFileStore creates a file credentials store based on the given config instance.
-func newFileStore(cfg *Config) *FileStore {
+func newFileStore(cfg *configuration.Config) *FileStore {
 	return &FileStore{config: cfg}
 }
 
@@ -100,8 +102,8 @@ func validateCredentialFormat(cred Credential) error {
 }
 
 // NewAuthConfig creates an authConfig based on cred.
-func NewAuthConfig(cred Credential) AuthConfig {
-	return AuthConfig{
+func NewAuthConfig(cred Credential) configuration.AuthConfig {
+	return configuration.AuthConfig{
 		Auth:          encodeAuth(cred.Username, cred.Password),
 		IdentityToken: cred.RefreshToken,
 		RegistryToken: cred.AccessToken,
@@ -117,7 +119,7 @@ func encodeAuth(username, password string) string {
 }
 
 // NewCredential creates a Credential based on authCfg.
-func NewCredential(authCfg AuthConfig) (Credential, error) {
+func NewCredential(authCfg configuration.AuthConfig) (Credential, error) {
 	cred := Credential{
 		Username:     authCfg.Username,
 		Password:     authCfg.Password,
@@ -129,7 +131,7 @@ func NewCredential(authCfg AuthConfig) (Credential, error) {
 		// override username and password
 		cred.Username, cred.Password, err = decodeAuth(authCfg.Auth)
 		if err != nil {
-			return EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", ErrInvalidConfigFormat, err)
+			return EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", configuration.ErrInvalidConfigFormat, err)
 		}
 	}
 	return cred, nil

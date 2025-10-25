@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package credentials
+package configuration
 
 import (
 	"bytes"
@@ -26,7 +26,7 @@ import (
 	"strings"
 	"sync"
 
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/ioutil"
+	"oras.land/oras-go/v2/registry/remote/internal/ioutil"
 )
 
 const (

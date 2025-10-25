@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 
 	"oras.land/oras-go/v2/internal/syncutil"
+	"oras.land/oras-go/v2/registry/remote/internal/configuration"
 )
 
 const (
@@ -48,7 +49,7 @@ type Store interface {
 // DynamicStore dynamically determines which store to use based on the settings
 // in the config file.
 type DynamicStore struct {
-	config             *Config
+	config             *configuration.Config
 	options            StoreOptions
 	detectedCredsStore string
 	setCredsStoreOnce  syncutil.OnceOrRetry
@@ -93,7 +94,7 @@ type StoreOptions struct {
 //   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
-	cfg, err := Load(configPath)
+	cfg, err := configuration.Load(configPath)
 	if err != nil {
 		return nil, err
 	}
