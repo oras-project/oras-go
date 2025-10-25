@@ -42,23 +42,6 @@ const (
 // ErrInvalidConfigFormat is returned when the config format is invalid.
 var ErrInvalidConfigFormat = errors.New("invalid config format")
 
-// AuthConfig contains authorization information for connecting to a Registry.
-// References:
-//   - https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/configfile/file.go#L17-L45
-//   - https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/types/authconfig.go#L3-L22
-type AuthConfig struct {
-	// Auth is a base64-encoded string of "{username}:{password}".
-	Auth string `json:"auth,omitempty"`
-	// IdentityToken is used to authenticate the user and get an access token
-	// for the registry.
-	IdentityToken string `json:"identitytoken,omitempty"`
-	// RegistryToken is a bearer token to be sent to a registry.
-	RegistryToken string `json:"registrytoken,omitempty"`
-
-	Username string `json:"username,omitempty"` // legacy field for compatibility
-	Password string `json:"password,omitempty"` // legacy field for compatibility
-}
-
 // Config represents a docker configuration file.
 // References:
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties

@@ -17,7 +17,6 @@ package credentials
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -104,18 +103,10 @@ func validateCredentialFormat(cred Credential) error {
 // NewAuthConfig creates an authConfig based on cred.
 func NewAuthConfig(cred Credential) configuration.AuthConfig {
 	return configuration.AuthConfig{
-		Auth:          encodeAuth(cred.Username, cred.Password),
+		Auth:          configuration.EncodeAuth(cred.Username, cred.Password),
 		IdentityToken: cred.RefreshToken,
 		RegistryToken: cred.AccessToken,
 	}
-}
-
-// encodeAuth base64-encodes username and password into base64(username:password).
-func encodeAuth(username, password string) string {
-	if username == "" && password == "" {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 }
 
 // NewCredential creates a Credential based on authCfg.
@@ -129,28 +120,10 @@ func NewCredential(authCfg configuration.AuthConfig) (Credential, error) {
 	if authCfg.Auth != "" {
 		var err error
 		// override username and password
-		cred.Username, cred.Password, err = decodeAuth(authCfg.Auth)
+		cred.Username, cred.Password, err = authCfg.DecodeAuth()
 		if err != nil {
 			return EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", configuration.ErrInvalidConfigFormat, err)
 		}
 	}
 	return cred, nil
-}
-
-// decodeAuth decodes a base64 encoded string and returns username and password.
-func decodeAuth(authStr string) (username string, password string, err error) {
-	if authStr == "" {
-		return "", "", nil
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(authStr)
-	if err != nil {
-		return "", "", err
-	}
-	decodedStr := string(decoded)
-	username, password, ok := strings.Cut(decodedStr, ":")
-	if !ok {
-		return "", "", fmt.Errorf("auth '%s' does not conform the base64(username:password) format", decodedStr)
-	}
-	return username, password, nil
 }
