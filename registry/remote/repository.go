@@ -43,6 +43,7 @@ import (
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 )
 
@@ -151,6 +152,11 @@ type Repository struct {
 	//   - https://www.rfc-editor.org/rfc/rfc7234#section-5.5
 	HandleWarning func(warning Warning)
 
+	// Policy is an optional policy evaluator for allow/deny decisions.
+	// If nil, no policy enforcement is performed.
+	// Reference: https://man.archlinux.org/man/containers-policy.json.5.en
+	Policy *configuration.Evaluator
+
 	// NOTE: Must keep fields in sync with clone().
 
 	// referrersState represents that if the repository supports Referrers API.
@@ -207,6 +213,7 @@ func (r *Repository) clone() *Repository {
 		MaxMetadataBytes:     r.MaxMetadataBytes,
 		SkipReferrersGC:      r.SkipReferrersGC,
 		HandleWarning:        r.HandleWarning,
+		Policy:               r.Policy,
 	}
 }
 
@@ -277,13 +284,47 @@ func (r *Repository) blobStore(desc ocispec.Descriptor) registry.BlobStore {
 	return r.Blobs()
 }
 
+// checkPolicy validates the repository access against the configured policy.
+// If no policy is configured (Policy is nil), this is a no-op.
+func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
+	if r.Policy == nil {
+		return nil
+	}
+
+	ref := r.Reference.String()
+	if reference != "" {
+		ref = reference
+	}
+
+	imageRef := configuration.ImageReference{
+		Transport: configuration.TransportDocker,
+		Scope:     r.Reference.Repository,
+		Reference: ref,
+	}
+
+	allowed, err := r.Policy.IsImageAllowed(ctx, imageRef)
+	if err != nil {
+		return fmt.Errorf("policy check failed: %w", err)
+	}
+	if !allowed {
+		return fmt.Errorf("access denied by policy for %s", ref)
+	}
+	return nil
+}
+
 // Fetch fetches the content identified by the descriptor.
 func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	if err := r.checkPolicy(ctx, ""); err != nil {
+		return nil, err
+	}
 	return r.blobStore(target).Fetch(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
 func (r *Repository) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
+	if err := r.checkPolicy(ctx, ""); err != nil {
+		return err
+	}
 	return r.blobStore(expected).Push(ctx, expected, content)
 }
 
@@ -324,6 +365,9 @@ func (r *Repository) Manifests() registry.ManifestStore {
 // Resolve resolves a reference to a manifest descriptor.
 // See also `ManifestMediaTypes`.
 func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
+	if err := r.checkPolicy(ctx, reference); err != nil {
+		return ocispec.Descriptor{}, err
+	}
 	return r.Manifests().Resolve(ctx, reference)
 }
 
