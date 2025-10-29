@@ -32,6 +32,14 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
+// HTTP header names used in authentication.
+const (
+	headerAuthorization   = "Authorization"
+	headerContentType     = "Content-Type"
+	headerUserAgent       = "User-Agent"
+	headerWWWAuthenticate = "Www-Authenticate"
+)
+
 // ErrBasicCredentialNotFound is returned  when the credential is not found for
 // basic auth.
 var ErrBasicCredentialNotFound = errors.New("basic credential not found")
@@ -40,7 +48,7 @@ var ErrBasicCredentialNotFound = errors.New("basic credential not found")
 var DefaultClient = &Client{
 	Client: retry.DefaultClient,
 	Header: http.Header{
-		"User-Agent": {"oras-go"},
+		headerUserAgent: {"oras-go"},
 	},
 	Cache: DefaultCache,
 }
@@ -139,7 +147,7 @@ func (c *Client) SetUserAgent(userAgent string) {
 	if c.Header == nil {
 		c.Header = http.Header{}
 	}
-	c.Header.Set("User-Agent", userAgent)
+	c.Header.Set(headerUserAgent, userAgent)
 }
 
 // Do sends the request to the remote server, attempting to resolve
@@ -149,7 +157,7 @@ func (c *Client) SetUserAgent(userAgent string) {
 //   - Do returns error if it fails to fetch token for bearer auth.
 //   - Do returns the registry response without error for basic auth.
 func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
-	if auth := originalReq.Header.Get("Authorization"); auth != "" {
+	if auth := originalReq.Header.Get(headerAuthorization); auth != "" {
 		return c.send(originalReq)
 	}
 
@@ -166,14 +174,14 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		case SchemeBasic:
 			token, err := cache.GetToken(ctx, host, SchemeBasic, "")
 			if err == nil {
-				req.Header.Set("Authorization", "Basic "+token)
+				req.Header.Set(headerAuthorization, "Basic "+token)
 			}
 		case SchemeBearer:
 			scopes := GetAllScopesForHost(ctx, host)
 			attemptedKey = strings.Join(scopes, " ")
 			token, err := cache.GetToken(ctx, host, SchemeBearer, attemptedKey)
 			if err == nil {
-				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set(headerAuthorization, "Bearer "+token)
 			}
 		}
 	}
@@ -187,7 +195,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	}
 
 	// attempt again with credentials for recognized schemes
-	challenge := resp.Header.Get("Www-Authenticate")
+	challenge := resp.Header.Get(headerWWWAuthenticate)
 	scheme, params := parseChallenge(challenge)
 	switch scheme {
 	case SchemeBasic:
@@ -201,7 +209,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		}
 
 		req = originalReq.Clone(ctx)
-		req.Header.Set("Authorization", "Basic "+token)
+		req.Header.Set(headerAuthorization, "Basic "+token)
 	case SchemeBearer:
 		resp.Body.Close()
 
@@ -217,7 +225,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		if key != attemptedKey {
 			if token, err := cache.GetToken(ctx, host, SchemeBearer, key); err == nil {
 				req = originalReq.Clone(ctx)
-				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header.Set(headerAuthorization, "Bearer "+token)
 				if err := rewindRequestBody(req); err != nil {
 					return nil, err
 				}
@@ -244,7 +252,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		}
 
 		req = originalReq.Clone(ctx)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set(headerAuthorization, "Bearer "+token)
 	default:
 		return resp, nil
 	}
@@ -367,7 +375,7 @@ func (c *Client) fetchOAuth2Token(ctx context.Context, realm, service string, sc
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set(headerContentType, "application/x-www-form-urlencoded")
 
 	resp, err := c.send(req)
 	if err != nil {
