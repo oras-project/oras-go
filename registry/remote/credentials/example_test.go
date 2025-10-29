@@ -18,9 +18,14 @@ import (
 	"fmt"
 	"net/http"
 
+	. "oras.land/oras-go/v2/registry/internal/doc"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
-	credentials "oras.land/oras-go/v2/registry/remote/credentials"
+	"oras.land/oras-go/v2/registry/remote/credentials"
+)
+
+const (
+	_ = ExampleUnplayable
 )
 
 func ExampleNewNativeStore() {
@@ -28,7 +33,7 @@ func ExampleNewNativeStore() {
 
 	ctx := context.Background()
 	// save credentials into the store
-	err := ns.Put(ctx, "localhost:5000", auth.Credential{
+	err := ns.Put(ctx, "localhost:5000", credentials.Credential{
 		Username: "username-example",
 		Password: "password-example",
 	})
@@ -58,7 +63,7 @@ func ExampleNewFileStore() {
 
 	ctx := context.Background()
 	// save credentials into the store
-	err = fs.Put(ctx, "localhost:5000", auth.Credential{
+	err = fs.Put(ctx, "localhost:5000", credentials.Credential{
 		Username: "username-example",
 		Password: "password-example",
 	})
@@ -96,7 +101,7 @@ func ExampleNewStore() {
 
 	ctx := context.Background()
 	// save credentials into the store
-	err = store.Put(ctx, "localhost:5000", auth.Credential{
+	err = store.Put(ctx, "localhost:5000", credentials.Credential{
 		Username: "username-example",
 		Password: "password-example",
 	})
@@ -128,7 +133,7 @@ func ExampleNewStoreFromDocker() {
 
 	ctx := context.Background()
 	// save credentials into the store
-	err = ds.Put(ctx, "localhost:5000", auth.Credential{
+	err = ds.Put(ctx, "localhost:5000", credentials.Credential{
 		Username: "username-example",
 		Password: "password-example",
 	})
@@ -162,7 +167,7 @@ func ExampleNewStoreWithFallbacks_configAsPrimaryStoreDockerAsFallback() {
 
 	ctx := context.Background()
 	// save credentials into the store
-	err = sf.Put(ctx, "localhost:5000", auth.Credential{
+	err = sf.Put(ctx, "localhost:5000", credentials.Credential{
 		Username: "username-example",
 		Password: "password-example",
 	})
@@ -195,11 +200,11 @@ func ExampleLogin() {
 	if err != nil {
 		panic(err)
 	}
-	cred := auth.Credential{
+	cred := credentials.Credential{
 		Username: "username-example",
 		Password: "password-example",
 	}
-	err = credentials.Login(context.Background(), store, registry, cred)
+	err = remote.Login(context.Background(), store, registry, cred)
 	if err != nil {
 		panic(err)
 	}
@@ -211,7 +216,7 @@ func ExampleLogout() {
 	if err != nil {
 		panic(err)
 	}
-	err = credentials.Logout(context.Background(), store, "localhost:5000")
+	err = remote.Logout(context.Background(), store, "localhost:5000")
 	if err != nil {
 		panic(err)
 	}
@@ -225,7 +230,7 @@ func ExampleCredential() {
 	}
 
 	client := auth.DefaultClient
-	client.Credential = credentials.Credential(store)
+	client.Credential = remote.Credential(store)
 
 	request, err := http.NewRequest(http.MethodGet, "localhost:5000", nil)
 	if err != nil {
