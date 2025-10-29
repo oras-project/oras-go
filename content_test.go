@@ -1788,9 +1788,6 @@ func TestPushBytes_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatal("oras.PushBytes() error =", err)
 	}
-	if err != nil {
-		t.Fatal("oras.PushBytes() error =", err)
-	}
 	if !reflect.DeepEqual(gotDesc, indexDesc) {
 		t.Errorf("oras.PushBytes() = %v, want %v", gotDesc, indexDesc)
 	}
