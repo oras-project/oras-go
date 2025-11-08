@@ -15,6 +15,12 @@
 test: vendor check-encoding
 	go test -race -v -coverprofile=coverage.txt -covermode=atomic ./...
 
+.PHONY: test-coverage
+test-coverage:  ## look at code coverage
+	@echo
+	@echo "==> Running unit tests with coverage: $(PKG) <=="
+	@ ./scripts/coverage.sh $(PKG)
+
 .PHONY: covhtml
 covhtml:
 	open .cover/coverage.html
