@@ -121,13 +121,14 @@ type Client struct {
 	// Reference: https://distribution.github.io/distribution/spec/auth/oauth/#getting-a-token
 	ClientID string
 
-	// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant
-	// instead the distribution spec when authenticating using username and
-	// password.
+	// legacyMode controls whether to use the legacy distribution spec
+	// instead of OAuth2 with password grant when authenticating using
+	// username and password.
+	// Default is false (OAuth2 is used).
 	// References:
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
-	ForceAttemptOAuth2 bool
+	legacyMode bool
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -170,6 +171,21 @@ func (c *Client) SetUserAgent(userAgent string) {
 		c.Header = http.Header{}
 	}
 	c.Header.Set(headerUserAgent, userAgent)
+}
+
+// SetLegacyMode sets whether to use legacy distribution spec authentication
+// instead of OAuth2 with password grant when authenticating using username
+// and password.
+//
+// When legacy is true, the client uses the legacy distribution spec for
+// authentication. When legacy is false (default), the client uses OAuth2
+// with password grant.
+//
+// References:
+//   - https://distribution.github.io/distribution/spec/auth/jwt/
+//   - https://distribution.github.io/distribution/spec/auth/oauth/
+func (c *Client) SetLegacyMode(legacy bool) {
+	c.legacyMode = legacy
 }
 
 // Do sends the request to the remote server, attempting to resolve
@@ -310,7 +326,7 @@ func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service 
 	if cred.AccessToken != "" {
 		return cred.AccessToken, nil
 	}
-	if cred == EmptyCredential || (cred.RefreshToken == "" && !c.ForceAttemptOAuth2) {
+	if cred == EmptyCredential || (cred.RefreshToken == "" && c.legacyMode) {
 		return c.fetchDistributionToken(ctx, realm, service, scopes, cred.Username, cred.Password)
 	}
 	return c.fetchOAuth2Token(ctx, realm, service, scopes, cred)
