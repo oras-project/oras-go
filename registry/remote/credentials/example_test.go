@@ -16,110 +16,16 @@ package credentials_test
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"path/filepath"
 
-	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/auth"
-	credentials "oras.land/oras-go/v2/registry/remote/credentials"
+	"oras.land/oras-go/v2/registry/remote/credentials"
 )
 
-func ExampleNewNativeStore() {
-	ns := credentials.NewNativeStore("pass")
-
-	ctx := context.Background()
-	// save credentials into the store
-	err := ns.Put(ctx, "localhost:5000", auth.Credential{
-		Username: "username-example",
-		Password: "password-example",
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	// get credentials from the store
-	cred, err := ns.Get(ctx, "localhost:5000")
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(cred)
-
-	// delete the credentials from the store
-	err = ns.Delete(ctx, "localhost:5000")
-	if err != nil {
-		panic(err)
-	}
-}
-
-func ExampleNewFileStore() {
-	fs, err := credentials.NewFileStore("example/path/config.json")
-	if err != nil {
-		panic(err)
-	}
-
-	ctx := context.Background()
-	// save credentials into the store
-	err = fs.Put(ctx, "localhost:5000", auth.Credential{
-		Username: "username-example",
-		Password: "password-example",
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	// get credentials from the store
-	cred, err := fs.Get(ctx, "localhost:5000")
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(cred)
-
-	// delete the credentials from the store
-	err = fs.Delete(ctx, "localhost:5000")
-	if err != nil {
-		panic(err)
-	}
-}
-
-func ExampleNewStore() {
-	// NewStore returns a Store based on the given configuration file. It will
-	// automatically determine which Store (file store or native store) to use.
-	// If the native store is not available, you can save your credentials in
-	// the configuration file by specifying AllowPlaintextPut: true, but keep
-	// in mind that this is an unsafe workaround.
-	// See the documentation for details.
-	store, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{
-		AllowPlaintextPut: true,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	ctx := context.Background()
-	// save credentials into the store
-	err = store.Put(ctx, "localhost:5000", auth.Credential{
-		Username: "username-example",
-		Password: "password-example",
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	// get credentials from the store
-	cred, err := store.Get(ctx, "localhost:5000")
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(cred)
-
-	// delete the credentials from the store
-	err = store.Delete(ctx, "localhost:5000")
-	if err != nil {
-		panic(err)
-	}
-}
-
 func ExampleNewStoreFromDocker() {
-	ds, err := credentials.NewStoreFromDocker(credentials.StoreOptions{
+	// Create a store using a custom Docker config.json file
+	configPath := filepath.Join("testdata", "example_docker_config.json")
+	store, err := credentials.NewStoreFromDocker(credentials.StoreOptions{
+		ConfigurationPath: configPath,
 		AllowPlaintextPut: true,
 	})
 	if err != nil {
@@ -127,113 +33,163 @@ func ExampleNewStoreFromDocker() {
 	}
 
 	ctx := context.Background()
-	// save credentials into the store
-	err = ds.Put(ctx, "localhost:5000", auth.Credential{
-		Username: "username-example",
-		Password: "password-example",
+
+	// Retrieve existing credentials from the config file
+	cred, err := store.Get(ctx, "docker.io")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Username: %s\n", cred.Username)
+
+	// Store new credentials for another registry
+	err = store.Put(ctx, "registry-1.docker.io", credentials.Credential{
+		Username: "newuser",
+		Password: "newpassword",
 	})
 	if err != nil {
 		panic(err)
 	}
 
-	// get credentials from the store
-	cred, err := ds.Get(ctx, "localhost:5000")
+	// Retrieve the newly stored credentials
+	newCred, err := store.Get(ctx, "registry-1.docker.io")
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(cred)
+	fmt.Printf("New Username: %s\n", newCred.Username)
 
-	// delete the credentials from the store
-	err = ds.Delete(ctx, "localhost:5000")
+	// Clean up the new entry
+	err = store.Delete(ctx, "registry-1.docker.io")
 	if err != nil {
 		panic(err)
 	}
+	fmt.Println("Docker config store example completed")
+
+	// Output:
+	// Username: myusername
+	// New Username: newuser
+	// Docker config store example completed
 }
 
-func ExampleNewStoreWithFallbacks_configAsPrimaryStoreDockerAsFallback() {
-	primaryStore, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{
+func ExampleNewStoreFromRegistriesConf() {
+	// Create a store using a custom registries.conf file
+	configPath := filepath.Join("testdata", "example_registries.conf")
+	store, err := credentials.NewStoreFromRegistriesConf(credentials.StoreOptions{
+		ConfigurationPath: configPath,
 		AllowPlaintextPut: true,
 	})
 	if err != nil {
 		panic(err)
 	}
-	fallbackStore, err := credentials.NewStoreFromDocker(credentials.StoreOptions{})
-	sf := credentials.NewStoreWithFallbacks(primaryStore, fallbackStore)
 
 	ctx := context.Background()
-	// save credentials into the store
-	err = sf.Put(ctx, "localhost:5000", auth.Credential{
-		Username: "username-example",
-		Password: "password-example",
+
+	// Store credentials for a registry
+	err = store.Put(ctx, "quay.io", credentials.Credential{
+		Username: "myusername",
+		Password: "mytoken",
 	})
 	if err != nil {
 		panic(err)
 	}
 
-	// get credentials from the store
-	cred, err := sf.Get(ctx, "localhost:5000")
+	// Retrieve credentials from the store
+	cred, err := store.Get(ctx, "quay.io")
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(cred)
+	fmt.Printf("Username: %s\n", cred.Username)
 
-	// delete the credentials from the store
-	err = sf.Delete(ctx, "localhost:5000")
+	// Store additional credentials
+	err = store.Put(ctx, "gcr.io", credentials.Credential{
+		Username: "_token",
+		Password: "gcrtoken",
+	})
 	if err != nil {
 		panic(err)
 	}
+
+	// Retrieve the additional credentials
+	gcrCred, err := store.Get(ctx, "gcr.io")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("GCR Username: %s\n", gcrCred.Username)
+
+	// Clean up
+	err = store.Delete(ctx, "quay.io")
+	if err != nil {
+		panic(err)
+	}
+	err = store.Delete(ctx, "gcr.io")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Registries.conf store example completed")
+
+	// Output:
+	// Username: myusername
+	// GCR Username: _token
+	// Registries.conf store example completed
 }
 
-func ExampleLogin() {
-	store, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{
+func ExampleNewStoreWithFallbacks_dockerPrimaryRegistriesConfFallback() {
+	// Create primary store using Docker config.json
+	dockerConfigPath := filepath.Join("testdata", "example_docker_config.json")
+	dockerStore, err := credentials.NewStoreFromDocker(credentials.StoreOptions{
+		ConfigurationPath: dockerConfigPath,
 		AllowPlaintextPut: true,
 	})
 	if err != nil {
 		panic(err)
 	}
-	registry, err := remote.NewRegistry("localhost:5000")
-	if err != nil {
-		panic(err)
-	}
-	cred := auth.Credential{
-		Username: "username-example",
-		Password: "password-example",
-	}
-	err = credentials.Login(context.Background(), store, registry, cred)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Login succeeded")
-}
 
-func ExampleLogout() {
-	store, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{})
-	if err != nil {
-		panic(err)
-	}
-	err = credentials.Logout(context.Background(), store, "localhost:5000")
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Logout succeeded")
-}
-
-func ExampleCredential() {
-	store, err := credentials.NewStore("example/path/config.json", credentials.StoreOptions{})
+	// Create fallback store using registries.conf
+	registriesConfigPath := filepath.Join("testdata", "example_registries.conf")
+	registriesStore, err := credentials.NewStoreFromRegistriesConf(credentials.StoreOptions{
+		ConfigurationPath: registriesConfigPath,
+		AllowPlaintextPut: true,
+	})
 	if err != nil {
 		panic(err)
 	}
 
-	client := auth.DefaultClient
-	client.Credential = credentials.Credential(store)
+	// Combine stores with Docker as primary and registries.conf as fallback
+	store := credentials.NewStoreWithFallbacks(dockerStore, registriesStore)
 
-	request, err := http.NewRequest(http.MethodGet, "localhost:5000", nil)
+	ctx := context.Background()
+
+	// Get credentials from Docker config (should find docker.io)
+	dockerCred, err := store.Get(ctx, "docker.io")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Docker.io Username: %s\n", dockerCred.Username)
+
+	// Store credentials (will go to primary store - Docker config)
+	err = store.Put(ctx, "gcr.io", credentials.Credential{
+		Username: "_token",
+		Password: "myaccesstoken",
+	})
 	if err != nil {
 		panic(err)
 	}
 
-	_, err = client.Do(request)
+	// Retrieve credentials (will find in primary Docker store)
+	cred, err := store.Get(ctx, "gcr.io")
 	if err != nil {
 		panic(err)
 	}
+	fmt.Printf("GCR Username: %s\n", cred.Username)
+
+	// Clean up
+	err = store.Delete(ctx, "gcr.io")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Store with fallbacks example completed")
+
+	// Output:
+	// Docker.io Username: myusername
+	// GCR Username: _token
+	// Store with fallbacks example completed
 }
