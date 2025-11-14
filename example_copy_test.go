@@ -37,6 +37,8 @@ import (
 	"oras.land/oras-go/v2/internal/spec"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/credentials"
+	"oras.land/oras-go/v2/registry/remote/properties"
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
@@ -451,7 +453,7 @@ func Example_extendedCopyArtifactAndReferrersToRepository() {
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(registry, auth.Credential{
+		CredentialFunc: credentials.StaticCredential(registry, properties.Credential{
 			Username: "username",
 			Password: "password",
 		}),

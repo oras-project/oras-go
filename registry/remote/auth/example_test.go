@@ -12,7 +12,7 @@ limitations under the License.
 */
 
 // Package auth_test includes the testable examples for the http client.
-package auth_test
+package auth
 
 import (
 	"context"
@@ -26,7 +26,8 @@ import (
 	"testing"
 
 	. "oras.land/oras-go/v2/registry/internal/doc"
-	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/credentials"
+	"oras.land/oras-go/v2/registry/remote/properties"
 )
 
 const (
@@ -141,7 +142,7 @@ func TestMain(m *testing.M) {
 
 // ExampleClient_Do_minimalClient gives an example of a minimal working client.
 func ExampleClient_Do_minimalClient() {
-	var client auth.Client
+	var client Client
 	// targetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequest(http.MethodGet, targetURL, nil)
 	if err != nil {
@@ -159,9 +160,9 @@ func ExampleClient_Do_minimalClient() {
 
 // ExampleClient_Do_basicAuth gives an example of using client with credentials.
 func ExampleClient_Do_basicAuth() {
-	client := &auth.Client{
+	client := &Client{
 		// expectedHostAddress is of form ipaddr:port
-		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+		CredentialFunc: credentials.StaticCredential(expectedHostAddress, properties.Credential{
 			Username: username,
 			Password: password,
 		}),
@@ -184,16 +185,16 @@ func ExampleClient_Do_basicAuth() {
 // ExampleClient_Do_clientConfigurations shows the client configurations available,
 // including using cache, setting user agent and configuring OAuth2.
 func ExampleClient_Do_clientConfigurations() {
-	client := &auth.Client{
+	client := &Client{
 		// expectedHostAddress is of form ipaddr:port
-		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+		CredentialFunc: credentials.StaticCredential(expectedHostAddress, properties.Credential{
 			Username: username,
 			Password: password,
 		}),
 		// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant.
 		ForceAttemptOAuth2: true,
 		// Cache caches credentials for accessing the remote registry.
-		Cache: auth.NewCache(),
+		Cache: NewCache(),
 	}
 	// SetUserAgent sets the user agent for all out-going requests.
 	client.SetUserAgent("example user agent")
@@ -205,7 +206,7 @@ func ExampleClient_Do_clientConfigurations() {
 		"repository:src:pull",
 	}
 	// WithScopes returns a context with scopes added.
-	ctx := auth.WithScopes(context.Background(), scopes...)
+	ctx := WithScopes(context.Background(), scopes...)
 
 	// clientConfigTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigTargetURL, nil)
@@ -224,9 +225,9 @@ func ExampleClient_Do_clientConfigurations() {
 
 // ExampleClient_Do_withAccessToken gives an example of using client with an access token.
 func ExampleClient_Do_withAccessToken() {
-	client := &auth.Client{
+	client := &Client{
 		// expectedHostAddress is of form ipaddr:port
-		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+		CredentialFunc: credentials.StaticCredential(expectedHostAddress, properties.Credential{
 			AccessToken: accessToken,
 		}),
 	}
@@ -247,9 +248,9 @@ func ExampleClient_Do_withAccessToken() {
 
 // ExampleClient_Do_withRefreshToken gives an example of using client with a refresh token.
 func ExampleClient_Do_withRefreshToken() {
-	client := &auth.Client{
+	client := &Client{
 		// expectedHostAddress is of form ipaddr:port
-		Credential: auth.StaticCredential(expectedHostAddress, auth.Credential{
+		CredentialFunc: credentials.StaticCredential(expectedHostAddress, properties.Credential{
 			RefreshToken: refreshToken,
 		}),
 	}

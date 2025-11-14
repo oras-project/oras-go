@@ -24,21 +24,43 @@ import (
 	"reflect"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/config/configtest"
+	"oras.land/oras-go/v2/registry/remote/internal/configuration/configtest"
+	"oras.land/oras-go/v2/registry/remote/properties"
 )
+
+// testStore implements the Store interface, used for testing purpose.
+type testStore struct {
+	storage map[string]properties.Credential
+}
+
+func (t *testStore) Get(ctx context.Context, serverAddress string) (properties.Credential, error) {
+	return t.storage[serverAddress], nil
+}
+
+func (t *testStore) Put(ctx context.Context, serverAddress string, cred properties.Credential) error {
+	if len(t.storage) == 0 {
+		t.storage = make(map[string]properties.Credential)
+	}
+	t.storage[serverAddress] = cred
+	return nil
+}
+
+func (t *testStore) Delete(ctx context.Context, serverAddress string) error {
+	delete(t.storage, serverAddress)
+	return nil
+}
 
 type badStore struct{}
 
 var errBadStore = errors.New("bad store!")
 
 // Get retrieves credentials from the store for the given server address.
-func (s *badStore) Get(ctx context.Context, serverAddress string) (auth.Credential, error) {
-	return auth.EmptyCredential, errBadStore
+func (s *badStore) Get(ctx context.Context, serverAddress string) (properties.Credential, error) {
+	return EmptyCredential, errBadStore
 }
 
 // Put saves credentials into the store for the given server address.
-func (s *badStore) Put(ctx context.Context, serverAddress string, cred auth.Credential) error {
+func (s *badStore) Put(ctx context.Context, serverAddress string, cred properties.Credential) error {
 	return errBadStore
 }
 
@@ -207,7 +229,7 @@ func Test_DynamicStore_authConfigured(t *testing.T) {
 	}
 
 	serverAddr := "test.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username: "username",
 		Password: "password",
 	}
@@ -245,7 +267,7 @@ func Test_DynamicStore_authConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal("DynamicStore.Get() error =", err)
 	}
-	if want := auth.EmptyCredential; got != want {
+	if want := EmptyCredential; got != want {
 		t.Errorf("DynamicStore.Get() = %v, want %v", got, want)
 	}
 }
@@ -284,7 +306,7 @@ func Test_DynamicStore_authConfigured_DetectDefaultNativeStore(t *testing.T) {
 	}
 
 	serverAddr := "test.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username: "username",
 		Password: "password",
 	}
@@ -322,7 +344,7 @@ func Test_DynamicStore_authConfigured_DetectDefaultNativeStore(t *testing.T) {
 	if err != nil {
 		t.Fatal("DynamicStore.Get() error =", err)
 	}
-	if want := auth.EmptyCredential; got != want {
+	if want := EmptyCredential; got != want {
 		t.Errorf("DynamicStore.Get() = %v, want %v", got, want)
 	}
 }
@@ -354,7 +376,7 @@ func Test_DynamicStore_noAuthConfigured(t *testing.T) {
 	}
 
 	serverAddr := "test.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username: "username",
 		Password: "password",
 	}
@@ -397,7 +419,7 @@ func Test_DynamicStore_noAuthConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal("DynamicStore.Get() error =", err)
 	}
-	if want := auth.EmptyCredential; got != want {
+	if want := EmptyCredential; got != want {
 		t.Errorf("DynamicStore.Get() = %v, want %v", got, want)
 	}
 }
@@ -433,7 +455,7 @@ func Test_DynamicStore_noAuthConfigured_DetectDefaultNativeStore(t *testing.T) {
 	}
 
 	serverAddr := "test.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username: "username",
 		Password: "password",
 	}
@@ -482,7 +504,7 @@ func Test_DynamicStore_noAuthConfigured_DetectDefaultNativeStore(t *testing.T) {
 	if err != nil {
 		t.Fatal("DynamicStore.Get() error =", err)
 	}
-	if want := auth.EmptyCredential; got != want {
+	if want := EmptyCredential; got != want {
 		t.Errorf("DynamicStore.Get() = %v, want %v", got, want)
 	}
 }
@@ -492,7 +514,7 @@ func Test_DynamicStore_fileStore_AllowPlainTextPut(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	serverAddr := "newtest.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username: "username",
 		Password: "password",
 	}
@@ -564,37 +586,37 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 	}{
 		{
 			name:          "Get cred helper: registry_helper1",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com",
 			want:          "registry1-helper",
 		},
 		{
 			name:          "Get cred helper: registry_helper2",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry2.example.com",
 			want:          "registry2-helper",
 		},
 		{
 			name:          "Empty cred helper configured",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry3.example.com",
 			want:          "",
 		},
 		{
 			name:          "No cred helper and creds store configured",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "whatever.example.com",
 			want:          "",
 		},
 		{
 			name:          "Choose cred helper over creds store",
-			configPath:    "testdata/credsStore_config.json",
+			configPath:    "../internal/configuration/testdata/credsStore_config.json",
 			serverAddress: "test.example.com",
 			want:          "test-helper",
 		},
 		{
 			name:          "No cred helper configured, choose cred store",
-			configPath:    "testdata/credsStore_config.json",
+			configPath:    "../internal/configuration/testdata/credsStore_config.json",
 			serverAddress: "whatever.example.com",
 			want:          "teststore",
 		},
@@ -613,7 +635,7 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 }
 
 func Test_DynamicStore_ConfigPath(t *testing.T) {
-	path := "../../testdata/credsStore_config.json"
+	path := "../internal/configuration/testdata/credsStore_config.json"
 	var err error
 	store, err := NewStore(path, StoreOptions{})
 	if err != nil {
@@ -633,22 +655,22 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 	}{
 		{
 			name:          "Cred helper configured for registry1.example.com",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com",
 		},
 		{
 			name:          "Cred helper configured for registry2.example.com",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry2.example.com",
 		},
 		{
 			name:          "Cred helper configured for test.example.com",
-			configPath:    "testdata/credsStore_config.json",
+			configPath:    "../internal/configuration/testdata/credsStore_config.json",
 			serverAddress: "test.example.com",
 		},
 		{
 			name:          "No cred helper configured, use creds store",
-			configPath:    "testdata/credsStore_config.json",
+			configPath:    "../internal/configuration/testdata/credsStore_config.json",
 			serverAddress: "whaterver.example.com",
 		},
 	}
@@ -674,12 +696,12 @@ func Test_DynamicStore_getStore_fileStore(t *testing.T) {
 	}{
 		{
 			name:          "Empty cred helper configured for registry3.example.com",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "registry3.example.com",
 		},
 		{
 			name:          "No cred helper configured",
-			configPath:    "testdata/credHelpers_config.json",
+			configPath:    "../internal/configuration/testdata/credHelpers_config.json",
 			serverAddress: "whatever.example.com",
 		},
 	}
@@ -711,23 +733,23 @@ func Test_DynamicStore_getStore_fileStore(t *testing.T) {
 func Test_storeWithFallbacks_Get(t *testing.T) {
 	// prepare test content
 	server1 := "foo.registry.com"
-	cred1 := auth.Credential{
+	cred1 := properties.Credential{
 		Username: "username",
 		Password: "password",
 	}
 	server2 := "bar.registry.com"
-	cred2 := auth.Credential{
+	cred2 := properties.Credential{
 		RefreshToken: "identity_token",
 	}
 
 	primaryStore := &testStore{}
 	fallbackStore1 := &testStore{
-		storage: map[string]auth.Credential{
+		storage: map[string]properties.Credential{
 			server1: cred1,
 		},
 	}
 	fallbackStore2 := &testStore{
-		storage: map[string]auth.Credential{
+		storage: map[string]properties.Credential{
 			server2: cred2,
 		},
 	}
@@ -755,7 +777,7 @@ func Test_storeWithFallbacks_Get(t *testing.T) {
 	if err != nil {
 		t.Fatal("storeWithFallbacks.Get() error =", err)
 	}
-	if want := auth.EmptyCredential; got != want {
+	if want := EmptyCredential; got != want {
 		t.Errorf("storeWithFallbacks.Get() = %v, want %v", got, want)
 	}
 }
@@ -799,7 +821,7 @@ func Test_storeWithFallbacks_Put(t *testing.T) {
 	ctx := context.Background()
 
 	server := "example.registry.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username: "username",
 		Password: "password",
 	}
@@ -824,7 +846,7 @@ func Test_storeWithFallbacks_Put_throwError(t *testing.T) {
 	ctx := context.Background()
 
 	// test Put(): should thrown error
-	err := sf.Put(ctx, "whatever", auth.Credential{})
+	err := sf.Put(ctx, "whatever", properties.Credential{})
 	if wantErr := errBadStore; !errors.Is(err, wantErr) {
 		t.Errorf("storeWithFallback.Put() error = %v, wantErr %v", err, wantErr)
 	}
@@ -833,17 +855,17 @@ func Test_storeWithFallbacks_Put_throwError(t *testing.T) {
 func Test_storeWithFallbacks_Delete(t *testing.T) {
 	// prepare test content
 	server1 := "foo.registry.com"
-	cred1 := auth.Credential{
+	cred1 := properties.Credential{
 		Username: "username",
 		Password: "password",
 	}
 	server2 := "bar.registry.com"
-	cred2 := auth.Credential{
+	cred2 := properties.Credential{
 		RefreshToken: "identity_token",
 	}
 
 	primaryStore := &testStore{
-		storage: map[string]auth.Credential{
+		storage: map[string]properties.Credential{
 			server1: cred1,
 			server2: cred2,
 		},
@@ -857,7 +879,7 @@ func Test_storeWithFallbacks_Delete(t *testing.T) {
 		t.Fatal("storeWithFallback.Delete()")
 	}
 	// verify primary store
-	if want := map[string]auth.Credential{server2: cred2}; !reflect.DeepEqual(primaryStore.storage, want) {
+	if want := map[string]properties.Credential{server2: cred2}; !reflect.DeepEqual(primaryStore.storage, want) {
 		t.Errorf("primaryStore.storage = %v, want %v", primaryStore.storage, want)
 	}
 
@@ -866,7 +888,7 @@ func Test_storeWithFallbacks_Delete(t *testing.T) {
 		t.Fatal("storeWithFallback.Delete()")
 	}
 	// verify primary store
-	if want := map[string]auth.Credential{}; !reflect.DeepEqual(primaryStore.storage, want) {
+	if want := map[string]properties.Credential{}; !reflect.DeepEqual(primaryStore.storage, want) {
 		t.Errorf("primaryStore.storage = %v, want %v", primaryStore.storage, want)
 	}
 }
@@ -923,7 +945,7 @@ func TestNewStoreFromDocker(t *testing.T) {
 	t.Setenv("DOCKER_CONFIG", tempDir)
 
 	serverAddr1 := "test.example.com"
-	cred1 := auth.Credential{
+	cred1 := properties.Credential{
 		Username: "foo",
 		Password: "bar",
 	}
@@ -961,7 +983,7 @@ func TestNewStoreFromDocker(t *testing.T) {
 
 	// test putting a new credential
 	serverAddr2 := "newtest.example.com"
-	cred2 := auth.Credential{
+	cred2 := properties.Credential{
 		Username: "username",
 		Password: "password",
 	}
@@ -989,7 +1011,7 @@ func TestNewStoreFromDocker(t *testing.T) {
 	if err != nil {
 		t.Fatal("DynamicStore.Get() error =", err)
 	}
-	if want := auth.EmptyCredential; got != want {
+	if want := EmptyCredential; got != want {
 		t.Errorf("DynamicStore.Get() = %v, want %v", got, want)
 	}
 }

@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package credentials
+package remote
 
 import (
 	"context"
@@ -25,22 +25,26 @@ import (
 	"reflect"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/credentials"
+	"oras.land/oras-go/v2/registry/remote/properties"
 )
+
+var testUsername = "username"
+var testPassword = "password"
 
 // testStore implements the Store interface, used for testing purpose.
 type testStore struct {
-	storage map[string]auth.Credential
+	storage map[string]properties.Credential
 }
 
-func (t *testStore) Get(ctx context.Context, serverAddress string) (auth.Credential, error) {
+func (t *testStore) Get(ctx context.Context, serverAddress string) (properties.Credential, error) {
 	return t.storage[serverAddress], nil
 }
 
-func (t *testStore) Put(ctx context.Context, serverAddress string, cred auth.Credential) error {
+func (t *testStore) Put(ctx context.Context, serverAddress string, cred properties.Credential) error {
 	if len(t.storage) == 0 {
-		t.storage = make(map[string]auth.Credential)
+		t.storage = make(map[string]properties.Credential)
 	}
 	t.storage[serverAddress] = cred
 	return nil
@@ -63,7 +67,7 @@ func TestLogin(t *testing.T) {
 	}))
 	defer ts.Close()
 	uri, _ := url.Parse(ts.URL)
-	reg, err := remote.NewRegistry(uri.Host)
+	reg, err := NewRegistry(uri.Host)
 	if err != nil {
 		t.Fatalf("cannot create test registry: %v", err)
 	}
@@ -73,26 +77,26 @@ func TestLogin(t *testing.T) {
 	tests := []struct {
 		name     string
 		ctx      context.Context
-		registry *remote.Registry
-		cred     auth.Credential
+		registry *Registry
+		cred     properties.Credential
 		wantErr  bool
 	}{
 		{
 			name:    "login succeeds",
 			ctx:     context.Background(),
-			cred:    auth.Credential{Username: testUsername, Password: testPassword},
+			cred:    properties.Credential{Username: testUsername, Password: testPassword},
 			wantErr: false,
 		},
 		{
 			name:    "login fails (incorrect password)",
 			ctx:     context.Background(),
-			cred:    auth.Credential{Username: testUsername, Password: "whatever"},
+			cred:    properties.Credential{Username: testUsername, Password: "whatever"},
 			wantErr: true,
 		},
 		{
 			name:    "login fails (nil context makes remote.Ping fails)",
 			ctx:     nil,
-			cred:    auth.Credential{Username: testUsername, Password: testPassword},
+			cred:    properties.Credential{Username: testUsername, Password: testPassword},
 			wantErr: true,
 		},
 	}
@@ -116,7 +120,7 @@ func TestLogin(t *testing.T) {
 
 func TestLogin_unsupportedClient(t *testing.T) {
 	var testClient http.Client
-	reg, err := remote.NewRegistry("whatever")
+	reg, err := NewRegistry("whatever")
 	if err != nil {
 		t.Fatalf("cannot create test registry: %v", err)
 	}
@@ -125,7 +129,7 @@ func TestLogin_unsupportedClient(t *testing.T) {
 	ctx := context.Background()
 
 	s := &testStore{}
-	cred := auth.EmptyCredential
+	cred := credentials.EmptyCredential
 	err = Login(ctx, s, reg, cred)
 	if wantErr := ErrClientTypeUnsupported; !errors.Is(err, wantErr) {
 		t.Errorf("Login() error = %v, wantErr %v", err, wantErr)
@@ -135,14 +139,14 @@ func TestLogin_unsupportedClient(t *testing.T) {
 func TestLogout(t *testing.T) {
 	// create a test store
 	s := &testStore{}
-	s.storage = map[string]auth.Credential{
+	s.storage = map[string]properties.Credential{
 		"localhost:2333":              {Username: "test_user", Password: "test_word"},
 		"https://index.docker.io/v1/": {Username: "user", Password: "word"},
 	}
 	tests := []struct {
 		name         string
 		ctx          context.Context
-		store        Store
+		store        credentials.Store
 		registryName string
 		wantErr      bool
 	}{
@@ -164,7 +168,7 @@ func TestLogout(t *testing.T) {
 			if err := Logout(tt.ctx, s, tt.registryName); (err != nil) != tt.wantErr {
 				t.Fatalf("Logout() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if s.storage[tt.registryName] != auth.EmptyCredential {
+			if s.storage[tt.registryName] != credentials.EmptyCredential {
 				t.Error("Credentials are not deleted")
 			}
 		})
@@ -205,47 +209,47 @@ func Test_mapHostname(t *testing.T) {
 func TestCredential(t *testing.T) {
 	// create a test store
 	s := &testStore{}
-	s.storage = map[string]auth.Credential{
+	s.storage = map[string]properties.Credential{
 		"localhost:2333":              {Username: "test_user", Password: "test_word"},
 		"https://index.docker.io/v1/": {Username: "user", Password: "word"},
 	}
-	// create a test client using Credential
+	// create a test client using GetCredentialFunc
 	testClient := &auth.Client{}
-	testClient.Credential = Credential(s)
+	testClient.CredentialFunc = GetCredentialFunc(s)
 	tests := []struct {
 		name           string
 		registry       string
-		wantCredential auth.Credential
+		wantCredential properties.Credential
 	}{
 		{
 			name:           "get credentials for localhost:2333",
 			registry:       "localhost:2333",
-			wantCredential: auth.Credential{Username: "test_user", Password: "test_word"},
+			wantCredential: properties.Credential{Username: "test_user", Password: "test_word"},
 		},
 		{
 			name:           "get credentials for registry-1.docker.io",
 			registry:       "registry-1.docker.io",
-			wantCredential: auth.Credential{Username: "user", Password: "word"},
+			wantCredential: properties.Credential{Username: "user", Password: "word"},
 		},
 		{
 			name:           "get credentials for a registry not stored",
 			registry:       "localhost:6666",
-			wantCredential: auth.EmptyCredential,
+			wantCredential: credentials.EmptyCredential,
 		},
 		{
 			name:           "get credentials for an empty string",
 			registry:       "",
-			wantCredential: auth.EmptyCredential,
+			wantCredential: credentials.EmptyCredential,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := testClient.Credential(context.Background(), tt.registry)
+			got, err := testClient.CredentialFunc(context.Background(), tt.registry)
 			if err != nil {
 				t.Errorf("could not get credential: %v", err)
 			}
 			if !reflect.DeepEqual(got, tt.wantCredential) {
-				t.Errorf("Credential() = %v, want %v", got, tt.wantCredential)
+				t.Errorf("GetCredentialFunc() = %v, want %v", got, tt.wantCredential)
 			}
 		})
 	}

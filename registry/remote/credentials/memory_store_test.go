@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/properties"
 )
 
 func TestMemoryStore_Get_notExistRecord(t *testing.T) {
@@ -33,8 +33,8 @@ func TestMemoryStore_Get_notExistRecord(t *testing.T) {
 		t.Errorf("MemoryStore.Get() error = %v", err)
 		return
 	}
-	if !reflect.DeepEqual(got, auth.EmptyCredential) {
-		t.Errorf("MemoryStore.Get() = %v, want %v", got, auth.EmptyCredential)
+	if !reflect.DeepEqual(got, EmptyCredential) {
+		t.Errorf("MemoryStore.Get() = %v, want %v", got, EmptyCredential)
 	}
 }
 
@@ -43,7 +43,7 @@ func TestMemoryStore_Get_validRecord(t *testing.T) {
 	ms := NewMemoryStore().(*memoryStore)
 
 	serverAddress := "registry.example.com"
-	want := auth.Credential{
+	want := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "identity_token",
@@ -67,7 +67,7 @@ func TestMemoryStore_Put_addNew(t *testing.T) {
 
 	// Test Put
 	server1 := "registry.example.com"
-	cred1 := auth.Credential{
+	cred1 := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "identity_token",
@@ -79,7 +79,7 @@ func TestMemoryStore_Put_addNew(t *testing.T) {
 	}
 
 	server2 := "registry2.example.com"
-	cred2 := auth.Credential{
+	cred2 := properties.Credential{
 		Username:     "username2",
 		Password:     "password2",
 		RefreshToken: "identity_token2",
@@ -118,7 +118,7 @@ func TestMemoryStore_Put_update(t *testing.T) {
 
 	// Test Put
 	serverAddress := "registry.example.com"
-	cred1 := auth.Credential{
+	cred1 := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "identity_token",
@@ -129,7 +129,7 @@ func TestMemoryStore_Put_update(t *testing.T) {
 		return
 	}
 
-	cred2 := auth.Credential{
+	cred2 := properties.Credential{
 		Username:     "username2",
 		Password:     "password2",
 		RefreshToken: "identity_token2",
@@ -157,7 +157,7 @@ func TestMemoryStore_Delete_existRecord(t *testing.T) {
 
 	// Test Put
 	serverAddress := "registry.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "identity_token",
@@ -191,8 +191,8 @@ func TestMemoryStore_Delete_existRecord(t *testing.T) {
 		t.Errorf("MemoryStore.Get() error = %v", err)
 		return
 	}
-	if !reflect.DeepEqual(got, auth.EmptyCredential) {
-		t.Errorf("MemoryStore.Get() = %v, want %v", got, auth.EmptyCredential)
+	if !reflect.DeepEqual(got, EmptyCredential) {
+		t.Errorf("MemoryStore.Get() = %v, want %v", got, EmptyCredential)
 		return
 	}
 }
@@ -203,7 +203,7 @@ func TestMemoryStore_Delete_notExistRecord(t *testing.T) {
 
 	// Test Put
 	serverAddress := "registry.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "identity_token",

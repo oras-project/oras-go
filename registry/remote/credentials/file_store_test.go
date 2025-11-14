@@ -24,8 +24,8 @@ import (
 	"reflect"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/config/configtest"
+	"oras.land/oras-go/v2/registry/remote/internal/configuration/configtest"
+	"oras.land/oras-go/v2/registry/remote/properties"
 )
 
 func TestNewFileStore_badPath(t *testing.T) {
@@ -66,17 +66,17 @@ func TestNewFileStore_badFormat(t *testing.T) {
 	}{
 		{
 			name:       "Bad JSON format",
-			configPath: "testdata/bad_config",
+			configPath: "../internal/configuration/testdata/bad_config",
 			wantErr:    true,
 		},
 		{
 			name:       "Invalid auths format",
-			configPath: "testdata/invalid_auths_config.json",
+			configPath: "../internal/configuration/testdata/invalid_auths_config.json",
 			wantErr:    true,
 		},
 		{
 			name:       "No auths field",
-			configPath: "testdata/no_auths_config.json",
+			configPath: "../internal/configuration/testdata/no_auths_config.json",
 			wantErr:    false,
 		},
 	}
@@ -93,7 +93,7 @@ func TestNewFileStore_badFormat(t *testing.T) {
 
 func TestFileStore_Get_validConfig(t *testing.T) {
 	ctx := context.Background()
-	fs, err := NewFileStore("testdata/valid_auths_config.json")
+	fs, err := NewFileStore("../internal/configuration/testdata/valid_auths_config.json")
 	if err != nil {
 		t.Fatal("NewFileStore() error =", err)
 	}
@@ -101,13 +101,13 @@ func TestFileStore_Get_validConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          properties.Credential
 		wantErr       bool
 	}{
 		{
 			name:          "Username and password",
 			serverAddress: "registry1.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -115,21 +115,21 @@ func TestFileStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Identity token",
 			serverAddress: "registry2.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				RefreshToken: "identity_token",
 			},
 		},
 		{
 			name:          "Registry token",
 			serverAddress: "registry3.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				AccessToken: "registry_token",
 			},
 		},
 		{
 			name:          "Username and password, identity token and registry token",
 			serverAddress: "registry4.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				Username:     "username",
 				Password:     "password",
 				RefreshToken: "identity_token",
@@ -139,12 +139,12 @@ func TestFileStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Empty credential",
 			serverAddress: "registry5.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 		{
 			name:          "Username and password, no auth",
 			serverAddress: "registry6.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -152,7 +152,7 @@ func TestFileStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Auth overriding Username and password",
 			serverAddress: "registry7.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -160,12 +160,12 @@ func TestFileStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Not in auths",
 			serverAddress: "foo.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 		{
 			name:          "No record",
 			serverAddress: "registry999.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 		},
 	}
 	for _, tt := range tests {
@@ -184,7 +184,7 @@ func TestFileStore_Get_validConfig(t *testing.T) {
 
 func TestFileStore_Get_invalidConfig(t *testing.T) {
 	ctx := context.Background()
-	fs, err := NewFileStore("testdata/invalid_auths_entry_config.json")
+	fs, err := NewFileStore("../internal/configuration/testdata/invalid_auths_entry_config.json")
 	if err != nil {
 		t.Fatal("NewFileStore() error =", err)
 	}
@@ -192,25 +192,25 @@ func TestFileStore_Get_invalidConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          properties.Credential
 		wantErr       bool
 	}{
 		{
 			name:          "Invalid auth encode",
 			serverAddress: "registry1.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       true,
 		},
 		{
 			name:          "Invalid auths format",
 			serverAddress: "registry2.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       true,
 		},
 		{
 			name:          "Invalid type",
 			serverAddress: "registry3.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       true,
 		},
 	}
@@ -230,7 +230,7 @@ func TestFileStore_Get_invalidConfig(t *testing.T) {
 
 func TestFileStore_Get_emptyConfig(t *testing.T) {
 	ctx := context.Background()
-	fs, err := NewFileStore("testdata/empty_config.json")
+	fs, err := NewFileStore("../internal/configuration/testdata/empty.json")
 	if err != nil {
 		t.Fatal("NewFileStore() error =", err)
 	}
@@ -238,13 +238,13 @@ func TestFileStore_Get_emptyConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          properties.Credential
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       nil,
 		},
 	}
@@ -272,13 +272,13 @@ func TestFileStore_Get_notExistConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          properties.Credential
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          auth.EmptyCredential,
+			want:          EmptyCredential,
 			wantErr:       nil,
 		},
 	}
@@ -307,7 +307,7 @@ func TestFileStore_Put_notExistConfig(t *testing.T) {
 	}
 
 	server := "test.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
@@ -360,7 +360,7 @@ func TestFileStore_Put_addNew(t *testing.T) {
 
 	// prepare test content
 	server1 := "registry1.example.com"
-	cred1 := auth.Credential{
+	cred1 := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
@@ -392,7 +392,7 @@ func TestFileStore_Put_addNew(t *testing.T) {
 		t.Fatal("NewFileStore() error =", err)
 	}
 	server2 := "registry2.example.com"
-	cred2 := auth.Credential{
+	cred2 := properties.Credential{
 		Username:     "username_2",
 		Password:     "password_2",
 		RefreshToken: "refresh_token_2",
@@ -481,7 +481,7 @@ func TestFileStore_Put_updateOld(t *testing.T) {
 	if err != nil {
 		t.Fatal("NewFileStore() error =", err)
 	}
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username:    "username",
 		Password:    "password",
 		AccessToken: "access_token",
@@ -535,7 +535,7 @@ func TestFileStore_Put_disablePut(t *testing.T) {
 	fs.DisablePut = true
 
 	server := "test.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
@@ -557,7 +557,7 @@ func TestFileStore_Put_usernameContainsColon(t *testing.T) {
 		t.Fatal("NewFileStore() error =", err)
 	}
 	serverAddr := "test.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username: "x:y",
 		Password: "z",
 	}
@@ -576,7 +576,7 @@ func TestFileStore_Put_passwordContainsColon(t *testing.T) {
 		t.Fatal("NewFileStore() error =", err)
 	}
 	serverAddr := "test.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username: "y",
 		Password: "y:z",
 	}
@@ -599,14 +599,14 @@ func TestFileStore_Delete(t *testing.T) {
 
 	// prepare test content
 	server1 := "registry1.example.com"
-	cred1 := auth.Credential{
+	cred1 := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
 		AccessToken:  "access_token",
 	}
 	server2 := "registry2.example.com"
-	cred2 := auth.Credential{
+	cred2 := properties.Credential{
 		Username:     "username_2",
 		Password:     "password_2",
 		RefreshToken: "refresh_token_2",
@@ -686,7 +686,7 @@ func TestFileStore_Delete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FileStore.Get() error = %v", err)
 	}
-	if want := auth.EmptyCredential; !reflect.DeepEqual(got, want) {
+	if want := EmptyCredential; !reflect.DeepEqual(got, want) {
 		t.Errorf("FileStore.Get(%s) = %v, want %v", server1, got, want)
 	}
 	got, err = fs.Get(ctx, server2)
@@ -705,7 +705,7 @@ func TestFileStore_Delete_lastConfig(t *testing.T) {
 
 	// prepare test content
 	server := "registry1.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
@@ -771,7 +771,7 @@ func TestFileStore_Delete_lastConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FileStore.Get() error = %v", err)
 	}
-	if want := auth.EmptyCredential; !reflect.DeepEqual(got, want) {
+	if want := EmptyCredential; !reflect.DeepEqual(got, want) {
 		t.Errorf("FileStore.Get(%s) = %v, want %v", server, got, want)
 	}
 }
@@ -783,7 +783,7 @@ func TestFileStore_Delete_notExistRecord(t *testing.T) {
 
 	// prepare test content
 	server := "registry1.example.com"
-	cred := auth.Credential{
+	cred := properties.Credential{
 		Username:     "username",
 		Password:     "password",
 		RefreshToken: "refresh_token",
@@ -881,12 +881,12 @@ func TestFileStore_Delete_notExistConfig(t *testing.T) {
 func Test_validateCredentialFormat(t *testing.T) {
 	tests := []struct {
 		name    string
-		cred    auth.Credential
+		cred    properties.Credential
 		wantErr error
 	}{
 		{
 			name: "Username contains colon",
-			cred: auth.Credential{
+			cred: properties.Credential{
 				Username: "x:y",
 				Password: "z",
 			},
@@ -894,7 +894,7 @@ func Test_validateCredentialFormat(t *testing.T) {
 		},
 		{
 			name: "Password contains colon",
-			cred: auth.Credential{
+			cred: properties.Credential{
 				Username: "x",
 				Password: "y:z",
 			},
