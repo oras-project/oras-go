@@ -56,14 +56,14 @@ type Reference struct {
 	Repository string
 
 	// Reference is the reference of the object in the repository. This field
-	// can take any one of the four valid forms (see ParseReference). In the
+	// can take any one of the four valid forms (see NewReference). In the
 	// case where it's the empty string, it necessarily implies valid form D,
 	// and where it is non-empty, then it is either a tag, or a digest
 	// (implying one of valid forms A, B, or C).
 	Reference string
 }
 
-// ParseReference parses a string (artifact) into an `artifact reference`.
+// NewReference parses a string (artifact) into an `artifact reference`.
 // Corresponding cryptographic hash implementations are required to be imported
 // as specified by https://pkg.go.dev/github.com/opencontainers/go-digest#readme-usage
 // if the string contains a digest.
@@ -116,7 +116,7 @@ type Reference struct {
 //
 // Note: In the case of Valid Form B, TAG is dropped without any validation or
 // further consideration.
-func ParseReference(artifact string) (Reference, error) {
+func NewReference(artifact string) (Reference, error) {
 	parts := strings.SplitN(artifact, "/", 2)
 	if len(parts) == 1 {
 		// Invalid Form
@@ -174,6 +174,13 @@ func ParseReference(artifact string) (Reference, error) {
 	}
 
 	return ref, nil
+}
+
+// ParseReference parses a string (artifact) into an `artifact reference`.
+//
+// Deprecated: Use NewReference instead. ParseReference will be removed in a future release.
+func ParseReference(artifact string) (Reference, error) {
+	return NewReference(artifact)
 }
 
 // Validate the entire reference object; the registry, the repository, and the

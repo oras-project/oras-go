@@ -153,6 +153,57 @@ func TestParseReferenceUglies(t *testing.T) {
 	}
 }
 
+func TestNewReference(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{
+			name:    "valid reference with tag",
+			raw:     "registry.example.com/hello-world:v1",
+			wantErr: false,
+		},
+		{
+			name:    "valid reference with digest",
+			raw:     fmt.Sprintf("registry.example.com/hello-world@%s", ValidDigest),
+			wantErr: false,
+		},
+		{
+			name:    "valid reference without tag or digest",
+			raw:     "localhost/hello-world",
+			wantErr: false,
+		},
+		{
+			name:    "invalid reference",
+			raw:     "hello-world",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test NewReference
+			gotNew, errNew := NewReference(tt.raw)
+			// Test ParseReference (deprecated)
+			gotParse, errParse := ParseReference(tt.raw)
+
+			// Both should return the same result
+			if (errNew != nil) != (errParse != nil) {
+				t.Errorf("NewReference() and ParseReference() error mismatch: NewReference err = %v, ParseReference err = %v", errNew, errParse)
+			}
+
+			if (errNew != nil) != tt.wantErr {
+				t.Errorf("NewReference() error = %v, wantErr %v", errNew, tt.wantErr)
+			}
+
+			if errNew == nil && !reflect.DeepEqual(gotNew, gotParse) {
+				t.Errorf("NewReference() and ParseReference() results differ: NewReference = %v, ParseReference = %v", gotNew, gotParse)
+			}
+		})
+	}
+}
+
 func TestReference_Validate(t *testing.T) {
 	tests := []struct {
 		name      string
