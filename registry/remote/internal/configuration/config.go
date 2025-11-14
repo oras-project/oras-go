@@ -13,11 +13,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package config
+package configuration
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,8 +26,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
-	"github.com/oras-project/oras-go/v3/registry/remote/credentials/internal/ioutil"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/ioutil"
 )
 
 const (
@@ -43,51 +41,6 @@ const (
 
 // ErrInvalidConfigFormat is returned when the config format is invalid.
 var ErrInvalidConfigFormat = errors.New("invalid config format")
-
-// AuthConfig contains authorization information for connecting to a Registry.
-// References:
-//   - https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/configfile/file.go#L17-L45
-//   - https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/types/authconfig.go#L3-L22
-type AuthConfig struct {
-	// Auth is a base64-encoded string of "{username}:{password}".
-	Auth string `json:"auth,omitempty"`
-	// IdentityToken is used to authenticate the user and get an access token
-	// for the registry.
-	IdentityToken string `json:"identitytoken,omitempty"`
-	// RegistryToken is a bearer token to be sent to a registry.
-	RegistryToken string `json:"registrytoken,omitempty"`
-
-	Username string `json:"username,omitempty"` // legacy field for compatibility
-	Password string `json:"password,omitempty"` // legacy field for compatibility
-}
-
-// NewAuthConfig creates an authConfig based on cred.
-func NewAuthConfig(cred auth.Credential) AuthConfig {
-	return AuthConfig{
-		Auth:          encodeAuth(cred.Username, cred.Password),
-		IdentityToken: cred.RefreshToken,
-		RegistryToken: cred.AccessToken,
-	}
-}
-
-// Credential returns an auth.Credential based on ac.
-func (ac AuthConfig) Credential() (auth.Credential, error) {
-	cred := auth.Credential{
-		Username:     ac.Username,
-		Password:     ac.Password,
-		RefreshToken: ac.IdentityToken,
-		AccessToken:  ac.RegistryToken,
-	}
-	if ac.Auth != "" {
-		var err error
-		// override username and password
-		cred.Username, cred.Password, err = decodeAuth(ac.Auth)
-		if err != nil {
-			return auth.EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", ErrInvalidConfigFormat, err)
-		}
-	}
-	return cred, nil
-}
 
 // Config represents a docker configuration file.
 // References:
@@ -162,8 +115,8 @@ func Load(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
-// GetAuthConfig returns an auth.Credential for serverAddress.
-func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) {
+// GetAuthConfig returns an AuthConfig for serverAddress.
+func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
@@ -181,22 +134,21 @@ func (cfg *Config) GetCredential(serverAddress string) (auth.Credential, error) 
 			}
 		}
 		if !matched {
-			return auth.EmptyCredential, nil
+			return AuthConfig{}, nil
 		}
 	}
 	var authCfg AuthConfig
 	if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
-		return auth.EmptyCredential, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
+		return AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
 	}
-	return authCfg.Credential()
+	return authCfg, nil
 }
 
-// PutAuthConfig puts cred for serverAddress.
-func (cfg *Config) PutCredential(serverAddress string, cred auth.Credential) error {
+// PutAuthConfig puts authCfg for serverAddress.
+func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
-	authCfg := NewAuthConfig(cred)
 	authCfgBytes, err := json.Marshal(authCfg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal auth field: %w", err)
@@ -206,7 +158,7 @@ func (cfg *Config) PutCredential(serverAddress string, cred auth.Credential) err
 }
 
 // DeleteAuthConfig deletes the corresponding credential for serverAddress.
-func (cfg *Config) DeleteCredential(serverAddress string) error {
+func (cfg *Config) DeleteAuthConfig(serverAddress string) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
@@ -298,32 +250,6 @@ func (cfg *Config) saveFile() (returnErr error) {
 		return fmt.Errorf("failed to save config file: %w", err)
 	}
 	return nil
-}
-
-// encodeAuth base64-encodes username and password into base64(username:password).
-func encodeAuth(username, password string) string {
-	if username == "" && password == "" {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-}
-
-// decodeAuth decodes a base64 encoded string and returns username and password.
-func decodeAuth(authStr string) (username string, password string, err error) {
-	if authStr == "" {
-		return "", "", nil
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(authStr)
-	if err != nil {
-		return "", "", err
-	}
-	decodedStr := string(decoded)
-	username, password, ok := strings.Cut(decodedStr, ":")
-	if !ok {
-		return "", "", fmt.Errorf("auth '%s' does not conform the base64(username:password) format", decodedStr)
-	}
-	return username, password, nil
 }
 
 // ToHostname normalizes a server address to just its hostname, removing
