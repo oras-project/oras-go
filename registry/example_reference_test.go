@@ -22,8 +22,34 @@ import (
 	"oras.land/oras-go/v2/registry"
 )
 
+// ExampleNewReference_digest demonstrates parsing a reference string with
+// digest and print its components.
+func ExampleNewReference_digest() {
+	rawRef := "ghcr.io/oras-project/oras-go@sha256:601d05a48832e7946dab8f49b14953549bebf42e42f4d7973b1a5a287d77ab76"
+	ref, err := registry.NewReference(rawRef)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Registry:", ref.Registry)
+	fmt.Println("Repository:", ref.Repository)
+
+	digest, err := ref.Digest()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Digest:", digest)
+
+	// Output:
+	// Registry: ghcr.io
+	// Repository: oras-project/oras-go
+	// Digest: sha256:601d05a48832e7946dab8f49b14953549bebf42e42f4d7973b1a5a287d77ab76
+}
+
 // ExampleParseReference_digest demonstrates parsing a reference string with
 // digest and print its components.
+//
+// Deprecated: Use ExampleNewReference_digest instead.
 func ExampleParseReference_digest() {
 	rawRef := "ghcr.io/oras-project/oras-go@sha256:601d05a48832e7946dab8f49b14953549bebf42e42f4d7973b1a5a287d77ab76"
 	ref, err := registry.ParseReference(rawRef)
