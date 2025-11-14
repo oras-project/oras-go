@@ -36,24 +36,28 @@ func TestParseReferenceGoodies(t *testing.T) {
 			name:  "digest reference (valid form A)",
 			image: fmt.Sprintf("hello-world@%s", ValidDigest),
 			wantTemplate: Reference{
-				Repository: "hello-world",
-				Reference:  ValidDigest,
+				Repository:   "hello-world",
+				Reference:    ValidDigest,
+				DigestString: ValidDigest,
 			},
 		},
 		{
 			name:  "tag with digest (valid form B)",
 			image: fmt.Sprintf("hello-world:v2@%s", ValidDigest),
 			wantTemplate: Reference{
-				Repository: "hello-world",
-				Reference:  ValidDigest,
+				Repository:   "hello-world",
+				Reference:    ValidDigest,
+				Tag:          "v2",
+				DigestString: ValidDigest,
 			},
 		},
 		{
 			name:  "empty tag with digest (valid form B)",
 			image: fmt.Sprintf("hello-world:@%s", ValidDigest),
 			wantTemplate: Reference{
-				Repository: "hello-world",
-				Reference:  ValidDigest,
+				Repository:   "hello-world",
+				Reference:    ValidDigest,
+				DigestString: ValidDigest,
 			},
 		},
 		{
@@ -62,6 +66,7 @@ func TestParseReferenceGoodies(t *testing.T) {
 			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  "v1",
+				Tag:        "v1",
 			},
 		},
 		{
@@ -346,6 +351,96 @@ func TestReference_String(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.reference.String(); got != tt.want {
 				t.Errorf("Reference.String() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseReference_FormB_TagAndDigest(t *testing.T) {
+	// Test Form B: repository:tag@digest
+	// Validates that both tag and digest are captured correctly
+	tests := []struct {
+		name         string
+		artifact     string
+		wantRegistry string
+		wantRepo     string
+		wantTag      string
+		wantDigest   string
+		wantRef      string
+	}{
+		{
+			name:         "tag with digest",
+			artifact:     fmt.Sprintf("localhost/hello-world:v2@%s", ValidDigest),
+			wantRegistry: "localhost",
+			wantRepo:     "hello-world",
+			wantTag:      "v2",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+		{
+			name:         "tag with digest - different tag",
+			artifact:     fmt.Sprintf("registry.example.com/myapp:1.0.0@%s", ValidDigest),
+			wantRegistry: "registry.example.com",
+			wantRepo:     "myapp",
+			wantTag:      "1.0.0",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+		{
+			name:         "tag with digest - complex tag",
+			artifact:     fmt.Sprintf("localhost:5000/org/repo:v1.2.3-alpha@%s", ValidDigest),
+			wantRegistry: "localhost:5000",
+			wantRepo:     "org/repo",
+			wantTag:      "v1.2.3-alpha",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+		{
+			name:         "empty tag with digest",
+			artifact:     fmt.Sprintf("localhost/hello-world:@%s", ValidDigest),
+			wantRegistry: "localhost",
+			wantRepo:     "hello-world",
+			wantTag:      "",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseReference(tt.artifact)
+			if err != nil {
+				t.Fatalf("ParseReference() unexpected error: %v", err)
+			}
+
+			// Validate Registry
+			if got.Registry != tt.wantRegistry {
+				t.Errorf("Registry = %q, want %q", got.Registry, tt.wantRegistry)
+			}
+
+			// Validate Repository
+			if got.Repository != tt.wantRepo {
+				t.Errorf("Repository = %q, want %q", got.Repository, tt.wantRepo)
+			}
+
+			// Validate Tag field
+			if got.Tag != tt.wantTag {
+				t.Errorf("Tag = %q, want %q", got.Tag, tt.wantTag)
+			}
+
+			// Validate DigestString field
+			if got.DigestString != tt.wantDigest {
+				t.Errorf("DigestString = %q, want %q", got.DigestString, tt.wantDigest)
+			}
+
+			// Validate Reference field (should be digest for Form B)
+			if got.Reference != tt.wantRef {
+				t.Errorf("Reference = %q, want %q", got.Reference, tt.wantRef)
+			}
+
+			// Validate GetReference() method
+			if got.GetReference() != tt.wantRef {
+				t.Errorf("GetReference() = %q, want %q", got.GetReference(), tt.wantRef)
 			}
 		})
 	}

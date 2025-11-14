@@ -60,7 +60,18 @@ type Reference struct {
 	// case where it's the empty string, it necessarily implies valid form D,
 	// and where it is non-empty, then it is either a tag, or a digest
 	// (implying one of valid forms A, B, or C).
+	//
+	// Deprecated: Use GetReference() method instead to retrieve the reference string.
+	// For specific access to tag or digest values, use the Tag or DigestString fields.
 	Reference string
+
+	// Tag is the tag of the object in the repository, if a tag was provided.
+	// This field is empty if the reference is a digest or if no reference was provided.
+	Tag string
+
+	// DigestString is the digest of the object in the repository, if a digest was provided.
+	// This field is empty if the reference is a tag or if no reference was provided.
+	DigestString string
 }
 
 // ParseReference parses a string (artifact) into an `artifact reference`.
@@ -110,12 +121,12 @@ type Reference struct {
 //	<--- path --------------------------------------------> |  - Decode `path`
 //	<=== REPOSITORY ===> <--- reference ------------------> |    - Decode `reference`
 //	<=== REPOSITORY ===> @ <=================== digest ===> |      - Valid Form A
-//	<=== REPOSITORY ===> : <!!! TAG !!!> @ <=== digest ===> |      - Valid Form B (tag is dropped)
+//	<=== REPOSITORY ===> : <=== TAG ===> @ <=== digest ===> |      - Valid Form B
 //	<=== REPOSITORY ===> : <=== TAG ======================> |      - Valid Form C
 //	<=== REPOSITORY ======================================> |    - Valid Form D
 //
-// Note: In the case of Valid Form B, TAG is dropped without any validation or
-// further consideration.
+// Note: In the case of Valid Form B, the digest takes precedence in the Reference
+// field, but the TAG is captured and stored in the Tag field.
 func ParseReference(artifact string) (Reference, error) {
 	parts := strings.SplitN(artifact, "/", 2)
 	if len(parts) == 1 {
@@ -127,6 +138,7 @@ func ParseReference(artifact string) (Reference, error) {
 	var isTag bool
 	var repository string
 	var reference string
+	var tag string // Holds the tag from Form B (tag with digest)
 	if index := strings.Index(path, "@"); index != -1 {
 		// `digest` found; Valid Form A (if not B)
 		isTag = false
@@ -134,8 +146,9 @@ func ParseReference(artifact string) (Reference, error) {
 		reference = path[index+1:]
 
 		if index = strings.Index(repository, ":"); index != -1 {
-			// `tag` found (and now dropped without validation) since `the
-			// `digest` already present; Valid Form B
+			// `tag` found since `digest` already present; Valid Form B
+			// Extract and save the tag before removing it from repository
+			tag = repository[index+1:]
 			repository = repository[:index]
 		}
 	} else if index = strings.Index(path, ":"); index != -1 {
@@ -151,6 +164,19 @@ func ParseReference(artifact string) (Reference, error) {
 		Registry:   registry,
 		Repository: repository,
 		Reference:  reference,
+	}
+
+	// Populate Tag or DigestString field based on the reference type
+	if len(reference) > 0 {
+		if isTag {
+			ref.Tag = reference
+		} else {
+			ref.DigestString = reference
+		}
+	}
+	// For Form B, also populate the Tag field with the captured tag
+	if len(tag) > 0 {
+		ref.Tag = tag
 	}
 
 	if err := ref.ValidateRegistry(); err != nil {
@@ -257,6 +283,12 @@ func (r Reference) ReferenceOrDefault() string {
 // as specified by https://pkg.go.dev/github.com/opencontainers/go-digest#readme-usage
 func (r Reference) Digest() (digest.Digest, error) {
 	return digest.Parse(r.Reference)
+}
+
+// GetReference returns the reference string (either a tag or a digest).
+// This method should be used instead of directly accessing the deprecated Reference field.
+func (r Reference) GetReference() string {
+	return r.Reference
 }
 
 // String implements `fmt.Stringer` and returns the reference string.
