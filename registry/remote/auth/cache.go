@@ -56,7 +56,7 @@ type Cache interface {
 // cacheEntry is a cache entry for a single registry.
 type cacheEntry struct {
 	scheme Scheme
-	tokens sync.Map // map[string]string
+	tokens sync.Map // map[string]*tokenEntry
 }
 
 // concurrentCache is a cache suitable for concurrent invocation.
@@ -80,7 +80,8 @@ func (cc *concurrentCache) GetScheme(ctx context.Context, registry string) (Sche
 }
 
 // GetToken returns the auth-token part cached for the given registry of a given
-// scheme.
+// scheme. It automatically checks token expiration and removes expired tokens
+// from the cache.
 func (cc *concurrentCache) GetToken(ctx context.Context, registry string, scheme Scheme, key string) (string, error) {
 	entryValue, ok := cc.cache.Load(registry)
 	if !ok {
@@ -90,8 +91,13 @@ func (cc *concurrentCache) GetToken(ctx context.Context, registry string, scheme
 	if entry.scheme != scheme {
 		return "", errdef.ErrNotFound
 	}
-	if token, ok := entry.tokens.Load(key); ok {
-		return token.(string), nil
+	if tokenValue, ok := entry.tokens.Load(key); ok {
+		te := tokenValue.(*tokenEntry)
+		if te.isExpired() {
+			entry.tokens.CompareAndDelete(key, tokenValue)
+			return "", errdef.ErrNotFound
+		}
+		return te.token, nil
 	}
 	return "", errdef.ErrNotFound
 }
@@ -123,7 +129,7 @@ func (cc *concurrentCache) Set(ctx context.Context, registry string, scheme Sche
 		return token, nil
 	}
 
-	// cache token
+	// cache token with expiration
 	newEntry := &cacheEntry{
 		scheme: scheme,
 	}
@@ -135,7 +141,7 @@ func (cc *concurrentCache) Set(ctx context.Context, registry string, scheme Sche
 		entry = newEntry
 		cc.cache.Store(registry, entry)
 	}
-	entry.tokens.Store(key, token)
+	entry.tokens.Store(key, newTokenEntry(token))
 
 	return token, nil
 }
