@@ -117,36 +117,12 @@ type Reference struct {
 // Note: In the case of Valid Form B, TAG is dropped without any validation or
 // further consideration.
 func ParseReference(artifact string) (Reference, error) {
-	parts := strings.SplitN(artifact, "/", 2)
-	if len(parts) == 1 {
-		// Invalid Form
+	registry, path := splitRegistry(artifact)
+	if path == "" {
 		return Reference{}, fmt.Errorf("%w: missing registry or repository", errdef.ErrInvalidReference)
 	}
-	registry, path := parts[0], parts[1]
 
-	var isTag bool
-	var repository string
-	var reference string
-	if index := strings.Index(path, "@"); index != -1 {
-		// `digest` found; Valid Form A (if not B)
-		isTag = false
-		repository = path[:index]
-		reference = path[index+1:]
-
-		if index = strings.Index(repository, ":"); index != -1 {
-			// `tag` found (and now dropped without validation) since `the
-			// `digest` already present; Valid Form B
-			repository = repository[:index]
-		}
-	} else if index = strings.Index(path, ":"); index != -1 {
-		// `tag` found; Valid Form C
-		isTag = true
-		repository = path[:index]
-		reference = path[index+1:]
-	} else {
-		// empty `reference`; Valid Form D
-		repository = path
-	}
+	repository, reference, isTag := splitRepository(path)
 	ref := Reference{
 		Registry:   registry,
 		Repository: repository,
@@ -174,6 +150,38 @@ func ParseReference(artifact string) (Reference, error) {
 	}
 
 	return ref, nil
+}
+
+func splitRepository(path string) (repository, reference string, isTag bool) {
+	if index := strings.Index(path, "@"); index != -1 {
+		// `digest` found; Valid Form A (if not B)
+		isTag = false
+		repository = path[:index]
+		reference = path[index+1:]
+
+		if index = strings.Index(repository, ":"); index != -1 {
+			// `tag` found (and now dropped without validation) since `the
+			// `digest` already present; Valid Form B
+			repository = repository[:index]
+		}
+	} else if index = strings.Index(path, ":"); index != -1 {
+		// `tag` found; Valid Form C
+		isTag = true
+		repository = path[:index]
+		reference = path[index+1:]
+	} else {
+		// empty `reference`; Valid Form D
+		repository = path
+	}
+	return repository, reference, isTag
+}
+
+func splitRegistry(artifact string) (string, string) {
+	parts := strings.SplitN(artifact, "/", 2)
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return parts[0], parts[1]
 }
 
 // Validate the entire reference object; the registry, the repository, and the
@@ -222,7 +230,7 @@ func (r Reference) ValidateReferenceAsDigest() error {
 	return nil
 }
 
-// ValidateReference where the reference is first tried as an ampty string, then
+// ValidateReference where the reference is first tried as an empty string, then
 // as a digest, and if that fails, as a tag.
 func (r Reference) ValidateReference() error {
 	if len(r.Reference) == 0 {
