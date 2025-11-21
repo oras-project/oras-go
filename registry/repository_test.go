@@ -27,12 +27,12 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/content/memory"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/container/set"
+	"github.com/oras-project/oras-go/v3/internal/docker"
+	"github.com/oras-project/oras-go/v3/internal/spec"
 	"golang.org/x/sync/errgroup"
-	"oras.land/oras-go/v2/content/memory"
-	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/container/set"
-	"oras.land/oras-go/v2/internal/docker"
-	"oras.land/oras-go/v2/internal/spec"
 )
 
 var ErrBadFetch = errors.New("bad fetch error")

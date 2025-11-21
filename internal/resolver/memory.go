@@ -23,8 +23,8 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/container/set"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/container/set"
 )
 
 // Memory is a memory based resolver.

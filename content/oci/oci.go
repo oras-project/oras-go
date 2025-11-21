@@ -32,14 +32,14 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/container/set"
-	"oras.land/oras-go/v2/internal/descriptor"
-	"oras.land/oras-go/v2/internal/graph"
-	"oras.land/oras-go/v2/internal/manifestutil"
-	"oras.land/oras-go/v2/internal/resolver"
-	"oras.land/oras-go/v2/registry"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/container/set"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
+	"github.com/oras-project/oras-go/v3/internal/graph"
+	"github.com/oras-project/oras-go/v3/internal/manifestutil"
+	"github.com/oras-project/oras-go/v3/internal/resolver"
+	"github.com/oras-project/oras-go/v3/registry"
 )
 
 // Store implements `oras.Target`, and represents a content store

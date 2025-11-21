@@ -25,7 +25,7 @@ import (
 	"os"
 	"os/exec"
 
-	"oras.land/oras-go/v2/registry/remote/credentials/trace"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials/trace"
 )
 
 // dockerDesktopHelperName is the name of the docker credentials helper

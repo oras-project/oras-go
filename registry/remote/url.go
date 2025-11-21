@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/opencontainers/go-digest"
-	"oras.land/oras-go/v2/registry"
+	"github.com/oras-project/oras-go/v3/registry"
 )
 
 // buildScheme returns HTTP scheme used to access the remote registry.

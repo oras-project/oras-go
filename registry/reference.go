@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"github.com/opencontainers/go-digest"
-	"oras.land/oras-go/v2/errdef"
+	"github.com/oras-project/oras-go/v3/errdef"
 )
 
 // regular expressions for components.

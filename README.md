@@ -26,7 +26,7 @@ Follow the step-by-step tutorial to use `oras-go` v2:
 
 ### Examples
 
-Check out sample code for common use cases:
+Check out sample code for common use cases of `oras-go` v2:
 
 - [Artifact copying](https://pkg.go.dev/oras.land/oras-go/v2#pkg-examples)
 - [Registry operations](https://pkg.go.dev/oras.land/oras-go/v2/registry#pkg-examples)

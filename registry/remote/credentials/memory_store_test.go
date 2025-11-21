@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 )
 
 func TestMemoryStore_Get_notExistRecord(t *testing.T) {

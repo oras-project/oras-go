@@ -32,13 +32,13 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/content/memory"
+	"github.com/oras-project/oras-go/v3/internal/docker"
+	"github.com/oras-project/oras-go/v3/internal/spec"
+	"github.com/oras-project/oras-go/v3/registry"
 	"golang.org/x/sync/errgroup"
-	"oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/content/memory"
-	"oras.land/oras-go/v2/internal/docker"
-	"oras.land/oras-go/v2/internal/spec"
-	"oras.land/oras-go/v2/registry"
 )
 
 func TestReadonlyStoreInterface(t *testing.T) {

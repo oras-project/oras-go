@@ -25,7 +25,7 @@ import (
 	"testing"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2"
+	"github.com/oras-project/oras-go/v3"
 )
 
 // Related issue: https://github.com/oras-project/oras-go/issues/402

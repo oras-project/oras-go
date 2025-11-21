@@ -23,8 +23,8 @@ import (
 	"reflect"
 	"testing"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/config/configtest"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials/internal/config/configtest"
 )
 
 func TestLoad_badPath(t *testing.T) {

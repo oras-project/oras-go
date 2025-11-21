@@ -28,12 +28,12 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/graph"
-	"oras.land/oras-go/v2/internal/ioutil"
-	"oras.land/oras-go/v2/internal/resolver"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/cas"
+	"github.com/oras-project/oras-go/v3/internal/graph"
+	"github.com/oras-project/oras-go/v3/internal/ioutil"
+	"github.com/oras-project/oras-go/v3/internal/resolver"
 )
 
 // bufPool is a pool of byte buffers that can be reused for copying content

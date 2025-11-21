@@ -19,7 +19,7 @@ import (
 	_ "crypto/sha256" // required to parse sha256 digest. See [Reference.Digest]
 	"fmt"
 
-	"oras.land/oras-go/v2/registry"
+	"github.com/oras-project/oras-go/v3/registry"
 )
 
 // ExampleParseReference_digest demonstrates parsing a reference string with

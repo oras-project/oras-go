@@ -15,7 +15,7 @@ limitations under the License.
 
 package oras
 
-import "oras.land/oras-go/v2/content"
+import "github.com/oras-project/oras-go/v3/content"
 
 // Target is a CAS with generic tags.
 type Target interface {

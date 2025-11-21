@@ -25,7 +25,7 @@ import (
 	"path"
 	"path/filepath"
 
-	"oras.land/oras-go/v2/errdef"
+	"github.com/oras-project/oras-go/v3/errdef"
 )
 
 // blockSize is the size of each block in a tar archive.

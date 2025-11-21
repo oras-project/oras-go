@@ -29,9 +29,9 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/registryutil"
-	"oras.land/oras-go/v2/registry/remote"
+	"github.com/oras-project/oras-go/v3/internal/cas"
+	"github.com/oras-project/oras-go/v3/internal/registryutil"
+	"github.com/oras-project/oras-go/v3/registry/remote"
 )
 
 func TestProxy_FetchReference(t *testing.T) {

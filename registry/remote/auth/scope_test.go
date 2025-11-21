@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	"oras.land/oras-go/v2/registry"
+	"github.com/oras-project/oras-go/v3/registry"
 )
 
 func TestScopeRepository(t *testing.T) {

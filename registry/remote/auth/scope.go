@@ -20,7 +20,7 @@ import (
 	"slices"
 	"strings"
 
-	"oras.land/oras-go/v2/registry"
+	"github.com/oras-project/oras-go/v3/registry"
 )
 
 // Actions used in scopes.

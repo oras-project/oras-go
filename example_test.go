@@ -20,13 +20,13 @@ import (
 	"fmt"
 
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
-	oras "oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/content/file"
-	"oras.land/oras-go/v2/content/oci"
-	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials"
-	"oras.land/oras-go/v2/registry/remote/retry"
+	oras "github.com/oras-project/oras-go/v3"
+	"github.com/oras-project/oras-go/v3/content/file"
+	"github.com/oras-project/oras-go/v3/content/oci"
+	"github.com/oras-project/oras-go/v3/registry/remote"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/retry"
 )
 
 // ExamplePullFilesFromRemoteRepository gives an example of pulling files from

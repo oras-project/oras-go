@@ -22,8 +22,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials/internal/executer"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials/internal/executer"
 )
 
 const (

@@ -21,7 +21,7 @@ import (
 	"io"
 	"net/http"
 
-	"oras.land/oras-go/v2/registry/remote/errcode"
+	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
 )
 
 // maxErrorBytes specifies the default limit on how many response bytes are

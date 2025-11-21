@@ -25,8 +25,8 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/descriptor"
+	"github.com/oras-project/oras-go/v3/internal/cas"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
 )
 
 // +------------------------------+

@@ -20,8 +20,8 @@ import (
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/internal/docker"
-	"oras.land/oras-go/v2/internal/spec"
+	"github.com/oras-project/oras-go/v3/internal/docker"
+	"github.com/oras-project/oras-go/v3/internal/spec"
 )
 
 // defaultManifestMediaTypes contains the default set of manifests media types.
