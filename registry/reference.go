@@ -152,28 +152,29 @@ func ParseReference(artifact string) (Reference, error) {
 	return ref, nil
 }
 
-func splitRepository(path string) (repository, reference string, isTag bool) {
+// splitRepository splits the path into repository and reference, indicating
+// whether the reference is a tag or not.
+func splitRepository(path string) (string, string, bool) {
 	if index := strings.Index(path, "@"); index != -1 {
 		// `digest` found; Valid Form A (if not B)
-		isTag = false
-		repository = path[:index]
-		reference = path[index+1:]
+		repository := path[:index]
+		reference := path[index+1:]
 
 		if index = strings.Index(repository, ":"); index != -1 {
 			// `tag` found (and now dropped without validation) since `the
 			// `digest` already present; Valid Form B
 			repository = repository[:index]
 		}
-	} else if index = strings.Index(path, ":"); index != -1 {
-		// `tag` found; Valid Form C
-		isTag = true
-		repository = path[:index]
-		reference = path[index+1:]
-	} else {
-		// empty `reference`; Valid Form D
-		repository = path
+		return repository, reference, false
 	}
-	return repository, reference, isTag
+
+	if index = strings.Index(path, ":"); index != -1 {
+		// `tag` found; Valid Form C
+		return path[:index], path[index+1:], true
+	}
+
+	// empty `reference`; Valid Form D
+	return path, "", false
 }
 
 func splitRegistry(artifact string) (string, string) {
