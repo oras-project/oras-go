@@ -161,8 +161,8 @@ func splitRepository(path string) (string, string, bool) {
 		reference := path[index+1:]
 
 		if index = strings.Index(repository, ":"); index != -1 {
-			// `tag` found (and now dropped without validation) since `the
-			// `digest` already present; Valid Form B
+			// `tag` found (and now dropped without validation) since the
+			// digest is already present; Valid Form B
 			repository = repository[:index]
 		}
 		return repository, reference, false
