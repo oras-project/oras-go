@@ -168,7 +168,7 @@ func splitRepository(path string) (string, string, bool) {
 		return repository, reference, false
 	}
 
-	if index = strings.Index(path, ":"); index != -1 {
+	if index := strings.Index(path, ":"); index != -1 {
 		// `tag` found; Valid Form C
 		return path[:index], path[index+1:], true
 	}
