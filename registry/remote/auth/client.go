@@ -125,6 +125,17 @@ type Client struct {
 	// instead of OAuth2 with password grant when authenticating using
 	// username and password.
 	// Default is false (OAuth2 is used).
+	//
+	// When legacyMode is true, the client uses the legacy distribution spec for
+	// authentication. If the registry says it supports bearer authentication,
+	// basic authentication will be performed unless there are no credentials
+	// or a refresh token is provided. This is the approach used in oras-go
+	// v1 and v2.
+	//
+	// When legacyMode is false (default), the client uses OAuth2 with password
+	// grant.  If the registry says it supports bearer authentication, bearer
+	// authentication will be performed.
+	//
 	// References:
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
@@ -178,8 +189,14 @@ func (c *Client) SetUserAgent(userAgent string) {
 // and password.
 //
 // When legacy is true, the client uses the legacy distribution spec for
-// authentication. When legacy is false (default), the client uses OAuth2
-// with password grant.
+// authentication. If the registry says it supports bearer authentication,
+// basic authentication will be performed unless there are no credentials
+// or a refresh token is provided. This is the approach used in oras-go
+// v1 and v2.
+//
+// When legacy is false (default), the client uses OAuth2 with password
+// grant.  If the registry says it supports bearer authentication, bearer
+// authentication will be performed.
 //
 // References:
 //   - https://distribution.github.io/distribution/spec/auth/jwt/
