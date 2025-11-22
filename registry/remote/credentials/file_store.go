@@ -67,7 +67,7 @@ func (fs *FileStore) Get(_ context.Context, serverAddress string) (Credential, e
 	if err != nil {
 		return EmptyCredential, err
 	}
-	return NewCredential(authCfg)
+	return authCfg.Credential()
 }
 
 // Put saves credentials into the store for the given server address.
