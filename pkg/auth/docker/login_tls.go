@@ -28,17 +28,17 @@ import (
 	"github.com/docker/distribution/registry/api/errcode"
 	"github.com/docker/distribution/registry/client/auth"
 	"github.com/docker/distribution/registry/client/transport"
-	apiregistry "github.com/docker/docker/api/types/registry"
-	"github.com/docker/docker/errdefs"
-	"github.com/docker/docker/registry"
 	"github.com/docker/go-connections/tlsconfig"
+	apiregistry "github.com/moby/moby/api/types/registry"
+	"github.com/moby/moby/v2/daemon/pkg/registry"
+	"github.com/moby/moby/v2/errdefs"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
-// The following functions are adapted from github.com/docker/docker/registry
+// The following functions are adapted from github.com/moby/moby/v2/daemon/pkg/registry
 // We need these to support passing in a transport that has custom TLS configuration
-// They are not exposed in the docker/registry package that's why they are copied here
+// They are not exposed in the registry package that's why they are copied here
 
 type loginCredentialStore struct {
 	authConfig *apiregistry.AuthConfig

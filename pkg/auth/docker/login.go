@@ -19,8 +19,8 @@ import (
 	"context"
 
 	ctypes "github.com/docker/cli/cli/config/types"
-	apiregistry "github.com/docker/docker/api/types/registry"
-	"github.com/docker/docker/registry"
+	apiregistry "github.com/moby/moby/api/types/registry"
+	"github.com/moby/moby/v2/daemon/pkg/registry"
 
 	iface "oras.land/oras-go/pkg/auth"
 )
@@ -85,7 +85,7 @@ func (c *Client) login(settings *iface.LoginSettings) error {
 	if (settings.CertFile != "" && settings.KeyFile != "") || settings.CAFile != "" {
 		_, token, err = c.loginWithTLS(ctx, remote, settings.CertFile, settings.KeyFile, settings.CAFile, &cred, userAgent)
 	} else {
-		_, token, err = remote.Auth(ctx, &cred, userAgent)
+		token, err = remote.Auth(ctx, &cred, userAgent)
 	}
 
 	if err != nil {

@@ -22,7 +22,7 @@ import (
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
 	ctypes "github.com/docker/cli/cli/config/types"
-	"github.com/docker/docker/registry"
+	"github.com/moby/moby/v2/daemon/pkg/registry"
 
 	iface "oras.land/oras-go/pkg/auth"
 )
