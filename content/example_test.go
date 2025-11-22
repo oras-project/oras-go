@@ -23,7 +23,7 @@ import (
 	_ "crypto/sha256"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
+	"github.com/oras-project/oras-go/v3/content"
 )
 
 // ExampleVerifyReader gives an example of creating and using VerifyReader.

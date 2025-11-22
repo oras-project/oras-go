@@ -29,8 +29,8 @@ import (
 	"strings"
 	"testing"
 
-	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/registry"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/registry"
 )
 
 func TestRegistryInterface(t *testing.T) {

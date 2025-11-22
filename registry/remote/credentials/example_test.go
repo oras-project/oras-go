@@ -18,9 +18,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/auth"
-	credentials "oras.land/oras-go/v2/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	credentials "github.com/oras-project/oras-go/v3/registry/remote/credentials"
 )
 
 func ExampleNewNativeStore() {

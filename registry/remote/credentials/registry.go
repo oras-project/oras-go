@@ -20,8 +20,8 @@ import (
 	"errors"
 	"fmt"
 
-	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 )
 
 // ErrClientTypeUnsupported is thrown by Login() when the registry's client type

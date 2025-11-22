@@ -23,15 +23,15 @@ import (
 	"io"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/cas"
-	"oras.land/oras-go/v2/internal/docker"
-	"oras.land/oras-go/v2/internal/interfaces"
-	"oras.land/oras-go/v2/internal/platform"
-	"oras.land/oras-go/v2/internal/syncutil"
-	"oras.land/oras-go/v2/registry"
-	"oras.land/oras-go/v2/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/cas"
+	"github.com/oras-project/oras-go/v3/internal/docker"
+	"github.com/oras-project/oras-go/v3/internal/interfaces"
+	"github.com/oras-project/oras-go/v3/internal/platform"
+	"github.com/oras-project/oras-go/v3/internal/syncutil"
+	"github.com/oras-project/oras-go/v3/registry"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 )
 
 const (

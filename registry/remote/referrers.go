@@ -21,8 +21,8 @@ import (
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/internal/descriptor"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
 )
 
 // zeroDigest represents a digest that consists of zeros. zeroDigest is used

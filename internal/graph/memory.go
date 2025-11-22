@@ -22,12 +22,12 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/container/set"
-	"oras.land/oras-go/v2/internal/descriptor"
-	"oras.land/oras-go/v2/internal/status"
-	"oras.land/oras-go/v2/internal/syncutil"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/container/set"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
+	"github.com/oras-project/oras-go/v3/internal/status"
+	"github.com/oras-project/oras-go/v3/internal/syncutil"
 )
 
 // Memory is a memory based PredecessorFinder.

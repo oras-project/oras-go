@@ -24,10 +24,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/registry"
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/internal/errutil"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/registry"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 )
 
 // RepositoryOptions is an alias of Repository to avoid name conflicts.

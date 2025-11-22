@@ -17,9 +17,9 @@ import (
 	"context"
 	"fmt"
 
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials"
-	"oras.land/oras-go/v2/registry/remote/credentials/trace"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials/trace"
 )
 
 // An example on how to use ExecutableTrace with Stores.

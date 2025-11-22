@@ -28,8 +28,8 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"golang.org/x/sync/errgroup"
-	"oras.land/oras-go/v2/errdef"
 )
 
 func TestStorage_Success(t *testing.T) {

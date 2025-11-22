@@ -20,8 +20,8 @@ import (
 	"strings"
 	"sync"
 
-	"oras.land/oras-go/v2/errdef"
-	"oras.land/oras-go/v2/internal/syncutil"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/syncutil"
 )
 
 // DefaultCache is the sharable cache used by DefaultClient.
