@@ -9,8 +9,7 @@ require (
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/go-connections v0.6.0
 	github.com/moby/moby/api v1.52.0
-	// moby v29.0.2 - using commit SHA because docker-v29.0.2 tag is not a valid Go module version
-	github.com/moby/moby/v2 v2.0.0-20251116162601-e9ff10bf365a
+	github.com/moby/moby/v2 v2.0.0-beta.3
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/phayes/freeport v0.0.0-20220201140144-74d24b5ae9f5
