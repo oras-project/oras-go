@@ -25,7 +25,7 @@ An example of a descriptor for an [OCI Image Manifest](https://github.com/openco
 
 ### Storage
 
-The [`Storage`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/content#Storage) interface represents a content-addressable storage (CAS) where content is accessed via descriptors. It provides the following functions:
+The [`Storage`](https://pkg.go.dev/oras.land/oras-go/v2/content#Storage) interface represents a content-addressable storage (CAS) where content is accessed via descriptors. It provides the following functions:
 
 - `Fetch`: Retrieves the content identified by the descriptor from the CAS.
 - `Exists`: Checks whether the described content is present in the CAS.
@@ -63,7 +63,7 @@ Blob3["Blob b3"]
 
 ### GraphStorage
 
-The [`GraphStorage`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/content#GraphStorage) interface extends [`Storage`](#storage) by adding support for predecessor finding. It provides the following functions:
+The [`GraphStorage`](https://pkg.go.dev/oras.land/oras-go/v2/content#GraphStorage) interface extends [`Storage`](#storage) by adding support for predecessor finding. It provides the following functions:
 
 - `Fetch`
 - `Exists`
@@ -79,7 +79,7 @@ Predecessors(m0) == []
 
 ### Target
 
-The [`Target`](https://pkg.go.dev/github.com/oras-project/oras-go/v3#Target) interface represents a CAS with tagging capability. It provides the following functions:
+The [`Target`](https://pkg.go.dev/oras.land/oras-go/v2#Target) interface represents a CAS with tagging capability. It provides the following functions:
 
 - `Fetch`
 - `Exists`
@@ -141,7 +141,7 @@ TagBar>"Tag: bar"]-.->M1
 
 ### GraphTarget
 
-The [`GraphTarget`](https://pkg.go.dev/github.com/oras-project/oras-go/v3#GraphTarget) interface combines the capabilities of [`GraphStorage`](#graphstorage) and [`Target`](#target). It provides the following functions:
+The [`GraphTarget`](https://pkg.go.dev/oras.land/oras-go/v2#GraphTarget) interface combines the capabilities of [`GraphStorage`](#graphstorage) and [`Target`](#target). It provides the following functions:
 
 - `Fetch`
 - `Exists`
@@ -163,14 +163,14 @@ The library provides four built-in content stores:
 
 ### Memory Store
 
-The memory store, available in the [`content/memory`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/content/memory) package, stores all content in memory, where each blob's content is mapped to its corresponding descriptor.
+The memory store, available in the [`content/memory`](https://pkg.go.dev/oras.land/oras-go/v2/content/memory) package, stores all content in memory, where each blob's content is mapped to its corresponding descriptor.
 
 > [!TIP]
 > The memory store is often used for building and storing artifacts in memory before copying them to other stores, such as remote repositories.
 
 ### OCI Store
 
-The OCI store, available in the [`content/oci`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/content/oci) package, follows the OCI [`image-spec v1.1.1`](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md) to store blob content on the file system. 
+The OCI store, available in the [`content/oci`](https://pkg.go.dev/oras.land/oras-go/v2/content/oci) package, follows the OCI [`image-spec v1.1.1`](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md) to store blob content on the file system. 
 
 For example, consider an artifact and its signature represented by the following graph:
 
@@ -222,7 +222,7 @@ The OCI Layout offers several advantages:
 
 ### File Store
 
-The file store, available in the [`content/file`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/content/file) package, supports both content-addressable and location-addressable storage. It is designed for packaging arbitrary files or directories and allows adding them directly from the local file system.
+The file store, available in the [`content/file`](https://pkg.go.dev/oras.land/oras-go/v2/content/file) package, supports both content-addressable and location-addressable storage. It is designed for packaging arbitrary files or directories and allows adding them directly from the local file system.
 
 When a file or directory is added, the file store creates a descriptor containing annotations with essential metadata. The process differs depending on whether a file or a directory is added:
 
@@ -280,7 +280,7 @@ Adding the directory `mydir` results in a tar-archived and compressed blob with 
 }
 ```
 
-To create an artifact, a manifest needs to be [packed](https://pkg.go.dev/github.com/oras-project/oras-go/v3#PackManifest) to reference the two blobs and will also be stored in the file store. The manifest content might look like this:
+To create an artifact, a manifest needs to be [packed](https://pkg.go.dev/oras.land/oras-go/v2#PackManifest) to reference the two blobs and will also be stored in the file store. The manifest content might look like this:
 
 ```json
 {
@@ -338,7 +338,7 @@ Unlike the OCI store, the file store only persists named contents (e.g., `hello.
 
 ### Repository Store
 
-The repository store, available in the [`registry/remote`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote) package, communicates with remote artifact repositories using APIs defined in the [OCI distribution-spec v1.1.1](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md).
+The repository store, available in the [`registry/remote`](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) package, communicates with remote artifact repositories using APIs defined in the [OCI distribution-spec v1.1.1](https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md).
 
 Unlike other content stores, the repository store handles manifests and non-manifest blobs separately. This distinction exists because the URI paths for manifests and blobs differ, with manifests accessed via `/v2/<name>/manifests/` and blobs accessed via `/v2/<name>/blobs/`.
 
