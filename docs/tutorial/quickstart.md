@@ -1,6 +1,6 @@
 # Tutorial: Get started with oras-go v2
 
-This tutorial introduces the basics of managing OCI artifacts with the [oras-go v2](https://pkg.go.dev/github.com/oras-project/oras-go/v3) package.
+This tutorial introduces the basics of managing OCI artifacts with the [oras-go v2](https://pkg.go.dev/oras.land/oras-go/v2) package.
 
 You'll get the most out of this tutorial if you have a basic familiarity with Go and its tooling. If this is your first exposure to Go, please see [Tutorial: Get started with Go](https://golang.org/doc/tutorial/getting-started) for a quick introduction.
 
@@ -35,26 +35,26 @@ go: creating new go.mod: quickstart/oras-go-v2
 
 Import the `oras-go v2` package.
 ```console
-$ go get github.com/oras-project/oras-go/v3
+$ go get oras.land/oras-go/v2
 go: added github.com/opencontainers/go-digest v1.0.0
 go: added github.com/opencontainers/image-spec v1.1.0
 go: added golang.org/x/sync v0.6.0
-go: added github.com/oras-project/oras-go/v3 v2.5.0
+go: added oras.land/oras-go/v2 v2.5.0
 ```
 
 In your text editor, create a file `main.go` in which to write your code.
 
 ## Connect to a remote repository with token authentication
 
-Paste the following into `main.go` and save the file. This code demonstrates how to use [NewRepository](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote#NewRepository) from the [registry/remote](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote) package to connect to a remote repository. Token authentication (using a username and password, see reference [here](https://distribution.github.io/distribution/spec/auth/token/)) is handled by the [registry/remote/auth](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote/auth) package. Other authentication methods, such as refresh token authentication, are also supported.
+Paste the following into `main.go` and save the file. This code demonstrates how to use [NewRepository](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#NewRepository) from the [registry/remote](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) package to connect to a remote repository. Token authentication (using a username and password, see reference [here](https://distribution.github.io/distribution/spec/auth/token/)) is handled by the [registry/remote/auth](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth) package. Other authentication methods, such as refresh token authentication, are also supported.
 
 ```go
 package main
 
 import (
-	"github.com/oras-project/oras-go/v3/registry/remote"
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
-	"github.com/oras-project/oras-go/v3/registry/remote/retry"
+	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
 func main() {
@@ -84,7 +84,7 @@ Add these two lines to the `import` block of `main.go`.
 "fmt"
 ```
 
-The following code snippet uses the [(*Repository) Tags](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote#Repository.Tags) method to list the tags in the repository. Paste the code into `main.go` after the last section.
+The following code snippet uses the [(*Repository) Tags](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#Repository.Tags) method to list the tags in the repository. Paste the code into `main.go` after the last section.
 
 ```go
 // 2. Show the tags in the repository
@@ -123,10 +123,10 @@ Add these two lines to the `import` block of `main.go`.
 
 ```go
 ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-"github.com/oras-project/oras-go/v3"
+"oras.land/oras-go/v2"
 ```
 
-The following code snippet demonstrates how to push a manifest layer with [PushBytes](https://pkg.go.dev/github.com/oras-project/oras-go/v3#PushBytes). Paste the code into `main.go` after the last section.
+The following code snippet demonstrates how to push a manifest layer with [PushBytes](https://pkg.go.dev/oras.land/oras-go/v2#PushBytes). Paste the code into `main.go` after the last section.
 
 ```go
 // 3. push a layer to the repository
@@ -140,7 +140,7 @@ fmt.Println("Pushed manifest layer:", layerDescriptor.Digest)
 
 ## Push a manifest to the repository with the tag "quickstart"
 
-The following code snippet demonstrates how to pack a manifest and push it to the repository with the tag "quickstart" using the [PackManifest](https://pkg.go.dev/github.com/oras-project/oras-go/v3#PackManifest) and the [(*Repository) Tag](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote#Repository.Tag) methods. Paste the code into `main.go` after the last section.
+The following code snippet demonstrates how to pack a manifest and push it to the repository with the tag "quickstart" using the [PackManifest](https://pkg.go.dev/oras.land/oras-go/v2#PackManifest) and the [(*Repository) Tag](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#Repository.Tag) methods. Paste the code into `main.go` after the last section.
 
 ```go
 // 4. Push a manifest to the repository with the tag "quickstart"
@@ -162,7 +162,7 @@ fmt.Println("Pushed and tagged manifest")
 
 ## Fetch the manifest from the repository by tag
 
-The following code snippet demonstrates how to fetch a manifest from the repository by its tag with [FetchBytes](https://pkg.go.dev/github.com/oras-project/oras-go/v3#FetchBytes). Paste the code into `main.go` after the last section.
+The following code snippet demonstrates how to fetch a manifest from the repository by its tag with [FetchBytes](https://pkg.go.dev/oras.land/oras-go/v2#FetchBytes). Paste the code into `main.go` after the last section.
 
 ```go
 // 5. Fetch the manifest from the repository by tag
@@ -178,10 +178,10 @@ fmt.Println(string(fetchedManifestContent))
 Add these two lines to the `import` block of `main.go`.
 ```go
 "encoding/json"
-"github.com/oras-project/oras-go/v3/content"
+"oras.land/oras-go/v2/content"
 ```
 
-The following code snippet demonstrates how to parse the fetched manifest content and get the layers. [FetchAll](https://pkg.go.dev/github.com/oras-project/oras-go/v3/content#FetchAll) from the [content](https://pkg.go.dev/github.com/oras-project/oras-go/v3/content) package is used to read and fetch the content identified by a descriptor. Paste the code into `main.go` after the last section.
+The following code snippet demonstrates how to parse the fetched manifest content and get the layers. [FetchAll](https://pkg.go.dev/oras.land/oras-go/v2/content#FetchAll) from the [content](https://pkg.go.dev/oras.land/oras-go/v2/content) package is used to read and fetch the content identified by a descriptor. Paste the code into `main.go` after the last section.
 
 ```go
 // 6. Parse the fetched manifest content and get the layers
@@ -203,10 +203,10 @@ for _, layer := range manifest.Layers {
 Add these two lines to the `import` block of `main.go`.
 ```go
 "os"
-"github.com/oras-project/oras-go/v3/content/oci"
+"oras.land/oras-go/v2/content/oci"
 ```
 
-The following code snippet demonstrates how to copy an artifact from the repository by its tag and save it to the current directory in the [OCI layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) format. The copy operation is performed using [Copy](https://pkg.go.dev/github.com/oras-project/oras-go/v3#Copy). Paste the code into `main.go` after the last section.
+The following code snippet demonstrates how to copy an artifact from the repository by its tag and save it to the current directory in the [OCI layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) format. The copy operation is performed using [Copy](https://pkg.go.dev/oras.land/oras-go/v2#Copy). Paste the code into `main.go` after the last section.
 
 ```go
 // 7. Copy the artifact to local OCI layout directory with a tag "quickstartOCI"
@@ -249,7 +249,7 @@ Copied the artifact
 Congratulations! You’ve completed this tutorial.
 
 Suggested next steps:
-* Check out more [examples](https://pkg.go.dev/github.com/oras-project/oras-go/v3#pkg-overview) in the documentation.
+* Check out more [examples](https://pkg.go.dev/oras.land/oras-go/v2#pkg-overview) in the documentation.
 * Learn about how `oras-go` v2 [models artifacts](https://github.com/oras-project/oras-go/blob/main/docs/Modeling-Artifacts.md).
 * Learn about [Targets and Content Stores](https://github.com/oras-project/oras-go/blob/main/docs/Targets.md) in `oras-go` v2.
 
@@ -267,13 +267,13 @@ import (
 	"os"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/oras-project/oras-go/v3"
-	"github.com/oras-project/oras-go/v3/content"
-	"github.com/oras-project/oras-go/v3/content/oci"
-	"github.com/oras-project/oras-go/v3/registry"
-	"github.com/oras-project/oras-go/v3/registry/remote"
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
-	"github.com/oras-project/oras-go/v3/registry/remote/retry"
+	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/content/oci"
+	"oras.land/oras-go/v2/registry"
+	"oras.land/oras-go/v2/registry/remote"
+	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
 func main() {
