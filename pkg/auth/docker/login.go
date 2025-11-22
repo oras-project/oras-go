@@ -99,5 +99,12 @@ func (c *Client) login(settings *iface.LoginSettings) error {
 	}
 
 	// Store credential
-	return c.primaryCredentialsStore(hostname).Store(ctypes.AuthConfig(cred))
+	return c.primaryCredentialsStore(hostname).Store(ctypes.AuthConfig{
+		Username:      cred.Username,
+		Password:      cred.Password,
+		Auth:          cred.Auth,
+		ServerAddress: cred.ServerAddress,
+		IdentityToken: cred.IdentityToken,
+		RegistryToken: cred.RegistryToken,
+	})
 }
