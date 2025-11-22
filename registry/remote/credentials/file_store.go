@@ -68,7 +68,7 @@ func (fs *FileStore) Get(_ context.Context, serverAddress string) (properties.Cr
 	if err != nil {
 		return properties.EmptyCredential, err
 	}
-	return NewCredential(authCfg)
+	return authCfg.Credential()
 }
 
 // Put saves credentials into the store for the given server address.
@@ -99,23 +99,4 @@ func validateCredentialFormat(cred properties.Credential) error {
 		return fmt.Errorf("%w: colons(:) are not allowed in username", ErrBadCredentialFormat)
 	}
 	return nil
-}
-
-// NewCredential creates a CredentialFunc based on authCfg.
-func NewCredential(authCfg configuration.AuthConfig) (properties.Credential, error) {
-	cred := properties.Credential{
-		Username:     authCfg.Username,
-		Password:     authCfg.Password,
-		RefreshToken: authCfg.IdentityToken,
-		AccessToken:  authCfg.RegistryToken,
-	}
-	if authCfg.Auth != "" {
-		var err error
-		// override username and password
-		cred.Username, cred.Password, err = authCfg.DecodeAuth()
-		if err != nil {
-			return properties.EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", configuration.ErrInvalidConfigFormat, err)
-		}
-	}
-	return cred, nil
 }

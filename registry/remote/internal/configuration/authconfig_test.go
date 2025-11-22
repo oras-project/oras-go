@@ -15,7 +15,11 @@ limitations under the License.
 
 package configuration
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
+)
 
 func Test_EncodeAuth(t *testing.T) {
 	tests := []struct {
@@ -117,6 +121,139 @@ func TestAuthConfig_DecodeAuth(t *testing.T) {
 			}
 			if gotPassword != tt.password {
 				t.Errorf("AuthConfig.DecodeAuth() got password = %v, want %v", gotPassword, tt.password)
+			}
+		})
+	}
+}
+
+func TestCredential(t *testing.T) {
+	tests := []struct {
+		name    string
+		authCfg AuthConfig
+		want    properties.Credential
+		wantErr bool
+	}{
+		{
+			name: "Username and password",
+			authCfg: AuthConfig{
+				Username: "username",
+				Password: "password",
+			},
+			want: properties.Credential{
+				Username: "username",
+				Password: "password",
+			},
+		},
+		{
+			name: "Identity token",
+			authCfg: AuthConfig{
+				IdentityToken: "identity_token",
+			},
+			want: properties.Credential{
+				RefreshToken: "identity_token",
+			},
+		},
+		{
+			name: "Registry token",
+			authCfg: AuthConfig{
+				RegistryToken: "registry_token",
+			},
+			want: properties.Credential{
+				AccessToken: "registry_token",
+			},
+		},
+		{
+			name: "All fields",
+			authCfg: AuthConfig{
+				Username:      "username",
+				Password:      "password",
+				IdentityToken: "identity_token",
+				RegistryToken: "registry_token",
+			},
+			want: properties.Credential{
+				Username:     "username",
+				Password:     "password",
+				RefreshToken: "identity_token",
+				AccessToken:  "registry_token",
+			},
+		},
+		{
+			name:    "Empty auth config",
+			authCfg: AuthConfig{},
+			want:    properties.Credential{},
+		},
+		{
+			name: "Auth field overrides username and password",
+			authCfg: AuthConfig{
+				Auth:     "dXNlcm5hbWU6cGFzc3dvcmQ=", // username:password
+				Username: "old_username",
+				Password: "old_password",
+			},
+			want: properties.Credential{
+				Username: "username",
+				Password: "password",
+			},
+		},
+		{
+			name: "Auth field with identity and registry tokens",
+			authCfg: AuthConfig{
+				Auth:          "dXNlcm5hbWU6cGFzc3dvcmQ=", // username:password
+				IdentityToken: "identity_token",
+				RegistryToken: "registry_token",
+			},
+			want: properties.Credential{
+				Username:     "username",
+				Password:     "password",
+				RefreshToken: "identity_token",
+				AccessToken:  "registry_token",
+			},
+		},
+		{
+			name: "Invalid auth field",
+			authCfg: AuthConfig{
+				Auth: "invalid_base64!@#",
+			},
+			want:    properties.EmptyCredential,
+			wantErr: true,
+		},
+		{
+			name: "Auth field bad format",
+			authCfg: AuthConfig{
+				Auth: "d2hhdGV2ZXI=", // whatever (no colon)
+			},
+			want:    properties.EmptyCredential,
+			wantErr: true,
+		},
+		{
+			name: "Auth field username only",
+			authCfg: AuthConfig{
+				Auth: "dXNlcm5hbWU6", // username:
+			},
+			want: properties.Credential{
+				Username: "username",
+				Password: "",
+			},
+		},
+		{
+			name: "Auth field password only",
+			authCfg: AuthConfig{
+				Auth: "OnBhc3N3b3Jk", // :password
+			},
+			want: properties.Credential{
+				Username: "",
+				Password: "password",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.authCfg.Credential()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Credential() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("Credential() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -74,3 +74,22 @@ func (ac AuthConfig) DecodeAuth() (username string, password string, err error) 
 	}
 	return username, password, nil
 }
+
+// Credential creates a Credential based on authCfg.
+func (ac AuthConfig) Credential() (properties.Credential, error) {
+	cred := properties.Credential{
+		Username:     ac.Username,
+		Password:     ac.Password,
+		RefreshToken: ac.IdentityToken,
+		AccessToken:  ac.RegistryToken,
+	}
+	if ac.Auth != "" {
+		var err error
+		// override username and password
+		cred.Username, cred.Password, err = ac.DecodeAuth()
+		if err != nil {
+			return properties.EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", ErrInvalidConfigFormat, err)
+		}
+	}
+	return cred, nil
+}

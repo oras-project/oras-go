@@ -50,7 +50,7 @@ func NewMemoryStoreFromDockerConfig(c []byte) (Store, error) {
 	for addr, auth := range cfg.Auths {
 		// Normalize the auth key to hostname.
 		hostname := configuration.ToHostname(addr)
-		cred, err := NewCredential(auth)
+		cred, err := auth.Credential()
 		if err != nil {
 			return nil, err
 		}
