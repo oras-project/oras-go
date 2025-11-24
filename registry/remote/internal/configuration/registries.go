@@ -94,62 +94,87 @@ func LoadRegistriesConfig(path string) (*RegistriesConfig, error) {
 }
 
 // LoadSystemRegistriesConfig loads registries.conf from system default locations.
-// Checks: user config, then /etc/containers/registries.conf, then /etc/containers/registries.conf.d/*.conf
+// Load order (each layer overrides the previous):
+//  1. /etc/containers/registries.conf
+//  2. /etc/containers/registries.conf.d/*.conf (alpha-numerical order)
+//  3. $HOME/.config/containers/registries.conf
+//  4. $HOME/.config/containers/registries.conf.d/*.conf (alpha-numerical order)
 func LoadSystemRegistriesConfig() (*RegistriesConfig, error) {
 	var config *RegistriesConfig
 
-	// Check user config first
+	// 1. Load system config
+	if _, err := os.Stat(systemRegistriesConfPath); err == nil {
+		cfg, err := LoadRegistriesConfig(systemRegistriesConfPath)
+		if err != nil {
+			return nil, err
+		}
+		config = cfg
+	}
+
+	// 2. Load and merge system drop-in configs
+	config, err := loadDropInConfigs(config, systemRegistriesConfDirPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Load and merge user config
 	if homeDir, err := os.UserHomeDir(); err == nil {
 		userConfigPath := filepath.Join(homeDir, ".config", "containers", "registries.conf")
 		if cfg, err := LoadRegistriesConfig(userConfigPath); err == nil {
-			config = cfg
-		}
-	}
-
-	// Load system config if no user config
-	if config == nil {
-		if _, err := os.Stat(systemRegistriesConfPath); err == nil {
-			cfg, err := LoadRegistriesConfig(systemRegistriesConfPath)
-			if err != nil {
-				return nil, err
-			}
-			config = cfg
-		}
-	}
-
-	// Load and merge drop-in configs from .conf.d directory
-	if _, err := os.Stat(systemRegistriesConfDirPath); err == nil {
-		entries, err := os.ReadDir(systemRegistriesConfDirPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read registries.conf.d directory: %w", err)
-		}
-
-		// Sort entries for deterministic ordering
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Name() < entries[j].Name()
-		})
-
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".conf") {
-				continue
-			}
-
-			confPath := filepath.Join(systemRegistriesConfDirPath, entry.Name())
-			dropInConfig, err := LoadRegistriesConfig(confPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load drop-in config %s: %w", confPath, err)
-			}
-
 			if config == nil {
-				config = dropInConfig
+				config = cfg
 			} else {
-				config = mergeRegistriesConfig(config, dropInConfig)
+				config = mergeRegistriesConfig(config, cfg)
 			}
+		}
+
+		// 4. Load and merge user drop-in configs
+		userDropInPath := filepath.Join(homeDir, ".config", "containers", "registries.conf.d")
+		config, err = loadDropInConfigs(config, userDropInPath)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	if config == nil {
 		return nil, ErrRegistriesConfigNotFound
+	}
+
+	return config, nil
+}
+
+// loadDropInConfigs loads and merges all .conf files from the given directory.
+func loadDropInConfigs(config *RegistriesConfig, dirPath string) (*RegistriesConfig, error) {
+	if _, err := os.Stat(dirPath); err != nil {
+		return config, nil
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read drop-in directory %s: %w", dirPath, err)
+	}
+
+	// Sort entries for alpha-numerical ordering
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".conf") {
+			continue
+		}
+
+		confPath := filepath.Join(dirPath, entry.Name())
+		dropInConfig, err := LoadRegistriesConfig(confPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load drop-in config %s: %w", confPath, err)
+		}
+
+		if config == nil {
+			config = dropInConfig
+		} else {
+			config = mergeRegistriesConfig(config, dropInConfig)
+		}
 	}
 
 	return config, nil
