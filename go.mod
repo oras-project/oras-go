@@ -7,3 +7,5 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	golang.org/x/sync v0.18.0
 )
+
+require github.com/pelletier/go-toml/v2 v2.2.4 // indirect
