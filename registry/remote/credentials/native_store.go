@@ -22,8 +22,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials/internal/executer"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 const (
@@ -80,19 +80,19 @@ func NewDefaultNativeStore() (Store, bool) {
 }
 
 // Get retrieves credentials from the store for the given server.
-func (ns *nativeStore) Get(ctx context.Context, serverAddress string) (auth.Credential, error) {
-	var cred auth.Credential
+func (ns *nativeStore) Get(ctx context.Context, serverAddress string) (properties.Credential, error) {
+	var cred properties.Credential
 	out, err := ns.exec.Execute(ctx, strings.NewReader(serverAddress), "get")
 	if err != nil {
 		if err.Error() == errCredentialsNotFoundMessage {
 			// do not return an error if the credentials are not in the keychain.
-			return auth.EmptyCredential, nil
+			return properties.EmptyCredential, nil
 		}
-		return auth.EmptyCredential, err
+		return properties.EmptyCredential, err
 	}
 	var dockerCred dockerCredentials
 	if err := json.Unmarshal(out, &dockerCred); err != nil {
-		return auth.EmptyCredential, err
+		return properties.EmptyCredential, err
 	}
 	// bearer auth is used if the username is "<token>"
 	if dockerCred.Username == emptyUsername {
@@ -105,7 +105,7 @@ func (ns *nativeStore) Get(ctx context.Context, serverAddress string) (auth.Cred
 }
 
 // Put saves credentials into the store.
-func (ns *nativeStore) Put(ctx context.Context, serverAddress string, cred auth.Credential) error {
+func (ns *nativeStore) Put(ctx context.Context, serverAddress string, cred properties.Credential) error {
 	dockerCred := &dockerCredentials{
 		ServerURL: serverAddress,
 		Username:  cred.Username,

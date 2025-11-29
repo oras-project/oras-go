@@ -27,8 +27,8 @@ import (
 	"path/filepath"
 
 	"github.com/oras-project/oras-go/v3/internal/syncutil"
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
-	"github.com/oras-project/oras-go/v3/registry/remote/credentials/internal/config"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 const (
@@ -40,9 +40,9 @@ const (
 // Store is the interface that any credentials store must implement.
 type Store interface {
 	// Get retrieves credentials from the store for the given server address.
-	Get(ctx context.Context, serverAddress string) (auth.Credential, error)
+	Get(ctx context.Context, serverAddress string) (properties.Credential, error)
 	// Put saves credentials into the store for the given server address.
-	Put(ctx context.Context, serverAddress string, cred auth.Credential) error
+	Put(ctx context.Context, serverAddress string, cred properties.Credential) error
 	// Delete removes credentials from the store for the given server address.
 	Delete(ctx context.Context, serverAddress string) error
 }
@@ -50,7 +50,7 @@ type Store interface {
 // DynamicStore dynamically determines which store to use based on the settings
 // in the config file.
 type DynamicStore struct {
-	config             *config.Config
+	config             *configuration.Config
 	options            StoreOptions
 	detectedCredsStore string
 	setCredsStoreOnce  syncutil.OnceOrRetry
@@ -95,7 +95,7 @@ type StoreOptions struct {
 //   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
-	cfg, err := config.Load(configPath)
+	cfg, err := configuration.Load(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -129,14 +129,14 @@ func NewStoreFromDocker(opt StoreOptions) (*DynamicStore, error) {
 }
 
 // Get retrieves credentials from the store for the given server address.
-func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (auth.Credential, error) {
+func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (properties.Credential, error) {
 	return ds.getStore(serverAddress).Get(ctx, serverAddress)
 }
 
 // Put saves credentials into the store for the given server address.
 // Put returns ErrPlaintextPutDisabled if native store is not available and
 // [StoreOptions].AllowPlaintextPut is set to false.
-func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred auth.Credential) error {
+func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred properties.Credential) error {
 	if err := ds.getStore(serverAddress).Put(ctx, serverAddress, cred); err != nil {
 		return err
 	}
@@ -236,22 +236,22 @@ func NewStoreWithFallbacks(primary Store, fallbacks ...Store) Store {
 // Get retrieves credentials from the StoreWithFallbacks for the given server.
 // It searches the primary and the fallback stores for the credentials of serverAddress
 // and returns when it finds the credentials in any of the stores.
-func (sf *storeWithFallbacks) Get(ctx context.Context, serverAddress string) (auth.Credential, error) {
+func (sf *storeWithFallbacks) Get(ctx context.Context, serverAddress string) (properties.Credential, error) {
 	for _, s := range sf.stores {
 		cred, err := s.Get(ctx, serverAddress)
 		if err != nil {
-			return auth.EmptyCredential, err
+			return properties.EmptyCredential, err
 		}
-		if cred != auth.EmptyCredential {
+		if cred != properties.EmptyCredential {
 			return cred, nil
 		}
 	}
-	return auth.EmptyCredential, nil
+	return properties.EmptyCredential, nil
 }
 
 // Put saves credentials into the StoreWithFallbacks. It puts
 // the credentials into the primary store.
-func (sf *storeWithFallbacks) Put(ctx context.Context, serverAddress string, cred auth.Credential) error {
+func (sf *storeWithFallbacks) Put(ctx context.Context, serverAddress string, cred properties.Credential) error {
 	return sf.stores[0].Put(ctx, serverAddress, cred)
 }
 
