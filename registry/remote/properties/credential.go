@@ -13,10 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package auth
-
-// EmptyCredential represents an empty credential.
-var EmptyCredential Credential
+package properties
 
 // Credential contains authentication credentials used to access remote
 // registries.
@@ -37,4 +34,15 @@ type Credential struct {
 	// An access token is often referred as a registry token.
 	// Reference: https://distribution.github.io/distribution/spec/auth/token/
 	AccessToken string
+}
+
+// EmptyCredential represents an empty credential.
+var EmptyCredential Credential
+
+// IsEmpty returns true if the credential has no values
+func (c *Credential) IsEmpty() bool {
+	if *c == EmptyCredential {
+		return true
+	}
+	return false
 }
