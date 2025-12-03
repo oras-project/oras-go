@@ -22,24 +22,24 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
-	"github.com/oras-project/oras-go/v3/registry/remote/credentials/internal/config"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 func TestMemoryStore_Create_fromInvalidConfig(t *testing.T) {
-	f, err := os.ReadFile("testdata/invalid_auths_entry_config.json")
+	f, err := os.ReadFile("../internal/configuration/testdata/invalid_auths_entry_config.json")
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
 	}
 	_, err = NewMemoryStoreFromDockerConfig(f)
-	if !errors.Is(err, config.ErrInvalidConfigFormat) {
-		t.Fatalf("Error: %s is expected", config.ErrInvalidConfigFormat)
+	if !errors.Is(err, configuration.ErrInvalidConfigFormat) {
+		t.Fatalf("Error: %s is expected", configuration.ErrInvalidConfigFormat)
 	}
 }
 
 func TestMemoryStore_Get_validConfig(t *testing.T) {
 	ctx := context.Background()
-	f, err := os.ReadFile("testdata/valid_auths_config.json")
+	f, err := os.ReadFile("../internal/configuration/testdata/valid_auths_config.json")
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
 	}
@@ -51,13 +51,13 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          properties.Credential
 		wantErr       bool
 	}{
 		{
 			name:          "Username and password",
 			serverAddress: "registry1.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -65,21 +65,21 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Identity token",
 			serverAddress: "registry2.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				RefreshToken: "identity_token",
 			},
 		},
 		{
 			name:          "Registry token",
 			serverAddress: "registry3.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				AccessToken: "registry_token",
 			},
 		},
 		{
 			name:          "Username and password, identity token and registry token",
 			serverAddress: "registry4.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				Username:     "username",
 				Password:     "password",
 				RefreshToken: "identity_token",
@@ -89,12 +89,12 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Empty credential",
 			serverAddress: "registry5.example.com",
-			want:          auth.EmptyCredential,
+			want:          properties.EmptyCredential,
 		},
 		{
 			name:          "Username and password, no auth",
 			serverAddress: "registry6.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -102,7 +102,7 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Auth overriding Username and password",
 			serverAddress: "registry7.example.com",
-			want: auth.Credential{
+			want: properties.Credential{
 				Username: "username",
 				Password: "password",
 			},
@@ -110,12 +110,12 @@ func TestMemoryStore_Get_validConfig(t *testing.T) {
 		{
 			name:          "Not in auths",
 			serverAddress: "foo.example.com",
-			want:          auth.EmptyCredential,
+			want:          properties.EmptyCredential,
 		},
 		{
 			name:          "No record",
 			serverAddress: "registry999.example.com",
-			want:          auth.EmptyCredential,
+			want:          properties.EmptyCredential,
 		},
 	}
 	for _, tt := range tests {
@@ -143,13 +143,13 @@ func TestMemoryStore_Get_emptyConfig(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		want          auth.Credential
+		want          properties.Credential
 		wantErr       error
 	}{
 		{
 			name:          "Not found",
 			serverAddress: "registry.example.com",
-			want:          auth.EmptyCredential,
+			want:          properties.EmptyCredential,
 			wantErr:       nil,
 		},
 	}
