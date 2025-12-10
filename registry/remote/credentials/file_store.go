@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
-	"github.com/oras-project/oras-go/v3/registry/remote/credentials/internal/config"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // FileStore implements a credentials store using the docker configuration file
@@ -34,7 +34,7 @@ type FileStore struct {
 	// If DisablePut is set to true, Put() will return ErrPlaintextPutDisabled.
 	DisablePut bool
 
-	config *config.Config
+	config *configuration.Config
 }
 
 var (
@@ -50,7 +50,7 @@ var (
 //
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewFileStore(configPath string) (*FileStore, error) {
-	cfg, err := config.Load(configPath)
+	cfg, err := configuration.Load(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -58,18 +58,22 @@ func NewFileStore(configPath string) (*FileStore, error) {
 }
 
 // newFileStore creates a file credentials store based on the given config instance.
-func newFileStore(cfg *config.Config) *FileStore {
+func newFileStore(cfg *configuration.Config) *FileStore {
 	return &FileStore{config: cfg}
 }
 
 // Get retrieves credentials from the store for the given server address.
-func (fs *FileStore) Get(_ context.Context, serverAddress string) (auth.Credential, error) {
-	return fs.config.GetCredential(serverAddress)
+func (fs *FileStore) Get(_ context.Context, serverAddress string) (properties.Credential, error) {
+	authCfg, err := fs.config.GetAuthConfig(serverAddress)
+	if err != nil {
+		return properties.EmptyCredential, err
+	}
+	return authCfg.Credential()
 }
 
 // Put saves credentials into the store for the given server address.
 // Returns ErrPlaintextPutDisabled if fs.DisablePut is set to true.
-func (fs *FileStore) Put(_ context.Context, serverAddress string, cred auth.Credential) error {
+func (fs *FileStore) Put(_ context.Context, serverAddress string, cred properties.Credential) error {
 	if fs.DisablePut {
 		return ErrPlaintextPutDisabled
 	}
@@ -77,16 +81,17 @@ func (fs *FileStore) Put(_ context.Context, serverAddress string, cred auth.Cred
 		return err
 	}
 
-	return fs.config.PutCredential(serverAddress, cred)
+	authCfg := configuration.NewAuthConfig(cred)
+	return fs.config.PutAuthConfig(serverAddress, authCfg)
 }
 
 // Delete removes credentials from the store for the given server address.
 func (fs *FileStore) Delete(_ context.Context, serverAddress string) error {
-	return fs.config.DeleteCredential(serverAddress)
+	return fs.config.DeleteAuthConfig(serverAddress)
 }
 
 // validateCredentialFormat validates the format of cred.
-func validateCredentialFormat(cred auth.Credential) error {
+func validateCredentialFormat(cred properties.Credential) error {
 	if strings.ContainsRune(cred.Username, ':') {
 		// Username and password will be encoded in the base64(username:password)
 		// format in the file. The decoded result will be wrong if username
