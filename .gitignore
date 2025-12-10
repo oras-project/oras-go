@@ -31,6 +31,9 @@ debug
 # Jetbrains
 .idea
 
+# Vi
+*.sw*
+
 # Custom
 coverage.txt
 bin/
