@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials/trace"
 )
@@ -47,7 +46,7 @@ func Example() {
 
 	// Get, Put and Delete credentials from store. If any credential helper
 	// executable is run, traceHooks is executed.
-	err = store.Put(ctx, "localhost:5000", auth.Credential{Username: "testUsername", Password: "testPassword"})
+	err = store.Put(ctx, "localhost:5000", credentials.Credential{Username: "testUsername", Password: "testPassword"})
 	if err != nil {
 		panic(err)
 	}
