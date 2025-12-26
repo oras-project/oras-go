@@ -18,10 +18,12 @@ on:
     branches:
       - main
       - release-*
+      - v2
   pull_request:
     branches:
       - main
       - release-*
+      - v2
   schedule:
     - cron: '34 13 * * 3'
 
