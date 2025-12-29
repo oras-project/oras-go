@@ -21,9 +21,10 @@ import (
 	"encoding/json"
 
 	"github.com/opencontainers/go-digest"
+	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/orm/models"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/orm/models"
 )
 
 // IndexBuilder provides a fluent API for building image indexes (manifest lists).
@@ -88,7 +89,7 @@ func (ib *IndexBuilder) Build(ctx context.Context) (*models.Index, error) {
 
 	// Build index
 	index := ocispec.Index{
-		Versioned: ocispec.Versioned{
+		Versioned: specs.Versioned{
 			SchemaVersion: 2,
 		},
 		MediaType:   ocispec.MediaTypeImageIndex,
