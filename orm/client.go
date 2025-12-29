@@ -16,6 +16,7 @@ limitations under the License.
 package orm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,11 +24,11 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2"
-	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/internal/spec"
-	"oras.land/oras-go/v2/orm/builders"
-	"oras.land/oras-go/v2/orm/models"
+	"github.com/oras-project/oras-go/v3"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/internal/spec"
+	"github.com/oras-project/oras-go/v3/orm/builders"
+	"github.com/oras-project/oras-go/v3/orm/models"
 )
 
 // Client is the main ORM client for working with OCI content.
@@ -291,7 +292,7 @@ func (c *Client) PushManifest(ctx context.Context, manifest models.Manifest, ref
 
 	// Pack and push
 	desc := manifest.Descriptor()
-	if err := c.target.Push(ctx, desc, nil); err != nil {
+	if err := c.target.Push(ctx, desc, bytes.NewReader(manifestBytes)); err != nil {
 		return err
 	}
 

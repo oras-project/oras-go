@@ -22,9 +22,10 @@ import (
 	"errors"
 
 	"github.com/opencontainers/go-digest"
+	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/content"
-	"oras.land/oras-go/v2/orm/models"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/orm/models"
 )
 
 // ImageBuilder provides a fluent API for building image manifests.
@@ -107,7 +108,7 @@ func (ib *ImageBuilder) Build(ctx context.Context) (*models.Image, error) {
 
 	// Build image manifest
 	imageManifest := ocispec.Manifest{
-		Versioned: ocispec.Versioned{
+		Versioned: specs.Versioned{
 			SchemaVersion: 2,
 		},
 		MediaType:   ocispec.MediaTypeImageManifest,
