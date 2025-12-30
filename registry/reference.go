@@ -117,6 +117,11 @@ type Reference struct {
 // Note: In the case of Valid Form B, TAG is dropped without any validation or
 // further consideration.
 func ParseReference(artifact string) (Reference, error) {
+	// Strip URI schemes if present
+	artifact = strings.TrimPrefix(artifact, "oci://")
+	artifact = strings.TrimPrefix(artifact, "http://")
+	artifact = strings.TrimPrefix(artifact, "https://")
+
 	registry, path := splitRegistry(artifact)
 	if path == "" {
 		return Reference{}, fmt.Errorf("%w: missing registry or repository", errdef.ErrInvalidReference)
