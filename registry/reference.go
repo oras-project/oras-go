@@ -71,6 +71,19 @@ type Reference struct {
 // Note: An "image" is an "artifact", however, an "artifact" is not necessarily
 // an "image".
 //
+// ## URI Schemes
+//
+// ParseReference automatically strips the following URI schemes if present:
+//   - oci://    (used by Helm, Argo, Kustomize)
+//   - http://   (HTTP registry endpoints)
+//   - https://  (HTTPS registry endpoints)
+//
+// Schemes must be lowercase and at the start of the string. Examples:
+//   - "oci://ghcr.io/repo:tag" → parses as "ghcr.io/repo:tag"
+//   - "https://registry.example.com/repo" → parses as "registry.example.com/repo"
+//
+// ## Specification
+//
 // The token `artifact` is composed of other tokens, and those in turn are
 // composed of others.  This definition recursivity requires a notation capable
 // of recursion, thus the following two forms have been adopted:
