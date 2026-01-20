@@ -29,14 +29,14 @@ func TestReferrersAPI_String(t *testing.T) {
 			want: "unknown",
 		},
 		{
-			name: "yes",
-			api:  ReferrersAPIYes,
-			want: "yes",
+			name: "supported",
+			api:  ReferrersAPISupported,
+			want: "supported",
 		},
 		{
-			name: "no",
-			api:  ReferrersAPINo,
-			want: "no",
+			name: "unsupported",
+			api:  ReferrersAPIUnsupported,
+			want: "unsupported",
 		},
 	}
 

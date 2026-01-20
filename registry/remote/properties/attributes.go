@@ -21,19 +21,19 @@ type ReferrersAPI int
 const (
 	// ReferrersAPIUnknown indicates that the Referrers API capability is unknown.
 	ReferrersAPIUnknown ReferrersAPI = iota
-	// ReferrersAPIYes indicates that the registry supports the Referrers API.
-	ReferrersAPIYes
-	// ReferrersAPINo indicates that the registry does not support the Referrers API.
-	ReferrersAPINo
+	// ReferrersAPISupported indicates that the registry supports the Referrers API.
+	ReferrersAPISupported
+	// ReferrersAPIUnsupported indicates that the registry does not support the Referrers API.
+	ReferrersAPIUnsupported
 )
 
 // String returns the string representation of ReferrersAPI.
 func (r ReferrersAPI) String() string {
 	switch r {
-	case ReferrersAPIYes:
-		return "yes"
-	case ReferrersAPINo:
-		return "no"
+	case ReferrersAPISupported:
+		return "supported"
+	case ReferrersAPIUnsupported:
+		return "unsupported"
 	default:
 		return "unknown"
 	}
@@ -42,8 +42,8 @@ func (r ReferrersAPI) String() string {
 // Attributes contains properties specific to the registry itself.
 type Attributes struct {
 	// ReferrersAPI indicates the Referrers API capability of the registry.
-	// - ReferrersAPIYes: the registry supports the Referrers API
-	// - ReferrersAPINo: the registry does not support the Referrers API
+	// - ReferrersAPISupported: the registry supports the Referrers API
+	// - ReferrersAPIUnsupported: the registry does not support the Referrers API
 	// - ReferrersAPIUnknown: the capability is unknown and will be auto-detected
 	ReferrersAPI ReferrersAPI
 }

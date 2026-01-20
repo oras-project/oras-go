@@ -23,6 +23,7 @@ type Registry struct {
 	Registry string
 
 	// Namespace is the repository namespace within the registry.
+	// It may contain "/" for nested namespaces (e.g., "myorg/myrepo").
 	Namespace string
 
 	// Transport is properties describing the communication layer.
@@ -41,12 +42,7 @@ func NewRegistry(registry, namespace string) *Registry {
 		Registry:  registry,
 		Namespace: namespace,
 		Transport: Transport{
-			Insecure:    false,
-			PlainHTTP:   false,
 			HeaderFlags: make(map[string]string),
-		},
-		Attributes: Attributes{
-			ReferrersAPI: ReferrersAPIUnknown,
 		},
 	}
 }

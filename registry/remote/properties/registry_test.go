@@ -129,7 +129,7 @@ func TestRegistry_Fields(t *testing.T) {
 			Password: "testpass",
 		},
 		Attributes: Attributes{
-			ReferrersAPI: ReferrersAPIYes,
+			ReferrersAPI: ReferrersAPISupported,
 		},
 	}
 
@@ -173,7 +173,7 @@ func TestRegistry_Fields(t *testing.T) {
 	}
 
 	// Test Attributes fields
-	if reg.Attributes.ReferrersAPI != ReferrersAPIYes {
-		t.Errorf("Attributes.ReferrersAPI = %v, want %v", reg.Attributes.ReferrersAPI, ReferrersAPIYes)
+	if reg.Attributes.ReferrersAPI != ReferrersAPISupported {
+		t.Errorf("Attributes.ReferrersAPI = %v, want %v", reg.Attributes.ReferrersAPI, ReferrersAPISupported)
 	}
 }
