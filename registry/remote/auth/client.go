@@ -78,7 +78,7 @@ func StaticCredential(registry string, cred Credential) CredentialFunc {
 	if registry == "docker.io" {
 		// it is expected that traffic targeting "docker.io" will be redirected
 		// to "registry-1.docker.io"
-		// reference: https://github.com/moby/moby/blob/v24.0.0-beta.2/registry/config.go#L25-L48
+		// reference: https://github.com/moby/moby/blob/v2.0.0-beta.6/daemon/pkg/registry/config.go#L40-L55
 		registry = "registry-1.docker.io"
 	}
 	return func(_ context.Context, hostport string) (Credential, error) {
