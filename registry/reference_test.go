@@ -38,6 +38,7 @@ func TestParseReferenceGoodies(t *testing.T) {
 			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Digest:     ValidDigest,
 			},
 		},
 		{
@@ -46,6 +47,8 @@ func TestParseReferenceGoodies(t *testing.T) {
 			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Tag:        "v2",
+				Digest:     ValidDigest,
 			},
 		},
 		{
@@ -54,6 +57,7 @@ func TestParseReferenceGoodies(t *testing.T) {
 			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Digest:     ValidDigest,
 			},
 		},
 		{
@@ -62,6 +66,7 @@ func TestParseReferenceGoodies(t *testing.T) {
 			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  "v1",
+				Tag:        "v1",
 			},
 		},
 		{
@@ -346,6 +351,408 @@ func TestReference_String(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.reference.String(); got != tt.want {
 				t.Errorf("Reference.String() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseReference_FormB_TagAndDigest(t *testing.T) {
+	// Test Form B: repository:tag@digest
+	// Validates that both tag and digest are captured correctly
+	tests := []struct {
+		name         string
+		artifact     string
+		wantRegistry string
+		wantRepo     string
+		wantTag      string
+		wantDigest   string
+		wantRef      string
+	}{
+		{
+			name:         "tag with digest",
+			artifact:     fmt.Sprintf("localhost/hello-world:v2@%s", ValidDigest),
+			wantRegistry: "localhost",
+			wantRepo:     "hello-world",
+			wantTag:      "v2",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+		{
+			name:         "tag with digest - different tag",
+			artifact:     fmt.Sprintf("registry.example.com/myapp:1.0.0@%s", ValidDigest),
+			wantRegistry: "registry.example.com",
+			wantRepo:     "myapp",
+			wantTag:      "1.0.0",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+		{
+			name:         "tag with digest - complex tag",
+			artifact:     fmt.Sprintf("localhost:5000/org/repo:v1.2.3-alpha@%s", ValidDigest),
+			wantRegistry: "localhost:5000",
+			wantRepo:     "org/repo",
+			wantTag:      "v1.2.3-alpha",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+		{
+			name:         "empty tag with digest",
+			artifact:     fmt.Sprintf("localhost/hello-world:@%s", ValidDigest),
+			wantRegistry: "localhost",
+			wantRepo:     "hello-world",
+			wantTag:      "",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseReference(tt.artifact)
+			if err != nil {
+				t.Fatalf("ParseReference() unexpected error: %v", err)
+			}
+
+			// Validate Registry
+			if got.Registry != tt.wantRegistry {
+				t.Errorf("Registry = %q, want %q", got.Registry, tt.wantRegistry)
+			}
+
+			// Validate Repository
+			if got.Repository != tt.wantRepo {
+				t.Errorf("Repository = %q, want %q", got.Repository, tt.wantRepo)
+			}
+
+			// Validate Tag field
+			if got.Tag != tt.wantTag {
+				t.Errorf("Tag = %q, want %q", got.Tag, tt.wantTag)
+			}
+
+			// Validate Digest field
+			if got.Digest != tt.wantDigest {
+				t.Errorf("Digest = %q, want %q", got.Digest, tt.wantDigest)
+			}
+
+			// Validate Reference field (should be digest for Form B)
+			if got.Reference != tt.wantRef {
+				t.Errorf("Reference = %q, want %q", got.Reference, tt.wantRef)
+			}
+
+			// Validate GetReference() method
+			if got.GetReference() != tt.wantRef {
+				t.Errorf("GetReference() = %q, want %q", got.GetReference(), tt.wantRef)
+			}
+		})
+	}
+}
+
+func TestReference_GetReference(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference Reference
+		want      string
+	}{
+		{
+			name: "Form A: digest only",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+				Digest:     ValidDigest,
+			},
+			want: ValidDigest,
+		},
+		{
+			name: "Form B: tag with digest",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+				Tag:        "v1",
+				Digest:     ValidDigest,
+			},
+			want: ValidDigest,
+		},
+		{
+			name: "Form C: tag only",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "v1.0.0",
+				Tag:        "v1.0.0",
+			},
+			want: "v1.0.0",
+		},
+		{
+			name: "Form D: no reference",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			want: "",
+		},
+		{
+			name: "empty Digest returns Reference field",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "latest",
+				Digest:     "",
+			},
+			want: "latest",
+		},
+		{
+			name: "Digest takes precedence over Reference",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "some-tag",
+				Digest:     ValidDigest,
+			},
+			want: ValidDigest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.reference.GetReference(); got != tt.want {
+				t.Errorf("Reference.GetReference() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReference_GetReference_ParsedReferences(t *testing.T) {
+	// Test GetReference with references created via ParseReference
+	tests := []struct {
+		name     string
+		artifact string
+		want     string
+	}{
+		{
+			name:     "Form A: digest reference",
+			artifact: fmt.Sprintf("localhost/hello-world@%s", ValidDigest),
+			want:     ValidDigest,
+		},
+		{
+			name:     "Form B: tag with digest",
+			artifact: fmt.Sprintf("localhost/hello-world:v2@%s", ValidDigest),
+			want:     ValidDigest,
+		},
+		{
+			name:     "Form C: tag reference",
+			artifact: "localhost/hello-world:v1",
+			want:     "v1",
+		},
+		{
+			name:     "Form D: no reference",
+			artifact: "localhost/hello-world",
+			want:     "",
+		},
+		{
+			name:     "complex tag",
+			artifact: "registry.example.com/org/repo:v1.2.3-alpha.1_build.123",
+			want:     "v1.2.3-alpha.1_build.123",
+		},
+		{
+			name:     "nested repository with digest",
+			artifact: fmt.Sprintf("localhost:5000/org/team/project@%s", ValidDigest),
+			want:     ValidDigest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ref, err := ParseReference(tt.artifact)
+			if err != nil {
+				t.Fatalf("ParseReference() unexpected error: %v", err)
+			}
+			if got := ref.GetReference(); got != tt.want {
+				t.Errorf("Reference.GetReference() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseReferenceWithSchemes(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    Reference
+		wantErr bool
+	}{
+		// oci:// scheme tests
+		{
+			name:  "oci scheme with digest (valid form A)",
+			input: fmt.Sprintf("oci://localhost/hello-world@%s", ValidDigest),
+			want: Reference{
+				Registry:   "localhost",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+				Digest:     ValidDigest,
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme with tag (valid form C)",
+			input: "oci://registry.example.com/hello-world:v1",
+			want: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "v1",
+				Tag:        "v1",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme with tag and digest (valid form B)",
+			input: fmt.Sprintf("oci://registry.example.com/hello-world:v2@%s", ValidDigest),
+			want: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+				Tag:        "v2",
+				Digest:     ValidDigest,
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme basic reference (valid form D)",
+			input: "oci://127.0.0.1:5000/hello-world",
+			want: Reference{
+				Registry:   "127.0.0.1:5000",
+				Repository: "hello-world",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme with IPv6 registry",
+			input: "oci://[::1]:5000/hello-world:latest",
+			want: Reference{
+				Registry:   "[::1]:5000",
+				Repository: "hello-world",
+				Reference:  "latest",
+				Tag:        "latest",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme with multi-level repository",
+			input: "oci://ghcr.io/oras-project/oras-go:v3.0.0",
+			want: Reference{
+				Registry:   "ghcr.io",
+				Repository: "oras-project/oras-go",
+				Reference:  "v3.0.0",
+				Tag:        "v3.0.0",
+			},
+			wantErr: false,
+		},
+
+		// http:// scheme tests
+		{
+			name:  "http scheme with digest",
+			input: fmt.Sprintf("http://localhost/hello-world@%s", ValidDigest),
+			want: Reference{
+				Registry:   "localhost",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+				Digest:     ValidDigest,
+			},
+			wantErr: false,
+		},
+		{
+			name:  "http scheme with tag",
+			input: "http://registry.example.com:8080/hello-world:v1",
+			want: Reference{
+				Registry:   "registry.example.com:8080",
+				Repository: "hello-world",
+				Reference:  "v1",
+				Tag:        "v1",
+			},
+			wantErr: false,
+		},
+
+		// https:// scheme tests
+		{
+			name:  "https scheme with digest",
+			input: fmt.Sprintf("https://localhost/hello-world@%s", ValidDigest),
+			want: Reference{
+				Registry:   "localhost",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+				Digest:     ValidDigest,
+			},
+			wantErr: false,
+		},
+		{
+			name:  "https scheme with tag",
+			input: "https://registry.example.com/hello-world:v1",
+			want: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "v1",
+				Tag:        "v1",
+			},
+			wantErr: false,
+		},
+
+		// Backward compatibility - no scheme
+		{
+			name:  "no scheme (backward compatibility)",
+			input: "localhost/hello-world:v1",
+			want: Reference{
+				Registry:   "localhost",
+				Repository: "hello-world",
+				Reference:  "v1",
+				Tag:        "v1",
+			},
+			wantErr: false,
+		},
+
+		// Edge cases - invalid inputs should still fail validation
+		{
+			name:    "oci scheme but missing repository",
+			input:   "oci://localhost",
+			wantErr: true,
+		},
+		{
+			name:    "oci scheme but invalid registry",
+			input:   "oci://invalid registry/repo",
+			wantErr: true,
+		},
+		{
+			name:    "oci scheme but invalid repository name",
+			input:   "oci://localhost/UPPERCASE",
+			wantErr: true,
+		},
+		{
+			name:    "scheme in wrong position (middle)",
+			input:   "localhost/oci://hello-world",
+			wantErr: true,
+		},
+
+		// Case sensitivity - schemes should be lowercase
+		{
+			name:    "uppercase OCI scheme not stripped",
+			input:   "OCI://localhost/hello-world",
+			wantErr: true, // "OCI:" will be parsed as invalid registry
+		},
+		{
+			name:    "mixed case scheme not stripped",
+			input:   "Oci://localhost/hello-world",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseReference(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseReference() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ParseReference() = %v, want %v", got, tt.want)
 			}
 		})
 	}

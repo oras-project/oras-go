@@ -47,6 +47,9 @@ var (
 // Reference references either a resource descriptor (where Reference.Reference
 // is a tag or a digest), or a resource repository (where Reference.Reference
 // is the empty string).
+//
+// Deprecated: Use [github.com/oras-project/oras-go/v3/registry/remote/properties.Reference] instead.
+// This type will be removed in a future version.
 type Reference struct {
 	// Registry is the name of the registry. It is usually the domain name of
 	// the registry optionally with a port.
@@ -60,7 +63,18 @@ type Reference struct {
 	// case where it's the empty string, it necessarily implies valid form D,
 	// and where it is non-empty, then it is either a tag, or a digest
 	// (implying one of valid forms A, B, or C).
+	//
+	// Deprecated: Use GetReference() method instead to retrieve the reference string.
+	// For specific access to tag or digest values, use the Tag or Digest fields.
 	Reference string
+
+	// Tag is the tag of the object in the repository, if a tag was provided.
+	// This field is empty if only a digest was provided (Form A) or if no reference was provided (Form D).
+	Tag string
+
+	// Digest is the digest of the object in the repository, if a digest was provided.
+	// This field is empty if only a tag was provided (Form C) or if no reference was provided (Form D).
+	Digest string
 }
 
 // ParseReference parses a string (artifact) into an `artifact reference`.
@@ -70,6 +84,19 @@ type Reference struct {
 //
 // Note: An "image" is an "artifact", however, an "artifact" is not necessarily
 // an "image".
+//
+// ## URI Schemes
+//
+// ParseReference automatically strips the following URI schemes if present:
+//   - oci://    (used by Helm, Argo, Kustomize)
+//   - http://   (HTTP registry endpoints)
+//   - https://  (HTTPS registry endpoints)
+//
+// Schemes must be lowercase and at the start of the string. Examples:
+//   - "oci://ghcr.io/repo:tag" → parses as "ghcr.io/repo:tag"
+//   - "https://registry.example.com/repo" → parses as "registry.example.com/repo"
+//
+// ## Specification
 //
 // The token `artifact` is composed of other tokens, and those in turn are
 // composed of others.  This definition recursivity requires a notation capable
@@ -110,23 +137,40 @@ type Reference struct {
 //	<--- path --------------------------------------------> |  - Decode `path`
 //	<=== REPOSITORY ===> <--- reference ------------------> |    - Decode `reference`
 //	<=== REPOSITORY ===> @ <=================== digest ===> |      - Valid Form A
-//	<=== REPOSITORY ===> : <!!! TAG !!!> @ <=== digest ===> |      - Valid Form B (tag is dropped)
+//	<=== REPOSITORY ===> : <=== TAG ===> @ <=== digest ===> |      - Valid Form B
 //	<=== REPOSITORY ===> : <=== TAG ======================> |      - Valid Form C
 //	<=== REPOSITORY ======================================> |    - Valid Form D
 //
-// Note: In the case of Valid Form B, TAG is dropped without any validation or
-// further consideration.
+// Note: In the case of Valid Form B, the digest takes precedence in the Reference
+// field, but the TAG is captured and stored in the Tag field.
+//
+// Deprecated: Use [github.com/oras-project/oras-go/v3/registry/remote/properties.NewReference] instead.
+// This function will be removed in a future version.
 func ParseReference(artifact string) (Reference, error) {
+	// Strip URI schemes if present
+	artifact = strings.TrimPrefix(artifact, "oci://")
+	artifact = strings.TrimPrefix(artifact, "http://")
+	artifact = strings.TrimPrefix(artifact, "https://")
+
 	registry, path := splitRegistry(artifact)
 	if path == "" {
 		return Reference{}, fmt.Errorf("%w: missing registry or repository", errdef.ErrInvalidReference)
 	}
 
-	repository, reference, isTag := splitRepository(path)
+	repository, digestStr, tag := splitRepository(path)
+
+	// Determine the reference value (digest takes precedence over tag)
+	reference := digestStr
+	if reference == "" {
+		reference = tag
+	}
+
 	ref := Reference{
 		Registry:   registry,
 		Repository: repository,
 		Reference:  reference,
+		Tag:        tag,
+		Digest:     digestStr,
 	}
 
 	if err := ref.ValidateRegistry(); err != nil {
@@ -142,7 +186,7 @@ func ParseReference(artifact string) (Reference, error) {
 	}
 
 	validator := ref.ValidateReferenceAsDigest
-	if isTag {
+	if digestStr == "" {
 		validator = ref.ValidateReferenceAsTag
 	}
 	if err := validator(); err != nil {
@@ -152,29 +196,29 @@ func ParseReference(artifact string) (Reference, error) {
 	return ref, nil
 }
 
-// splitRepository splits the path into repository and reference, indicating
-// whether the reference is a tag or not.
-func splitRepository(path string) (string, string, bool) {
+// splitRepository splits the path into repository, digest, and tag.
+func splitRepository(path string) (repository, digest, tag string) {
 	if index := strings.Index(path, "@"); index != -1 {
 		// `digest` found; Valid Form A (if not B)
-		repository := path[:index]
-		reference := path[index+1:]
+		repository = path[:index]
+		digest = path[index+1:]
 
 		if index = strings.Index(repository, ":"); index != -1 {
-			// `tag` found (and now dropped without validation) since the
-			// digest is already present; Valid Form B
+			// `tag` found since `digest` already present; Valid Form B
+			// Extract and save the tag before removing it from repository
+			tag = repository[index+1:]
 			repository = repository[:index]
 		}
-		return repository, reference, false
+		return repository, digest, tag
 	}
 
 	if index := strings.Index(path, ":"); index != -1 {
 		// `tag` found; Valid Form C
-		return path[:index], path[index+1:], true
+		return path[:index], "", path[index+1:]
 	}
 
 	// empty `reference`; Valid Form D
-	return path, "", false
+	return path, "", ""
 }
 
 func splitRegistry(artifact string) (string, string) {
@@ -225,7 +269,7 @@ func (r Reference) ValidateReferenceAsTag() error {
 
 // ValidateReferenceAsDigest validates the reference as a digest.
 func (r Reference) ValidateReferenceAsDigest() error {
-	if _, err := r.Digest(); err != nil {
+	if _, err := r.GetDigest(); err != nil {
 		return fmt.Errorf("%w: invalid digest %q: %v", errdef.ErrInvalidReference, r.Reference, err)
 	}
 	return nil
@@ -261,11 +305,21 @@ func (r Reference) ReferenceOrDefault() string {
 	return r.Reference
 }
 
-// Digest returns the reference as a digest.
+// GetDigest returns the reference as a digest.
 // Corresponding cryptographic hash implementations are required to be imported
 // as specified by https://pkg.go.dev/github.com/opencontainers/go-digest#readme-usage
-func (r Reference) Digest() (digest.Digest, error) {
+func (r Reference) GetDigest() (digest.Digest, error) {
 	return digest.Parse(r.Reference)
+}
+
+// GetReference returns the reference string (either a tag or a digest).
+// This method should be used instead of directly accessing the deprecated Reference field.
+func (r Reference) GetReference() string {
+
+	if r.Digest == "" {
+		return r.Reference
+	}
+	return r.Digest
 }
 
 // String implements `fmt.Stringer` and returns the reference string.
@@ -278,7 +332,7 @@ func (r Reference) String() string {
 	if r.Reference == "" {
 		return ref
 	}
-	if d, err := r.Digest(); err == nil {
+	if d, err := r.GetDigest(); err == nil {
 		return ref + "@" + d.String()
 	}
 	return ref + ":" + r.Reference

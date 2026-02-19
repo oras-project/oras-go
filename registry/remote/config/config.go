@@ -26,8 +26,36 @@ import (
 	"strings"
 	"sync"
 
+<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
+========
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+>>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/ioutil"
 )
+
+func init() {
+	// Register config loader with credentials package
+	credentials.SetDefaultConfigLoader(func(configPath string) (credentials.ConfigFile, error) {
+		return Load(configPath)
+	})
+}
+
+// Type aliases for backward compatibility.
+// These types have been moved to the credentials package.
+// Deprecated: Use credentials.AuthConfig instead.
+type AuthConfig = credentials.AuthConfig
+
+// ErrInvalidAuthConfig is returned when the auth config format is invalid.
+// Deprecated: Use credentials.ErrInvalidAuthConfig instead.
+var ErrInvalidAuthConfig = credentials.ErrInvalidAuthConfig
+
+// NewAuthConfig creates an AuthConfig based on credential components.
+// Deprecated: Use credentials.NewAuthConfig instead.
+var NewAuthConfig = credentials.NewAuthConfig
+
+// EncodeAuth base64-encodes username and password into base64(username:password).
+// Deprecated: Use credentials.EncodeAuth instead.
+var EncodeAuth = credentials.EncodeAuth
 
 const (
 	// configFieldAuths is the "auths" field in the config file.
@@ -42,6 +70,12 @@ const (
 // ErrInvalidConfigFormat is returned when the config format is invalid.
 var ErrInvalidConfigFormat = errors.New("invalid config format")
 
+<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
+========
+// ErrNoConfigPath is returned when Save is called on a Config with no path.
+var ErrNoConfigPath = errors.New("no config path configured")
+
+>>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 // Config represents a docker configuration file.
 // References:
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
@@ -63,6 +97,29 @@ type Config struct {
 	// credentialHelpers is the credHelpers field of the config.
 	// Reference: https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/configfile/file.go#L29
 	credentialHelpers map[string]string
+}
+
+// NewConfig creates an in-memory Config with no file backing.
+// Use this when you want to configure credentials programmatically
+// without reading from or writing to a file.
+func NewConfig() *Config {
+	return &Config{
+		content:           make(map[string]json.RawMessage),
+		authsCache:        make(map[string]json.RawMessage),
+		credentialHelpers: make(map[string]string),
+	}
+}
+
+// NewConfigWithPath creates an in-memory Config with a file path configured.
+// The file is not read; use Load() to read from an existing file.
+// The path is used when Save() is called.
+func NewConfigWithPath(configPath string) *Config {
+	return &Config{
+		path:              configPath,
+		content:           make(map[string]json.RawMessage),
+		authsCache:        make(map[string]json.RawMessage),
+		credentialHelpers: make(map[string]string),
+	}
 }
 
 // Load loads Config from the given config path.
@@ -116,7 +173,11 @@ func Load(configPath string) (*Config, error) {
 }
 
 // GetAuthConfig returns an AuthConfig for serverAddress.
+<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
 func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
+========
+func (cfg *Config) GetAuthConfig(serverAddress string) (credentials.AuthConfig, error) {
+>>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
@@ -134,18 +195,32 @@ func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
 			}
 		}
 		if !matched {
+<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
 			return AuthConfig{}, nil
+========
+			return credentials.AuthConfig{}, nil
+>>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 		}
 	}
-	var authCfg AuthConfig
+	var authCfg credentials.AuthConfig
 	if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
+<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
 		return AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
+========
+		return credentials.AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
+>>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 	}
 	return authCfg, nil
 }
 
+<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
 // PutAuthConfig puts authCfg for serverAddress.
 func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error {
+========
+// SetAuthConfig sets authCfg for serverAddress in memory without saving to file.
+// Use Save() to persist changes, or PutAuthConfig() to set and save atomically.
+func (cfg *Config) SetAuthConfig(serverAddress string, authCfg credentials.AuthConfig) error {
+>>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
@@ -154,10 +229,39 @@ func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error
 		return fmt.Errorf("failed to marshal auth field: %w", err)
 	}
 	cfg.authsCache[serverAddress] = authCfgBytes
-	return cfg.saveFile()
+	return nil
 }
 
+<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
 // DeleteAuthConfig deletes the corresponding credential for serverAddress.
+========
+// PutAuthConfig puts authCfg for serverAddress and saves to file if a path is configured.
+func (cfg *Config) PutAuthConfig(serverAddress string, authCfg credentials.AuthConfig) error {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	authCfgBytes, err := json.Marshal(authCfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth field: %w", err)
+	}
+	cfg.authsCache[serverAddress] = authCfgBytes
+	if cfg.path != "" {
+		return cfg.saveFile()
+	}
+	return nil
+}
+
+// RemoveAuthConfig removes the credential for serverAddress from memory without saving.
+// Use Save() to persist changes, or DeleteAuthConfig() to remove and save atomically.
+func (cfg *Config) RemoveAuthConfig(serverAddress string) {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	delete(cfg.authsCache, serverAddress)
+}
+
+// DeleteAuthConfig deletes the corresponding credential for serverAddress and saves to file.
+>>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 func (cfg *Config) DeleteAuthConfig(serverAddress string) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
@@ -167,12 +271,41 @@ func (cfg *Config) DeleteAuthConfig(serverAddress string) error {
 		return nil
 	}
 	delete(cfg.authsCache, serverAddress)
-	return cfg.saveFile()
+	if cfg.path != "" {
+		return cfg.saveFile()
+	}
+	return nil
 }
 
-// GetCredentialHelper returns the credential helpers for serverAddress.
+// GetCredentialHelper returns the credential helper for serverAddress.
 func (cfg *Config) GetCredentialHelper(serverAddress string) string {
+	cfg.rwLock.RLock()
+	defer cfg.rwLock.RUnlock()
+
 	return cfg.credentialHelpers[serverAddress]
+}
+
+// SetCredentialHelper sets the credential helper for serverAddress in memory.
+func (cfg *Config) SetCredentialHelper(serverAddress, helper string) {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	if cfg.credentialHelpers == nil {
+		cfg.credentialHelpers = make(map[string]string)
+	}
+	cfg.credentialHelpers[serverAddress] = helper
+}
+
+// CredentialHelpers returns a copy of all configured credential helpers.
+func (cfg *Config) CredentialHelpers() map[string]string {
+	cfg.rwLock.RLock()
+	defer cfg.rwLock.RUnlock()
+
+	result := make(map[string]string, len(cfg.credentialHelpers))
+	for k, v := range cfg.credentialHelpers {
+		result[k] = v
+	}
+	return result
 }
 
 // CredentialsStore returns the configured credentials store.
@@ -188,12 +321,32 @@ func (cfg *Config) Path() string {
 	return cfg.path
 }
 
-// SetCredentialsStore puts the configured credentials store.
-func (cfg *Config) SetCredentialsStore(credsStore string) error {
+// SetPath sets the file path for this config.
+// This is used by Save() to determine where to write the config.
+func (cfg *Config) SetPath(path string) {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	cfg.path = path
+}
+
+// SetCredentialsStore sets the credentials store in memory without saving.
+func (cfg *Config) SetCredentialsStore(credsStore string) {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
 	cfg.credentialsStore = credsStore
+}
+
+// Save saves the config to the configured file path.
+// Returns ErrNoConfigPath if no path is configured.
+func (cfg *Config) Save() error {
+	cfg.rwLock.Lock()
+	defer cfg.rwLock.Unlock()
+
+	if cfg.path == "" {
+		return ErrNoConfigPath
+	}
 	return cfg.saveFile()
 }
 

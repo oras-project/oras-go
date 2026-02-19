@@ -23,7 +23,11 @@ import (
 	"reflect"
 	"testing"
 
+<<<<<<<< HEAD:registry/remote/internal/configuration/config_test.go
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration/configtest"
+========
+	"github.com/oras-project/oras-go/v3/registry/remote/config/configtest"
+>>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config_test.go
 )
 
 func TestLoad_badPath(t *testing.T) {
@@ -1000,8 +1004,9 @@ func TestConfig_SetCredentialsStore(t *testing.T) {
 		t.Fatal("Load() error =", err)
 	}
 	credsStore := "testStore"
-	if err := cfg.SetCredentialsStore(credsStore); err != nil {
-		t.Fatal("Config.SetCredentialsStore() error =", err)
+	cfg.SetCredentialsStore(credsStore)
+	if err := cfg.Save(); err != nil {
+		t.Fatal("Config.Save() error =", err)
 	}
 
 	// verify
@@ -1031,8 +1036,9 @@ func TestConfig_SetCredentialsStore(t *testing.T) {
 	}
 
 	// test SetCredentialsStore: set as empty
-	if err := cfg.SetCredentialsStore(""); err != nil {
-		t.Fatal("Config.SetCredentialsStore() error =", err)
+	cfg.SetCredentialsStore("")
+	if err := cfg.Save(); err != nil {
+		t.Fatal("Config.Save() error =", err)
 	}
 	// verify
 	if got := cfg.CredentialsStore(); got != "" {
@@ -1246,5 +1252,201 @@ func TestConfig_Path(t *testing.T) {
 	}
 	if got := config.Path(); got != mockedPath {
 		t.Errorf("Config.Path() = %v, want %v", got, mockedPath)
+	}
+}
+
+func TestNewConfig(t *testing.T) {
+	cfg := NewConfig()
+	if cfg == nil {
+		t.Fatal("NewConfig() returned nil")
+	}
+	if cfg.Path() != "" {
+		t.Errorf("NewConfig().Path() = %v, want empty", cfg.Path())
+	}
+	if cfg.IsAuthConfigured() {
+		t.Error("NewConfig().IsAuthConfigured() = true, want false")
+	}
+}
+
+func TestNewConfigWithPath(t *testing.T) {
+	path := "/tmp/test-config.json"
+	cfg := NewConfigWithPath(path)
+	if cfg == nil {
+		t.Fatal("NewConfigWithPath() returned nil")
+	}
+	if cfg.Path() != path {
+		t.Errorf("NewConfigWithPath().Path() = %v, want %v", cfg.Path(), path)
+	}
+}
+
+func TestConfig_SetAuthConfig(t *testing.T) {
+	cfg := NewConfig()
+
+	serverAddress := "registry.example.com"
+	authCfg := AuthConfig{
+		Username: "testuser",
+		Password: "testpass",
+	}
+
+	// SetAuthConfig should not return error
+	if err := cfg.SetAuthConfig(serverAddress, authCfg); err != nil {
+		t.Fatalf("SetAuthConfig() error = %v", err)
+	}
+
+	// Verify it was set
+	got, err := cfg.GetAuthConfig(serverAddress)
+	if err != nil {
+		t.Fatalf("GetAuthConfig() error = %v", err)
+	}
+	if got.Username != authCfg.Username || got.Password != authCfg.Password {
+		t.Errorf("GetAuthConfig() = %v, want %v", got, authCfg)
+	}
+
+	// Verify no file operations happened (no path configured)
+	if cfg.Path() != "" {
+		t.Error("Config should have no path")
+	}
+}
+
+func TestConfig_SetCredentialHelper(t *testing.T) {
+	cfg := NewConfig()
+
+	serverAddress := "registry.example.com"
+	helper := "docker-credential-test"
+
+	cfg.SetCredentialHelper(serverAddress, helper)
+
+	got := cfg.GetCredentialHelper(serverAddress)
+	if got != helper {
+		t.Errorf("GetCredentialHelper() = %v, want %v", got, helper)
+	}
+
+	// Verify CredentialHelpers returns a copy
+	helpers := cfg.CredentialHelpers()
+	if helpers[serverAddress] != helper {
+		t.Errorf("CredentialHelpers()[%s] = %v, want %v", serverAddress, helpers[serverAddress], helper)
+	}
+}
+
+func TestConfig_RemoveAuthConfig(t *testing.T) {
+	cfg := NewConfig()
+
+	serverAddress := "registry.example.com"
+	authCfg := AuthConfig{
+		Username: "testuser",
+		Password: "testpass",
+	}
+
+	// Set auth
+	if err := cfg.SetAuthConfig(serverAddress, authCfg); err != nil {
+		t.Fatalf("SetAuthConfig() error = %v", err)
+	}
+
+	// Remove it
+	cfg.RemoveAuthConfig(serverAddress)
+
+	// Verify it was removed
+	got, err := cfg.GetAuthConfig(serverAddress)
+	if err != nil {
+		t.Fatalf("GetAuthConfig() error = %v", err)
+	}
+	if got.Username != "" || got.Password != "" {
+		t.Errorf("GetAuthConfig() after remove = %v, want empty", got)
+	}
+}
+
+func TestConfig_Save_NoPath(t *testing.T) {
+	cfg := NewConfig()
+
+	err := cfg.Save()
+	if !errors.Is(err, ErrNoConfigPath) {
+		t.Errorf("Save() error = %v, want %v", err, ErrNoConfigPath)
+	}
+}
+
+func TestConfig_SetPath_AndSave(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+
+	cfg := NewConfig()
+
+	// Set some auth
+	serverAddress := "registry.example.com"
+	authCfg := AuthConfig{
+		Username: "testuser",
+		Password: "testpass",
+	}
+	if err := cfg.SetAuthConfig(serverAddress, authCfg); err != nil {
+		t.Fatalf("SetAuthConfig() error = %v", err)
+	}
+
+	// Set path and save
+	cfg.SetPath(configPath)
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	// Verify file was created and can be loaded
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	got, err := loaded.GetAuthConfig(serverAddress)
+	if err != nil {
+		t.Fatalf("GetAuthConfig() error = %v", err)
+	}
+	if got.Username != authCfg.Username || got.Password != authCfg.Password {
+		t.Errorf("Loaded GetAuthConfig() = %v, want %v", got, authCfg)
+	}
+}
+
+func TestConfig_ProgrammaticConfig_NoFileIO(t *testing.T) {
+	// This test demonstrates creating a config entirely in memory
+	// without any file I/O - useful for CLI tools
+	cfg := NewConfig()
+
+	// Configure multiple registries
+	registries := map[string]AuthConfig{
+		"registry1.example.com": {Username: "user1", Password: "pass1"},
+		"registry2.example.com": {Username: "user2", Password: "pass2"},
+		"registry3.example.com": {IdentityToken: "token123"},
+	}
+
+	for addr, auth := range registries {
+		if err := cfg.SetAuthConfig(addr, auth); err != nil {
+			t.Fatalf("SetAuthConfig(%s) error = %v", addr, err)
+		}
+	}
+
+	// Set credential helpers
+	cfg.SetCredentialHelper("gcr.io", "docker-credential-gcr")
+	cfg.SetCredentialHelper("123456789.dkr.ecr.us-west-2.amazonaws.com", "docker-credential-ecr-login")
+
+	// Set credentials store
+	cfg.SetCredentialsStore("osxkeychain")
+
+	// Verify all settings
+	if !cfg.IsAuthConfigured() {
+		t.Error("IsAuthConfigured() = false, want true")
+	}
+
+	for addr, want := range registries {
+		got, err := cfg.GetAuthConfig(addr)
+		if err != nil {
+			t.Errorf("GetAuthConfig(%s) error = %v", addr, err)
+			continue
+		}
+		if got.Username != want.Username || got.Password != want.Password || got.IdentityToken != want.IdentityToken {
+			t.Errorf("GetAuthConfig(%s) = %v, want %v", addr, got, want)
+		}
+	}
+
+	if got := cfg.GetCredentialHelper("gcr.io"); got != "docker-credential-gcr" {
+		t.Errorf("GetCredentialHelper(gcr.io) = %v, want docker-credential-gcr", got)
+	}
+
+	if got := cfg.CredentialsStore(); got != "osxkeychain" {
+		t.Errorf("CredentialsStore() = %v, want osxkeychain", got)
 	}
 }

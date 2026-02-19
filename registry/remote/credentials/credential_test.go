@@ -18,8 +18,6 @@ package credentials
 import (
 	"context"
 	"testing"
-
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
 )
 
 func TestStaticCredential_BasicAuth(t *testing.T) {
@@ -242,13 +240,13 @@ func TestCredentialFunc_Interface(t *testing.T) {
 func TestCredential(t *testing.T) {
 	tests := []struct {
 		name    string
-		authCfg configuration.AuthConfig
+		authCfg AuthConfig
 		want    Credential
 		wantErr bool
 	}{
 		{
 			name: "Username and password",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				Username: "username",
 				Password: "password",
 			},
@@ -259,7 +257,7 @@ func TestCredential(t *testing.T) {
 		},
 		{
 			name: "Identity token",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				IdentityToken: "identity_token",
 			},
 			want: Credential{
@@ -268,7 +266,7 @@ func TestCredential(t *testing.T) {
 		},
 		{
 			name: "Registry token",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				RegistryToken: "registry_token",
 			},
 			want: Credential{
@@ -277,7 +275,7 @@ func TestCredential(t *testing.T) {
 		},
 		{
 			name: "All fields",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				Username:      "username",
 				Password:      "password",
 				IdentityToken: "identity_token",
@@ -292,12 +290,12 @@ func TestCredential(t *testing.T) {
 		},
 		{
 			name:    "Empty auth config",
-			authCfg: configuration.AuthConfig{},
+			authCfg: AuthConfig{},
 			want:    Credential{},
 		},
 		{
 			name: "Auth field overrides username and password",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				Auth:     "dXNlcm5hbWU6cGFzc3dvcmQ=", // username:password
 				Username: "old_username",
 				Password: "old_password",
@@ -309,7 +307,7 @@ func TestCredential(t *testing.T) {
 		},
 		{
 			name: "Auth field with identity and registry tokens",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				Auth:          "dXNlcm5hbWU6cGFzc3dvcmQ=", // username:password
 				IdentityToken: "identity_token",
 				RegistryToken: "registry_token",
@@ -323,7 +321,7 @@ func TestCredential(t *testing.T) {
 		},
 		{
 			name: "Invalid auth field",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				Auth: "invalid_base64!@#",
 			},
 			want:    EmptyCredential,
@@ -331,7 +329,7 @@ func TestCredential(t *testing.T) {
 		},
 		{
 			name: "Auth field bad format",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				Auth: "d2hhdGV2ZXI=", // whatever (no colon)
 			},
 			want:    EmptyCredential,
@@ -339,7 +337,7 @@ func TestCredential(t *testing.T) {
 		},
 		{
 			name: "Auth field username only",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				Auth: "dXNlcm5hbWU6", // username:
 			},
 			want: Credential{
@@ -349,7 +347,7 @@ func TestCredential(t *testing.T) {
 		},
 		{
 			name: "Auth field password only",
-			authCfg: configuration.AuthConfig{
+			authCfg: AuthConfig{
 				Auth: "OnBhc3N3b3Jk", // :password
 			},
 			want: Credential{

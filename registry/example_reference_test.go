@@ -34,7 +34,7 @@ func ExampleParseReference_digest() {
 	fmt.Println("Registry:", ref.Registry)
 	fmt.Println("Repository:", ref.Repository)
 
-	digest, err := ref.Digest()
+	digest, err := ref.GetDigest()
 	if err != nil {
 		panic(err)
 	}
@@ -44,4 +44,23 @@ func ExampleParseReference_digest() {
 	// Registry: ghcr.io
 	// Repository: oras-project/oras-go
 	// Digest: sha256:601d05a48832e7946dab8f49b14953549bebf42e42f4d7973b1a5a287d77ab76
+}
+
+// ExampleParseReference_withScheme demonstrates parsing a reference with
+// a URI scheme and printing its components.
+func ExampleParseReference_withScheme() {
+	rawRef := "oci://ghcr.io/oras-project/oras-go:v3.0.0"
+	ref, err := registry.ParseReference(rawRef)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Registry:", ref.Registry)
+	fmt.Println("Repository:", ref.Repository)
+	fmt.Println("Tag:", ref.Reference)
+
+	// Output:
+	// Registry: ghcr.io
+	// Repository: oras-project/oras-go
+	// Tag: v3.0.0
 }
