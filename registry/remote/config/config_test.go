@@ -1196,6 +1196,105 @@ func TestConfig_IsAuthConfigured(t *testing.T) {
 	}
 }
 
+func TestConfig_GetAuthConfigHierarchical(t *testing.T) {
+	cfg, err := Load("./testdata/hierarchical_auths_config.json")
+	if err != nil {
+		t.Fatal("Load() error =", err)
+	}
+
+	tests := []struct {
+		name          string
+		serverAddress string
+		want          AuthConfig
+	}{
+		{
+			name:          "Exact match on registry",
+			serverAddress: "registry.example.com",
+			want: AuthConfig{
+				Auth: "cmVnaXN0cnk6cGFzcw==",
+			},
+		},
+		{
+			name:          "Exact match on namespace",
+			serverAddress: "registry.example.com/namespace",
+			want: AuthConfig{
+				Auth: "bmFtZXNwYWNlOnBhc3M=",
+			},
+		},
+		{
+			name:          "Exact match on repo",
+			serverAddress: "registry.example.com/namespace/repo",
+			want: AuthConfig{
+				Auth: "cmVwbzpwYXNz",
+			},
+		},
+		{
+			name:          "Prefix match falls to namespace",
+			serverAddress: "registry.example.com/namespace/other",
+			want: AuthConfig{
+				Auth: "bmFtZXNwYWNlOnBhc3M=",
+			},
+		},
+		{
+			name:          "Prefix match falls to registry",
+			serverAddress: "registry.example.com/other-ns/repo",
+			want: AuthConfig{
+				Auth: "cmVnaXN0cnk6cGFzcw==",
+			},
+		},
+		{
+			name:          "Deep path matches namespace repo",
+			serverAddress: "registry.example.com/namespace/repo/tag",
+			want: AuthConfig{
+				Auth: "cmVwbzpwYXNz",
+			},
+		},
+		{
+			name:          "No match returns empty",
+			serverAddress: "unknown.example.com",
+			want:          AuthConfig{},
+		},
+		{
+			name:          "Partial hostname does not match",
+			serverAddress: "registry.example.com.evil.com",
+			want:          AuthConfig{},
+		},
+		{
+			name:          "Other registry exact match",
+			serverAddress: "other.example.com",
+			want: AuthConfig{
+				Auth: "b3RoZXI6cGFzcw==",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := cfg.GetAuthConfigHierarchical(tt.serverAddress)
+			if err != nil {
+				t.Fatalf("GetAuthConfigHierarchical() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetAuthConfigHierarchical() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfig_GetAuthConfigHierarchical_empty(t *testing.T) {
+	cfg, err := Load("./testdata/empty.json")
+	if err != nil {
+		t.Fatal("Load() error =", err)
+	}
+
+	got, err := cfg.GetAuthConfigHierarchical("registry.example.com")
+	if err != nil {
+		t.Fatalf("GetAuthConfigHierarchical() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, AuthConfig{}) {
+		t.Errorf("GetAuthConfigHierarchical() = %v, want empty", got)
+	}
+}
+
 func Test_toHostname(t *testing.T) {
 	tests := []struct {
 		name string

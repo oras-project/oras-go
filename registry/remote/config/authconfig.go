@@ -13,24 +13,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package credentials
+package config
 
 import (
 	"github.com/oras-project/oras-go/v3/internal/authtype"
 )
 
 // AuthConfig contains authorization information for connecting to a Registry.
-// Deprecated: Use config.AuthConfig instead.
+// References:
+//   - https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/configfile/file.go#L17-L45
+//   - https://github.com/docker/cli/blob/v24.0.0-beta.2/cli/config/types/authconfig.go#L3-L22
 type AuthConfig = authtype.AuthConfig
 
 // ErrInvalidAuthConfig is returned when the auth config format is invalid.
-// Deprecated: Use config.ErrInvalidAuthConfig instead.
 var ErrInvalidAuthConfig = authtype.ErrInvalidAuthConfig
 
 // NewAuthConfig creates an AuthConfig based on credential components.
-// Deprecated: Use config.NewAuthConfig instead.
 var NewAuthConfig = authtype.NewAuthConfig
 
 // EncodeAuth base64-encodes username and password into base64(username:password).
-// Deprecated: Use config.EncodeAuth instead.
 var EncodeAuth = authtype.EncodeAuth

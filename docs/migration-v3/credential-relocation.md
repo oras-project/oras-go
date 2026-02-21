@@ -112,8 +112,8 @@ The `AuthConfig` type and related functions have been moved from the `config` pa
 
 ### What Changed
 
-| config package (deprecated) | credentials package (new location) |
-|-----------------------------|-----------------------------------|
+| config package | credentials package (deprecated alias) |
+|----------------|----------------------------------------|
 | `config.AuthConfig` | `credentials.AuthConfig` |
 | `config.NewAuthConfig()` | `credentials.NewAuthConfig()` |
 | `config.EncodeAuth()` | `credentials.EncodeAuth()` |

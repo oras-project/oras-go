@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package configuration
+package config
 
 import (
 	"bytes"
@@ -26,10 +26,7 @@ import (
 	"strings"
 	"sync"
 
-<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
-========
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
->>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/ioutil"
 )
 
@@ -39,23 +36,6 @@ func init() {
 		return Load(configPath)
 	})
 }
-
-// Type aliases for backward compatibility.
-// These types have been moved to the credentials package.
-// Deprecated: Use credentials.AuthConfig instead.
-type AuthConfig = credentials.AuthConfig
-
-// ErrInvalidAuthConfig is returned when the auth config format is invalid.
-// Deprecated: Use credentials.ErrInvalidAuthConfig instead.
-var ErrInvalidAuthConfig = credentials.ErrInvalidAuthConfig
-
-// NewAuthConfig creates an AuthConfig based on credential components.
-// Deprecated: Use credentials.NewAuthConfig instead.
-var NewAuthConfig = credentials.NewAuthConfig
-
-// EncodeAuth base64-encodes username and password into base64(username:password).
-// Deprecated: Use credentials.EncodeAuth instead.
-var EncodeAuth = credentials.EncodeAuth
 
 const (
 	// configFieldAuths is the "auths" field in the config file.
@@ -70,12 +50,9 @@ const (
 // ErrInvalidConfigFormat is returned when the config format is invalid.
 var ErrInvalidConfigFormat = errors.New("invalid config format")
 
-<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
-========
 // ErrNoConfigPath is returned when Save is called on a Config with no path.
 var ErrNoConfigPath = errors.New("no config path configured")
 
->>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 // Config represents a docker configuration file.
 // References:
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
@@ -173,11 +150,7 @@ func Load(configPath string) (*Config, error) {
 }
 
 // GetAuthConfig returns an AuthConfig for serverAddress.
-<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
 func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
-========
-func (cfg *Config) GetAuthConfig(serverAddress string) (credentials.AuthConfig, error) {
->>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
@@ -195,32 +168,73 @@ func (cfg *Config) GetAuthConfig(serverAddress string) (credentials.AuthConfig, 
 			}
 		}
 		if !matched {
-<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
 			return AuthConfig{}, nil
-========
-			return credentials.AuthConfig{}, nil
->>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 		}
 	}
-	var authCfg credentials.AuthConfig
+	var authCfg AuthConfig
 	if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
-<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
 		return AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
-========
-		return credentials.AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
->>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 	}
 	return authCfg, nil
 }
 
-<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
-// PutAuthConfig puts authCfg for serverAddress.
-func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error {
-========
+// GetAuthConfigHierarchical returns an AuthConfig using longest-prefix matching
+// against auths keys. This is used for containers-auth.json (Podman/Buildah)
+// which supports hierarchical namespace matching.
+//
+// For example, given auths keys:
+//   - "registry.example.com/namespace/repo"
+//   - "registry.example.com/namespace"
+//   - "registry.example.com"
+//
+// A lookup for "registry.example.com/namespace/repo" would match the first,
+// while "registry.example.com/namespace/other" would match the second.
+func (cfg *Config) GetAuthConfigHierarchical(serverAddress string) (AuthConfig, error) {
+	cfg.rwLock.RLock()
+	defer cfg.rwLock.RUnlock()
+
+	// Try exact match first
+	if authCfgBytes, ok := cfg.authsCache[serverAddress]; ok {
+		var authCfg AuthConfig
+		if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
+			return AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
+		}
+		return authCfg, nil
+	}
+
+	// Try longest-prefix match
+	var bestMatch string
+	var bestAuthBytes json.RawMessage
+	for addr, auth := range cfg.authsCache {
+		// Check if the address is a prefix of serverAddress
+		if !strings.HasPrefix(serverAddress, addr) {
+			continue
+		}
+		// Ensure prefix match is at a path boundary
+		if len(serverAddress) > len(addr) && serverAddress[len(addr)] != '/' {
+			continue
+		}
+		// Keep the longest matching prefix
+		if len(addr) > len(bestMatch) {
+			bestMatch = addr
+			bestAuthBytes = auth
+		}
+	}
+
+	if bestMatch == "" {
+		return AuthConfig{}, nil
+	}
+
+	var authCfg AuthConfig
+	if err := json.Unmarshal(bestAuthBytes, &authCfg); err != nil {
+		return AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
+	}
+	return authCfg, nil
+}
+
 // SetAuthConfig sets authCfg for serverAddress in memory without saving to file.
 // Use Save() to persist changes, or PutAuthConfig() to set and save atomically.
-func (cfg *Config) SetAuthConfig(serverAddress string, authCfg credentials.AuthConfig) error {
->>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
+func (cfg *Config) SetAuthConfig(serverAddress string, authCfg AuthConfig) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
@@ -232,11 +246,8 @@ func (cfg *Config) SetAuthConfig(serverAddress string, authCfg credentials.AuthC
 	return nil
 }
 
-<<<<<<<< HEAD:registry/remote/internal/configuration/config.go
-// DeleteAuthConfig deletes the corresponding credential for serverAddress.
-========
 // PutAuthConfig puts authCfg for serverAddress and saves to file if a path is configured.
-func (cfg *Config) PutAuthConfig(serverAddress string, authCfg credentials.AuthConfig) error {
+func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
@@ -261,7 +272,6 @@ func (cfg *Config) RemoveAuthConfig(serverAddress string) {
 }
 
 // DeleteAuthConfig deletes the corresponding credential for serverAddress and saves to file.
->>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config.go
 func (cfg *Config) DeleteAuthConfig(serverAddress string) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
