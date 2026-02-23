@@ -19,13 +19,27 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"sync"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 )
+
+// ManifestClient provides operations for manifest relationships.
+type ManifestClient interface {
+	// FetchManifest fetches a manifest by descriptor.
+	FetchManifest(ctx context.Context, desc ocispec.Descriptor) (Manifest, error)
+
+	// FetchByReference fetches a manifest by reference (tag or digest string).
+	FetchByReference(ctx context.Context, reference string) (Manifest, error)
+
+	// FindPredecessors finds all manifests that reference the given content.
+	FindPredecessors(ctx context.Context, content Content) ([]Manifest, error)
+
+	// PushManifest pushes a manifest with a reference.
+	PushManifest(ctx context.Context, manifest Manifest, reference string) error
+}
 
 // Artifact represents an OCI artifact manifest.
 // Artifacts contain typed blobs and can reference a subject manifest.
@@ -35,31 +49,11 @@ type Artifact struct {
 	pusher     content.Pusher
 	client     ManifestClient
 
-	// Lazy-loaded manifest
-	manifest     *spec.Artifact
-	manifestOnce sync.Once
-	manifestErr  error
-
-	// Lazy-loaded relationships
-	blobs     []*Blob
-	blobsOnce sync.Once
-	blobsErr  error
-
-	subject     Manifest
-	subjectOnce sync.Once
-	subjectErr  error
-}
-
-// ManifestClient provides operations for manifest relationships.
-type ManifestClient interface {
-	// FetchManifest fetches a manifest by descriptor.
-	FetchManifest(ctx context.Context, desc ocispec.Descriptor) (Manifest, error)
-
-	// FindPredecessors finds all manifests that reference the given content.
-	FindPredecessors(ctx context.Context, content Content) ([]Manifest, error)
-
-	// PushManifest pushes a manifest with a reference.
-	PushManifest(ctx context.Context, manifest Manifest, reference string) error
+	// Lazy-loaded manifest and relationships.
+	// Uses lazy[T] for thread-safe loading with retry on transient errors.
+	manifest lazy[*spec.Artifact]
+	blobs    lazy[[]*Blob]
+	subject  lazy[Manifest]
 }
 
 // NewArtifact creates a new Artifact from a descriptor.
@@ -99,34 +93,29 @@ func (a *Artifact) Annotations() map[string]string {
 
 // loadManifest loads the artifact manifest from storage.
 func (a *Artifact) loadManifest(ctx context.Context) (*spec.Artifact, error) {
-	a.manifestOnce.Do(func() {
-		if a.manifest != nil {
-			return // Already loaded
-		}
-
+	return a.manifest.get(func() (*spec.Artifact, error) {
 		if a.fetcher == nil {
-			a.manifestErr = ErrNoFetcher
-			return
+			return nil, ErrNoFetcher
 		}
 
-		// Fetch manifest content
 		manifestBytes, err := content.FetchAll(ctx, a.fetcher, a.descriptor)
 		if err != nil {
-			a.manifestErr = err
-			return
+			return nil, err
 		}
 
-		// Parse artifact manifest
 		var manifest spec.Artifact
 		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-			a.manifestErr = err
-			return
+			return nil, err
 		}
 
-		a.manifest = &manifest
+		return &manifest, nil
 	})
+}
 
-	return a.manifest, a.manifestErr
+// Load eagerly loads the artifact manifest from storage.
+func (a *Artifact) Load(ctx context.Context) error {
+	_, err := a.loadManifest(ctx)
+	return err
 }
 
 // ArtifactType returns the artifact type (IANA media type).
@@ -141,53 +130,44 @@ func (a *Artifact) ArtifactType(ctx context.Context) (string, error) {
 // Blobs returns all blobs referenced by this artifact.
 // The blobs are lazily loaded and cached.
 func (a *Artifact) Blobs(ctx context.Context) ([]*Blob, error) {
-	a.blobsOnce.Do(func() {
+	return a.blobs.get(func() ([]*Blob, error) {
 		manifest, err := a.loadManifest(ctx)
 		if err != nil {
-			a.blobsErr = err
-			return
+			return nil, err
 		}
 
-		// Convert descriptors to Blob objects
-		a.blobs = make([]*Blob, len(manifest.Blobs))
+		blobs := make([]*Blob, len(manifest.Blobs))
 		for i, desc := range manifest.Blobs {
-			a.blobs[i] = NewBlob(desc, a.fetcher, a.pusher)
+			blobs[i] = NewBlob(desc, a.fetcher, a.pusher)
 		}
+		return blobs, nil
 	})
-
-	return a.blobs, a.blobsErr
 }
 
 // Subject returns the subject manifest this artifact refers to.
 // Returns nil if no subject is set.
-func (a *Artifact) Subject() (Manifest, error) {
-	a.subjectOnce.Do(func() {
-		manifest, err := a.loadManifest(context.Background())
+func (a *Artifact) Subject(ctx context.Context) (Manifest, error) {
+	return a.subject.get(func() (Manifest, error) {
+		manifest, err := a.loadManifest(ctx)
 		if err != nil {
-			a.subjectErr = err
-			return
+			return nil, err
 		}
 
 		if manifest.Subject == nil {
-			return // No subject
+			return nil, nil
 		}
 
 		if a.client == nil {
-			a.subjectErr = ErrNoClient
-			return
+			return nil, ErrNoClient
 		}
 
-		// Fetch subject manifest
-		a.subject, a.subjectErr = a.client.FetchManifest(context.Background(), *manifest.Subject)
+		return a.client.FetchManifest(ctx, *manifest.Subject)
 	})
-
-	return a.subject, a.subjectErr
 }
 
 // SetSubject sets the subject manifest for this artifact.
 func (a *Artifact) SetSubject(subject Manifest) {
-	a.subject = subject
-	a.subjectOnce = sync.Once{} // Reset once to allow re-evaluation
+	a.subject.set(subject)
 }
 
 // Predecessors returns all manifests that reference this artifact.
@@ -204,12 +184,16 @@ func (a *Artifact) Push(ctx context.Context, reference string) error {
 		return a.client.PushManifest(ctx, a, reference)
 	}
 
-	// Fallback to direct push if no client
 	if a.pusher == nil {
 		return ErrNoPusher
 	}
 
-	manifestBytes, err := a.MarshalJSON()
+	manifest, err := a.loadManifest(ctx)
+	if err != nil {
+		return err
+	}
+
+	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return err
 	}
@@ -218,10 +202,12 @@ func (a *Artifact) Push(ctx context.Context, reference string) error {
 }
 
 // MarshalJSON marshals the artifact manifest to JSON.
+// The manifest must have been loaded first via Load(ctx) or any method
+// that accepts a context. Returns ErrNotLoaded if not yet loaded.
 func (a *Artifact) MarshalJSON() ([]byte, error) {
-	manifest, err := a.loadManifest(context.Background())
-	if err != nil {
-		return nil, err
+	manifest, ok := a.manifest.peek()
+	if !ok {
+		return nil, ErrNotLoaded
 	}
 	return json.Marshal(manifest)
 }

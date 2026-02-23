@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"sync"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -34,19 +33,11 @@ type Index struct {
 	pusher     content.Pusher
 	client     ManifestClient
 
-	// Lazy-loaded index
-	index     *ocispec.Index
-	indexOnce sync.Once
-	indexErr  error
-
-	// Lazy-loaded relationships
-	manifests     []Manifest
-	manifestsOnce sync.Once
-	manifestsErr  error
-
-	subject     Manifest
-	subjectOnce sync.Once
-	subjectErr  error
+	// Lazy-loaded index and relationships.
+	// Uses lazy[T] for thread-safe loading with retry on transient errors.
+	index     lazy[*ocispec.Index]
+	manifests lazy[[]Manifest]
+	subject   lazy[Manifest]
 }
 
 // NewIndex creates a new Index from a descriptor.
@@ -86,64 +77,54 @@ func (idx *Index) Annotations() map[string]string {
 
 // loadIndex loads the index from storage.
 func (idx *Index) loadIndex(ctx context.Context) (*ocispec.Index, error) {
-	idx.indexOnce.Do(func() {
-		if idx.index != nil {
-			return // Already loaded
-		}
-
+	return idx.index.get(func() (*ocispec.Index, error) {
 		if idx.fetcher == nil {
-			idx.indexErr = ErrNoFetcher
-			return
+			return nil, ErrNoFetcher
 		}
 
-		// Fetch index content
 		indexBytes, err := content.FetchAll(ctx, idx.fetcher, idx.descriptor)
 		if err != nil {
-			idx.indexErr = err
-			return
+			return nil, err
 		}
 
-		// Parse index
 		var index ocispec.Index
 		if err := json.Unmarshal(indexBytes, &index); err != nil {
-			idx.indexErr = err
-			return
+			return nil, err
 		}
 
-		idx.index = &index
+		return &index, nil
 	})
+}
 
-	return idx.index, idx.indexErr
+// Load eagerly loads the index from storage.
+func (idx *Index) Load(ctx context.Context) error {
+	_, err := idx.loadIndex(ctx)
+	return err
 }
 
 // Manifests returns all manifests in this index.
 // The manifests are lazily loaded and cached.
 func (idx *Index) Manifests(ctx context.Context) ([]Manifest, error) {
-	idx.manifestsOnce.Do(func() {
+	return idx.manifests.get(func() ([]Manifest, error) {
 		index, err := idx.loadIndex(ctx)
 		if err != nil {
-			idx.manifestsErr = err
-			return
+			return nil, err
 		}
 
 		if idx.client == nil {
-			idx.manifestsErr = ErrNoClient
-			return
+			return nil, ErrNoClient
 		}
 
-		// Convert descriptors to Manifest objects
-		idx.manifests = make([]Manifest, len(index.Manifests))
+		manifests := make([]Manifest, len(index.Manifests))
 		for i, desc := range index.Manifests {
 			manifest, err := idx.client.FetchManifest(ctx, desc)
 			if err != nil {
-				idx.manifestsErr = err
-				return
+				return nil, err
 			}
-			idx.manifests[i] = manifest
+			manifests[i] = manifest
 		}
+		return manifests, nil
 	})
-
-	return idx.manifests, idx.manifestsErr
 }
 
 // FilterByPlatform returns manifests matching the given platform.
@@ -185,34 +166,28 @@ func platformMatches(a, b *ocispec.Platform) bool {
 
 // Subject returns the subject manifest this index refers to.
 // Returns nil if no subject is set.
-func (idx *Index) Subject() (Manifest, error) {
-	idx.subjectOnce.Do(func() {
-		index, err := idx.loadIndex(context.Background())
+func (idx *Index) Subject(ctx context.Context) (Manifest, error) {
+	return idx.subject.get(func() (Manifest, error) {
+		index, err := idx.loadIndex(ctx)
 		if err != nil {
-			idx.subjectErr = err
-			return
+			return nil, err
 		}
 
 		if index.Subject == nil {
-			return // No subject
+			return nil, nil
 		}
 
 		if idx.client == nil {
-			idx.subjectErr = ErrNoClient
-			return
+			return nil, ErrNoClient
 		}
 
-		// Fetch subject manifest
-		idx.subject, idx.subjectErr = idx.client.FetchManifest(context.Background(), *index.Subject)
+		return idx.client.FetchManifest(ctx, *index.Subject)
 	})
-
-	return idx.subject, idx.subjectErr
 }
 
 // SetSubject sets the subject manifest for this index.
 func (idx *Index) SetSubject(subject Manifest) {
-	idx.subject = subject
-	idx.subjectOnce = sync.Once{} // Reset once to allow re-evaluation
+	idx.subject.set(subject)
 }
 
 // Predecessors returns all manifests that reference this index.
@@ -229,12 +204,16 @@ func (idx *Index) Push(ctx context.Context, reference string) error {
 		return idx.client.PushManifest(ctx, idx, reference)
 	}
 
-	// Fallback to direct push if no client
 	if idx.pusher == nil {
 		return ErrNoPusher
 	}
 
-	indexBytes, err := idx.MarshalJSON()
+	index, err := idx.loadIndex(ctx)
+	if err != nil {
+		return err
+	}
+
+	indexBytes, err := json.Marshal(index)
 	if err != nil {
 		return err
 	}
@@ -243,10 +222,12 @@ func (idx *Index) Push(ctx context.Context, reference string) error {
 }
 
 // MarshalJSON marshals the index to JSON.
+// The index must have been loaded first via Load(ctx) or any method
+// that accepts a context. Returns ErrNotLoaded if not yet loaded.
 func (idx *Index) MarshalJSON() ([]byte, error) {
-	index, err := idx.loadIndex(context.Background())
-	if err != nil {
-		return nil, err
+	index, ok := idx.index.peek()
+	if !ok {
+		return nil, ErrNotLoaded
 	}
 	return json.Marshal(index)
 }

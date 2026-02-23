@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/opencontainers/go-digest"
@@ -271,26 +272,16 @@ func (c *Client) FindPredecessors(ctx context.Context, content models.Content) (
 // PushManifest pushes a manifest with a reference.
 // This implements the ManifestClient interface.
 func (c *Client) PushManifest(ctx context.Context, manifest models.Manifest, reference string) error {
-	// Get manifest bytes
-	var manifestBytes []byte
-	var err error
-
-	switch m := manifest.(type) {
-	case *models.Artifact:
-		manifestBytes, err = m.MarshalJSON()
-	case *models.Image:
-		manifestBytes, err = m.MarshalJSON()
-	case *models.Index:
-		manifestBytes, err = m.MarshalJSON()
-	default:
-		return errors.New("unsupported manifest type")
+	// Ensure the manifest is loaded before serialization.
+	if err := manifest.Load(ctx); err != nil {
+		return fmt.Errorf("failed to load manifest for push: %w", err)
 	}
 
+	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
 
-	// Pack and push
 	desc := manifest.Descriptor()
 	if err := c.target.Push(ctx, desc, bytes.NewReader(manifestBytes)); err != nil {
 		return err

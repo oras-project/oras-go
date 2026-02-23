@@ -41,7 +41,7 @@ func (r *Reference) Name() string {
 }
 
 // Resolve resolves the reference to a manifest.
-// If the manifest is not yet loaded, it will be fetched.
+// If the manifest is not yet loaded, it will be fetched via the client.
 func (r *Reference) Resolve(ctx context.Context) (Manifest, error) {
 	if r.manifest != nil {
 		return r.manifest, nil
@@ -51,9 +51,13 @@ func (r *Reference) Resolve(ctx context.Context) (Manifest, error) {
 		return nil, ErrNoClient
 	}
 
-	// Note: This would need to be implemented in the client
-	// For now, return error if manifest is not set
-	return nil, ErrNoContent
+	manifest, err := r.client.FetchByReference(ctx, r.name)
+	if err != nil {
+		return nil, err
+	}
+
+	r.manifest = manifest
+	return manifest, nil
 }
 
 // Tag tags the given manifest with this reference name.
