@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -81,6 +82,10 @@ func (ib *IndexBuilder) WithAnnotations(annotations map[string]string) *IndexBui
 
 // Build creates the image index.
 func (ib *IndexBuilder) Build(ctx context.Context) (*models.Index, error) {
+	if len(ib.manifests) == 0 {
+		return nil, errors.New("at least one manifest is required for index")
+	}
+
 	// Build manifest descriptors
 	manifestDescs := make([]ocispec.Descriptor, len(ib.manifests))
 	for i, manifest := range ib.manifests {
