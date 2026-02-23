@@ -27,6 +27,9 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/platform"
 )
 
+// Compile-time interface check.
+var _ Manifest = (*Index)(nil)
+
 // Index represents an OCI image index (manifest list).
 // Indexes contain multiple manifests, typically for different platforms.
 type Index struct {

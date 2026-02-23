@@ -42,6 +42,9 @@ type ManifestClient interface {
 	PushManifest(ctx context.Context, manifest Manifest, reference string) error
 }
 
+// Compile-time interface check.
+var _ Manifest = (*Artifact)(nil)
+
 // Artifact represents an OCI artifact manifest.
 // Artifacts contain typed blobs and can reference a subject manifest.
 type Artifact struct {

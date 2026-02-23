@@ -26,6 +26,9 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 )
 
+// Compile-time interface check.
+var _ Content = (*Blob)(nil)
+
 // Blob represents a binary content object (layer, config, arbitrary data).
 // Blobs are immutable and content-addressable.
 type Blob struct {
