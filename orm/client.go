@@ -187,8 +187,9 @@ func (c *Client) addToCache(content models.Content) {
 }
 
 // NewBlob creates a new Blob from raw bytes.
+// The blob is configured with the client's target for push/fetch operations.
 func (c *Client) NewBlob(mediaType string, data []byte) *models.Blob {
-	blob := models.NewBlobFromBytes(mediaType, data)
+	blob := models.NewBlobFromBytes(mediaType, data, models.WithStorage(c.target, c.target))
 	c.addToCache(blob)
 	return blob
 }

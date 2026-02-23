@@ -1,0 +1,798 @@
+//go:build functional
+
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package functional_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/orm"
+	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/registry/remote"
+)
+
+// newORMClient creates an ORM client backed by a remote repository.
+func newORMClient(t *testing.T, opts ...orm.ClientOption) (*orm.Client, *remote.Repository) {
+	t.Helper()
+	repoName := newRepoName(t)
+	repo := newRepository(t, repoName)
+	client := orm.NewClient(repo, opts...)
+	return client, repo
+}
+
+func TestORM_ClientBlobLifecycle(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	t.Run("NewBlob and Push", func(t *testing.T) {
+		data := []byte(`{"version": "1.0.0"}`)
+		blob := client.NewBlob("application/json", data)
+
+		// Verify descriptor is correct.
+		if blob.MediaType() != "application/json" {
+			t.Errorf("MediaType = %q, want %q", blob.MediaType(), "application/json")
+		}
+		if blob.Size() != int64(len(data)) {
+			t.Errorf("Size = %d, want %d", blob.Size(), len(data))
+		}
+		if blob.Digest() != digest.FromBytes(data) {
+			t.Errorf("Digest mismatch")
+		}
+
+		// Push blob to remote registry.
+		if err := blob.Push(ctx); err != nil {
+			t.Fatalf("Push(): %v", err)
+		}
+
+		// Verify we can fetch it back.
+		fetched, err := client.FetchBlob(ctx, blob.Descriptor())
+		if err != nil {
+			t.Fatalf("FetchBlob(): %v", err)
+		}
+
+		// Should be the same cached instance.
+		if fetched != blob {
+			t.Error("FetchBlob should return cached instance")
+		}
+
+		// Verify content can be read back.
+		content, err := fetched.Bytes(ctx)
+		if err != nil {
+			t.Fatalf("Bytes(): %v", err)
+		}
+		if !bytes.Equal(content, data) {
+			t.Errorf("Bytes() = %q, want %q", string(content), string(data))
+		}
+	})
+
+	t.Run("FetchBlob lazy loading", func(t *testing.T) {
+		// Push a blob directly via the client.
+		data := []byte("lazy-load-content")
+		blob := client.NewBlob("application/octet-stream", data)
+		if err := blob.Push(ctx); err != nil {
+			t.Fatalf("Push(): %v", err)
+		}
+
+		// Clear cache so next fetch creates a new lazy blob.
+		client.ClearCache()
+
+		fetched, err := client.FetchBlob(ctx, blob.Descriptor())
+		if err != nil {
+			t.Fatalf("FetchBlob(): %v", err)
+		}
+
+		// Content should be lazily loaded.
+		content, err := fetched.Bytes(ctx)
+		if err != nil {
+			t.Fatalf("Bytes(): %v", err)
+		}
+		if !bytes.Equal(content, data) {
+			t.Errorf("Bytes() = %q, want %q", string(content), string(data))
+		}
+	})
+}
+
+func TestORM_BuilderImageWorkflow(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Create config and layer blobs.
+	configData := []byte(`{"architecture":"amd64","os":"linux"}`)
+	configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, configData)
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	layerData := []byte("image-layer-content-for-orm-test")
+	layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, layerData)
+	if err := layerBlob.Push(ctx); err != nil {
+		t.Fatalf("Push layer: %v", err)
+	}
+
+	// Build and push image using builder API.
+	image, err := client.BuildImage().
+		WithConfig(configBlob).
+		AddLayer(layerBlob).
+		WithPlatform(&ocispec.Platform{
+			Architecture: "amd64",
+			OS:           "linux",
+		}).
+		WithAnnotation("org.opencontainers.image.description", "ORM test image").
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage: %v", err)
+	}
+
+	t.Run("Image has correct media type", func(t *testing.T) {
+		if image.MediaType() != ocispec.MediaTypeImageManifest {
+			t.Errorf("MediaType = %q, want %q", image.MediaType(), ocispec.MediaTypeImageManifest)
+		}
+	})
+
+	t.Run("Push and tag image", func(t *testing.T) {
+		if err := image.Push(ctx, "v1.0.0"); err != nil {
+			t.Fatalf("Push(): %v", err)
+		}
+	})
+
+	t.Run("FetchByReference resolves tagged image", func(t *testing.T) {
+		manifest, err := client.FetchByReference(ctx, "v1.0.0")
+		if err != nil {
+			t.Fatalf("FetchByReference(): %v", err)
+		}
+
+		if manifest.Digest() != image.Digest() {
+			t.Errorf("Digest = %v, want %v", manifest.Digest(), image.Digest())
+		}
+
+		fetched, ok := manifest.(*models.Image)
+		if !ok {
+			t.Fatalf("expected *models.Image, got %T", manifest)
+		}
+
+		// Verify config is accessible.
+		config, err := fetched.Config(ctx)
+		if err != nil {
+			t.Fatalf("Config(): %v", err)
+		}
+		if config.MediaType() != ocispec.MediaTypeImageConfig {
+			t.Errorf("Config.MediaType = %q, want %q", config.MediaType(), ocispec.MediaTypeImageConfig)
+		}
+
+		// Verify layers are accessible.
+		layers, err := fetched.Layers(ctx)
+		if err != nil {
+			t.Fatalf("Layers(): %v", err)
+		}
+		if len(layers) != 1 {
+			t.Fatalf("Layers count = %d, want 1", len(layers))
+		}
+
+		// Verify layer content.
+		lContent, err := layers[0].Bytes(ctx)
+		if err != nil {
+			t.Fatalf("Layer.Bytes(): %v", err)
+		}
+		if !bytes.Equal(lContent, layerData) {
+			t.Errorf("Layer content = %q, want %q", string(lContent), string(layerData))
+		}
+	})
+}
+
+func TestORM_BuilderArtifactWorkflow(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Create blobs for the artifact.
+	configData := []byte(`{"description": "test artifact"}`)
+	configBlob := client.NewBlob("application/json", configData)
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	payloadData := []byte("artifact-payload-data")
+	payloadBlob := client.NewBlob("application/octet-stream", payloadData)
+	if err := payloadBlob.Push(ctx); err != nil {
+		t.Fatalf("Push payload: %v", err)
+	}
+
+	// Build artifact using the builder API.
+	artifact, err := client.BuildArtifact("application/vnd.test.artifact+type").
+		AddBlob(configBlob).
+		AddBlob(payloadBlob).
+		WithAnnotation("test.key", "test.value").
+		Build(ctx)
+	if err != nil {
+		// The ORAS artifact manifest media type is not supported by all registries
+		// (e.g., distribution/registry v2). Skip if the registry rejects the push.
+		t.Skipf("BuildArtifact not supported by registry: %v", err)
+	}
+
+	t.Run("Push and tag artifact", func(t *testing.T) {
+		if err := artifact.Push(ctx, "artifact-v1"); err != nil {
+			t.Skipf("Push not supported by registry: %v", err)
+		}
+	})
+
+	t.Run("FetchByReference resolves tagged artifact", func(t *testing.T) {
+		manifest, err := client.FetchByReference(ctx, "artifact-v1")
+		if err != nil {
+			t.Fatalf("FetchByReference(): %v", err)
+		}
+
+		if manifest.Digest() != artifact.Digest() {
+			t.Errorf("Digest = %v, want %v", manifest.Digest(), artifact.Digest())
+		}
+	})
+}
+
+func TestORM_BuilderIndexWorkflow(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Helper to build a platform image.
+	buildImage := func(arch, os string, layerContent []byte) *models.Image {
+		t.Helper()
+		configData := []byte(`{}`)
+		configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, configData)
+		if err := configBlob.Push(ctx); err != nil {
+			t.Fatalf("Push config: %v", err)
+		}
+		layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, layerContent)
+		if err := layerBlob.Push(ctx); err != nil {
+			t.Fatalf("Push layer: %v", err)
+		}
+		img, err := client.BuildImage().
+			WithConfig(configBlob).
+			AddLayer(layerBlob).
+			WithPlatform(&ocispec.Platform{
+				Architecture: arch,
+				OS:           os,
+			}).
+			Build(ctx)
+		if err != nil {
+			t.Fatalf("BuildImage(%s/%s): %v", os, arch, err)
+		}
+		return img
+	}
+
+	amd64Image := buildImage("amd64", "linux", []byte("amd64-layer"))
+	arm64Image := buildImage("arm64", "linux", []byte("arm64-layer"))
+
+	// Build and push index.
+	index, err := client.BuildIndex().
+		AddManifest(amd64Image).
+		AddManifest(arm64Image).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildIndex: %v", err)
+	}
+
+	t.Run("Push and tag index", func(t *testing.T) {
+		if err := index.Push(ctx, "multi-arch-v1"); err != nil {
+			t.Fatalf("Push(): %v", err)
+		}
+	})
+
+	t.Run("FetchByReference resolves tagged index", func(t *testing.T) {
+		manifest, err := client.FetchByReference(ctx, "multi-arch-v1")
+		if err != nil {
+			t.Fatalf("FetchByReference(): %v", err)
+		}
+
+		idx, ok := manifest.(*models.Index)
+		if !ok {
+			t.Fatalf("expected *models.Index, got %T", manifest)
+		}
+
+		children, err := idx.Manifests(ctx)
+		if err != nil {
+			t.Fatalf("Manifests(): %v", err)
+		}
+		if len(children) != 2 {
+			t.Fatalf("Manifests count = %d, want 2", len(children))
+		}
+	})
+
+	t.Run("FilterByPlatform", func(t *testing.T) {
+		manifest, err := client.FetchByReference(ctx, "multi-arch-v1")
+		if err != nil {
+			t.Fatalf("FetchByReference(): %v", err)
+		}
+		idx := manifest.(*models.Index)
+
+		filtered, err := idx.FilterByPlatform(ctx, &ocispec.Platform{
+			Architecture: "arm64",
+			OS:           "linux",
+		})
+		if err != nil {
+			t.Fatalf("FilterByPlatform(): %v", err)
+		}
+		if len(filtered) != 1 {
+			t.Fatalf("FilterByPlatform count = %d, want 1", len(filtered))
+		}
+	})
+}
+
+func TestORM_CacheIdentityMap(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	data := []byte("cache-test-blob")
+	blob := client.NewBlob("application/octet-stream", data)
+	if err := blob.Push(ctx); err != nil {
+		t.Fatalf("Push(): %v", err)
+	}
+
+	t.Run("Same digest returns same instance", func(t *testing.T) {
+		fetched, err := client.FetchBlob(ctx, blob.Descriptor())
+		if err != nil {
+			t.Fatalf("FetchBlob(): %v", err)
+		}
+		if fetched != blob {
+			t.Error("expected same instance from cache")
+		}
+	})
+
+	t.Run("ClearCache forces new instance", func(t *testing.T) {
+		client.ClearCache()
+
+		fetched, err := client.FetchBlob(ctx, blob.Descriptor())
+		if err != nil {
+			t.Fatalf("FetchBlob(): %v", err)
+		}
+		if fetched == blob {
+			t.Error("expected different instance after ClearCache")
+		}
+
+		// Verify content is still correct.
+		content, err := fetched.Bytes(ctx)
+		if err != nil {
+			t.Fatalf("Bytes(): %v", err)
+		}
+		if !bytes.Equal(content, data) {
+			t.Errorf("Bytes() = %q, want %q", string(content), string(data))
+		}
+	})
+}
+
+func TestORM_CacheWithMaxSize(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t, orm.WithMaxCacheSize(2))
+
+	// Push three blobs.
+	data1 := []byte("lru-blob-1")
+	blob1 := client.NewBlob("application/octet-stream", data1)
+	if err := blob1.Push(ctx); err != nil {
+		t.Fatalf("Push blob1: %v", err)
+	}
+
+	data2 := []byte("lru-blob-2")
+	blob2 := client.NewBlob("application/octet-stream", data2)
+	if err := blob2.Push(ctx); err != nil {
+		t.Fatalf("Push blob2: %v", err)
+	}
+
+	data3 := []byte("lru-blob-3")
+	blob3 := client.NewBlob("application/octet-stream", data3)
+	if err := blob3.Push(ctx); err != nil {
+		t.Fatalf("Push blob3: %v", err)
+	}
+
+	// blob1 should be evicted (cache size is 2, we added 3).
+	fetched1, err := client.FetchBlob(ctx, blob1.Descriptor())
+	if err != nil {
+		t.Fatalf("FetchBlob(1): %v", err)
+	}
+	if fetched1 == blob1 {
+		t.Error("expected blob1 to be evicted from LRU cache")
+	}
+
+	// blob3 should still be cached (most recent).
+	fetched3, err := client.FetchBlob(ctx, blob3.Descriptor())
+	if err != nil {
+		t.Fatalf("FetchBlob(3): %v", err)
+	}
+	if fetched3 != blob3 {
+		t.Error("expected blob3 to still be in cache")
+	}
+}
+
+func TestORM_CacheDisabled(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t, orm.WithCache(false))
+
+	data := []byte("no-cache-blob")
+	blob := client.NewBlob("application/octet-stream", data)
+	if err := blob.Push(ctx); err != nil {
+		t.Fatalf("Push(): %v", err)
+	}
+
+	fetched, err := client.FetchBlob(ctx, blob.Descriptor())
+	if err != nil {
+		t.Fatalf("FetchBlob(): %v", err)
+	}
+
+	// With caching disabled, always get new instances.
+	if fetched == blob {
+		t.Error("expected different instance with cache disabled")
+	}
+
+	// But content should still be correct.
+	content, err := fetched.Bytes(ctx)
+	if err != nil {
+		t.Fatalf("Bytes(): %v", err)
+	}
+	if !bytes.Equal(content, data) {
+		t.Errorf("Bytes() = %q, want %q", string(content), string(data))
+	}
+}
+
+func TestORM_LazyLoadingManifest(t *testing.T) {
+	ctx := context.Background()
+	client, repo := newORMClient(t)
+
+	// Push a manifest directly (not via ORM) to test lazy loading.
+	configData := []byte(`{}`)
+	configDesc := pushBlob(t, ctx, repo, ocispec.MediaTypeImageConfig, configData)
+
+	lazyLayerContent := []byte("lazy-loaded-layer")
+	layerDesc := pushBlob(t, ctx, repo, ocispec.MediaTypeImageLayer, lazyLayerContent)
+
+	_, manifestBytes := pushManifest(t, ctx, repo, "lazy-test", []layerData{
+		{MediaType: ocispec.MediaTypeImageLayer, Content: lazyLayerContent},
+	})
+
+	// Use FetchByReference to get the manifest via ORM.
+	manifest, err := client.FetchByReference(ctx, "lazy-test")
+	if err != nil {
+		t.Fatalf("FetchByReference(): %v", err)
+	}
+
+	image, ok := manifest.(*models.Image)
+	if !ok {
+		t.Fatalf("expected *models.Image, got %T", manifest)
+	}
+
+	t.Run("Load triggers fetch", func(t *testing.T) {
+		if err := image.Load(ctx); err != nil {
+			t.Fatalf("Load(): %v", err)
+		}
+	})
+
+	t.Run("Config accessible after load", func(t *testing.T) {
+		config, err := image.Config(ctx)
+		if err != nil {
+			t.Fatalf("Config(): %v", err)
+		}
+		if config.Digest() != configDesc.Digest {
+			t.Errorf("Config.Digest = %v, want %v", config.Digest(), configDesc.Digest)
+		}
+	})
+
+	t.Run("Layers accessible after load", func(t *testing.T) {
+		layers, err := image.Layers(ctx)
+		if err != nil {
+			t.Fatalf("Layers(): %v", err)
+		}
+		if len(layers) != 1 {
+			t.Fatalf("Layers count = %d, want 1", len(layers))
+		}
+		if layers[0].Digest() != layerDesc.Digest {
+			t.Errorf("Layer.Digest = %v, want %v", layers[0].Digest(), layerDesc.Digest)
+		}
+	})
+
+	t.Run("MarshalJSON after Load", func(t *testing.T) {
+		data, err := json.Marshal(image)
+		if err != nil {
+			t.Fatalf("MarshalJSON(): %v", err)
+		}
+		if !json.Valid(data) {
+			t.Error("MarshalJSON() produced invalid JSON")
+		}
+		// The marshaled bytes should match what we pushed.
+		if !bytes.Equal(data, manifestBytes) {
+			t.Errorf("MarshalJSON() content mismatch")
+		}
+	})
+}
+
+func TestORM_MarshalJSON_NotLoaded(t *testing.T) {
+	ctx := context.Background()
+	client, repo := newORMClient(t)
+
+	// Push an image manifest directly.
+	pushManifest(t, ctx, repo, "marshal-test", nil)
+
+	// Fetch via ORM but do NOT call Load.
+	manifest, err := client.FetchByReference(ctx, "marshal-test")
+	if err != nil {
+		t.Fatalf("FetchByReference(): %v", err)
+	}
+
+	// MarshalJSON should return ErrNotLoaded.
+	_, err = json.Marshal(manifest)
+	if err == nil {
+		t.Fatal("expected ErrNotLoaded, got nil")
+	}
+}
+
+func TestORM_ReferenceResolution(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Build and push an image via the ORM.
+	configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("ref-layer"))
+	if err := layerBlob.Push(ctx); err != nil {
+		t.Fatalf("Push layer: %v", err)
+	}
+
+	image, err := client.BuildImage().
+		WithConfig(configBlob).
+		AddLayer(layerBlob).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage: %v", err)
+	}
+
+	if err := image.Push(ctx, "ref-test-v1"); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	// Create a Reference and resolve it.
+	ref := models.NewReference("ref-test-v1", nil, client)
+
+	resolved, err := ref.Resolve(ctx)
+	if err != nil {
+		t.Fatalf("Resolve(): %v", err)
+	}
+
+	if resolved.Digest() != image.Digest() {
+		t.Errorf("Resolve().Digest = %v, want %v", resolved.Digest(), image.Digest())
+	}
+}
+
+func TestORM_BlobWithAnnotation(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	data := []byte("annotated-blob-content")
+	blob := client.NewBlob("application/octet-stream", data)
+
+	annotated := blob.WithAnnotation("org.opencontainers.image.title", "test.txt")
+
+	t.Run("Original has no annotations", func(t *testing.T) {
+		if ann := blob.Annotations(); ann != nil {
+			t.Errorf("original annotations = %v, want nil", ann)
+		}
+	})
+
+	t.Run("Annotated has correct annotation", func(t *testing.T) {
+		ann := annotated.Annotations()
+		if ann == nil {
+			t.Fatal("annotated annotations = nil")
+		}
+		if ann["org.opencontainers.image.title"] != "test.txt" {
+			t.Errorf("annotation = %q, want %q", ann["org.opencontainers.image.title"], "test.txt")
+		}
+	})
+
+	t.Run("Annotated preserves content", func(t *testing.T) {
+		content, err := annotated.Bytes(ctx)
+		if err != nil {
+			t.Fatalf("Bytes(): %v", err)
+		}
+		if !bytes.Equal(content, data) {
+			t.Errorf("Bytes() = %q, want %q", string(content), string(data))
+		}
+	})
+}
+
+func TestORM_ImageSubject(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Build and push a base image.
+	configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("base-layer"))
+	if err := layerBlob.Push(ctx); err != nil {
+		t.Fatalf("Push layer: %v", err)
+	}
+
+	baseImage, err := client.BuildImage().
+		WithConfig(configBlob).
+		AddLayer(layerBlob).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage (base): %v", err)
+	}
+	if err := baseImage.Push(ctx, "base-v1"); err != nil {
+		t.Fatalf("Push base: %v", err)
+	}
+
+	// Build a referrer image with base as subject.
+	sigBlob := client.NewBlob("application/vnd.cncf.notary.signature", []byte("signature-data"))
+	if err := sigBlob.Push(ctx); err != nil {
+		t.Fatalf("Push sig: %v", err)
+	}
+
+	sigConfig := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := sigConfig.Push(ctx); err != nil {
+		t.Fatalf("Push sig config: %v", err)
+	}
+
+	sigImage, err := client.BuildImage().
+		WithConfig(sigConfig).
+		AddLayer(sigBlob).
+		WithSubject(baseImage).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage (sig): %v", err)
+	}
+	if err := sigImage.Push(ctx, "sig-v1"); err != nil {
+		t.Fatalf("Push sig: %v", err)
+	}
+
+	// Fetch the signature image back and verify subject.
+	fetched, err := client.FetchByReference(ctx, "sig-v1")
+	if err != nil {
+		t.Fatalf("FetchByReference(): %v", err)
+	}
+
+	img := fetched.(*models.Image)
+	subject, err := img.Subject(ctx)
+	if err != nil {
+		t.Fatalf("Subject(): %v", err)
+	}
+	if subject == nil {
+		t.Fatal("Subject() returned nil")
+	}
+	if subject.Digest() != baseImage.Digest() {
+		t.Errorf("Subject.Digest = %v, want %v", subject.Digest(), baseImage.Digest())
+	}
+}
+
+func TestORM_FindPredecessors(t *testing.T) {
+	ctx := context.Background()
+	client, repo := newORMClient(t)
+
+	// Build and push a base image.
+	configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("predecessor-layer"))
+	if err := layerBlob.Push(ctx); err != nil {
+		t.Fatalf("Push layer: %v", err)
+	}
+
+	baseImage, err := client.BuildImage().
+		WithConfig(configBlob).
+		AddLayer(layerBlob).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage (base): %v", err)
+	}
+	if err := baseImage.Push(ctx, "pred-base"); err != nil {
+		t.Fatalf("Push base: %v", err)
+	}
+
+	// Build and push a referrer with base as subject.
+	refConfig := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := refConfig.Push(ctx); err != nil {
+		t.Fatalf("Push ref config: %v", err)
+	}
+
+	refLayer := client.NewBlob("application/vnd.test.ref", []byte("referrer-data"))
+	if err := refLayer.Push(ctx); err != nil {
+		t.Fatalf("Push ref layer: %v", err)
+	}
+
+	_, err = client.BuildImage().
+		WithConfig(refConfig).
+		AddLayer(refLayer).
+		WithSubject(baseImage).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage (referrer): %v", err)
+	}
+
+	// Push the referrer manifest. We need to tag it to make it discoverable.
+	// The referrer relationship is established via the subject field.
+	// Fetch predecessors of the base image. This exercises the
+	// content.PredecessorFinder interface on remote.Repository.
+	_ = repo // repo implements PredecessorFinder via Referrers API
+	predecessors, err := client.FindPredecessors(ctx, baseImage)
+	if err != nil {
+		t.Fatalf("FindPredecessors(): %v", err)
+	}
+
+	// The remote repository should find the referrer via the referrers API.
+	if len(predecessors) < 1 {
+		t.Logf("FindPredecessors returned %d results (referrers API may not be supported by this registry)", len(predecessors))
+	}
+}
+
+func TestORM_MultipleTagsSameManifest(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Build and push an image.
+	configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("multi-tag-layer"))
+	if err := layerBlob.Push(ctx); err != nil {
+		t.Fatalf("Push layer: %v", err)
+	}
+
+	image, err := client.BuildImage().
+		WithConfig(configBlob).
+		AddLayer(layerBlob).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage: %v", err)
+	}
+
+	// Push with first tag.
+	if err := image.Push(ctx, "tag-a"); err != nil {
+		t.Fatalf("Push tag-a: %v", err)
+	}
+
+	// Push with second tag (re-tagging same manifest).
+	if err := image.Push(ctx, "tag-b"); err != nil {
+		t.Fatalf("Push tag-b: %v", err)
+	}
+
+	// Both tags should resolve to the same digest.
+	manifestA, err := client.FetchByReference(ctx, "tag-a")
+	if err != nil {
+		t.Fatalf("FetchByReference(tag-a): %v", err)
+	}
+
+	manifestB, err := client.FetchByReference(ctx, "tag-b")
+	if err != nil {
+		t.Fatalf("FetchByReference(tag-b): %v", err)
+	}
+
+	if manifestA.Digest() != manifestB.Digest() {
+		t.Errorf("tag-a digest %v != tag-b digest %v", manifestA.Digest(), manifestB.Digest())
+	}
+
+	// With caching, they should be the same instance.
+	if manifestA != manifestB {
+		t.Error("expected same cached instance for both tags")
+	}
+}

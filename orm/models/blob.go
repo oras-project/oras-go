@@ -19,7 +19,7 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"sync"
+	"maps"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -33,10 +33,9 @@ type Blob struct {
 	fetcher    content.Fetcher
 	pusher     content.Pusher
 
-	// Lazy-loaded content
-	contentBytes []byte
-	contentOnce  sync.Once
-	contentErr   error
+	// Lazy-loaded content.
+	// Uses lazy[T] for thread-safe loading with retry on transient errors.
+	contentData lazy[[]byte]
 }
 
 // NewBlob creates a new Blob from a descriptor.
@@ -51,15 +50,28 @@ func NewBlob(desc ocispec.Descriptor, fetcher content.Fetcher, pusher content.Pu
 
 // NewBlobFromBytes creates a new Blob from raw bytes.
 // The descriptor is computed from the content.
-func NewBlobFromBytes(mediaType string, data []byte) *Blob {
+// Optional fetcher and pusher can be provided for storage operations.
+func NewBlobFromBytes(mediaType string, data []byte, opts ...func(*Blob)) *Blob {
 	desc := ocispec.Descriptor{
 		MediaType: mediaType,
 		Digest:    digest.FromBytes(data),
 		Size:      int64(len(data)),
 	}
-	return &Blob{
-		descriptor:   desc,
-		contentBytes: data,
+	b := &Blob{
+		descriptor: desc,
+	}
+	b.contentData.set(data)
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b
+}
+
+// WithStorage returns a Blob option that sets the fetcher and pusher.
+func WithStorage(fetcher content.Fetcher, pusher content.Pusher) func(*Blob) {
+	return func(b *Blob) {
+		b.fetcher = fetcher
+		b.pusher = pusher
 	}
 }
 
@@ -92,8 +104,8 @@ func (b *Blob) Annotations() map[string]string {
 // This is useful for large blobs that should not be loaded entirely into memory.
 func (b *Blob) Read(ctx context.Context) (io.ReadCloser, error) {
 	// If content is already loaded in memory, return it
-	if b.contentBytes != nil {
-		return io.NopCloser(bytes.NewReader(b.contentBytes)), nil
+	if data, ok := b.contentData.peek(); ok {
+		return io.NopCloser(bytes.NewReader(data)), nil
 	}
 
 	// Otherwise, fetch from storage
@@ -105,23 +117,15 @@ func (b *Blob) Read(ctx context.Context) (io.ReadCloser, error) {
 
 // Bytes returns the blob content as a byte slice.
 // The content is lazily loaded and cached for subsequent calls.
+// On transient errors, the result is NOT cached, allowing retry.
 // Use Read() for streaming large blobs to avoid memory pressure.
 func (b *Blob) Bytes(ctx context.Context) ([]byte, error) {
-	b.contentOnce.Do(func() {
-		if b.contentBytes != nil {
-			return // Already have content
-		}
-
+	return b.contentData.get(func() ([]byte, error) {
 		if b.fetcher == nil {
-			b.contentErr = ErrNoFetcher
-			return
+			return nil, ErrNoFetcher
 		}
-
-		// Fetch content
-		b.contentBytes, b.contentErr = content.FetchAll(ctx, b.fetcher, b.descriptor)
+		return content.FetchAll(ctx, b.fetcher, b.descriptor)
 	})
-
-	return b.contentBytes, b.contentErr
 }
 
 // Push pushes this blob to the target storage.
@@ -131,8 +135,8 @@ func (b *Blob) Push(ctx context.Context) error {
 	}
 
 	var reader io.Reader
-	if b.contentBytes != nil {
-		reader = bytes.NewReader(b.contentBytes)
+	if data, ok := b.contentData.peek(); ok {
+		reader = bytes.NewReader(data)
 	} else if b.fetcher != nil {
 		// Stream from fetcher to pusher
 		rc, err := b.fetcher.Fetch(ctx, b.descriptor)
@@ -152,15 +156,20 @@ func (b *Blob) Push(ctx context.Context) error {
 // The original blob is not modified.
 func (b *Blob) WithAnnotation(key, value string) *Blob {
 	desc := b.descriptor
-	if desc.Annotations == nil {
-		desc.Annotations = make(map[string]string)
-	}
-	desc.Annotations[key] = value
+	// Deep-copy the annotations map to avoid mutating the original.
+	newAnnotations := make(map[string]string, len(desc.Annotations)+1)
+	maps.Copy(newAnnotations, desc.Annotations)
+	newAnnotations[key] = value
+	desc.Annotations = newAnnotations
 
-	return &Blob{
-		descriptor:   desc,
-		fetcher:      b.fetcher,
-		pusher:       b.pusher,
-		contentBytes: b.contentBytes,
+	newBlob := &Blob{
+		descriptor: desc,
+		fetcher:    b.fetcher,
+		pusher:     b.pusher,
 	}
+	// Copy cached content if available.
+	if data, ok := b.contentData.peek(); ok {
+		newBlob.contentData.set(data)
+	}
+	return newBlob
 }
