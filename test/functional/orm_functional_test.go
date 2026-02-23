@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -795,4 +796,293 @@ func TestORM_MultipleTagsSameManifest(t *testing.T) {
 	if manifestA != manifestB {
 		t.Error("expected same cached instance for both tags")
 	}
+}
+
+func TestORM_FetchByReference_NotFound(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Fetching a nonexistent reference should return an error.
+	_, err := client.FetchByReference(ctx, "does-not-exist:latest")
+	if err == nil {
+		t.Fatal("FetchByReference() expected error for nonexistent reference, got nil")
+	}
+}
+
+func TestORM_CacheConsistency(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Build and push an image.
+	configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("cache-consistency-layer"))
+	if err := layerBlob.Push(ctx); err != nil {
+		t.Fatalf("Push layer: %v", err)
+	}
+
+	image, err := client.BuildImage().
+		WithConfig(configBlob).
+		AddLayer(layerBlob).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage: %v", err)
+	}
+	if err := image.Push(ctx, "cache-test"); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	// Fetch the same manifest twice via different code paths.
+	manifest1, err := client.FetchByReference(ctx, "cache-test")
+	if err != nil {
+		t.Fatalf("FetchByReference #1: %v", err)
+	}
+
+	manifest2, err := client.FetchManifest(ctx, manifest1.Descriptor())
+	if err != nil {
+		t.Fatalf("FetchManifest #2: %v", err)
+	}
+
+	// Both should be the same cached instance.
+	if manifest1 != manifest2 {
+		t.Error("expected same cached instance from FetchByReference and FetchManifest")
+	}
+
+	if manifest1.Digest() != manifest2.Digest() {
+		t.Errorf("digests differ: %v vs %v", manifest1.Digest(), manifest2.Digest())
+	}
+}
+
+func TestORM_AnnotationsProtection(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Build an image with annotations.
+	configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("ann-protection-layer"))
+	if err := layerBlob.Push(ctx); err != nil {
+		t.Fatalf("Push layer: %v", err)
+	}
+
+	image, err := client.BuildImage().
+		WithConfig(configBlob).
+		AddLayer(layerBlob).
+		WithAnnotation("key", "value").
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage: %v", err)
+	}
+	if err := image.Push(ctx, "ann-test"); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	// Fetch the image and mutate the returned annotations map.
+	fetched, err := client.FetchByReference(ctx, "ann-test")
+	if err != nil {
+		t.Fatalf("FetchByReference: %v", err)
+	}
+
+	ann := fetched.Annotations()
+	ann["mutated"] = "should-not-affect-original"
+
+	// Get annotations again — they should not contain the mutation.
+	ann2 := fetched.Annotations()
+	if _, ok := ann2["mutated"]; ok {
+		t.Error("annotations mutation leaked into model state")
+	}
+}
+
+func TestORM_StructuredErrors(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Build and push an image.
+	configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("err-test-layer"))
+	if err := layerBlob.Push(ctx); err != nil {
+		t.Fatalf("Push layer: %v", err)
+	}
+
+	image, err := client.BuildImage().
+		WithConfig(configBlob).
+		AddLayer(layerBlob).
+		WithSubject(nil). // no subject
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage: %v", err)
+	}
+	if err := image.Push(ctx, "err-test"); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	// Create an Image model with an invalid descriptor (digest points to nonexistent content).
+	// This should produce an OrmError when Load is called.
+	badDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("nonexistent"),
+		Size:      11,
+	}
+	badImage := models.NewImage(badDesc, client.Target(), client.Target(), client)
+	err = badImage.Load(ctx)
+	if err == nil {
+		t.Fatal("Load() expected error for nonexistent content, got nil")
+	}
+
+	var ormErr *models.OrmError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("expected *models.OrmError, got %T: %v", err, err)
+	}
+	if ormErr.Op != "load" {
+		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "load")
+	}
+	if ormErr.Digest != badDesc.Digest {
+		t.Errorf("OrmError.Digest = %v, want %v", ormErr.Digest, badDesc.Digest)
+	}
+}
+
+func TestORM_MultiPlatformIndex_FilterVariant(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Helper to build a platform image with variant.
+	buildPlatformImage := func(arch, os, variant string, layerContent []byte) *models.Image {
+		t.Helper()
+		configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, layerContent) // use content as config for uniqueness
+		if err := configBlob.Push(ctx); err != nil {
+			t.Fatalf("Push config: %v", err)
+		}
+		layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, append(layerContent, []byte("-layer")...))
+		if err := layerBlob.Push(ctx); err != nil {
+			t.Fatalf("Push layer: %v", err)
+		}
+		plat := &ocispec.Platform{
+			Architecture: arch,
+			OS:           os,
+		}
+		if variant != "" {
+			plat.Variant = variant
+		}
+		img, err := client.BuildImage().
+			WithConfig(configBlob).
+			AddLayer(layerBlob).
+			WithPlatform(plat).
+			Build(ctx)
+		if err != nil {
+			t.Fatalf("BuildImage(%s/%s/%s): %v", os, arch, variant, err)
+		}
+		return img
+	}
+
+	amd64 := buildPlatformImage("amd64", "linux", "", []byte("amd64-data"))
+	armv7 := buildPlatformImage("arm", "linux", "v7", []byte("armv7-data"))
+	armv8 := buildPlatformImage("arm64", "linux", "v8", []byte("armv8-data"))
+
+	index, err := client.BuildIndex().
+		AddManifest(amd64).
+		AddManifest(armv7).
+		AddManifest(armv8).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildIndex: %v", err)
+	}
+	if err := index.Push(ctx, "multi-plat-variant"); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	// Fetch index back.
+	fetched, err := client.FetchByReference(ctx, "multi-plat-variant")
+	if err != nil {
+		t.Fatalf("FetchByReference: %v", err)
+	}
+	idx := fetched.(*models.Index)
+
+	t.Run("filter by linux/arm/v7", func(t *testing.T) {
+		filtered, err := idx.FilterByPlatform(ctx, &ocispec.Platform{
+			Architecture: "arm",
+			OS:           "linux",
+			Variant:      "v7",
+		})
+		if err != nil {
+			t.Fatalf("FilterByPlatform: %v", err)
+		}
+		if len(filtered) != 1 {
+			t.Fatalf("expected 1 match, got %d", len(filtered))
+		}
+		if filtered[0].Digest() != armv7.Digest() {
+			t.Errorf("expected armv7 digest %v, got %v", armv7.Digest(), filtered[0].Digest())
+		}
+	})
+
+	t.Run("filter by linux/amd64 (no variant)", func(t *testing.T) {
+		filtered, err := idx.FilterByPlatform(ctx, &ocispec.Platform{
+			Architecture: "amd64",
+			OS:           "linux",
+		})
+		if err != nil {
+			t.Fatalf("FilterByPlatform: %v", err)
+		}
+		if len(filtered) != 1 {
+			t.Fatalf("expected 1 match, got %d", len(filtered))
+		}
+	})
+
+	t.Run("filter by nonexistent platform", func(t *testing.T) {
+		filtered, err := idx.FilterByPlatform(ctx, &ocispec.Platform{
+			Architecture: "s390x",
+			OS:           "linux",
+		})
+		if err != nil {
+			t.Fatalf("FilterByPlatform: %v", err)
+		}
+		if len(filtered) != 0 {
+			t.Fatalf("expected 0 matches, got %d", len(filtered))
+		}
+	})
+
+	t.Run("nil platform returns all", func(t *testing.T) {
+		filtered, err := idx.FilterByPlatform(ctx, nil)
+		if err != nil {
+			t.Fatalf("FilterByPlatform(nil): %v", err)
+		}
+		if len(filtered) != 3 {
+			t.Fatalf("expected 3 matches, got %d", len(filtered))
+		}
+	})
+}
+
+func TestORM_BuilderValidation(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	t.Run("ArtifactBuilder rejects empty artifactType", func(t *testing.T) {
+		_, err := client.BuildArtifact("").Build(ctx)
+		if err == nil {
+			t.Fatal("expected error for empty artifactType")
+		}
+	})
+
+	t.Run("ImageBuilder rejects missing config", func(t *testing.T) {
+		_, err := client.BuildImage().Build(ctx)
+		if err == nil {
+			t.Fatal("expected error for missing config")
+		}
+	})
+
+	t.Run("IndexBuilder rejects empty manifests", func(t *testing.T) {
+		_, err := client.BuildIndex().Build(ctx)
+		if err == nil {
+			t.Fatal("expected error for empty manifests")
+		}
+	})
 }
