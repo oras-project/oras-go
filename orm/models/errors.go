@@ -15,7 +15,12 @@ limitations under the License.
 
 package models
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/opencontainers/go-digest"
+)
 
 var (
 	// ErrNoFetcher indicates that no fetcher was provided for content retrieval.
@@ -38,3 +43,21 @@ var (
 	// before serializing.
 	ErrNotLoaded = errors.New("manifest not loaded: call Load(ctx) first")
 )
+
+// OrmError provides structured error context for ORM operations.
+type OrmError struct {
+	Op     string        // Operation that failed (e.g., "load", "fetch_blobs").
+	Digest digest.Digest // Digest of the content involved, if known.
+	Err    error         // Underlying error.
+}
+
+func (e *OrmError) Error() string {
+	if e.Digest == "" {
+		return fmt.Sprintf("orm %s: %s", e.Op, e.Err)
+	}
+	return fmt.Sprintf("orm %s %s: %s", e.Op, e.Digest, e.Err)
+}
+
+func (e *OrmError) Unwrap() error {
+	return e.Err
+}
