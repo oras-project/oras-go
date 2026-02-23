@@ -20,19 +20,24 @@ import (
 )
 
 // Reference represents a named reference to a manifest (tag or other reference).
+// Reference is safe for concurrent use.
 type Reference struct {
 	name     string
-	manifest Manifest
+	manifest lazy[Manifest]
 	client   ManifestClient
 }
 
 // NewReference creates a new Reference.
+// If manifest is non-nil, it is pre-cached (Resolve will return it immediately).
 func NewReference(name string, manifest Manifest, client ManifestClient) *Reference {
-	return &Reference{
-		name:     name,
-		manifest: manifest,
-		client:   client,
+	ref := &Reference{
+		name:   name,
+		client: client,
 	}
+	if manifest != nil {
+		ref.manifest.set(manifest)
+	}
+	return ref
 }
 
 // Name returns the reference name (e.g., tag name).
@@ -42,22 +47,14 @@ func (r *Reference) Name() string {
 
 // Resolve resolves the reference to a manifest.
 // If the manifest is not yet loaded, it will be fetched via the client.
+// Concurrent calls are safe; only one fetch will occur.
 func (r *Reference) Resolve(ctx context.Context) (Manifest, error) {
-	if r.manifest != nil {
-		return r.manifest, nil
-	}
-
-	if r.client == nil {
-		return nil, ErrNoClient
-	}
-
-	manifest, err := r.client.FetchByReference(ctx, r.name)
-	if err != nil {
-		return nil, err
-	}
-
-	r.manifest = manifest
-	return manifest, nil
+	return r.manifest.get(func() (Manifest, error) {
+		if r.client == nil {
+			return nil, ErrNoClient
+		}
+		return r.client.FetchByReference(ctx, r.name)
+	})
 }
 
 // Tag tags the given manifest with this reference name.
@@ -66,11 +63,16 @@ func (r *Reference) Tag(ctx context.Context, manifest Manifest) error {
 		return ErrNoClient
 	}
 
-	r.manifest = manifest
-	return r.client.PushManifest(ctx, manifest, r.name)
+	if err := r.client.PushManifest(ctx, manifest, r.name); err != nil {
+		return err
+	}
+
+	r.manifest.set(manifest)
+	return nil
 }
 
-// Manifest returns the manifest associated with this reference.
-func (r *Reference) Manifest() Manifest {
-	return r.manifest
+// Manifest returns the cached manifest if already resolved.
+// Returns (manifest, true) if resolved, or (nil, false) if not yet resolved.
+func (r *Reference) Manifest() (Manifest, bool) {
+	return r.manifest.peek()
 }
