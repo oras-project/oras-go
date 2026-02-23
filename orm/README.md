@@ -36,8 +36,8 @@ func main() {
     dataBlob := client.NewBlob("application/octet-stream", []byte("payload"))
 
     artifact, err := client.BuildArtifact("application/vnd.example+type").
-        WithBlob(configBlob).
-        WithBlob(dataBlob).
+        AddBlob(configBlob).
+        AddBlob(dataBlob).
         WithAnnotation("version", "1.0.0").
         BuildAndPush(ctx, "myartifact:v1.0.0")
 
@@ -79,8 +79,8 @@ Represents OCI artifact manifests with typed blobs.
 
 ```go
 artifact, err := client.BuildArtifact("application/vnd.example+type").
-    WithBlob(blob1).
-    WithBlob(blob2).
+    AddBlob(blob1).
+    AddBlob(blob2).
     WithSubject(parentManifest).
     WithAnnotation("key", "value").
     BuildAndPush(ctx, "myartifact:v1")
@@ -158,8 +158,8 @@ dataBlob.Push(ctx)
 
 // Build and push artifact
 artifact, err := client.BuildArtifact("application/vnd.example+type").
-    WithBlob(configBlob).
-    WithBlob(dataBlob).
+    AddBlob(configBlob).
+    AddBlob(dataBlob).
     WithAnnotation("version", "1.0.0").
     BuildAndPush(ctx, "example.com/myartifact:v1.0.0")
 ```

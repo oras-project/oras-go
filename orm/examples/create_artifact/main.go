@@ -50,8 +50,8 @@ func main() {
 
 	// Build and push artifact
 	artifact, err := client.BuildArtifact("application/vnd.example+type").
-		WithBlob(configBlob).
-		WithBlob(dataBlob).
+		AddBlob(configBlob).
+		AddBlob(dataBlob).
 		WithAnnotation("org.opencontainers.image.version", "1.0.0").
 		WithAnnotation("org.opencontainers.image.description", "Example artifact").
 		BuildAndPush(ctx, "example-artifact:v1.0.0")
