@@ -237,17 +237,6 @@ func (c *Client) fetchManifestByInspection(ctx context.Context, desc ocispec.Des
 	return nil, errors.New("unknown manifest type")
 }
 
-// FetchByDigest fetches content by digest.
-func (c *Client) FetchByDigest(ctx context.Context, dgst digest.Digest) (models.Content, error) {
-	// Check cache first
-	if cached, ok := c.getFromCache(dgst); ok {
-		return cached, nil
-	}
-
-	// We need a descriptor to fetch. This requires the caller to know more info.
-	return nil, errors.New("FetchByDigest requires a full descriptor; use FetchBlob or FetchManifest instead")
-}
-
 // FetchByReference fetches a manifest by reference (tag or digest).
 func (c *Client) FetchByReference(ctx context.Context, ref string) (models.Manifest, error) {
 	// Resolve reference to descriptor
@@ -262,11 +251,28 @@ func (c *Client) FetchByReference(ctx context.Context, ref string) (models.Manif
 
 // FindPredecessors finds all manifests that reference the given content.
 // This implements the ManifestClient interface.
-func (c *Client) FindPredecessors(ctx context.Context, content models.Content) ([]models.Manifest, error) {
-	// This requires graph storage support
-	// For now, return empty list
-	// TODO: Implement using content.GraphStorage if available
-	return []models.Manifest{}, nil
+// The underlying target must implement content.PredecessorFinder (e.g.,
+// remote.Repository, memory store with graph support) for this to return results.
+func (c *Client) FindPredecessors(ctx context.Context, node models.Content) ([]models.Manifest, error) {
+	pf, ok := c.target.(content.PredecessorFinder)
+	if !ok {
+		return nil, nil
+	}
+
+	descs, err := pf.Predecessors(ctx, node.Descriptor())
+	if err != nil {
+		return nil, err
+	}
+
+	manifests := make([]models.Manifest, 0, len(descs))
+	for _, desc := range descs {
+		manifest, err := c.FetchManifest(ctx, desc)
+		if err != nil {
+			return nil, err
+		}
+		manifests = append(manifests, manifest)
+	}
+	return manifests, nil
 }
 
 // PushManifest pushes a manifest with a reference.
