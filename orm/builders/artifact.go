@@ -49,9 +49,15 @@ func NewArtifactBuilder(artifactType string, fetcher content.Fetcher, pusher con
 	}
 }
 
-// WithBlob adds a blob to the artifact.
-func (ab *ArtifactBuilder) WithBlob(blob *models.Blob) *ArtifactBuilder {
+// AddBlob adds a blob to the artifact.
+func (ab *ArtifactBuilder) AddBlob(blob *models.Blob) *ArtifactBuilder {
 	ab.blobs = append(ab.blobs, blob)
+	return ab
+}
+
+// WithBlobs sets all blobs at once.
+func (ab *ArtifactBuilder) WithBlobs(blobs []*models.Blob) *ArtifactBuilder {
+	ab.blobs = blobs
 	return ab
 }
 
