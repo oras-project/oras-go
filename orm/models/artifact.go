@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -86,9 +87,10 @@ func (a *Artifact) Size() int64 {
 	return a.descriptor.Size
 }
 
-// Annotations returns the annotations associated with this artifact.
+// Annotations returns a copy of the annotations associated with this artifact.
+// The returned map is safe to modify without affecting the artifact.
 func (a *Artifact) Annotations() map[string]string {
-	return a.descriptor.Annotations
+	return maps.Clone(a.descriptor.Annotations)
 }
 
 // loadManifest loads the artifact manifest from storage.

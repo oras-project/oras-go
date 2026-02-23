@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -70,9 +71,10 @@ func (idx *Index) Size() int64 {
 	return idx.descriptor.Size
 }
 
-// Annotations returns the annotations associated with this index.
+// Annotations returns a copy of the annotations associated with this index.
+// The returned map is safe to modify without affecting the index.
 func (idx *Index) Annotations() map[string]string {
-	return idx.descriptor.Annotations
+	return maps.Clone(idx.descriptor.Annotations)
 }
 
 // loadIndex loads the index from storage.

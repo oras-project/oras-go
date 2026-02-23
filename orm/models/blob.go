@@ -95,9 +95,10 @@ func (b *Blob) Size() int64 {
 	return b.descriptor.Size
 }
 
-// Annotations returns the annotations associated with this blob.
+// Annotations returns a copy of the annotations associated with this blob.
+// The returned map is safe to modify without affecting the blob.
 func (b *Blob) Annotations() map[string]string {
-	return b.descriptor.Annotations
+	return maps.Clone(b.descriptor.Annotations)
 }
 
 // Read returns a ReadCloser for streaming the blob content.

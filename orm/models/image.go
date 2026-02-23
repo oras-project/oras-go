@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -71,9 +72,10 @@ func (i *Image) Size() int64 {
 	return i.descriptor.Size
 }
 
-// Annotations returns the annotations associated with this image.
+// Annotations returns a copy of the annotations associated with this image.
+// The returned map is safe to modify without affecting the image.
 func (i *Image) Annotations() map[string]string {
-	return i.descriptor.Annotations
+	return maps.Clone(i.descriptor.Annotations)
 }
 
 // loadManifest loads the image manifest from storage.
