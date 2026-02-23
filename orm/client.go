@@ -17,6 +17,7 @@ package orm
 
 import (
 	"bytes"
+	"container/list"
 	"context"
 	"encoding/json"
 	"errors"
@@ -32,15 +33,22 @@ import (
 	"github.com/oras-project/oras-go/v3/orm/models"
 )
 
+// cacheEntry is an entry in the LRU identity map cache.
+type cacheEntry struct {
+	digest  digest.Digest
+	content models.Content
+}
+
 // Client is the main ORM client for working with OCI content.
 // It provides an identity map for caching and manages the lifecycle of models.
 type Client struct {
 	target oras.Target
 
-	// Identity map: digest -> Content
-	// Ensures only one instance per digest
-	identityMap map[digest.Digest]models.Content
-	mu          sync.RWMutex
+	// LRU identity map: digest -> *list.Element (containing cacheEntry).
+	// Ensures only one instance per digest with bounded memory usage.
+	identityMap map[digest.Digest]*list.Element
+	lruList     *list.List
+	mu          sync.Mutex
 
 	options ClientOptions
 }
@@ -49,6 +57,10 @@ type Client struct {
 type ClientOptions struct {
 	// Cache enables the identity map for caching loaded objects.
 	Cache bool
+
+	// MaxCacheSize is the maximum number of entries in the identity map cache.
+	// 0 means unlimited (default).
+	MaxCacheSize int
 
 	// PreloadDepth controls automatic preloading of relationships.
 	// 0 = lazy loading (default)
@@ -64,6 +76,7 @@ type ClientOptions struct {
 func DefaultClientOptions() ClientOptions {
 	return ClientOptions{
 		Cache:        true,
+		MaxCacheSize: 0,
 		PreloadDepth: 0,
 		Concurrency:  3,
 	}
@@ -86,6 +99,14 @@ func WithPreloadDepth(depth int) ClientOption {
 	}
 }
 
+// WithMaxCacheSize sets the maximum number of cached entries.
+// 0 means unlimited.
+func WithMaxCacheSize(size int) ClientOption {
+	return func(opts *ClientOptions) {
+		opts.MaxCacheSize = size
+	}
+}
+
 // WithConcurrency sets the concurrent fetch limit.
 func WithConcurrency(n int) ClientOption {
 	return func(opts *ClientOptions) {
@@ -102,7 +123,8 @@ func NewClient(target oras.Target, opts ...ClientOption) *Client {
 
 	return &Client{
 		target:      target,
-		identityMap: make(map[digest.Digest]models.Content),
+		identityMap: make(map[digest.Digest]*list.Element),
+		lruList:     list.New(),
 		options:     options,
 	}
 }
@@ -113,19 +135,26 @@ func (c *Client) Target() oras.Target {
 }
 
 // getFromCache retrieves content from the identity map.
+// On hit, the entry is promoted to the front of the LRU list.
 func (c *Client) getFromCache(dgst digest.Digest) (models.Content, bool) {
 	if !c.options.Cache {
 		return nil, false
 	}
 
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	content, ok := c.identityMap[dgst]
-	return content, ok
+	elem, ok := c.identityMap[dgst]
+	if !ok {
+		return nil, false
+	}
+	c.lruList.MoveToFront(elem)
+	return elem.Value.(cacheEntry).content, true
 }
 
 // addToCache adds content to the identity map.
+// If MaxCacheSize is set and the cache is full, the least recently used entry
+// is evicted.
 func (c *Client) addToCache(content models.Content) {
 	if !c.options.Cache {
 		return
@@ -134,7 +163,27 @@ func (c *Client) addToCache(content models.Content) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.identityMap[content.Digest()] = content
+	dgst := content.Digest()
+
+	// If already cached, update and promote.
+	if elem, ok := c.identityMap[dgst]; ok {
+		elem.Value = cacheEntry{digest: dgst, content: content}
+		c.lruList.MoveToFront(elem)
+		return
+	}
+
+	// Add new entry at front.
+	elem := c.lruList.PushFront(cacheEntry{digest: dgst, content: content})
+	c.identityMap[dgst] = elem
+
+	// Evict oldest if over limit.
+	if c.options.MaxCacheSize > 0 && c.lruList.Len() > c.options.MaxCacheSize {
+		oldest := c.lruList.Back()
+		if oldest != nil {
+			c.lruList.Remove(oldest)
+			delete(c.identityMap, oldest.Value.(cacheEntry).digest)
+		}
+	}
 }
 
 // NewBlob creates a new Blob from raw bytes.
@@ -308,7 +357,8 @@ func (c *Client) ClearCache() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.identityMap = make(map[digest.Digest]models.Content)
+	c.identityMap = make(map[digest.Digest]*list.Element)
+	c.lruList.Init()
 }
 
 // Builder convenience methods
