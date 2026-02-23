@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -83,6 +84,10 @@ func (ab *ArtifactBuilder) WithAnnotations(annotations map[string]string) *Artif
 
 // Build creates the artifact manifest.
 func (ab *ArtifactBuilder) Build(ctx context.Context) (*models.Artifact, error) {
+	if ab.artifactType == "" {
+		return nil, errors.New("artifactType is required for artifact manifest")
+	}
+
 	// Build blob descriptors
 	blobDescs := make([]ocispec.Descriptor, len(ab.blobs))
 	for i, blob := range ab.blobs {
