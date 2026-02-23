@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"sync"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -34,23 +33,12 @@ type Image struct {
 	pusher     content.Pusher
 	client     ManifestClient
 
-	// Lazy-loaded manifest
-	manifest     *ocispec.Manifest
-	manifestOnce sync.Once
-	manifestErr  error
-
-	// Lazy-loaded relationships
-	config     *Blob
-	configOnce sync.Once
-	configErr  error
-
-	layers     []*Blob
-	layersOnce sync.Once
-	layersErr  error
-
-	subject     Manifest
-	subjectOnce sync.Once
-	subjectErr  error
+	// Lazy-loaded manifest and relationships.
+	// Uses lazy[T] for thread-safe loading with retry on transient errors.
+	manifest lazy[*ocispec.Manifest]
+	config   lazy[*Blob]
+	layers   lazy[[]*Blob]
+	subject  lazy[Manifest]
 }
 
 // NewImage creates a new Image from a descriptor.
@@ -90,109 +78,91 @@ func (i *Image) Annotations() map[string]string {
 
 // loadManifest loads the image manifest from storage.
 func (i *Image) loadManifest(ctx context.Context) (*ocispec.Manifest, error) {
-	i.manifestOnce.Do(func() {
-		if i.manifest != nil {
-			return // Already loaded
-		}
-
+	return i.manifest.get(func() (*ocispec.Manifest, error) {
 		if i.fetcher == nil {
-			i.manifestErr = ErrNoFetcher
-			return
+			return nil, ErrNoFetcher
 		}
 
-		// Fetch manifest content
 		manifestBytes, err := content.FetchAll(ctx, i.fetcher, i.descriptor)
 		if err != nil {
-			i.manifestErr = err
-			return
+			return nil, err
 		}
 
-		// Parse image manifest
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-			i.manifestErr = err
-			return
+			return nil, err
 		}
 
-		i.manifest = &manifest
+		return &manifest, nil
 	})
+}
 
-	return i.manifest, i.manifestErr
+// Load eagerly loads the image manifest from storage.
+func (i *Image) Load(ctx context.Context) error {
+	_, err := i.loadManifest(ctx)
+	return err
 }
 
 // Config returns the config blob for this image.
 // The config is lazily loaded and cached.
 func (i *Image) Config(ctx context.Context) (*Blob, error) {
-	i.configOnce.Do(func() {
+	return i.config.get(func() (*Blob, error) {
 		manifest, err := i.loadManifest(ctx)
 		if err != nil {
-			i.configErr = err
-			return
+			return nil, err
 		}
 
-		i.config = NewBlob(manifest.Config, i.fetcher, i.pusher)
+		return NewBlob(manifest.Config, i.fetcher, i.pusher), nil
 	})
-
-	return i.config, i.configErr
 }
 
 // Layers returns all layer blobs for this image.
 // The layers are lazily loaded and cached.
 func (i *Image) Layers(ctx context.Context) ([]*Blob, error) {
-	i.layersOnce.Do(func() {
+	return i.layers.get(func() ([]*Blob, error) {
 		manifest, err := i.loadManifest(ctx)
 		if err != nil {
-			i.layersErr = err
-			return
+			return nil, err
 		}
 
-		// Convert descriptors to Blob objects
-		i.layers = make([]*Blob, len(manifest.Layers))
+		layers := make([]*Blob, len(manifest.Layers))
 		for idx, desc := range manifest.Layers {
-			i.layers[idx] = NewBlob(desc, i.fetcher, i.pusher)
+			layers[idx] = NewBlob(desc, i.fetcher, i.pusher)
 		}
+		return layers, nil
 	})
-
-	return i.layers, i.layersErr
 }
 
 // Platform returns the platform specification for this image.
 // Returns nil if no platform is specified.
 func (i *Image) Platform(ctx context.Context) (*ocispec.Platform, error) {
-	// Platform is stored in the descriptor, not the manifest
 	return i.descriptor.Platform, nil
 }
 
 // Subject returns the subject manifest this image refers to.
 // Returns nil if no subject is set.
-func (i *Image) Subject() (Manifest, error) {
-	i.subjectOnce.Do(func() {
-		manifest, err := i.loadManifest(context.Background())
+func (i *Image) Subject(ctx context.Context) (Manifest, error) {
+	return i.subject.get(func() (Manifest, error) {
+		manifest, err := i.loadManifest(ctx)
 		if err != nil {
-			i.subjectErr = err
-			return
+			return nil, err
 		}
 
 		if manifest.Subject == nil {
-			return // No subject
+			return nil, nil
 		}
 
 		if i.client == nil {
-			i.subjectErr = ErrNoClient
-			return
+			return nil, ErrNoClient
 		}
 
-		// Fetch subject manifest
-		i.subject, i.subjectErr = i.client.FetchManifest(context.Background(), *manifest.Subject)
+		return i.client.FetchManifest(ctx, *manifest.Subject)
 	})
-
-	return i.subject, i.subjectErr
 }
 
 // SetSubject sets the subject manifest for this image.
 func (i *Image) SetSubject(subject Manifest) {
-	i.subject = subject
-	i.subjectOnce = sync.Once{} // Reset once to allow re-evaluation
+	i.subject.set(subject)
 }
 
 // Predecessors returns all manifests that reference this image.
@@ -209,12 +179,16 @@ func (i *Image) Push(ctx context.Context, reference string) error {
 		return i.client.PushManifest(ctx, i, reference)
 	}
 
-	// Fallback to direct push if no client
 	if i.pusher == nil {
 		return ErrNoPusher
 	}
 
-	manifestBytes, err := i.MarshalJSON()
+	manifest, err := i.loadManifest(ctx)
+	if err != nil {
+		return err
+	}
+
+	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return err
 	}
@@ -223,10 +197,12 @@ func (i *Image) Push(ctx context.Context, reference string) error {
 }
 
 // MarshalJSON marshals the image manifest to JSON.
+// The manifest must have been loaded first via Load(ctx) or any method
+// that accepts a context. Returns ErrNotLoaded if not yet loaded.
 func (i *Image) MarshalJSON() ([]byte, error) {
-	manifest, err := i.loadManifest(context.Background())
-	if err != nil {
-		return nil, err
+	manifest, ok := i.manifest.peek()
+	if !ok {
+		return nil, ErrNotLoaded
 	}
 	return json.Marshal(manifest)
 }

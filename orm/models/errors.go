@@ -32,4 +32,9 @@ var (
 
 	// ErrNoClient indicates that no client was provided.
 	ErrNoClient = errors.New("no client provided")
+
+	// ErrNotLoaded indicates that the manifest has not been loaded yet.
+	// Call Load(ctx) or any method that accepts a context to load the manifest
+	// before serializing.
+	ErrNotLoaded = errors.New("manifest not loaded: call Load(ctx) first")
 )

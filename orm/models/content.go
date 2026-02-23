@@ -46,9 +46,14 @@ type Content interface {
 type Manifest interface {
 	Content
 
+	// Load eagerly loads the manifest data from storage.
+	// This must be called before MarshalJSON if the manifest was created
+	// from a descriptor (lazy loading).
+	Load(ctx context.Context) error
+
 	// Subject returns the subject (parent) manifest this manifest refers to.
 	// Returns nil if no subject is set.
-	Subject() (Manifest, error)
+	Subject(ctx context.Context) (Manifest, error)
 
 	// SetSubject sets the subject (parent) manifest for this manifest.
 	SetSubject(subject Manifest)
