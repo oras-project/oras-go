@@ -100,17 +100,17 @@ func (a *Artifact) Annotations() map[string]string {
 func (a *Artifact) loadManifest(ctx context.Context) (*spec.Artifact, error) {
 	return a.manifest.get(func() (*spec.Artifact, error) {
 		if a.fetcher == nil {
-			return nil, ErrNoFetcher
+			return nil, &OrmError{Op: "load", Digest: a.descriptor.Digest, Err: ErrNoFetcher}
 		}
 
 		manifestBytes, err := content.FetchAll(ctx, a.fetcher, a.descriptor)
 		if err != nil {
-			return nil, err
+			return nil, &OrmError{Op: "load", Digest: a.descriptor.Digest, Err: err}
 		}
 
 		var manifest spec.Artifact
 		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-			return nil, err
+			return nil, &OrmError{Op: "load", Digest: a.descriptor.Digest, Err: err}
 		}
 
 		return &manifest, nil
@@ -138,7 +138,7 @@ func (a *Artifact) Blobs(ctx context.Context) ([]*Blob, error) {
 	return a.blobs.get(func() ([]*Blob, error) {
 		manifest, err := a.loadManifest(ctx)
 		if err != nil {
-			return nil, err
+			return nil, err // already wrapped by loadManifest
 		}
 
 		blobs := make([]*Blob, len(manifest.Blobs))
@@ -155,7 +155,7 @@ func (a *Artifact) Subject(ctx context.Context) (Manifest, error) {
 	return a.subject.get(func() (Manifest, error) {
 		manifest, err := a.loadManifest(ctx)
 		if err != nil {
-			return nil, err
+			return nil, err // already wrapped by loadManifest
 		}
 
 		if manifest.Subject == nil {
@@ -163,10 +163,14 @@ func (a *Artifact) Subject(ctx context.Context) (Manifest, error) {
 		}
 
 		if a.client == nil {
-			return nil, ErrNoClient
+			return nil, &OrmError{Op: "fetch_subject", Digest: a.descriptor.Digest, Err: ErrNoClient}
 		}
 
-		return a.client.FetchManifest(ctx, *manifest.Subject)
+		subj, err := a.client.FetchManifest(ctx, *manifest.Subject)
+		if err != nil {
+			return nil, &OrmError{Op: "fetch_subject", Digest: a.descriptor.Digest, Err: err}
+		}
+		return subj, nil
 	})
 }
 

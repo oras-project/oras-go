@@ -85,17 +85,17 @@ func (idx *Index) Annotations() map[string]string {
 func (idx *Index) loadIndex(ctx context.Context) (*ocispec.Index, error) {
 	return idx.index.get(func() (*ocispec.Index, error) {
 		if idx.fetcher == nil {
-			return nil, ErrNoFetcher
+			return nil, &OrmError{Op: "load", Digest: idx.descriptor.Digest, Err: ErrNoFetcher}
 		}
 
 		indexBytes, err := content.FetchAll(ctx, idx.fetcher, idx.descriptor)
 		if err != nil {
-			return nil, err
+			return nil, &OrmError{Op: "load", Digest: idx.descriptor.Digest, Err: err}
 		}
 
 		var index ocispec.Index
 		if err := json.Unmarshal(indexBytes, &index); err != nil {
-			return nil, err
+			return nil, &OrmError{Op: "load", Digest: idx.descriptor.Digest, Err: err}
 		}
 
 		return &index, nil
@@ -114,18 +114,18 @@ func (idx *Index) Manifests(ctx context.Context) ([]Manifest, error) {
 	return idx.manifests.get(func() ([]Manifest, error) {
 		index, err := idx.loadIndex(ctx)
 		if err != nil {
-			return nil, err
+			return nil, err // already wrapped by loadIndex
 		}
 
 		if idx.client == nil {
-			return nil, ErrNoClient
+			return nil, &OrmError{Op: "fetch_manifests", Digest: idx.descriptor.Digest, Err: ErrNoClient}
 		}
 
 		manifests := make([]Manifest, len(index.Manifests))
 		for i, desc := range index.Manifests {
 			manifest, err := idx.client.FetchManifest(ctx, desc)
 			if err != nil {
-				return nil, err
+				return nil, &OrmError{Op: "fetch_manifests", Digest: idx.descriptor.Digest, Err: err}
 			}
 			manifests[i] = manifest
 		}
@@ -163,7 +163,7 @@ func (idx *Index) Subject(ctx context.Context) (Manifest, error) {
 	return idx.subject.get(func() (Manifest, error) {
 		index, err := idx.loadIndex(ctx)
 		if err != nil {
-			return nil, err
+			return nil, err // already wrapped by loadIndex
 		}
 
 		if index.Subject == nil {
@@ -171,10 +171,14 @@ func (idx *Index) Subject(ctx context.Context) (Manifest, error) {
 		}
 
 		if idx.client == nil {
-			return nil, ErrNoClient
+			return nil, &OrmError{Op: "fetch_subject", Digest: idx.descriptor.Digest, Err: ErrNoClient}
 		}
 
-		return idx.client.FetchManifest(ctx, *index.Subject)
+		subj, err := idx.client.FetchManifest(ctx, *index.Subject)
+		if err != nil {
+			return nil, &OrmError{Op: "fetch_subject", Digest: idx.descriptor.Digest, Err: err}
+		}
+		return subj, nil
 	})
 }
 
