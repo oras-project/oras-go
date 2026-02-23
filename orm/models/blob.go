@@ -103,17 +103,45 @@ func (b *Blob) Annotations() map[string]string {
 
 // Read returns a ReadCloser for streaming the blob content.
 // This is useful for large blobs that should not be loaded entirely into memory.
+// The returned reader verifies the content digest on read. Call
+// VerifyReader.Verify() after reading to confirm integrity, or use Bytes()
+// which verifies automatically.
 func (b *Blob) Read(ctx context.Context) (io.ReadCloser, error) {
 	// If content is already loaded in memory, return it
 	if data, ok := b.contentData.peek(); ok {
 		return io.NopCloser(bytes.NewReader(data)), nil
 	}
 
-	// Otherwise, fetch from storage
+	// Otherwise, fetch from storage with digest verification
 	if b.fetcher == nil {
 		return nil, ErrNoFetcher
 	}
-	return b.fetcher.Fetch(ctx, b.descriptor)
+	rc, err := b.fetcher.Fetch(ctx, b.descriptor)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap with VerifyReader if descriptor has a valid digest
+	if b.descriptor.Digest.Validate() == nil {
+		vr := content.NewVerifyReader(rc, b.descriptor)
+		return &verifyReadCloser{vr: vr, closer: rc}, nil
+	}
+
+	return rc, nil
+}
+
+// verifyReadCloser wraps a content.VerifyReader with a Closer.
+type verifyReadCloser struct {
+	vr     *content.VerifyReader
+	closer io.Closer
+}
+
+func (v *verifyReadCloser) Read(p []byte) (int, error) {
+	return v.vr.Read(p)
+}
+
+func (v *verifyReadCloser) Close() error {
+	return v.closer.Close()
 }
 
 // Bytes returns the blob content as a byte slice.
