@@ -26,6 +26,9 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 )
 
+// Compile-time interface check.
+var _ Manifest = (*Image)(nil)
+
 // Image represents an OCI or Docker image manifest.
 // Images have a config and layers, and may support platform specification.
 type Image struct {
