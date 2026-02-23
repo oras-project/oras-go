@@ -24,6 +24,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/internal/platform"
 )
 
 // Index represents an OCI image index (manifest list).
@@ -130,40 +131,27 @@ func (idx *Index) Manifests(ctx context.Context) ([]Manifest, error) {
 }
 
 // FilterByPlatform returns manifests matching the given platform.
-func (idx *Index) FilterByPlatform(ctx context.Context, platform *ocispec.Platform) ([]Manifest, error) {
+// Uses the library's internal/platform.Match which handles Architecture, OS,
+// Variant, OSVersion, and OSFeatures comparison.
+func (idx *Index) FilterByPlatform(ctx context.Context, target *ocispec.Platform) ([]Manifest, error) {
 	manifests, err := idx.Manifests(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if platform == nil {
+	if target == nil {
 		return manifests, nil
 	}
 
 	var filtered []Manifest
 	for _, manifest := range manifests {
 		desc := manifest.Descriptor()
-		if desc.Platform != nil && platformMatches(desc.Platform, platform) {
+		if platform.Match(desc.Platform, target) {
 			filtered = append(filtered, manifest)
 		}
 	}
 
 	return filtered, nil
-}
-
-// platformMatches checks if two platforms match.
-func platformMatches(a, b *ocispec.Platform) bool {
-	if a.Architecture != b.Architecture {
-		return false
-	}
-	if a.OS != b.OS {
-		return false
-	}
-	// Variant is optional
-	if b.Variant != "" && a.Variant != b.Variant {
-		return false
-	}
-	return true
 }
 
 // Subject returns the subject manifest this index refers to.
