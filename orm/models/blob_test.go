@@ -509,3 +509,47 @@ func TestBlob_Verify_NoFetcher(t *testing.T) {
 		t.Fatalf("Verify() error = %v, want %v", err, models.ErrNoFetcher)
 	}
 }
+
+func TestBlob_Delete_NoDeleter(t *testing.T) {
+	store := newMemoryStore()
+	data := []byte("no-deleter")
+	desc := pushToStore(t, t.Context(), store, "application/octet-stream", data)
+
+	// memory.Store doesn't implement content.Deleter.
+	blob := models.NewBlob(desc, store, store)
+
+	err := blob.Delete(t.Context())
+	if err == nil {
+		t.Fatal("Delete() expected error, got nil")
+	}
+	if !errors.Is(err, models.ErrNoDeleter) {
+		t.Fatalf("Delete() error = %v, want ErrNoDeleter", err)
+	}
+
+	var ormErr *models.OrmError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+	}
+	if ormErr.Op != "delete" {
+		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "delete")
+	}
+}
+
+func TestBlob_Delete_NoPusher(t *testing.T) {
+	data := []byte("no-pusher-delete")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(data),
+		Size:      int64(len(data)),
+	}
+	// Blob with nil pusher.
+	blob := models.NewBlob(desc, nil, nil)
+
+	err := blob.Delete(t.Context())
+	if err == nil {
+		t.Fatal("Delete() expected error, got nil")
+	}
+	if !errors.Is(err, models.ErrNoDeleter) {
+		t.Fatalf("Delete() error = %v, want ErrNoDeleter", err)
+	}
+}

@@ -204,6 +204,19 @@ func (b *Blob) Push(ctx context.Context) error {
 	return nil
 }
 
+// Delete removes this blob from storage.
+// The pusher must implement content.Deleter.
+func (b *Blob) Delete(ctx context.Context) error {
+	deleter, ok := b.pusher.(content.Deleter)
+	if !ok {
+		return &OrmError{Op: "delete", Digest: b.descriptor.Digest, Err: ErrNoDeleter}
+	}
+	if err := deleter.Delete(ctx, b.descriptor); err != nil {
+		return &OrmError{Op: "delete", Digest: b.descriptor.Digest, Err: err}
+	}
+	return nil
+}
+
 // WithAnnotation returns a new Blob with the given annotation added.
 // The original blob is not modified.
 func (b *Blob) WithAnnotation(key, value string) *Blob {

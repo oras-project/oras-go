@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -775,6 +776,22 @@ func TestClient_Evict_RemovesCachedEntry(t *testing.T) {
 	}
 	if blob1 == blob2 {
 		t.Error("expected different instance after Evict")
+	}
+}
+
+func TestClient_Delete_UnsupportedTarget(t *testing.T) {
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromString("test"),
+		Size:      4,
+	}
+
+	err := client.Delete(t.Context(), desc)
+	if !errors.Is(err, models.ErrNoDeleter) {
+		t.Fatalf("Delete() error = %v, want ErrNoDeleter", err)
 	}
 }
 
