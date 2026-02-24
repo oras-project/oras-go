@@ -424,6 +424,11 @@ func (c *Client) ListTags(ctx context.Context) ([]string, error) {
 	return tags, nil
 }
 
+// Exists checks whether the content described by the descriptor exists in the target.
+func (c *Client) Exists(ctx context.Context, desc ocispec.Descriptor) (bool, error) {
+	return c.target.Exists(ctx, desc)
+}
+
 // Builder convenience methods
 
 // BuildArtifact creates a new ArtifactBuilder.
