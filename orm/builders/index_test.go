@@ -65,6 +65,29 @@ func TestIndexBuilder_Build_Success(t *testing.T) {
 	}
 }
 
+func TestIndexBuilder_Build_NilManifest(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
+	image, err := client.BuildImage().WithConfig(config).Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage: %v", err)
+	}
+
+	_, err = client.BuildIndex().
+		AddManifest(image).
+		AddManifest(nil).
+		Build(ctx)
+	if err == nil {
+		t.Fatal("Build() expected error for nil manifest, got nil")
+	}
+	if err.Error() != "manifest at index 1 is nil" {
+		t.Errorf("Build() error = %q, want %q", err.Error(), "manifest at index 1 is nil")
+	}
+}
+
 func TestIndexBuilder_Build_NoManifests(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
@@ -498,5 +521,55 @@ func TestIndexBuilder_MultipleManifests_WithPlatforms(t *testing.T) {
 		if m.Manifests[i].Digest != child.Digest() {
 			t.Errorf("Manifests[%d].Digest = %v, want %v", i, m.Manifests[i].Digest, child.Digest())
 		}
+	}
+}
+
+func TestIndexBuilder_WithManifests_SliceIsolation(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	config1 := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
+	image1, err := client.BuildImage().WithConfig(config1).Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage 1: %v", err)
+	}
+
+	config2 := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{"iso":"test"}`))
+	image2, err := client.BuildImage().WithConfig(config2).Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage 2: %v", err)
+	}
+
+	input := []models.Manifest{image1}
+	builder := client.BuildIndex().WithManifests(input)
+
+	// Mutate the original slice after calling WithManifests.
+	input[0] = image2
+
+	idx, err := builder.Build(ctx)
+	if err != nil {
+		t.Fatalf("Build() unexpected error: %v", err)
+	}
+
+	if err := idx.Load(ctx); err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	data, err := idx.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON() unexpected error: %v", err)
+	}
+
+	var m ocispec.Index
+	if err := unmarshalJSON(data, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// The index should contain image1, not image2.
+	if len(m.Manifests) != 1 {
+		t.Fatalf("Manifests length = %d, want 1", len(m.Manifests))
+	}
+	if m.Manifests[0].Digest != image1.Digest() {
+		t.Errorf("Manifests[0].Digest = %v, want %v (image1)", m.Manifests[0].Digest, image1.Digest())
 	}
 }

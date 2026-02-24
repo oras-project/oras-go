@@ -73,6 +73,25 @@ func TestImageBuilder_Build_Success(t *testing.T) {
 	}
 }
 
+func TestImageBuilder_Build_NilLayer(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
+
+	_, err := client.BuildImage().
+		WithConfig(config).
+		AddLayer(nil).
+		Build(ctx)
+	if err == nil {
+		t.Fatal("Build() expected error for nil layer, got nil")
+	}
+	if err.Error() != "layer at index 0 is nil" {
+		t.Errorf("Build() error = %q, want %q", err.Error(), "layer at index 0 is nil")
+	}
+}
+
 func TestImageBuilder_Build_NoConfig(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
@@ -429,5 +448,38 @@ func TestImageBuilder_MultipleLayers(t *testing.T) {
 		if layer.Digest().String() != expectedDigests[i] {
 			t.Errorf("Layers()[%d].Digest() = %v, want %v", i, layer.Digest(), expectedDigests[i])
 		}
+	}
+}
+
+func TestImageBuilder_WithLayers_SliceIsolation(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
+	layer1 := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("l1"))
+	layer2 := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("l2"))
+
+	input := []*models.Blob{layer1}
+	builder := client.BuildImage().WithConfig(config).WithLayers(input)
+
+	// Mutate the original slice after calling WithLayers.
+	input[0] = layer2
+
+	image, err := builder.Build(ctx)
+	if err != nil {
+		t.Fatalf("Build() unexpected error: %v", err)
+	}
+
+	layers, err := image.Layers(ctx)
+	if err != nil {
+		t.Fatalf("Layers() unexpected error: %v", err)
+	}
+	// The builder should still have layer1, not layer2.
+	if len(layers) != 1 {
+		t.Fatalf("Layers() returned %d, want 1", len(layers))
+	}
+	if layers[0].Digest() != layer1.Digest() {
+		t.Errorf("Layers()[0].Digest() = %v, want %v (layer1)", layers[0].Digest(), layer1.Digest())
 	}
 }

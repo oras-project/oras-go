@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -57,8 +59,9 @@ func (ab *ArtifactBuilder) AddBlob(blob *models.Blob) *ArtifactBuilder {
 }
 
 // WithBlobs sets all blobs at once.
+// The input slice is copied to prevent caller mutation from affecting the builder.
 func (ab *ArtifactBuilder) WithBlobs(blobs []*models.Blob) *ArtifactBuilder {
-	ab.blobs = blobs
+	ab.blobs = slices.Clone(blobs)
 	return ab
 }
 
@@ -86,6 +89,13 @@ func (ab *ArtifactBuilder) WithAnnotations(annotations map[string]string) *Artif
 func (ab *ArtifactBuilder) Build(ctx context.Context) (*models.Artifact, error) {
 	if ab.artifactType == "" {
 		return nil, errors.New("artifactType is required for artifact manifest")
+	}
+
+	// Validate no nil blobs.
+	for i, blob := range ab.blobs {
+		if blob == nil {
+			return nil, fmt.Errorf("blob at index %d is nil", i)
+		}
 	}
 
 	// Build blob descriptors

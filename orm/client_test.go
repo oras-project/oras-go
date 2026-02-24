@@ -113,6 +113,20 @@ func pushImageIndex(t *testing.T, ctx context.Context, store *memory.Store) ocis
 	return indexDesc
 }
 
+func TestClient_NilTargetPanics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("NewClient(nil) did not panic")
+		}
+		msg, ok := r.(string)
+		if !ok || msg != "orm: target must not be nil" {
+			t.Errorf("unexpected panic: %v", r)
+		}
+	}()
+	orm.NewClient(nil)
+}
+
 func TestClient_CacheHitReturnsSameInstance(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
@@ -544,5 +558,206 @@ func TestClient_DefaultOptions(t *testing.T) {
 	// Default has cache enabled, so same instance expected.
 	if blob1 != blob2 {
 		t.Error("default options: expected cache to be enabled, got different instances")
+	}
+}
+
+func TestClient_FindReferrers_FallsBackToPredecessors(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+
+	// Push a base image manifest.
+	baseDesc := pushImageManifest(t, ctx, store)
+
+	// Push a referrer manifest with Subject pointing to the base image.
+	configData := []byte(`{"referrer":true}`)
+	configDesc := pushBlob(t, ctx, store, ocispec.MediaTypeImageConfig, configData)
+
+	layerData := []byte("referrer-layer")
+	layerDesc := pushBlob(t, ctx, store, ocispec.MediaTypeImageLayer, layerData)
+
+	referrerManifest := ocispec.Manifest{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{layerDesc},
+		Subject:   &baseDesc,
+	}
+	referrerBytes, err := json.Marshal(referrerManifest)
+	if err != nil {
+		t.Fatalf("failed to marshal referrer manifest: %v", err)
+	}
+	referrerDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(referrerBytes),
+		Size:      int64(len(referrerBytes)),
+	}
+	if err := store.Push(ctx, referrerDesc, bytes.NewReader(referrerBytes)); err != nil {
+		t.Fatalf("failed to push referrer manifest: %v", err)
+	}
+
+	// memory.Store implements PredecessorFinder but NOT ReferrerLister.
+	client := orm.NewClient(store)
+
+	// Wrap the base image in a model so we can pass it to FindReferrers.
+	baseManifest, err := client.FetchManifest(ctx, baseDesc)
+	if err != nil {
+		t.Fatalf("FetchManifest(base): %v", err)
+	}
+
+	// FindReferrers with empty artifactType should return all referrers.
+	referrers, err := client.FindReferrers(ctx, baseManifest, "")
+	if err != nil {
+		t.Fatalf("FindReferrers(): %v", err)
+	}
+	if len(referrers) == 0 {
+		t.Fatal("FindReferrers() returned 0 referrers, want at least 1")
+	}
+
+	found := false
+	for _, ref := range referrers {
+		if ref.Digest() == referrerDesc.Digest {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("FindReferrers() did not return the expected referrer with digest %v", referrerDesc.Digest)
+	}
+}
+
+func TestClient_FindReferrers_FiltersArtifactType(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+
+	// Push a base image manifest.
+	baseDesc := pushImageManifest(t, ctx, store)
+
+	// Push a referrer manifest with Subject pointing to the base image.
+	configData := []byte(`{"filter-test":true}`)
+	configDesc := pushBlob(t, ctx, store, ocispec.MediaTypeImageConfig, configData)
+
+	layerData := []byte("filter-layer")
+	layerDesc := pushBlob(t, ctx, store, ocispec.MediaTypeImageLayer, layerData)
+
+	referrerManifest := ocispec.Manifest{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{layerDesc},
+		Subject:   &baseDesc,
+	}
+	referrerBytes, err := json.Marshal(referrerManifest)
+	if err != nil {
+		t.Fatalf("failed to marshal referrer manifest: %v", err)
+	}
+	referrerDesc := ocispec.Descriptor{
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Digest:       digest.FromBytes(referrerBytes),
+		Size:         int64(len(referrerBytes)),
+		ArtifactType: "application/vnd.test.sbom",
+	}
+	if err := store.Push(ctx, referrerDesc, bytes.NewReader(referrerBytes)); err != nil {
+		t.Fatalf("failed to push referrer manifest: %v", err)
+	}
+
+	client := orm.NewClient(store)
+
+	baseManifest, err := client.FetchManifest(ctx, baseDesc)
+	if err != nil {
+		t.Fatalf("FetchManifest(base): %v", err)
+	}
+
+	// Filter with matching artifactType.
+	matching, err := client.FindReferrers(ctx, baseManifest, "application/vnd.test.sbom")
+	if err != nil {
+		t.Fatalf("FindReferrers(matching): %v", err)
+	}
+	found := false
+	for _, ref := range matching {
+		if ref.Digest() == referrerDesc.Digest {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("FindReferrers(matching artifactType) did not return the expected referrer")
+	}
+
+	// Filter with non-matching artifactType should return empty.
+	nonMatching, err := client.FindReferrers(ctx, baseManifest, "application/vnd.nonexistent")
+	if err != nil {
+		t.Fatalf("FindReferrers(non-matching): %v", err)
+	}
+	if len(nonMatching) != 0 {
+		t.Errorf("FindReferrers(non-matching) returned %d, want 0", len(nonMatching))
+	}
+}
+
+func TestClient_ListTags_UnsupportedTarget(t *testing.T) {
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	_, err := client.ListTags(t.Context())
+	if err == nil {
+		t.Fatal("ListTags() expected error, got nil")
+	}
+	if err.Error() != "target does not support tag listing" {
+		t.Errorf("ListTags() error = %q, want %q", err.Error(), "target does not support tag listing")
+	}
+}
+
+func TestClient_MaxCacheSize_NegativeClampedToZero(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+
+	// Negative MaxCacheSize is clamped to 0 (unlimited).
+	client := orm.NewClient(store, orm.WithMaxCacheSize(-5))
+
+	data1 := []byte("neg-blob-1")
+	desc1 := pushBlob(t, ctx, store, "application/octet-stream", data1)
+
+	data2 := []byte("neg-blob-2")
+	desc2 := pushBlob(t, ctx, store, "application/octet-stream", data2)
+
+	data3 := []byte("neg-blob-3")
+	desc3 := pushBlob(t, ctx, store, "application/octet-stream", data3)
+
+	blob1, err := client.FetchBlob(ctx, desc1)
+	if err != nil {
+		t.Fatalf("FetchBlob(1): %v", err)
+	}
+
+	_, err = client.FetchBlob(ctx, desc2)
+	if err != nil {
+		t.Fatalf("FetchBlob(2): %v", err)
+	}
+
+	_, err = client.FetchBlob(ctx, desc3)
+	if err != nil {
+		t.Fatalf("FetchBlob(3): %v", err)
+	}
+
+	// With unlimited cache (negative clamped to 0), blob1 should still be cached.
+	blob1Again, err := client.FetchBlob(ctx, desc1)
+	if err != nil {
+		t.Fatalf("FetchBlob(1) again: %v", err)
+	}
+
+	if blob1 != blob1Again {
+		t.Error("negative MaxCacheSize clamped to unlimited: expected blob1 to be cached, got different instance")
+	}
+}
+
+// TestClient_RemovedOptions_DoNotExist is a compile-time verification.
+// The removed options WithPreloadDepth and WithConcurrency no longer exist
+// in the orm package. This test verifies that DefaultClientOptions works
+// correctly with only the Cache and MaxCacheSize fields.
+func TestClient_RemovedOptions_DoNotExist(t *testing.T) {
+	opts := orm.DefaultClientOptions()
+	if !opts.Cache {
+		t.Error("DefaultClientOptions().Cache = false, want true")
+	}
+	if opts.MaxCacheSize != 0 {
+		t.Errorf("DefaultClientOptions().MaxCacheSize = %d, want 0 (unlimited)", opts.MaxCacheSize)
 	}
 }
