@@ -778,6 +778,43 @@ func TestClient_Evict_RemovesCachedEntry(t *testing.T) {
 	}
 }
 
+func TestClient_Exists_True(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+
+	data := []byte("exists-test")
+	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
+
+	client := orm.NewClient(store)
+
+	exists, err := client.Exists(ctx, desc)
+	if err != nil {
+		t.Fatalf("Exists(): %v", err)
+	}
+	if !exists {
+		t.Error("Exists() = false, want true")
+	}
+}
+
+func TestClient_Exists_False(t *testing.T) {
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromString("nonexistent"),
+		Size:      11,
+	}
+
+	exists, err := client.Exists(t.Context(), desc)
+	if err != nil {
+		t.Fatalf("Exists(): %v", err)
+	}
+	if exists {
+		t.Error("Exists() = true, want false")
+	}
+}
+
 func TestClient_Evict_ReturnsFalseWhenNotFound(t *testing.T) {
 	store := memory.New()
 	client := orm.NewClient(store)
