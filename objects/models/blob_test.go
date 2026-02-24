@@ -24,7 +24,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects/models"
 )
 
 func TestNewBlobFromBytes_CreatesCorrectDescriptor(t *testing.T) {
@@ -401,7 +401,7 @@ func TestBlob_Verify_Success(t *testing.T) {
 	}
 }
 
-func TestBlob_Bytes_WrapsErrNoFetcherInOrmError(t *testing.T) {
+func TestBlob_Bytes_WrapsErrNoFetcherInObjectsError(t *testing.T) {
 	data := []byte("orm-error-test")
 	desc := ocispec.Descriptor{
 		MediaType: "application/octet-stream",
@@ -415,19 +415,19 @@ func TestBlob_Bytes_WrapsErrNoFetcherInOrmError(t *testing.T) {
 		t.Fatal("Bytes() expected error, got nil")
 	}
 
-	var ormErr *models.OrmError
+	var ormErr *models.ObjectsError
 	if !errors.As(err, &ormErr) {
-		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+		t.Fatalf("expected *ObjectsError, got %T: %v", err, err)
 	}
 	if ormErr.Op != "fetch" {
-		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "fetch")
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "fetch")
 	}
 	if !errors.Is(err, models.ErrNoFetcher) {
 		t.Errorf("expected ErrNoFetcher in chain, got: %v", err)
 	}
 }
 
-func TestBlob_Read_WrapsErrNoFetcherInOrmError(t *testing.T) {
+func TestBlob_Read_WrapsErrNoFetcherInObjectsError(t *testing.T) {
 	data := []byte("read-orm-error")
 	desc := ocispec.Descriptor{
 		MediaType: "application/octet-stream",
@@ -441,16 +441,16 @@ func TestBlob_Read_WrapsErrNoFetcherInOrmError(t *testing.T) {
 		t.Fatal("Read() expected error, got nil")
 	}
 
-	var ormErr *models.OrmError
+	var ormErr *models.ObjectsError
 	if !errors.As(err, &ormErr) {
-		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+		t.Fatalf("expected *ObjectsError, got %T: %v", err, err)
 	}
 	if ormErr.Op != "read" {
-		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "read")
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "read")
 	}
 }
 
-func TestBlob_Push_WrapsErrNoPusherInOrmError(t *testing.T) {
+func TestBlob_Push_WrapsErrNoPusherInObjectsError(t *testing.T) {
 	blob := models.NewBlobFromBytes("application/octet-stream", []byte("push-orm-err"))
 
 	err := blob.Push(t.Context())
@@ -458,19 +458,19 @@ func TestBlob_Push_WrapsErrNoPusherInOrmError(t *testing.T) {
 		t.Fatal("Push() expected error, got nil")
 	}
 
-	var ormErr *models.OrmError
+	var ormErr *models.ObjectsError
 	if !errors.As(err, &ormErr) {
-		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+		t.Fatalf("expected *ObjectsError, got %T: %v", err, err)
 	}
 	if ormErr.Op != "push" {
-		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "push")
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "push")
 	}
 	if !errors.Is(err, models.ErrNoPusher) {
 		t.Errorf("expected ErrNoPusher in chain, got: %v", err)
 	}
 }
 
-func TestBlob_Verify_WrapsErrNoFetcherInOrmError(t *testing.T) {
+func TestBlob_Verify_WrapsErrNoFetcherInObjectsError(t *testing.T) {
 	data := []byte("verify-orm-error")
 	desc := ocispec.Descriptor{
 		MediaType: "application/octet-stream",
@@ -484,12 +484,12 @@ func TestBlob_Verify_WrapsErrNoFetcherInOrmError(t *testing.T) {
 		t.Fatal("Verify() expected error, got nil")
 	}
 
-	var ormErr *models.OrmError
+	var ormErr *models.ObjectsError
 	if !errors.As(err, &ormErr) {
-		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+		t.Fatalf("expected *ObjectsError, got %T: %v", err, err)
 	}
 	if ormErr.Op != "verify" {
-		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "verify")
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "verify")
 	}
 	if !errors.Is(err, models.ErrNoFetcher) {
 		t.Errorf("expected ErrNoFetcher in chain, got: %v", err)
@@ -527,12 +527,12 @@ func TestBlob_Delete_NoDeleter(t *testing.T) {
 		t.Fatalf("Delete() error = %v, want ErrNoDeleter", err)
 	}
 
-	var ormErr *models.OrmError
+	var ormErr *models.ObjectsError
 	if !errors.As(err, &ormErr) {
-		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+		t.Fatalf("expected *ObjectsError, got %T: %v", err, err)
 	}
 	if ormErr.Op != "delete" {
-		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "delete")
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "delete")
 	}
 }
 

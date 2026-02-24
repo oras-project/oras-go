@@ -27,17 +27,17 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content/oci"
-	"github.com/oras-project/oras-go/v3/orm"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects"
+	"github.com/oras-project/oras-go/v3/objects/models"
 	"github.com/oras-project/oras-go/v3/registry/remote"
 )
 
 // newORMClient creates an ORM client backed by a remote repository.
-func newORMClient(t *testing.T, opts ...orm.ClientOption) (*orm.Client, *remote.Repository) {
+func newORMClient(t *testing.T, opts ...objects.ClientOption) (*objects.Client, *remote.Repository) {
 	t.Helper()
 	repoName := newRepoName(t)
 	repo := newRepository(t, repoName)
-	client := orm.NewClient(repo, opts...)
+	client := objects.NewClient(repo, opts...)
 	return client, repo
 }
 
@@ -379,7 +379,7 @@ func TestORM_CacheIdentityMap(t *testing.T) {
 
 func TestORM_CacheWithMaxSize(t *testing.T) {
 	ctx := context.Background()
-	client, _ := newORMClient(t, orm.WithMaxCacheSize(2))
+	client, _ := newORMClient(t, objects.WithMaxCacheSize(2))
 
 	// Push three blobs.
 	data1 := []byte("lru-blob-1")
@@ -421,7 +421,7 @@ func TestORM_CacheWithMaxSize(t *testing.T) {
 
 func TestORM_CacheDisabled(t *testing.T) {
 	ctx := context.Background()
-	client, _ := newORMClient(t, orm.WithCache(false))
+	client, _ := newORMClient(t, objects.WithCache(false))
 
 	data := []byte("no-cache-blob")
 	blob := client.NewBlob("application/octet-stream", data)
@@ -928,7 +928,7 @@ func TestORM_StructuredErrors(t *testing.T) {
 	}
 
 	// Create an Image model with an invalid descriptor (digest points to nonexistent content).
-	// This should produce an OrmError when Load is called.
+	// This should produce an ObjectsError when Load is called.
 	badDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
 		Digest:    digest.FromString("nonexistent"),
@@ -940,15 +940,15 @@ func TestORM_StructuredErrors(t *testing.T) {
 		t.Fatal("Load() expected error for nonexistent content, got nil")
 	}
 
-	var ormErr *models.OrmError
+	var ormErr *models.ObjectsError
 	if !errors.As(err, &ormErr) {
-		t.Fatalf("expected *models.OrmError, got %T: %v", err, err)
+		t.Fatalf("expected *models.ObjectsError, got %T: %v", err, err)
 	}
 	if ormErr.Op != "load" {
-		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "load")
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "load")
 	}
 	if ormErr.Digest != badDesc.Digest {
-		t.Errorf("OrmError.Digest = %v, want %v", ormErr.Digest, badDesc.Digest)
+		t.Errorf("ObjectsError.Digest = %v, want %v", ormErr.Digest, badDesc.Digest)
 	}
 }
 
@@ -1250,7 +1250,7 @@ func TestORM_Delete(t *testing.T) {
 		t.Fatalf("oci.New(): %v", err)
 	}
 	ctx := context.Background()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	data := []byte("delete-me")
 	blob := client.NewBlob("application/octet-stream", data)

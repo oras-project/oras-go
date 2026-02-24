@@ -85,17 +85,17 @@ func (i *Image) Annotations() map[string]string {
 func (i *Image) loadManifest(ctx context.Context) (*ocispec.Manifest, error) {
 	return i.manifest.get(func() (*ocispec.Manifest, error) {
 		if i.fetcher == nil {
-			return nil, &OrmError{Op: "load", Digest: i.descriptor.Digest, Err: ErrNoFetcher}
+			return nil, &ObjectsError{Op: "load", Digest: i.descriptor.Digest, Err: ErrNoFetcher}
 		}
 
 		manifestBytes, err := content.FetchAll(ctx, i.fetcher, i.descriptor)
 		if err != nil {
-			return nil, &OrmError{Op: "load", Digest: i.descriptor.Digest, Err: err}
+			return nil, &ObjectsError{Op: "load", Digest: i.descriptor.Digest, Err: err}
 		}
 
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-			return nil, &OrmError{Op: "load", Digest: i.descriptor.Digest, Err: err}
+			return nil, &ObjectsError{Op: "load", Digest: i.descriptor.Digest, Err: err}
 		}
 
 		return &manifest, nil
@@ -158,12 +158,12 @@ func (i *Image) Subject(ctx context.Context) (Manifest, error) {
 		}
 
 		if i.client == nil {
-			return nil, &OrmError{Op: "fetch_subject", Digest: i.descriptor.Digest, Err: ErrNoClient}
+			return nil, &ObjectsError{Op: "fetch_subject", Digest: i.descriptor.Digest, Err: ErrNoClient}
 		}
 
 		subj, err := i.client.FetchManifest(ctx, *manifest.Subject)
 		if err != nil {
-			return nil, &OrmError{Op: "fetch_subject", Digest: i.descriptor.Digest, Err: err}
+			return nil, &ObjectsError{Op: "fetch_subject", Digest: i.descriptor.Digest, Err: err}
 		}
 		return subj, nil
 	})

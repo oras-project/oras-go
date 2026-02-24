@@ -24,7 +24,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects/models"
 )
 
 // buildImageManifest creates a serialized image manifest with the given parameters.
@@ -135,12 +135,12 @@ func TestImage_Load_NoFetcher(t *testing.T) {
 		t.Fatal("Load() expected error, got nil")
 	}
 
-	var ormErr *models.OrmError
+	var ormErr *models.ObjectsError
 	if !errors.As(err, &ormErr) {
-		t.Fatalf("Load() error type = %T, want *models.OrmError", err)
+		t.Fatalf("Load() error type = %T, want *models.ObjectsError", err)
 	}
 	if ormErr.Op != "load" {
-		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "load")
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "load")
 	}
 	if !errors.Is(err, models.ErrNoFetcher) {
 		t.Errorf("Load() error should wrap ErrNoFetcher, got %v", err)
@@ -360,12 +360,12 @@ func TestImage_Subject_NoClient(t *testing.T) {
 		t.Fatal("Subject() expected error, got nil")
 	}
 
-	var ormErr *models.OrmError
+	var ormErr *models.ObjectsError
 	if !errors.As(err, &ormErr) {
-		t.Fatalf("Subject() error type = %T, want *models.OrmError", err)
+		t.Fatalf("Subject() error type = %T, want *models.ObjectsError", err)
 	}
 	if ormErr.Op != "fetch_subject" {
-		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "fetch_subject")
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "fetch_subject")
 	}
 	if !errors.Is(err, models.ErrNoClient) {
 		t.Errorf("Subject() error should wrap ErrNoClient, got %v", err)
@@ -572,4 +572,40 @@ func TestImage_Predecessors_NoClient(t *testing.T) {
 
 func TestImage_ImplementsManifest(t *testing.T) {
 	var _ models.Manifest = (*models.Image)(nil)
+}
+
+func TestImage_Load_CorruptJSON(t *testing.T) {
+	ctx := t.Context()
+
+	// Use corrupt data that is not valid JSON.
+	corruptData := []byte("this is not valid JSON!!!")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(corruptData),
+		Size:      int64(len(corruptData)),
+	}
+
+	// Use a byteFetcher that returns the corrupt data directly,
+	// bypassing memory store's manifest validation on push.
+	fetcher := &byteFetcher{data: corruptData}
+	image := models.NewImage(desc, fetcher, nil, nil)
+
+	err := image.Load(ctx)
+	if err == nil {
+		t.Fatal("Load() expected error for corrupt JSON, got nil")
+	}
+
+	// Verify it returns an ObjectsError wrapping a JSON parse error.
+	var ormErr *models.ObjectsError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("Load() error type = %T, want *models.ObjectsError", err)
+	}
+	if ormErr.Op != "load" {
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "load")
+	}
+
+	var syntaxErr *json.SyntaxError
+	if !errors.As(ormErr.Err, &syntaxErr) {
+		t.Errorf("ObjectsError.Err type = %T, want *json.SyntaxError", ormErr.Err)
+	}
 }

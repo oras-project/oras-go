@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package orm
+package objects
 
 import (
 	"bytes"
@@ -30,8 +30,8 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/internal/docker"
 	"github.com/oras-project/oras-go/v3/internal/spec"
-	"github.com/oras-project/oras-go/v3/orm/builders"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects/builders"
+	"github.com/oras-project/oras-go/v3/objects/models"
 	"github.com/oras-project/oras-go/v3/registry"
 )
 
@@ -98,7 +98,7 @@ func WithMaxCacheSize(size int) ClientOption {
 // Panics if target is nil.
 func NewClient(target oras.Target, opts ...ClientOption) *Client {
 	if target == nil {
-		panic("orm: target must not be nil")
+		panic("objects: target must not be nil")
 	}
 
 	options := DefaultClientOptions()
@@ -325,13 +325,13 @@ func (c *Client) PushManifest(ctx context.Context, manifest models.Manifest, ref
 
 	desc := manifest.Descriptor()
 	if err := c.target.Push(ctx, desc, bytes.NewReader(manifestBytes)); err != nil {
-		return &models.OrmError{Op: "push_manifest", Digest: desc.Digest, Err: err}
+		return &models.ObjectsError{Op: "push_manifest", Digest: desc.Digest, Err: err}
 	}
 
 	// Tag if reference is provided
 	if reference != "" {
 		if err := c.target.Tag(ctx, desc, reference); err != nil {
-			return &models.OrmError{Op: "tag", Digest: desc.Digest, Err: err}
+			return &models.ObjectsError{Op: "tag", Digest: desc.Digest, Err: err}
 		}
 	}
 
@@ -437,7 +437,7 @@ func (c *Client) Delete(ctx context.Context, desc ocispec.Descriptor) error {
 		return models.ErrNoDeleter
 	}
 	if err := deleter.Delete(ctx, desc); err != nil {
-		return &models.OrmError{Op: "delete", Digest: desc.Digest, Err: err}
+		return &models.ObjectsError{Op: "delete", Digest: desc.Digest, Err: err}
 	}
 	c.Evict(desc.Digest)
 	return nil

@@ -69,13 +69,3 @@ func (l *lazy[T]) peek() (T, bool) {
 	var zero T
 	return zero, false
 }
-
-// reset clears the cached value, forcing the next get() to reload.
-func (l *lazy[T]) reset() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	var zero T
-	l.val = zero
-	l.loaded = false
-}

@@ -18,12 +18,13 @@ package models_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content/memory"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects/models"
 )
 
 // newBlobFromBytes creates a Blob from raw bytes using the public constructor.
@@ -96,4 +97,15 @@ func errNoFetcher() error {
 // errNoPusher returns the sentinel error for missing pusher.
 func errNoPusher() error {
 	return models.ErrNoPusher
+}
+
+// byteFetcher is a simple content.Fetcher that returns raw bytes.
+// It bypasses memory store validation, which is useful for testing
+// corrupt or malformed content.
+type byteFetcher struct {
+	data []byte
+}
+
+func (f *byteFetcher) Fetch(_ context.Context, _ ocispec.Descriptor) (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(f.data)), nil
 }
