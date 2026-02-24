@@ -338,6 +338,21 @@ func (c *Client) PushManifest(ctx context.Context, manifest models.Manifest, ref
 	return nil
 }
 
+// Evict removes a single entry from the identity map cache by digest.
+// Returns true if an entry was evicted, false if not found.
+func (c *Client) Evict(dgst digest.Digest) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	elem, ok := c.identityMap[dgst]
+	if !ok {
+		return false
+	}
+	c.lruList.Remove(elem)
+	delete(c.identityMap, dgst)
+	return true
+}
+
 // ClearCache clears the identity map cache.
 func (c *Client) ClearCache() {
 	c.mu.Lock()

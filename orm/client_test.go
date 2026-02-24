@@ -748,6 +748,46 @@ func TestClient_MaxCacheSize_NegativeClampedToZero(t *testing.T) {
 	}
 }
 
+func TestClient_Evict_RemovesCachedEntry(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+
+	data := []byte("evict-me")
+	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
+
+	client := orm.NewClient(store)
+
+	blob1, err := client.FetchBlob(ctx, desc)
+	if err != nil {
+		t.Fatalf("FetchBlob(): %v", err)
+	}
+
+	// Evict the entry.
+	evicted := client.Evict(desc.Digest)
+	if !evicted {
+		t.Fatal("Evict() returned false, want true")
+	}
+
+	// Fetch again: should get a new instance.
+	blob2, err := client.FetchBlob(ctx, desc)
+	if err != nil {
+		t.Fatalf("FetchBlob() after evict: %v", err)
+	}
+	if blob1 == blob2 {
+		t.Error("expected different instance after Evict")
+	}
+}
+
+func TestClient_Evict_ReturnsFalseWhenNotFound(t *testing.T) {
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	evicted := client.Evict(digest.FromString("nonexistent"))
+	if evicted {
+		t.Error("Evict() returned true for non-cached digest, want false")
+	}
+}
+
 // TestClient_RemovedOptions_DoNotExist is a compile-time verification.
 // The removed options WithPreloadDepth and WithConcurrency no longer exist
 // in the orm package. This test verifies that DefaultClientOptions works
