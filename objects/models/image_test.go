@@ -574,6 +574,120 @@ func TestImage_ImplementsManifest(t *testing.T) {
 	var _ models.Manifest = (*models.Image)(nil)
 }
 
+func TestNewImageFromManifestBytes_Success(t *testing.T) {
+	store := newMemoryStore()
+	ctx := t.Context()
+
+	configData := []byte(`{"architecture":"amd64"}`)
+	configDesc := pushToStore(t, ctx, store, ocispec.MediaTypeImageConfig, configData)
+
+	layer1Data := []byte("layer-1")
+	layer1Desc := pushToStore(t, ctx, store, ocispec.MediaTypeImageLayer, layer1Data)
+
+	manifestBytes := buildImageManifest(t, configDesc, []ocispec.Descriptor{layer1Desc}, nil, nil)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestBytes),
+		Size:      int64(len(manifestBytes)),
+	}
+
+	image, err := models.NewImageFromManifestBytes(desc, store, store, nil, manifestBytes)
+	if err != nil {
+		t.Fatalf("NewImageFromManifestBytes() unexpected error: %v", err)
+	}
+
+	// Verify descriptor is set correctly.
+	if image.Digest() != desc.Digest {
+		t.Errorf("Digest() = %v, want %v", image.Digest(), desc.Digest)
+	}
+	if image.MediaType() != ocispec.MediaTypeImageManifest {
+		t.Errorf("MediaType() = %q, want %q", image.MediaType(), ocispec.MediaTypeImageManifest)
+	}
+	if image.Size() != desc.Size {
+		t.Errorf("Size() = %d, want %d", image.Size(), desc.Size)
+	}
+
+	// Verify manifest is pre-loaded: Load should succeed without a fetcher.
+	if err := image.Load(ctx); err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	// Verify the pre-loaded manifest has correct config.
+	config, err := image.Config(ctx)
+	if err != nil {
+		t.Fatalf("Config() unexpected error: %v", err)
+	}
+	if config.Digest() != configDesc.Digest {
+		t.Errorf("Config().Digest() = %v, want %v", config.Digest(), configDesc.Digest)
+	}
+
+	// Verify layers.
+	layers, err := image.Layers(ctx)
+	if err != nil {
+		t.Fatalf("Layers() unexpected error: %v", err)
+	}
+	if len(layers) != 1 {
+		t.Fatalf("Layers() returned %d layers, want 1", len(layers))
+	}
+	if layers[0].Digest() != layer1Desc.Digest {
+		t.Errorf("Layers()[0].Digest() = %v, want %v", layers[0].Digest(), layer1Desc.Digest)
+	}
+}
+
+func TestNewImageFromManifestBytes_NoFetcher(t *testing.T) {
+	ctx := t.Context()
+
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes([]byte("{}")),
+		Size:      2,
+	}
+
+	manifestBytes := buildImageManifest(t, configDesc, nil, nil, nil)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestBytes),
+		Size:      int64(len(manifestBytes)),
+	}
+
+	// Create with nil fetcher — the manifest is pre-loaded so Load still works.
+	image, err := models.NewImageFromManifestBytes(desc, nil, nil, nil, manifestBytes)
+	if err != nil {
+		t.Fatalf("NewImageFromManifestBytes() unexpected error: %v", err)
+	}
+
+	if err := image.Load(ctx); err != nil {
+		t.Fatalf("Load() unexpected error (should use pre-loaded data): %v", err)
+	}
+}
+
+func TestNewImageFromManifestBytes_CorruptJSON(t *testing.T) {
+	corruptData := []byte("this is not valid JSON!!!")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(corruptData),
+		Size:      int64(len(corruptData)),
+	}
+
+	_, err := models.NewImageFromManifestBytes(desc, nil, nil, nil, corruptData)
+	if err == nil {
+		t.Fatal("NewImageFromManifestBytes() expected error for corrupt JSON, got nil")
+	}
+
+	var ormErr *models.ObjectsError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("error type = %T, want *models.ObjectsError", err)
+	}
+	if ormErr.Op != "load" {
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "load")
+	}
+
+	var syntaxErr *json.SyntaxError
+	if !errors.As(ormErr.Err, &syntaxErr) {
+		t.Errorf("ObjectsError.Err type = %T, want *json.SyntaxError", ormErr.Err)
+	}
+}
+
 func TestImage_Load_CorruptJSON(t *testing.T) {
 	ctx := t.Context()
 

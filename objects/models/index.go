@@ -55,6 +55,24 @@ func NewIndex(desc ocispec.Descriptor, fetcher content.Fetcher, pusher content.P
 	}
 }
 
+// NewIndexFromManifestBytes creates a new Index with a pre-loaded manifest.
+// This avoids a redundant network fetch when the manifest bytes are already
+// available (e.g., from type detection).
+func NewIndexFromManifestBytes(desc ocispec.Descriptor, fetcher content.Fetcher, pusher content.Pusher, client ManifestClient, indexBytes []byte) (*Index, error) {
+	var index ocispec.Index
+	if err := json.Unmarshal(indexBytes, &index); err != nil {
+		return nil, &ObjectsError{Op: "load", Digest: desc.Digest, Err: err}
+	}
+	idx := &Index{
+		descriptor: desc,
+		fetcher:    fetcher,
+		pusher:     pusher,
+		client:     client,
+	}
+	idx.index.set(&index)
+	return idx, nil
+}
+
 // Descriptor returns the OCI descriptor for this index.
 func (idx *Index) Descriptor() ocispec.Descriptor {
 	return idx.descriptor

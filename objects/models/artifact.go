@@ -70,6 +70,24 @@ func NewArtifact(desc ocispec.Descriptor, fetcher content.Fetcher, pusher conten
 	}
 }
 
+// NewArtifactFromManifestBytes creates a new Artifact with a pre-loaded manifest.
+// This avoids a redundant network fetch when the manifest bytes are already
+// available (e.g., from type detection).
+func NewArtifactFromManifestBytes(desc ocispec.Descriptor, fetcher content.Fetcher, pusher content.Pusher, client ManifestClient, manifestBytes []byte) (*Artifact, error) {
+	var manifest spec.Artifact
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return nil, &ObjectsError{Op: "load", Digest: desc.Digest, Err: err}
+	}
+	a := &Artifact{
+		descriptor: desc,
+		fetcher:    fetcher,
+		pusher:     pusher,
+		client:     client,
+	}
+	a.manifest.set(&manifest)
+	return a, nil
+}
+
 // Descriptor returns the OCI descriptor for this artifact.
 func (a *Artifact) Descriptor() ocispec.Descriptor {
 	return a.descriptor

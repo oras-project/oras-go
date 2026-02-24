@@ -106,9 +106,14 @@ func NewClient(target oras.Target, opts ...ClientOption) *Client {
 		opt(&options)
 	}
 
+	mapSize := 0
+	if options.MaxCacheSize > 0 {
+		mapSize = options.MaxCacheSize
+	}
+
 	return &Client{
 		target:      target,
-		identityMap: make(map[digest.Digest]*list.Element),
+		identityMap: make(map[digest.Digest]*list.Element, mapSize),
 		lruList:     list.New(),
 		options:     options,
 	}
@@ -241,6 +246,8 @@ func (c *Client) fetchIndex(ctx context.Context, desc ocispec.Descriptor) (*mode
 }
 
 // fetchManifestByInspection fetches a manifest and inspects its content to determine type.
+// The fetched bytes are passed to the model constructor to avoid a redundant
+// network fetch on first access.
 func (c *Client) fetchManifestByInspection(ctx context.Context, desc ocispec.Descriptor) (models.Manifest, error) {
 	// Fetch the content
 	manifestBytes, err := content.FetchAll(ctx, c.target, desc)
@@ -249,24 +256,39 @@ func (c *Client) fetchManifestByInspection(ctx context.Context, desc ocispec.Des
 	}
 
 	// Try to unmarshal and detect type
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(manifestBytes, &raw); err != nil {
 		return nil, err
 	}
 
 	// Check for artifact manifest (has "artifactType" field)
 	if _, ok := raw["artifactType"]; ok {
-		return c.fetchArtifact(ctx, desc)
+		artifact, err := models.NewArtifactFromManifestBytes(desc, c.target, c.target, c, manifestBytes)
+		if err != nil {
+			return nil, err
+		}
+		c.addToCache(artifact)
+		return artifact, nil
 	}
 
 	// Check for index (has "manifests" array)
 	if _, ok := raw["manifests"]; ok {
-		return c.fetchIndex(ctx, desc)
+		index, err := models.NewIndexFromManifestBytes(desc, c.target, c.target, c, manifestBytes)
+		if err != nil {
+			return nil, err
+		}
+		c.addToCache(index)
+		return index, nil
 	}
 
 	// Check for image manifest (has "config" object)
 	if _, ok := raw["config"]; ok {
-		return c.fetchImage(ctx, desc)
+		image, err := models.NewImageFromManifestBytes(desc, c.target, c.target, c, manifestBytes)
+		if err != nil {
+			return nil, err
+		}
+		c.addToCache(image)
+		return image, nil
 	}
 
 	return nil, errors.New("unknown manifest type")
