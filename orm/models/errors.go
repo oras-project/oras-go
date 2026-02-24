@@ -42,6 +42,9 @@ var (
 	// Call Load(ctx) or any method that accepts a context to load the manifest
 	// before serializing.
 	ErrNotLoaded = errors.New("manifest not loaded: call Load(ctx) first")
+
+	// ErrNoDeleter indicates that the target does not support deletion.
+	ErrNoDeleter = errors.New("target does not support deletion")
 )
 
 // OrmError provides structured error context for ORM operations.

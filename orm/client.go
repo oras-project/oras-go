@@ -429,6 +429,20 @@ func (c *Client) Exists(ctx context.Context, desc ocispec.Descriptor) (bool, err
 	return c.target.Exists(ctx, desc)
 }
 
+// Delete removes content from the target and evicts it from the cache.
+// The target must implement content.Deleter.
+func (c *Client) Delete(ctx context.Context, desc ocispec.Descriptor) error {
+	deleter, ok := c.target.(content.Deleter)
+	if !ok {
+		return models.ErrNoDeleter
+	}
+	if err := deleter.Delete(ctx, desc); err != nil {
+		return &models.OrmError{Op: "delete", Digest: desc.Digest, Err: err}
+	}
+	c.Evict(desc.Digest)
+	return nil
+}
+
 // Builder convenience methods
 
 // BuildArtifact creates a new ArtifactBuilder.
