@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -533,6 +534,57 @@ func TestBlob_Delete_NoDeleter(t *testing.T) {
 	if ormErr.Op != "delete" {
 		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "delete")
 	}
+}
+
+func TestBlob_ConcurrentBytes(t *testing.T) {
+	ctx := t.Context()
+
+	data := []byte("concurrent-bytes")
+	store := newMemoryStore()
+	desc := pushToStore(t, ctx, store, "application/octet-stream", data)
+
+	blob := models.NewBlob(desc, store, store)
+
+	const goroutines = 100
+	var wg sync.WaitGroup
+
+	for i := range goroutines {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			got, err := blob.Bytes(ctx)
+			if err != nil {
+				t.Errorf("goroutine %d: Bytes() error: %v", id, err)
+				return
+			}
+			if !bytes.Equal(got, data) {
+				t.Errorf("goroutine %d: Bytes() = %q, want %q", id, string(got), string(data))
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestBlob_ConcurrentPush(t *testing.T) {
+	ctx := t.Context()
+
+	// Push error path: blob with no pusher.
+	blob := models.NewBlobFromBytes("application/octet-stream", []byte("no-push"))
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+
+	for i := range goroutines {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			err := blob.Push(ctx)
+			if !errors.Is(err, models.ErrNoPusher) {
+				t.Errorf("goroutine %d: Push() error = %v, want ErrNoPusher", id, err)
+			}
+		}(i)
+	}
+	wg.Wait()
 }
 
 func TestBlob_Delete_NoPusher(t *testing.T) {

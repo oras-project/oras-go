@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -840,6 +841,125 @@ func TestClient_Evict_ReturnsFalseWhenNotFound(t *testing.T) {
 	if evicted {
 		t.Error("Evict() returned true for non-cached digest, want false")
 	}
+}
+
+func TestClient_ConcurrentFetchBlob(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+
+	data := []byte("concurrent-fetch-blob")
+	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
+
+	client := orm.NewClient(store)
+
+	const goroutines = 100
+	blobs := make([]*models.Blob, goroutines)
+	errs := make([]error, goroutines)
+	var wg sync.WaitGroup
+
+	for i := range goroutines {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			blobs[idx], errs[idx] = client.FetchBlob(ctx, desc)
+		}(i)
+	}
+	wg.Wait()
+
+	// All should succeed and return the same cached instance.
+	for i := range goroutines {
+		if errs[i] != nil {
+			t.Fatalf("goroutine %d: FetchBlob() error: %v", i, errs[i])
+		}
+		if blobs[i] != blobs[0] {
+			t.Errorf("goroutine %d: expected same instance as goroutine 0", i)
+		}
+	}
+}
+
+func TestClient_ConcurrentFetchManifest(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+
+	manifestDesc := pushImageManifest(t, ctx, store)
+
+	client := orm.NewClient(store)
+
+	const goroutines = 50
+	manifests := make([]models.Manifest, goroutines)
+	errs := make([]error, goroutines)
+	var wg sync.WaitGroup
+
+	for i := range goroutines {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			manifests[idx], errs[idx] = client.FetchManifest(ctx, manifestDesc)
+		}(i)
+	}
+	wg.Wait()
+
+	for i := range goroutines {
+		if errs[i] != nil {
+			t.Fatalf("goroutine %d: FetchManifest() error: %v", i, errs[i])
+		}
+		if manifests[i] != manifests[0] {
+			t.Errorf("goroutine %d: expected same instance as goroutine 0", i)
+		}
+	}
+}
+
+func TestClient_ConcurrentFetchAndClear(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+
+	data := []byte("fetch-and-clear")
+	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
+
+	client := orm.NewClient(store)
+
+	// Run FetchBlob and ClearCache concurrently to verify no panics.
+	const goroutines = 50
+	var wg sync.WaitGroup
+
+	for range goroutines {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _ = client.FetchBlob(ctx, desc)
+		}()
+		go func() {
+			defer wg.Done()
+			client.ClearCache()
+		}()
+	}
+	wg.Wait()
+}
+
+func TestClient_ConcurrentFetchAndEvict(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+
+	data := []byte("fetch-and-evict")
+	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
+
+	client := orm.NewClient(store)
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+
+	for range goroutines {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _ = client.FetchBlob(ctx, desc)
+		}()
+		go func() {
+			defer wg.Done()
+			client.Evict(desc.Digest)
+		}()
+	}
+	wg.Wait()
 }
 
 // TestClient_RemovedOptions_DoNotExist is a compile-time verification.
