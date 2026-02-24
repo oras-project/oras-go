@@ -679,6 +679,122 @@ func TestIndex_ImplementsManifest(t *testing.T) {
 	var _ models.Manifest = (*models.Index)(nil)
 }
 
+func TestNewIndexFromManifestBytes_Success(t *testing.T) {
+	ctx := t.Context()
+
+	child1Desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes([]byte("child1")),
+		Size:      6,
+	}
+	child2Desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes([]byte("child2")),
+		Size:      6,
+	}
+
+	indexBytes := buildIndexManifest(t, []ocispec.Descriptor{child1Desc, child2Desc}, nil, nil)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(indexBytes),
+		Size:      int64(len(indexBytes)),
+	}
+
+	idx, err := models.NewIndexFromManifestBytes(desc, nil, nil, nil, indexBytes)
+	if err != nil {
+		t.Fatalf("NewIndexFromManifestBytes() unexpected error: %v", err)
+	}
+
+	// Verify descriptor is set correctly.
+	if idx.Digest() != desc.Digest {
+		t.Errorf("Digest() = %v, want %v", idx.Digest(), desc.Digest)
+	}
+	if idx.MediaType() != ocispec.MediaTypeImageIndex {
+		t.Errorf("MediaType() = %q, want %q", idx.MediaType(), ocispec.MediaTypeImageIndex)
+	}
+	if idx.Size() != desc.Size {
+		t.Errorf("Size() = %d, want %d", idx.Size(), desc.Size)
+	}
+
+	// Verify index is pre-loaded: Load should succeed without a fetcher.
+	if err := idx.Load(ctx); err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	// Verify the pre-loaded data round-trips through MarshalJSON.
+	marshaled, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatalf("MarshalJSON() unexpected error: %v", err)
+	}
+	var roundTripped ocispec.Index
+	if err := json.Unmarshal(marshaled, &roundTripped); err != nil {
+		t.Fatalf("failed to unmarshal round-tripped index: %v", err)
+	}
+	if len(roundTripped.Manifests) != 2 {
+		t.Fatalf("round-tripped index has %d manifests, want 2", len(roundTripped.Manifests))
+	}
+	if roundTripped.Manifests[0].Digest != child1Desc.Digest {
+		t.Errorf("Manifests[0].Digest = %v, want %v", roundTripped.Manifests[0].Digest, child1Desc.Digest)
+	}
+	if roundTripped.Manifests[1].Digest != child2Desc.Digest {
+		t.Errorf("Manifests[1].Digest = %v, want %v", roundTripped.Manifests[1].Digest, child2Desc.Digest)
+	}
+}
+
+func TestNewIndexFromManifestBytes_NoFetcher(t *testing.T) {
+	ctx := t.Context()
+
+	childDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes([]byte("child")),
+		Size:      5,
+	}
+
+	indexBytes := buildIndexManifest(t, []ocispec.Descriptor{childDesc}, nil, nil)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(indexBytes),
+		Size:      int64(len(indexBytes)),
+	}
+
+	// Create with nil fetcher — the index is pre-loaded so Load still works.
+	idx, err := models.NewIndexFromManifestBytes(desc, nil, nil, nil, indexBytes)
+	if err != nil {
+		t.Fatalf("NewIndexFromManifestBytes() unexpected error: %v", err)
+	}
+
+	if err := idx.Load(ctx); err != nil {
+		t.Fatalf("Load() unexpected error (should use pre-loaded data): %v", err)
+	}
+}
+
+func TestNewIndexFromManifestBytes_CorruptJSON(t *testing.T) {
+	corruptData := []byte("this is not valid JSON!!!")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(corruptData),
+		Size:      int64(len(corruptData)),
+	}
+
+	_, err := models.NewIndexFromManifestBytes(desc, nil, nil, nil, corruptData)
+	if err == nil {
+		t.Fatal("NewIndexFromManifestBytes() expected error for corrupt JSON, got nil")
+	}
+
+	var ormErr *models.ObjectsError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("error type = %T, want *models.ObjectsError", err)
+	}
+	if ormErr.Op != "load" {
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "load")
+	}
+
+	var syntaxErr *json.SyntaxError
+	if !errors.As(ormErr.Err, &syntaxErr) {
+		t.Errorf("ObjectsError.Err type = %T, want *json.SyntaxError", ormErr.Err)
+	}
+}
+
 func TestIndex_Load_CorruptJSON(t *testing.T) {
 	ctx := t.Context()
 

@@ -532,6 +532,111 @@ func TestArtifact_ImplementsManifest(t *testing.T) {
 	var _ models.Manifest = (*models.Artifact)(nil)
 }
 
+func TestNewArtifactFromManifestBytes_Success(t *testing.T) {
+	store := newMemoryStore()
+	ctx := t.Context()
+
+	blobData := []byte("blob-data")
+	blobDesc := pushToStore(t, ctx, store, "application/octet-stream", blobData)
+
+	manifestBytes := buildArtifactManifest(t, "application/vnd.test", []ocispec.Descriptor{blobDesc}, nil, nil)
+	desc := ocispec.Descriptor{
+		MediaType: spec.MediaTypeArtifactManifest,
+		Digest:    digest.FromBytes(manifestBytes),
+		Size:      int64(len(manifestBytes)),
+	}
+
+	artifact, err := models.NewArtifactFromManifestBytes(desc, store, store, nil, manifestBytes)
+	if err != nil {
+		t.Fatalf("NewArtifactFromManifestBytes() unexpected error: %v", err)
+	}
+
+	// Verify descriptor is set correctly.
+	if artifact.Digest() != desc.Digest {
+		t.Errorf("Digest() = %v, want %v", artifact.Digest(), desc.Digest)
+	}
+	if artifact.MediaType() != spec.MediaTypeArtifactManifest {
+		t.Errorf("MediaType() = %q, want %q", artifact.MediaType(), spec.MediaTypeArtifactManifest)
+	}
+	if artifact.Size() != desc.Size {
+		t.Errorf("Size() = %d, want %d", artifact.Size(), desc.Size)
+	}
+
+	// Verify manifest is pre-loaded: Load should succeed without a fetcher.
+	if err := artifact.Load(ctx); err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	// Verify the pre-loaded manifest has correct artifact type.
+	artifactType, err := artifact.ArtifactType(ctx)
+	if err != nil {
+		t.Fatalf("ArtifactType() unexpected error: %v", err)
+	}
+	if artifactType != "application/vnd.test" {
+		t.Errorf("ArtifactType() = %q, want %q", artifactType, "application/vnd.test")
+	}
+
+	// Verify blobs.
+	blobs, err := artifact.Blobs(ctx)
+	if err != nil {
+		t.Fatalf("Blobs() unexpected error: %v", err)
+	}
+	if len(blobs) != 1 {
+		t.Fatalf("Blobs() returned %d blobs, want 1", len(blobs))
+	}
+	if blobs[0].Digest() != blobDesc.Digest {
+		t.Errorf("Blobs()[0].Digest() = %v, want %v", blobs[0].Digest(), blobDesc.Digest)
+	}
+}
+
+func TestNewArtifactFromManifestBytes_NoFetcher(t *testing.T) {
+	ctx := t.Context()
+
+	manifestBytes := buildArtifactManifest(t, "application/vnd.test", nil, nil, nil)
+	desc := ocispec.Descriptor{
+		MediaType: spec.MediaTypeArtifactManifest,
+		Digest:    digest.FromBytes(manifestBytes),
+		Size:      int64(len(manifestBytes)),
+	}
+
+	// Create with nil fetcher — the manifest is pre-loaded so Load still works.
+	artifact, err := models.NewArtifactFromManifestBytes(desc, nil, nil, nil, manifestBytes)
+	if err != nil {
+		t.Fatalf("NewArtifactFromManifestBytes() unexpected error: %v", err)
+	}
+
+	if err := artifact.Load(ctx); err != nil {
+		t.Fatalf("Load() unexpected error (should use pre-loaded data): %v", err)
+	}
+}
+
+func TestNewArtifactFromManifestBytes_CorruptJSON(t *testing.T) {
+	corruptData := []byte("this is not valid JSON!!!")
+	desc := ocispec.Descriptor{
+		MediaType: spec.MediaTypeArtifactManifest,
+		Digest:    digest.FromBytes(corruptData),
+		Size:      int64(len(corruptData)),
+	}
+
+	_, err := models.NewArtifactFromManifestBytes(desc, nil, nil, nil, corruptData)
+	if err == nil {
+		t.Fatal("NewArtifactFromManifestBytes() expected error for corrupt JSON, got nil")
+	}
+
+	var ormErr *models.ObjectsError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("error type = %T, want *models.ObjectsError", err)
+	}
+	if ormErr.Op != "load" {
+		t.Errorf("ObjectsError.Op = %q, want %q", ormErr.Op, "load")
+	}
+
+	var syntaxErr *json.SyntaxError
+	if !errors.As(ormErr.Err, &syntaxErr) {
+		t.Errorf("ObjectsError.Err type = %T, want *json.SyntaxError", ormErr.Err)
+	}
+}
+
 func TestArtifact_Load_CorruptJSON(t *testing.T) {
 	ctx := t.Context()
 

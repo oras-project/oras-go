@@ -55,6 +55,24 @@ func NewImage(desc ocispec.Descriptor, fetcher content.Fetcher, pusher content.P
 	}
 }
 
+// NewImageFromManifestBytes creates a new Image with a pre-loaded manifest.
+// This avoids a redundant network fetch when the manifest bytes are already
+// available (e.g., from type detection).
+func NewImageFromManifestBytes(desc ocispec.Descriptor, fetcher content.Fetcher, pusher content.Pusher, client ManifestClient, manifestBytes []byte) (*Image, error) {
+	var manifest ocispec.Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		return nil, &ObjectsError{Op: "load", Digest: desc.Digest, Err: err}
+	}
+	img := &Image{
+		descriptor: desc,
+		fetcher:    fetcher,
+		pusher:     pusher,
+		client:     client,
+	}
+	img.manifest.set(&manifest)
+	return img, nil
+}
+
 // Descriptor returns the OCI descriptor for this image.
 func (i *Image) Descriptor() ocispec.Descriptor {
 	return i.descriptor
