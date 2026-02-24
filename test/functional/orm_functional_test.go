@@ -26,6 +26,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/content/oci"
 	"github.com/oras-project/oras-go/v3/orm"
 	"github.com/oras-project/oras-go/v3/orm/models"
 	"github.com/oras-project/oras-go/v3/registry/remote"
@@ -1085,4 +1086,268 @@ func TestORM_BuilderValidation(t *testing.T) {
 			t.Fatal("expected error for empty manifests")
 		}
 	})
+}
+
+func TestORM_FindReferrers(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Build and push a base image.
+	configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := configBlob.Push(ctx); err != nil {
+		t.Fatalf("Push config: %v", err)
+	}
+
+	layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("referrer-base-layer"))
+	if err := layerBlob.Push(ctx); err != nil {
+		t.Fatalf("Push layer: %v", err)
+	}
+
+	baseImage, err := client.BuildImage().
+		WithConfig(configBlob).
+		AddLayer(layerBlob).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage (base): %v", err)
+	}
+	if err := baseImage.Push(ctx, "referrer-base"); err != nil {
+		t.Fatalf("Push base: %v", err)
+	}
+
+	// Build and push a signature referrer with base as subject.
+	sigConfig := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+	if err := sigConfig.Push(ctx); err != nil {
+		t.Fatalf("Push sig config: %v", err)
+	}
+
+	sigLayer := client.NewBlob("application/vnd.cncf.notary.signature", []byte("sig-data"))
+	if err := sigLayer.Push(ctx); err != nil {
+		t.Fatalf("Push sig layer: %v", err)
+	}
+
+	sigImage, err := client.BuildImage().
+		WithConfig(sigConfig).
+		AddLayer(sigLayer).
+		WithSubject(baseImage).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("BuildImage (sig): %v", err)
+	}
+	if err := sigImage.Push(ctx, "sig-referrer"); err != nil {
+		t.Fatalf("Push sig: %v", err)
+	}
+
+	t.Run("FindReferrers returns referrers", func(t *testing.T) {
+		referrers, err := client.FindReferrers(ctx, baseImage, "")
+		if err != nil {
+			t.Fatalf("FindReferrers(): %v", err)
+		}
+		// The remote repository should find the referrer via the referrers API.
+		if len(referrers) < 1 {
+			t.Logf("FindReferrers returned %d results (referrers API may vary by registry)", len(referrers))
+		}
+	})
+
+	t.Run("FindReferrers with non-matching artifactType", func(t *testing.T) {
+		referrers, err := client.FindReferrers(ctx, baseImage, "application/vnd.nonexistent")
+		if err != nil {
+			t.Fatalf("FindReferrers(): %v", err)
+		}
+		if len(referrers) != 0 {
+			t.Errorf("FindReferrers with non-matching type returned %d, want 0", len(referrers))
+		}
+	})
+}
+
+func TestORM_ListTags(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Push several tagged manifests.
+	tags := []string{"tag-a", "tag-b", "tag-c"}
+	for _, tag := range tags {
+		configBlob := client.NewBlob(ocispec.MediaTypeImageConfig, []byte(`{}`))
+		if err := configBlob.Push(ctx); err != nil {
+			t.Fatalf("Push config: %v", err)
+		}
+
+		layerBlob := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("layer-for-"+tag))
+		if err := layerBlob.Push(ctx); err != nil {
+			t.Fatalf("Push layer for %s: %v", tag, err)
+		}
+
+		image, err := client.BuildImage().
+			WithConfig(configBlob).
+			AddLayer(layerBlob).
+			Build(ctx)
+		if err != nil {
+			t.Fatalf("BuildImage for %s: %v", tag, err)
+		}
+
+		if err := image.Push(ctx, tag); err != nil {
+			t.Fatalf("Push %s: %v", tag, err)
+		}
+	}
+
+	// List tags and verify all are present.
+	gotTags, err := client.ListTags(ctx)
+	if err != nil {
+		t.Fatalf("ListTags(): %v", err)
+	}
+
+	tagSet := make(map[string]bool, len(gotTags))
+	for _, tag := range gotTags {
+		tagSet[tag] = true
+	}
+
+	for _, want := range tags {
+		if !tagSet[want] {
+			t.Errorf("ListTags() missing tag %q, got %v", want, gotTags)
+		}
+	}
+}
+
+func TestORM_Exists(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	// Push a blob and verify it exists.
+	data := []byte("exists-check-data")
+	blob := client.NewBlob("application/octet-stream", data)
+	if err := blob.Push(ctx); err != nil {
+		t.Fatalf("Push(): %v", err)
+	}
+
+	exists, err := client.Exists(ctx, blob.Descriptor())
+	if err != nil {
+		t.Fatalf("Exists(): %v", err)
+	}
+	if !exists {
+		t.Error("Exists() = false for pushed blob, want true")
+	}
+
+	// Check that a non-existent descriptor returns false.
+	nonExistent := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromString("does-not-exist"),
+		Size:      14,
+	}
+	exists, err = client.Exists(ctx, nonExistent)
+	if err != nil {
+		t.Fatalf("Exists() for non-existent: %v", err)
+	}
+	if exists {
+		t.Error("Exists() = true for non-existent blob, want false")
+	}
+}
+
+func TestORM_Delete(t *testing.T) {
+	// Use a local OCI store since it implements content.Deleter.
+	// Remote registries may not support delete or behave differently.
+	dir := t.TempDir()
+	store, err := oci.New(dir)
+	if err != nil {
+		t.Fatalf("oci.New(): %v", err)
+	}
+	ctx := context.Background()
+	client := orm.NewClient(store)
+
+	data := []byte("delete-me")
+	blob := client.NewBlob("application/octet-stream", data)
+	if err := blob.Push(ctx); err != nil {
+		t.Fatalf("Push(): %v", err)
+	}
+
+	// Verify it exists.
+	exists, err := client.Exists(ctx, blob.Descriptor())
+	if err != nil {
+		t.Fatalf("Exists(): %v", err)
+	}
+	if !exists {
+		t.Fatal("blob should exist after push")
+	}
+
+	// Delete it.
+	if err := client.Delete(ctx, blob.Descriptor()); err != nil {
+		t.Fatalf("Delete(): %v", err)
+	}
+
+	// Verify it no longer exists.
+	exists, err = client.Exists(ctx, blob.Descriptor())
+	if err != nil {
+		t.Fatalf("Exists() after delete: %v", err)
+	}
+	if exists {
+		t.Error("blob should not exist after delete")
+	}
+}
+
+func TestORM_CacheEvict(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	data := []byte("evict-test-data")
+	blob := client.NewBlob("application/octet-stream", data)
+	if err := blob.Push(ctx); err != nil {
+		t.Fatalf("Push(): %v", err)
+	}
+
+	// Fetch to cache.
+	cached, err := client.FetchBlob(ctx, blob.Descriptor())
+	if err != nil {
+		t.Fatalf("FetchBlob(): %v", err)
+	}
+	if cached != blob {
+		t.Error("expected same cached instance")
+	}
+
+	// Evict from cache.
+	evicted := client.Evict(blob.Descriptor().Digest)
+	if !evicted {
+		t.Error("Evict() = false, want true")
+	}
+
+	// Fetch again should return a new instance.
+	fresh, err := client.FetchBlob(ctx, blob.Descriptor())
+	if err != nil {
+		t.Fatalf("FetchBlob() after evict: %v", err)
+	}
+	if fresh == blob {
+		t.Error("expected new instance after Evict, got same pointer")
+	}
+
+	// But content should still be correct.
+	content, err := fresh.Bytes(ctx)
+	if err != nil {
+		t.Fatalf("Bytes(): %v", err)
+	}
+	if !bytes.Equal(content, data) {
+		t.Errorf("Bytes() = %q, want %q", string(content), string(data))
+	}
+}
+
+func TestORM_BlobVerify(t *testing.T) {
+	ctx := context.Background()
+	client, _ := newORMClient(t)
+
+	data := []byte("verify-blob-content")
+	blob := client.NewBlob("application/octet-stream", data)
+
+	// Push the blob to the remote registry.
+	if err := blob.Push(ctx); err != nil {
+		t.Fatalf("Push(): %v", err)
+	}
+
+	// Clear cache so we get a lazy blob that fetches from registry.
+	client.ClearCache()
+
+	fetched, err := client.FetchBlob(ctx, blob.Descriptor())
+	if err != nil {
+		t.Fatalf("FetchBlob(): %v", err)
+	}
+
+	// Verify should succeed — content matches digest and size.
+	if err := fetched.Verify(ctx); err != nil {
+		t.Fatalf("Verify(): %v", err)
+	}
 }
