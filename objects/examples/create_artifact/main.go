@@ -21,7 +21,7 @@ import (
 	"log"
 
 	"github.com/oras-project/oras-go/v3/content/memory"
-	"github.com/oras-project/oras-go/v3/orm"
+	"github.com/oras-project/oras-go/v3/objects"
 )
 
 func main() {
@@ -31,7 +31,7 @@ func main() {
 	store := memory.New()
 
 	// Create ORM client
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Create blobs
 	configData := []byte(`{"version": "1.0.0", "description": "Example artifact"}`)

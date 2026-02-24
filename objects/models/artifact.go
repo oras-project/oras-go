@@ -100,17 +100,17 @@ func (a *Artifact) Annotations() map[string]string {
 func (a *Artifact) loadManifest(ctx context.Context) (*spec.Artifact, error) {
 	return a.manifest.get(func() (*spec.Artifact, error) {
 		if a.fetcher == nil {
-			return nil, &OrmError{Op: "load", Digest: a.descriptor.Digest, Err: ErrNoFetcher}
+			return nil, &ObjectsError{Op: "load", Digest: a.descriptor.Digest, Err: ErrNoFetcher}
 		}
 
 		manifestBytes, err := content.FetchAll(ctx, a.fetcher, a.descriptor)
 		if err != nil {
-			return nil, &OrmError{Op: "load", Digest: a.descriptor.Digest, Err: err}
+			return nil, &ObjectsError{Op: "load", Digest: a.descriptor.Digest, Err: err}
 		}
 
 		var manifest spec.Artifact
 		if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-			return nil, &OrmError{Op: "load", Digest: a.descriptor.Digest, Err: err}
+			return nil, &ObjectsError{Op: "load", Digest: a.descriptor.Digest, Err: err}
 		}
 
 		return &manifest, nil
@@ -163,12 +163,12 @@ func (a *Artifact) Subject(ctx context.Context) (Manifest, error) {
 		}
 
 		if a.client == nil {
-			return nil, &OrmError{Op: "fetch_subject", Digest: a.descriptor.Digest, Err: ErrNoClient}
+			return nil, &ObjectsError{Op: "fetch_subject", Digest: a.descriptor.Digest, Err: ErrNoClient}
 		}
 
 		subj, err := a.client.FetchManifest(ctx, *manifest.Subject)
 		if err != nil {
-			return nil, &OrmError{Op: "fetch_subject", Digest: a.descriptor.Digest, Err: err}
+			return nil, &ObjectsError{Op: "fetch_subject", Digest: a.descriptor.Digest, Err: err}
 		}
 		return subj, nil
 	})

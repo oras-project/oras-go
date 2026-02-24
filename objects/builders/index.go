@@ -27,7 +27,7 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects/models"
 )
 
 // IndexBuilder provides a fluent API for building image indexes (manifest lists).

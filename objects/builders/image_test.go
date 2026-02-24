@@ -20,14 +20,14 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content/memory"
-	"github.com/oras-project/oras-go/v3/orm"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects"
+	"github.com/oras-project/oras-go/v3/objects/models"
 )
 
 func TestImageBuilder_Build_Success(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	layer := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("layer-data"))
@@ -76,7 +76,7 @@ func TestImageBuilder_Build_Success(t *testing.T) {
 func TestImageBuilder_Build_NilLayer(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 
@@ -95,7 +95,7 @@ func TestImageBuilder_Build_NilLayer(t *testing.T) {
 func TestImageBuilder_Build_NoConfig(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	_, err := client.BuildImage().Build(ctx)
 	if err == nil {
@@ -106,7 +106,7 @@ func TestImageBuilder_Build_NoConfig(t *testing.T) {
 func TestImageBuilder_Build_NoLayers(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 
@@ -129,7 +129,7 @@ func TestImageBuilder_Build_NoLayers(t *testing.T) {
 func TestImageBuilder_WithLayers(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	layer1 := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("l1"))
@@ -155,7 +155,7 @@ func TestImageBuilder_WithLayers(t *testing.T) {
 func TestImageBuilder_WithPlatform(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	platform := &ocispec.Platform{
@@ -199,7 +199,7 @@ func TestImageBuilder_WithPlatform(t *testing.T) {
 func TestImageBuilder_WithSubject(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Build a subject image.
 	subjectConfig := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
@@ -243,7 +243,7 @@ func TestImageBuilder_WithSubject(t *testing.T) {
 func TestImageBuilder_WithAnnotation(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 
@@ -280,7 +280,7 @@ func TestImageBuilder_WithAnnotation(t *testing.T) {
 func TestImageBuilder_WithAnnotations(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	annotations := map[string]string{
@@ -320,7 +320,7 @@ func TestImageBuilder_WithAnnotations(t *testing.T) {
 func TestImageBuilder_BuildAndPush(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	layer := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("layer"))
@@ -360,7 +360,7 @@ func TestImageBuilder_BuildAndPush(t *testing.T) {
 func TestImageBuilder_Build_ManifestInStorage(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 
@@ -383,7 +383,7 @@ func TestImageBuilder_Build_ManifestInStorage(t *testing.T) {
 func TestImageBuilder_Build_SchemaVersion(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 
@@ -418,7 +418,7 @@ func TestImageBuilder_Build_SchemaVersion(t *testing.T) {
 func TestImageBuilder_MultipleLayers(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	l1 := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("base"))
@@ -454,7 +454,7 @@ func TestImageBuilder_MultipleLayers(t *testing.T) {
 func TestImageBuilder_WithArtifactType(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 
@@ -494,7 +494,7 @@ func TestImageBuilder_WithArtifactType(t *testing.T) {
 func TestImageBuilder_WithArtifactType_EmptyOmitted(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 
@@ -515,7 +515,7 @@ func TestImageBuilder_WithArtifactType_EmptyOmitted(t *testing.T) {
 func TestImageBuilder_WithLayers_SliceIsolation(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	layer1 := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("l1"))

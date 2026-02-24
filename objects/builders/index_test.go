@@ -20,14 +20,14 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content/memory"
-	"github.com/oras-project/oras-go/v3/orm"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects"
+	"github.com/oras-project/oras-go/v3/objects/models"
 )
 
 func TestIndexBuilder_Build_Success(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Build a child image.
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
@@ -68,7 +68,7 @@ func TestIndexBuilder_Build_Success(t *testing.T) {
 func TestIndexBuilder_Build_NilManifest(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	image, err := client.BuildImage().WithConfig(config).Build(ctx)
@@ -91,7 +91,7 @@ func TestIndexBuilder_Build_NilManifest(t *testing.T) {
 func TestIndexBuilder_Build_NoManifests(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	_, err := client.BuildIndex().Build(ctx)
 	if err == nil {
@@ -102,7 +102,7 @@ func TestIndexBuilder_Build_NoManifests(t *testing.T) {
 func TestIndexBuilder_WithManifests(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config1 := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	image1, err := client.BuildImage().
@@ -150,7 +150,7 @@ func TestIndexBuilder_WithManifests(t *testing.T) {
 func TestIndexBuilder_AddManifest(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config1 := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	image1, err := client.BuildImage().WithConfig(config1).Build(ctx)
@@ -199,7 +199,7 @@ func TestIndexBuilder_AddManifest(t *testing.T) {
 func TestIndexBuilder_WithSubject(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Build subject image.
 	subjectConfig := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
@@ -247,7 +247,7 @@ func TestIndexBuilder_WithSubject(t *testing.T) {
 func TestIndexBuilder_WithAnnotation(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	child, err := client.BuildImage().WithConfig(config).Build(ctx)
@@ -288,7 +288,7 @@ func TestIndexBuilder_WithAnnotation(t *testing.T) {
 func TestIndexBuilder_WithAnnotations(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	child, err := client.BuildImage().WithConfig(config).Build(ctx)
@@ -330,7 +330,7 @@ func TestIndexBuilder_WithAnnotations(t *testing.T) {
 func TestIndexBuilder_BuildAndPush(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	layer := client.NewBlob(ocispec.MediaTypeImageLayer, []byte("layer"))
@@ -377,7 +377,7 @@ func TestIndexBuilder_BuildAndPush(t *testing.T) {
 func TestIndexBuilder_Build_ManifestInStorage(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	child, err := client.BuildImage().WithConfig(config).Build(ctx)
@@ -404,7 +404,7 @@ func TestIndexBuilder_Build_ManifestInStorage(t *testing.T) {
 func TestIndexBuilder_Build_SchemaVersion(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	child, err := client.BuildImage().WithConfig(config).Build(ctx)
@@ -443,7 +443,7 @@ func TestIndexBuilder_Build_SchemaVersion(t *testing.T) {
 func TestIndexBuilder_Build_DescriptorMediaType(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	child, err := client.BuildImage().WithConfig(config).Build(ctx)
@@ -467,7 +467,7 @@ func TestIndexBuilder_Build_DescriptorMediaType(t *testing.T) {
 func TestIndexBuilder_MultipleManifests_WithPlatforms(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	platforms := []ocispec.Platform{
 		{Architecture: "amd64", OS: "linux"},
@@ -527,7 +527,7 @@ func TestIndexBuilder_MultipleManifests_WithPlatforms(t *testing.T) {
 func TestIndexBuilder_WithManifests_SliceIsolation(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	config1 := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
 	image1, err := client.BuildImage().WithConfig(config1).Build(ctx)

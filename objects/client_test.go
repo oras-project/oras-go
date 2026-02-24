@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package orm_test
+package objects_test
 
 import (
 	"bytes"
@@ -27,8 +27,8 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content/memory"
-	"github.com/oras-project/oras-go/v3/orm"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects"
+	"github.com/oras-project/oras-go/v3/objects/models"
 )
 
 // pushBlob pushes raw bytes to a memory store and returns the descriptor.
@@ -122,11 +122,11 @@ func TestClient_NilTargetPanics(t *testing.T) {
 			t.Fatal("NewClient(nil) did not panic")
 		}
 		msg, ok := r.(string)
-		if !ok || msg != "orm: target must not be nil" {
+		if !ok || msg != "objects: target must not be nil" {
 			t.Errorf("unexpected panic: %v", r)
 		}
 	}()
-	orm.NewClient(nil)
+	objects.NewClient(nil)
 }
 
 func TestClient_CacheHitReturnsSameInstance(t *testing.T) {
@@ -136,7 +136,7 @@ func TestClient_CacheHitReturnsSameInstance(t *testing.T) {
 	data := []byte("cached-blob")
 	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
 
-	client := orm.NewClient(store) // Cache enabled by default.
+	client := objects.NewClient(store) // Cache enabled by default.
 
 	blob1, err := client.FetchBlob(ctx, desc)
 	if err != nil {
@@ -161,7 +161,7 @@ func TestClient_CacheDisabledReturnsDifferentInstances(t *testing.T) {
 	data := []byte("uncached-blob")
 	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
 
-	client := orm.NewClient(store, orm.WithCache(false))
+	client := objects.NewClient(store, objects.WithCache(false))
 
 	blob1, err := client.FetchBlob(ctx, desc)
 	if err != nil {
@@ -186,7 +186,7 @@ func TestClient_ClearCache(t *testing.T) {
 	data := []byte("clearable-blob")
 	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	blob1, err := client.FetchBlob(ctx, desc)
 	if err != nil {
@@ -211,7 +211,7 @@ func TestClient_LRUEvictionWhenMaxCacheSizeSet(t *testing.T) {
 	store := memory.New()
 
 	// Create a client with max cache size of 2.
-	client := orm.NewClient(store, orm.WithMaxCacheSize(2))
+	client := objects.NewClient(store, objects.WithMaxCacheSize(2))
 
 	// Push three distinct blobs.
 	data1 := []byte("blob-1")
@@ -255,7 +255,7 @@ func TestClient_LRUPromotionOnAccess(t *testing.T) {
 	store := memory.New()
 
 	// Create a client with max cache size of 2.
-	client := orm.NewClient(store, orm.WithMaxCacheSize(2))
+	client := objects.NewClient(store, objects.WithMaxCacheSize(2))
 
 	data1 := []byte("blob-lru-1")
 	desc1 := pushBlob(t, ctx, store, "application/octet-stream", data1)
@@ -305,7 +305,7 @@ func TestClient_LRUPromotionOnAccess(t *testing.T) {
 
 func TestClient_NewBlobCachesTheBlob(t *testing.T) {
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	data := []byte("new-blob-data")
 	blob := client.NewBlob("application/octet-stream", data)
@@ -330,7 +330,7 @@ func TestClient_FetchBlobReturnsCachedBlobOnSecondCall(t *testing.T) {
 	data := []byte("fetch-twice")
 	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	first, err := client.FetchBlob(ctx, desc)
 	if err != nil {
@@ -362,7 +362,7 @@ func TestClient_FetchManifest_DispatchesImageManifest(t *testing.T) {
 
 	manifestDesc := pushImageManifest(t, ctx, store)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	manifest, err := client.FetchManifest(ctx, manifestDesc)
 	if err != nil {
@@ -407,7 +407,7 @@ func TestClient_FetchManifest_DispatchesImageIndex(t *testing.T) {
 
 	indexDesc := pushImageIndex(t, ctx, store)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	manifest, err := client.FetchManifest(ctx, indexDesc)
 	if err != nil {
@@ -441,7 +441,7 @@ func TestClient_FetchManifest_CachesManifest(t *testing.T) {
 
 	manifestDesc := pushImageManifest(t, ctx, store)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	first, err := client.FetchManifest(ctx, manifestDesc)
 	if err != nil {
@@ -470,7 +470,7 @@ func TestClient_FetchByReference_ResolvesAndFetches(t *testing.T) {
 		t.Fatalf("Tag(): %v", err)
 	}
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	manifest, err := client.FetchByReference(ctx, "latest")
 	if err != nil {
@@ -499,7 +499,7 @@ func TestClient_FetchByReference_DigestReference(t *testing.T) {
 		t.Fatalf("Tag(): %v", err)
 	}
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	manifest, err := client.FetchByReference(ctx, manifestDesc.Digest.String())
 	if err != nil {
@@ -520,7 +520,7 @@ func TestClient_FetchByReference_CachesResult(t *testing.T) {
 		t.Fatalf("Tag(): %v", err)
 	}
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	first, err := client.FetchByReference(ctx, "v1")
 	if err != nil {
@@ -540,7 +540,7 @@ func TestClient_FetchByReference_CachesResult(t *testing.T) {
 
 func TestClient_DefaultOptions(t *testing.T) {
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Verify the client was created with caching enabled by default.
 	ctx := t.Context()
@@ -598,7 +598,7 @@ func TestClient_FindReferrers_FallsBackToPredecessors(t *testing.T) {
 	}
 
 	// memory.Store implements PredecessorFinder but NOT ReferrerLister.
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Wrap the base image in a model so we can pass it to FindReferrers.
 	baseManifest, err := client.FetchManifest(ctx, baseDesc)
@@ -662,7 +662,7 @@ func TestClient_FindReferrers_FiltersArtifactType(t *testing.T) {
 		t.Fatalf("failed to push referrer manifest: %v", err)
 	}
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	baseManifest, err := client.FetchManifest(ctx, baseDesc)
 	if err != nil {
@@ -697,7 +697,7 @@ func TestClient_FindReferrers_FiltersArtifactType(t *testing.T) {
 
 func TestClient_ListTags_UnsupportedTarget(t *testing.T) {
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	_, err := client.ListTags(t.Context())
 	if err == nil {
@@ -713,7 +713,7 @@ func TestClient_MaxCacheSize_NegativeClampedToZero(t *testing.T) {
 	store := memory.New()
 
 	// Negative MaxCacheSize is clamped to 0 (unlimited).
-	client := orm.NewClient(store, orm.WithMaxCacheSize(-5))
+	client := objects.NewClient(store, objects.WithMaxCacheSize(-5))
 
 	data1 := []byte("neg-blob-1")
 	desc1 := pushBlob(t, ctx, store, "application/octet-stream", data1)
@@ -757,7 +757,7 @@ func TestClient_Evict_RemovesCachedEntry(t *testing.T) {
 	data := []byte("evict-me")
 	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	blob1, err := client.FetchBlob(ctx, desc)
 	if err != nil {
@@ -782,7 +782,7 @@ func TestClient_Evict_RemovesCachedEntry(t *testing.T) {
 
 func TestClient_Delete_UnsupportedTarget(t *testing.T) {
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	desc := ocispec.Descriptor{
 		MediaType: "application/octet-stream",
@@ -803,7 +803,7 @@ func TestClient_Exists_True(t *testing.T) {
 	data := []byte("exists-test")
 	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	exists, err := client.Exists(ctx, desc)
 	if err != nil {
@@ -816,7 +816,7 @@ func TestClient_Exists_True(t *testing.T) {
 
 func TestClient_Exists_False(t *testing.T) {
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	desc := ocispec.Descriptor{
 		MediaType: "application/octet-stream",
@@ -835,7 +835,7 @@ func TestClient_Exists_False(t *testing.T) {
 
 func TestClient_Evict_ReturnsFalseWhenNotFound(t *testing.T) {
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	evicted := client.Evict(digest.FromString("nonexistent"))
 	if evicted {
@@ -850,7 +850,7 @@ func TestClient_ConcurrentFetchBlob(t *testing.T) {
 	data := []byte("concurrent-fetch-blob")
 	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	const goroutines = 100
 	blobs := make([]*models.Blob, goroutines)
@@ -883,7 +883,7 @@ func TestClient_ConcurrentFetchManifest(t *testing.T) {
 
 	manifestDesc := pushImageManifest(t, ctx, store)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	const goroutines = 50
 	manifests := make([]models.Manifest, goroutines)
@@ -916,7 +916,7 @@ func TestClient_ConcurrentFetchAndClear(t *testing.T) {
 	data := []byte("fetch-and-clear")
 	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Run FetchBlob and ClearCache concurrently to verify no panics.
 	const goroutines = 50
@@ -943,7 +943,7 @@ func TestClient_ConcurrentFetchAndEvict(t *testing.T) {
 	data := []byte("fetch-and-evict")
 	desc := pushBlob(t, ctx, store, "application/octet-stream", data)
 
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	const goroutines = 50
 	var wg sync.WaitGroup
@@ -964,10 +964,10 @@ func TestClient_ConcurrentFetchAndEvict(t *testing.T) {
 
 // TestClient_RemovedOptions_DoNotExist is a compile-time verification.
 // The removed options WithPreloadDepth and WithConcurrency no longer exist
-// in the orm package. This test verifies that DefaultClientOptions works
+// in the objects package. This test verifies that DefaultClientOptions works
 // correctly with only the Cache and MaxCacheSize fields.
 func TestClient_RemovedOptions_DoNotExist(t *testing.T) {
-	opts := orm.DefaultClientOptions()
+	opts := objects.DefaultClientOptions()
 	if !opts.Cache {
 		t.Error("DefaultClientOptions().Cache = false, want true")
 	}

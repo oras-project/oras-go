@@ -47,20 +47,20 @@ var (
 	ErrNoDeleter = errors.New("target does not support deletion")
 )
 
-// OrmError provides structured error context for ORM operations.
-type OrmError struct {
+// ObjectsError provides structured error context for objects operations.
+type ObjectsError struct {
 	Op     string        // Operation that failed (e.g., "load", "fetch_blobs").
 	Digest digest.Digest // Digest of the content involved, if known.
 	Err    error         // Underlying error.
 }
 
-func (e *OrmError) Error() string {
+func (e *ObjectsError) Error() string {
 	if e.Digest == "" {
-		return fmt.Sprintf("orm %s: %s", e.Op, e.Err)
+		return fmt.Sprintf("objects %s: %s", e.Op, e.Err)
 	}
-	return fmt.Sprintf("orm %s %s: %s", e.Op, e.Digest, e.Err)
+	return fmt.Sprintf("objects %s %s: %s", e.Op, e.Digest, e.Err)
 }
 
-func (e *OrmError) Unwrap() error {
+func (e *ObjectsError) Unwrap() error {
 	return e.Err
 }

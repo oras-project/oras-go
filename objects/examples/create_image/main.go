@@ -22,8 +22,8 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content/memory"
-	"github.com/oras-project/oras-go/v3/orm"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects"
+	"github.com/oras-project/oras-go/v3/objects/models"
 )
 
 func main() {
@@ -33,7 +33,7 @@ func main() {
 	store := memory.New()
 
 	// Create ORM client
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Create config blob
 	configData := []byte(`{

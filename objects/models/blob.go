@@ -117,11 +117,11 @@ func (b *Blob) Read(ctx context.Context) (io.ReadCloser, error) {
 
 	// Otherwise, fetch from storage with digest verification
 	if b.fetcher == nil {
-		return nil, &OrmError{Op: "read", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
+		return nil, &ObjectsError{Op: "read", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
 	}
 	rc, err := b.fetcher.Fetch(ctx, b.descriptor)
 	if err != nil {
-		return nil, &OrmError{Op: "read", Digest: b.descriptor.Digest, Err: err}
+		return nil, &ObjectsError{Op: "read", Digest: b.descriptor.Digest, Err: err}
 	}
 
 	// Wrap with VerifyReader if descriptor has a valid digest
@@ -154,11 +154,11 @@ func (v *verifyReadCloser) Close() error {
 func (b *Blob) Bytes(ctx context.Context) ([]byte, error) {
 	return b.contentData.get(func() ([]byte, error) {
 		if b.fetcher == nil {
-			return nil, &OrmError{Op: "fetch", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
+			return nil, &ObjectsError{Op: "fetch", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
 		}
 		data, err := content.FetchAll(ctx, b.fetcher, b.descriptor)
 		if err != nil {
-			return nil, &OrmError{Op: "fetch", Digest: b.descriptor.Digest, Err: err}
+			return nil, &ObjectsError{Op: "fetch", Digest: b.descriptor.Digest, Err: err}
 		}
 		return data, nil
 	})
@@ -169,10 +169,10 @@ func (b *Blob) Bytes(ctx context.Context) ([]byte, error) {
 // in memory.
 func (b *Blob) Verify(ctx context.Context) error {
 	if b.fetcher == nil {
-		return &OrmError{Op: "verify", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
+		return &ObjectsError{Op: "verify", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
 	}
 	if _, err := content.FetchAll(ctx, b.fetcher, b.descriptor); err != nil {
-		return &OrmError{Op: "verify", Digest: b.descriptor.Digest, Err: err}
+		return &ObjectsError{Op: "verify", Digest: b.descriptor.Digest, Err: err}
 	}
 	return nil
 }
@@ -180,7 +180,7 @@ func (b *Blob) Verify(ctx context.Context) error {
 // Push pushes this blob to the target storage.
 func (b *Blob) Push(ctx context.Context) error {
 	if b.pusher == nil {
-		return &OrmError{Op: "push", Digest: b.descriptor.Digest, Err: ErrNoPusher}
+		return &ObjectsError{Op: "push", Digest: b.descriptor.Digest, Err: ErrNoPusher}
 	}
 
 	var reader io.Reader
@@ -190,16 +190,16 @@ func (b *Blob) Push(ctx context.Context) error {
 		// Stream from fetcher to pusher
 		rc, err := b.fetcher.Fetch(ctx, b.descriptor)
 		if err != nil {
-			return &OrmError{Op: "push", Digest: b.descriptor.Digest, Err: err}
+			return &ObjectsError{Op: "push", Digest: b.descriptor.Digest, Err: err}
 		}
 		defer rc.Close()
 		reader = rc
 	} else {
-		return &OrmError{Op: "push", Digest: b.descriptor.Digest, Err: ErrNoContent}
+		return &ObjectsError{Op: "push", Digest: b.descriptor.Digest, Err: ErrNoContent}
 	}
 
 	if err := b.pusher.Push(ctx, b.descriptor, reader); err != nil {
-		return &OrmError{Op: "push", Digest: b.descriptor.Digest, Err: err}
+		return &ObjectsError{Op: "push", Digest: b.descriptor.Digest, Err: err}
 	}
 	return nil
 }
@@ -209,10 +209,10 @@ func (b *Blob) Push(ctx context.Context) error {
 func (b *Blob) Delete(ctx context.Context) error {
 	deleter, ok := b.pusher.(content.Deleter)
 	if !ok {
-		return &OrmError{Op: "delete", Digest: b.descriptor.Digest, Err: ErrNoDeleter}
+		return &ObjectsError{Op: "delete", Digest: b.descriptor.Digest, Err: ErrNoDeleter}
 	}
 	if err := deleter.Delete(ctx, b.descriptor); err != nil {
-		return &OrmError{Op: "delete", Digest: b.descriptor.Digest, Err: err}
+		return &ObjectsError{Op: "delete", Digest: b.descriptor.Digest, Err: err}
 	}
 	return nil
 }

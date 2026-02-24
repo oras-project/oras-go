@@ -21,15 +21,15 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content/memory"
 	"github.com/oras-project/oras-go/v3/internal/spec"
-	"github.com/oras-project/oras-go/v3/orm"
-	"github.com/oras-project/oras-go/v3/orm/builders"
-	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/objects"
+	"github.com/oras-project/oras-go/v3/objects/builders"
+	"github.com/oras-project/oras-go/v3/objects/models"
 )
 
 func TestArtifactBuilder_Build_Success(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	blob := client.NewBlob("application/octet-stream", []byte("artifact-blob"))
 
@@ -74,7 +74,7 @@ func TestArtifactBuilder_Build_Success(t *testing.T) {
 func TestArtifactBuilder_Build_NilBlob(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	blob := client.NewBlob("application/octet-stream", []byte("ok"))
 
@@ -93,7 +93,7 @@ func TestArtifactBuilder_Build_NilBlob(t *testing.T) {
 func TestArtifactBuilder_Build_EmptyArtifactType(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	_, err := client.BuildArtifact("").Build(ctx)
 	if err == nil {
@@ -104,7 +104,7 @@ func TestArtifactBuilder_Build_EmptyArtifactType(t *testing.T) {
 func TestArtifactBuilder_Build_NoBlobs(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	artifact, err := client.BuildArtifact("application/vnd.test").Build(ctx)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestArtifactBuilder_Build_NoBlobs(t *testing.T) {
 func TestArtifactBuilder_WithBlobs(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	blob1 := client.NewBlob("application/octet-stream", []byte("b1"))
 	blob2 := client.NewBlob("application/octet-stream", []byte("b2"))
@@ -148,7 +148,7 @@ func TestArtifactBuilder_WithBlobs(t *testing.T) {
 func TestArtifactBuilder_WithSubject(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Build a subject artifact.
 	subject, err := client.BuildArtifact("application/vnd.subject").Build(ctx)
@@ -184,7 +184,7 @@ func TestArtifactBuilder_WithSubject(t *testing.T) {
 func TestArtifactBuilder_WithAnnotation(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	artifact, err := client.BuildArtifact("application/vnd.test").
 		WithAnnotation("org.test.key", "value1").
@@ -219,7 +219,7 @@ func TestArtifactBuilder_WithAnnotation(t *testing.T) {
 func TestArtifactBuilder_WithAnnotations(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	annotations := map[string]string{
 		"key1": "val1",
@@ -295,7 +295,7 @@ func TestArtifactBuilder_BuildAndPush(t *testing.T) {
 func TestArtifactBuilder_Build_ManifestInStorage(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	artifact, err := client.BuildArtifact("application/vnd.test").Build(ctx)
 	if err != nil {
@@ -315,7 +315,7 @@ func TestArtifactBuilder_Build_ManifestInStorage(t *testing.T) {
 func TestArtifactBuilder_MultipleBlobs(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	blob1 := client.NewBlob("application/octet-stream", []byte("blob-1"))
 	blob2 := client.NewBlob("text/plain", []byte("blob-2"))
@@ -349,7 +349,7 @@ func TestArtifactBuilder_MultipleBlobs(t *testing.T) {
 func TestArtifactBuilder_Build_DescriptorMediaType(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	artifact, err := client.BuildArtifact("application/vnd.test").Build(ctx)
 	if err != nil {
@@ -365,7 +365,7 @@ func TestArtifactBuilder_Build_DescriptorMediaType(t *testing.T) {
 func TestArtifactBuilder_Build_WithPlatformSubject(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	// Build an image to use as subject.
 	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
@@ -411,7 +411,7 @@ func TestArtifactBuilder_Build_WithPlatformSubject(t *testing.T) {
 func TestArtifactBuilder_WithBlobs_SliceIsolation(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	client := orm.NewClient(store)
+	client := objects.NewClient(store)
 
 	blob1 := client.NewBlob("application/octet-stream", []byte("b1"))
 	blob2 := client.NewBlob("application/octet-stream", []byte("b2"))

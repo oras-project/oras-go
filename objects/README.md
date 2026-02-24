@@ -1,6 +1,6 @@
-# ORAS ORM (Object-Relational Model)
+# ORAS Objects
 
-The ORAS ORM provides a type-safe, object-oriented interface for working with OCI artifacts, container images, blobs, and manifests. It sits on top of the existing ORAS Core APIs and provides an intuitive, high-level abstraction while maintaining full compatibility with all ORAS storage implementations.
+The ORAS objects package provides a type-safe, object-oriented interface for working with OCI artifacts, container images, blobs, and manifests. It sits on top of the existing ORAS Core APIs and provides an intuitive, high-level abstraction while maintaining full compatibility with all ORAS storage implementations.
 
 ## Features
 
@@ -21,15 +21,15 @@ import (
     "log"
 
     "oras.land/oras-go/v2/content/memory"
-    "oras.land/oras-go/v2/orm"
+    "oras.land/oras-go/v2/objects"
 )
 
 func main() {
     ctx := context.Background()
 
-    // Create ORM client
+    // Create objects client
     store := memory.New()
-    client := orm.NewClient(store)
+    client := objects.NewClient(store)
 
     // Create and push an artifact
     configBlob := client.NewBlob("application/json", []byte(`{"version": "1.0"}`))
@@ -53,7 +53,7 @@ func main() {
 
 ### Models
 
-The ORM provides four main model types:
+The objects package provides four main model types:
 
 #### Blob
 
@@ -146,7 +146,7 @@ arm64Manifests, err := index.FilterByPlatform(ctx, &ocispec.Platform{
 
 ```go
 ctx := context.Background()
-client := orm.NewClient(store)
+client := objects.NewClient(store)
 
 // Create blobs
 configBlob := client.NewBlob("application/json", configData)
@@ -244,13 +244,12 @@ index, err := client.BuildIndex().
 
 ## Client Options
 
-The ORM client can be configured with various options:
+The objects client can be configured with various options:
 
 ```go
-client := orm.NewClient(store,
-    orm.WithCache(true),           // Enable identity map (default: true)
-    orm.WithPreloadDepth(1),        // Preload relationships (default: 0 = lazy)
-    orm.WithConcurrency(5),         // Concurrent fetch limit (default: 3)
+client := objects.NewClient(store,
+    objects.WithCache(true),           // Enable identity map (default: true)
+    objects.WithMaxCacheSize(100),     // Limit cache entries (default: 0 = unlimited)
 )
 ```
 
@@ -265,36 +264,26 @@ The identity map ensures that only one instance of each piece of content exists 
 Disable caching for memory-constrained environments:
 
 ```go
-client := orm.NewClient(store, orm.WithCache(false))
+client := objects.NewClient(store, objects.WithCache(false))
 ```
 
 ### Lazy Loading
 
-By default, the ORM uses lazy loading - manifest content and relationships are only fetched when accessed. This minimizes unnecessary I/O operations.
-
-You can enable automatic preloading:
-
-```go
-// Preload direct relationships (config, layers, blobs)
-client := orm.NewClient(store, orm.WithPreloadDepth(1))
-
-// Preload nested relationships
-client := orm.NewClient(store, orm.WithPreloadDepth(2))
-```
+By default, the objects package uses lazy loading - manifest content and relationships are only fetched when accessed. This minimizes unnecessary I/O operations.
 
 ## Architecture
 
 ```
 Application Code
       ↓
-ORM Layer (Client, Builders, Models)
+Objects Layer (Client, Builders, Models)
       ↓
 ORAS Core APIs (unchanged)
       ↓
 Storage Implementations (Memory, OCI, Remote)
 ```
 
-The ORM layer:
+The objects layer:
 - Wraps ORAS core APIs with object-oriented models
 - Provides fluent builders for manifest construction
 - Manages caching and lazy loading
@@ -314,20 +303,20 @@ For detailed design decisions and implementation details, see [ORM_DESIGN_PLAN.m
 
 ## Compatibility
 
-- ✅ No breaking changes to existing ORAS APIs
-- ✅ Works with all existing storage implementations (Memory, OCI, File, Remote)
-- ✅ Full OCI Image Spec v1.1 compliance
-- ✅ OCI Artifact Spec support
-- ✅ Docker Manifest v2 support
+- No breaking changes to existing ORAS APIs
+- Works with all existing storage implementations (Memory, OCI, File, Remote)
+- Full OCI Image Spec v1.1 compliance
+- OCI Artifact Spec support
+- Docker Manifest v2 support
 
 ## Status
 
-**Phase 1 (Core Models)**: ✅ Complete
+**Phase 1 (Core Models)**: Complete
 - Content interface and base types
 - Blob model with lazy loading
 - Artifact, Image, Index models
 - Reference model
-- ORM Client with identity map
+- Objects Client with identity map
 - Fluent builders
 
 **Next Phases**:
