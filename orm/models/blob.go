@@ -117,11 +117,11 @@ func (b *Blob) Read(ctx context.Context) (io.ReadCloser, error) {
 
 	// Otherwise, fetch from storage with digest verification
 	if b.fetcher == nil {
-		return nil, ErrNoFetcher
+		return nil, &OrmError{Op: "read", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
 	}
 	rc, err := b.fetcher.Fetch(ctx, b.descriptor)
 	if err != nil {
-		return nil, err
+		return nil, &OrmError{Op: "read", Digest: b.descriptor.Digest, Err: err}
 	}
 
 	// Wrap with VerifyReader if descriptor has a valid digest
@@ -154,16 +154,33 @@ func (v *verifyReadCloser) Close() error {
 func (b *Blob) Bytes(ctx context.Context) ([]byte, error) {
 	return b.contentData.get(func() ([]byte, error) {
 		if b.fetcher == nil {
-			return nil, ErrNoFetcher
+			return nil, &OrmError{Op: "fetch", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
 		}
-		return content.FetchAll(ctx, b.fetcher, b.descriptor)
+		data, err := content.FetchAll(ctx, b.fetcher, b.descriptor)
+		if err != nil {
+			return nil, &OrmError{Op: "fetch", Digest: b.descriptor.Digest, Err: err}
+		}
+		return data, nil
 	})
+}
+
+// Verify fetches the content and verifies it matches the descriptor's digest
+// and size. This is useful for checking integrity without retaining the content
+// in memory.
+func (b *Blob) Verify(ctx context.Context) error {
+	if b.fetcher == nil {
+		return &OrmError{Op: "verify", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
+	}
+	if _, err := content.FetchAll(ctx, b.fetcher, b.descriptor); err != nil {
+		return &OrmError{Op: "verify", Digest: b.descriptor.Digest, Err: err}
+	}
+	return nil
 }
 
 // Push pushes this blob to the target storage.
 func (b *Blob) Push(ctx context.Context) error {
 	if b.pusher == nil {
-		return ErrNoPusher
+		return &OrmError{Op: "push", Digest: b.descriptor.Digest, Err: ErrNoPusher}
 	}
 
 	var reader io.Reader
@@ -173,15 +190,18 @@ func (b *Blob) Push(ctx context.Context) error {
 		// Stream from fetcher to pusher
 		rc, err := b.fetcher.Fetch(ctx, b.descriptor)
 		if err != nil {
-			return err
+			return &OrmError{Op: "push", Digest: b.descriptor.Digest, Err: err}
 		}
 		defer rc.Close()
 		reader = rc
 	} else {
-		return ErrNoContent
+		return &OrmError{Op: "push", Digest: b.descriptor.Digest, Err: ErrNoContent}
 	}
 
-	return b.pusher.Push(ctx, b.descriptor, reader)
+	if err := b.pusher.Push(ctx, b.descriptor, reader); err != nil {
+		return &OrmError{Op: "push", Digest: b.descriptor.Digest, Err: err}
+	}
+	return nil
 }
 
 // WithAnnotation returns a new Blob with the given annotation added.
