@@ -451,6 +451,67 @@ func TestImageBuilder_MultipleLayers(t *testing.T) {
 	}
 }
 
+func TestImageBuilder_WithArtifactType(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
+
+	image, err := client.BuildImage().
+		WithConfig(config).
+		WithArtifactType("application/vnd.test.helm.chart").
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("Build() unexpected error: %v", err)
+	}
+
+	// Verify artifact type on descriptor.
+	desc := image.Descriptor()
+	if desc.ArtifactType != "application/vnd.test.helm.chart" {
+		t.Errorf("Descriptor().ArtifactType = %q, want %q", desc.ArtifactType, "application/vnd.test.helm.chart")
+	}
+
+	// Verify artifact type in serialized manifest.
+	if err := image.Load(ctx); err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	data, err := image.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON() unexpected error: %v", err)
+	}
+
+	var m ocispec.Manifest
+	if err := unmarshalJSON(data, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m.ArtifactType != "application/vnd.test.helm.chart" {
+		t.Errorf("Manifest.ArtifactType = %q, want %q", m.ArtifactType, "application/vnd.test.helm.chart")
+	}
+}
+
+func TestImageBuilder_WithArtifactType_EmptyOmitted(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	config := client.NewBlob(ocispec.MediaTypeImageConfig, []byte("{}"))
+
+	// Build without artifact type.
+	image, err := client.BuildImage().
+		WithConfig(config).
+		Build(ctx)
+	if err != nil {
+		t.Fatalf("Build() unexpected error: %v", err)
+	}
+
+	desc := image.Descriptor()
+	if desc.ArtifactType != "" {
+		t.Errorf("Descriptor().ArtifactType = %q, want empty", desc.ArtifactType)
+	}
+}
+
 func TestImageBuilder_WithLayers_SliceIsolation(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()

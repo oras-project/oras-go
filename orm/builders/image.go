@@ -32,14 +32,15 @@ import (
 
 // ImageBuilder provides a fluent API for building image manifests.
 type ImageBuilder struct {
-	fetcher     content.Fetcher
-	pusher      content.Pusher
-	client      models.ManifestClient
-	config      *models.Blob
-	layers      []*models.Blob
-	platform    *ocispec.Platform
-	subject     models.Manifest
-	annotations map[string]string
+	fetcher      content.Fetcher
+	pusher       content.Pusher
+	client       models.ManifestClient
+	config       *models.Blob
+	layers       []*models.Blob
+	platform     *ocispec.Platform
+	subject      models.Manifest
+	annotations  map[string]string
+	artifactType string
 }
 
 // NewImageBuilder creates a new ImageBuilder.
@@ -74,6 +75,13 @@ func (ib *ImageBuilder) WithLayers(layers []*models.Blob) *ImageBuilder {
 // WithPlatform sets the platform specification.
 func (ib *ImageBuilder) WithPlatform(platform *ocispec.Platform) *ImageBuilder {
 	ib.platform = platform
+	return ib
+}
+
+// WithArtifactType sets the artifact type for the image manifest (OCI 1.1).
+// This is useful for typed artifacts like Helm charts, WASM modules, etc.
+func (ib *ImageBuilder) WithArtifactType(artifactType string) *ImageBuilder {
+	ib.artifactType = artifactType
 	return ib
 }
 
@@ -121,10 +129,11 @@ func (ib *ImageBuilder) Build(ctx context.Context) (*models.Image, error) {
 		Versioned: specs.Versioned{
 			SchemaVersion: 2,
 		},
-		MediaType:   ocispec.MediaTypeImageManifest,
-		Config:      ib.config.Descriptor(),
-		Layers:      layerDescs,
-		Annotations: ib.annotations,
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Config:       ib.config.Descriptor(),
+		Layers:       layerDescs,
+		Annotations:  ib.annotations,
+		ArtifactType: ib.artifactType,
 	}
 
 	// Add subject if present
@@ -141,10 +150,11 @@ func (ib *ImageBuilder) Build(ctx context.Context) (*models.Image, error) {
 
 	// Create descriptor
 	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(manifestBytes),
-		Size:      int64(len(manifestBytes)),
-		Platform:  ib.platform,
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Digest:       digest.FromBytes(manifestBytes),
+		Size:         int64(len(manifestBytes)),
+		Platform:     ib.platform,
+		ArtifactType: ib.artifactType,
 	}
 
 	// Push manifest to storage
