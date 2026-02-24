@@ -385,3 +385,127 @@ func TestBlob_NewBlobFromBytes_EmptyContent(t *testing.T) {
 		t.Errorf("Bytes() = %q, want empty", string(data))
 	}
 }
+
+func TestBlob_Verify_Success(t *testing.T) {
+	ctx := t.Context()
+
+	data := []byte("verifiable-content")
+	store := newMemoryStore()
+	desc := pushToStore(t, ctx, store, "application/octet-stream", data)
+
+	blob := models.NewBlob(desc, store, store)
+
+	if err := blob.Verify(ctx); err != nil {
+		t.Fatalf("Verify() unexpected error: %v", err)
+	}
+}
+
+func TestBlob_Bytes_WrapsErrNoFetcherInOrmError(t *testing.T) {
+	data := []byte("orm-error-test")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(data),
+		Size:      int64(len(data)),
+	}
+	blob := models.NewBlob(desc, nil, nil)
+
+	_, err := blob.Bytes(t.Context())
+	if err == nil {
+		t.Fatal("Bytes() expected error, got nil")
+	}
+
+	var ormErr *models.OrmError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+	}
+	if ormErr.Op != "fetch" {
+		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "fetch")
+	}
+	if !errors.Is(err, models.ErrNoFetcher) {
+		t.Errorf("expected ErrNoFetcher in chain, got: %v", err)
+	}
+}
+
+func TestBlob_Read_WrapsErrNoFetcherInOrmError(t *testing.T) {
+	data := []byte("read-orm-error")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(data),
+		Size:      int64(len(data)),
+	}
+	blob := models.NewBlob(desc, nil, nil)
+
+	_, err := blob.Read(t.Context())
+	if err == nil {
+		t.Fatal("Read() expected error, got nil")
+	}
+
+	var ormErr *models.OrmError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+	}
+	if ormErr.Op != "read" {
+		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "read")
+	}
+}
+
+func TestBlob_Push_WrapsErrNoPusherInOrmError(t *testing.T) {
+	blob := models.NewBlobFromBytes("application/octet-stream", []byte("push-orm-err"))
+
+	err := blob.Push(t.Context())
+	if err == nil {
+		t.Fatal("Push() expected error, got nil")
+	}
+
+	var ormErr *models.OrmError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+	}
+	if ormErr.Op != "push" {
+		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "push")
+	}
+	if !errors.Is(err, models.ErrNoPusher) {
+		t.Errorf("expected ErrNoPusher in chain, got: %v", err)
+	}
+}
+
+func TestBlob_Verify_WrapsErrNoFetcherInOrmError(t *testing.T) {
+	data := []byte("verify-orm-error")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(data),
+		Size:      int64(len(data)),
+	}
+	blob := models.NewBlob(desc, nil, nil)
+
+	err := blob.Verify(t.Context())
+	if err == nil {
+		t.Fatal("Verify() expected error, got nil")
+	}
+
+	var ormErr *models.OrmError
+	if !errors.As(err, &ormErr) {
+		t.Fatalf("expected *OrmError, got %T: %v", err, err)
+	}
+	if ormErr.Op != "verify" {
+		t.Errorf("OrmError.Op = %q, want %q", ormErr.Op, "verify")
+	}
+	if !errors.Is(err, models.ErrNoFetcher) {
+		t.Errorf("expected ErrNoFetcher in chain, got: %v", err)
+	}
+}
+
+func TestBlob_Verify_NoFetcher(t *testing.T) {
+	data := []byte("no-fetcher-verify")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(data),
+		Size:      int64(len(data)),
+	}
+	blob := models.NewBlob(desc, nil, nil)
+
+	err := blob.Verify(t.Context())
+	if !errors.Is(err, models.ErrNoFetcher) {
+		t.Fatalf("Verify() error = %v, want %v", err, models.ErrNoFetcher)
+	}
+}

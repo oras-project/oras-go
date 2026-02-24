@@ -325,13 +325,13 @@ func (c *Client) PushManifest(ctx context.Context, manifest models.Manifest, ref
 
 	desc := manifest.Descriptor()
 	if err := c.target.Push(ctx, desc, bytes.NewReader(manifestBytes)); err != nil {
-		return err
+		return &models.OrmError{Op: "push_manifest", Digest: desc.Digest, Err: err}
 	}
 
 	// Tag if reference is provided
 	if reference != "" {
 		if err := c.target.Tag(ctx, desc, reference); err != nil {
-			return err
+			return &models.OrmError{Op: "tag", Digest: desc.Digest, Err: err}
 		}
 	}
 
