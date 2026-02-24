@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -55,8 +57,9 @@ func (ib *IndexBuilder) AddManifest(manifest models.Manifest) *IndexBuilder {
 }
 
 // WithManifests sets all manifests at once.
+// The input slice is copied to prevent caller mutation from affecting the builder.
 func (ib *IndexBuilder) WithManifests(manifests []models.Manifest) *IndexBuilder {
-	ib.manifests = manifests
+	ib.manifests = slices.Clone(manifests)
 	return ib
 }
 
@@ -84,6 +87,13 @@ func (ib *IndexBuilder) WithAnnotations(annotations map[string]string) *IndexBui
 func (ib *IndexBuilder) Build(ctx context.Context) (*models.Index, error) {
 	if len(ib.manifests) == 0 {
 		return nil, errors.New("at least one manifest is required for index")
+	}
+
+	// Validate no nil manifests.
+	for i, manifest := range ib.manifests {
+		if manifest == nil {
+			return nil, fmt.Errorf("manifest at index %d is nil", i)
+		}
 	}
 
 	// Build manifest descriptors

@@ -28,9 +28,11 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3"
 	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/internal/docker"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 	"github.com/oras-project/oras-go/v3/orm/builders"
 	"github.com/oras-project/oras-go/v3/orm/models"
+	"github.com/oras-project/oras-go/v3/registry"
 )
 
 // cacheEntry is an entry in the LRU identity map cache.
@@ -61,15 +63,6 @@ type ClientOptions struct {
 	// MaxCacheSize is the maximum number of entries in the identity map cache.
 	// 0 means unlimited (default).
 	MaxCacheSize int
-
-	// PreloadDepth controls automatic preloading of relationships.
-	// 0 = lazy loading (default)
-	// 1 = preload direct relationships
-	// 2+ = preload nested relationships
-	PreloadDepth int
-
-	// Concurrency controls the number of concurrent fetch operations.
-	Concurrency int
 }
 
 // DefaultClientOptions returns the default client options.
@@ -77,8 +70,6 @@ func DefaultClientOptions() ClientOptions {
 	return ClientOptions{
 		Cache:        true,
 		MaxCacheSize: 0,
-		PreloadDepth: 0,
-		Concurrency:  3,
 	}
 }
 
@@ -92,30 +83,24 @@ func WithCache(enabled bool) ClientOption {
 	}
 }
 
-// WithPreloadDepth sets the automatic preload depth.
-func WithPreloadDepth(depth int) ClientOption {
-	return func(opts *ClientOptions) {
-		opts.PreloadDepth = depth
-	}
-}
-
 // WithMaxCacheSize sets the maximum number of cached entries.
-// 0 means unlimited.
+// 0 means unlimited. Negative values are clamped to 0.
 func WithMaxCacheSize(size int) ClientOption {
 	return func(opts *ClientOptions) {
+		if size < 0 {
+			size = 0
+		}
 		opts.MaxCacheSize = size
 	}
 }
 
-// WithConcurrency sets the concurrent fetch limit.
-func WithConcurrency(n int) ClientOption {
-	return func(opts *ClientOptions) {
-		opts.Concurrency = n
-	}
-}
-
 // NewClient creates a new ORM client.
+// Panics if target is nil.
 func NewClient(target oras.Target, opts ...ClientOption) *Client {
+	if target == nil {
+		panic("orm: target must not be nil")
+	}
+
 	options := DefaultClientOptions()
 	for _, opt := range opts {
 		opt(&options)
@@ -224,9 +209,9 @@ func (c *Client) FetchManifest(ctx context.Context, desc ocispec.Descriptor) (mo
 	switch desc.MediaType {
 	case spec.MediaTypeArtifactManifest:
 		return c.fetchArtifact(ctx, desc)
-	case ocispec.MediaTypeImageManifest, "application/vnd.docker.distribution.manifest.v2+json":
+	case ocispec.MediaTypeImageManifest, docker.MediaTypeManifest:
 		return c.fetchImage(ctx, desc)
-	case ocispec.MediaTypeImageIndex, "application/vnd.docker.distribution.manifest.list.v2+json":
+	case ocispec.MediaTypeImageIndex, docker.MediaTypeManifestList:
 		return c.fetchIndex(ctx, desc)
 	default:
 		// Try to detect by fetching and inspecting the content
@@ -360,6 +345,68 @@ func (c *Client) ClearCache() {
 
 	c.identityMap = make(map[digest.Digest]*list.Element)
 	c.lruList.Init()
+}
+
+// FindReferrers finds manifests that reference the given content with the
+// specified artifactType. If artifactType is empty, all referrers are returned.
+// It tries the more efficient registry.ReferrerLister first, then falls back
+// to content.PredecessorFinder with manual filtering.
+func (c *Client) FindReferrers(ctx context.Context, node models.Content, artifactType string) ([]models.Manifest, error) {
+	// Try ReferrerLister first (registry-specific, supports filtering).
+	if rl, ok := c.target.(registry.ReferrerLister); ok {
+		var descs []ocispec.Descriptor
+		err := rl.Referrers(ctx, node.Descriptor(), artifactType, func(refs []ocispec.Descriptor) error {
+			descs = append(descs, refs...)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		manifests := make([]models.Manifest, 0, len(descs))
+		for _, desc := range descs {
+			m, err := c.FetchManifest(ctx, desc)
+			if err != nil {
+				return nil, err
+			}
+			manifests = append(manifests, m)
+		}
+		return manifests, nil
+	}
+
+	// Fall back to PredecessorFinder (no artifactType filter).
+	all, err := c.FindPredecessors(ctx, node)
+	if err != nil {
+		return nil, err
+	}
+	if artifactType == "" {
+		return all, nil
+	}
+	// Manual filter by artifactType.
+	var filtered []models.Manifest
+	for _, m := range all {
+		if m.Descriptor().ArtifactType == artifactType {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered, nil
+}
+
+// ListTags returns all tags available in the target repository.
+// The target must implement registry.TagLister.
+func (c *Client) ListTags(ctx context.Context) ([]string, error) {
+	tl, ok := c.target.(registry.TagLister)
+	if !ok {
+		return nil, errors.New("target does not support tag listing")
+	}
+	var tags []string
+	err := tl.Tags(ctx, "", func(t []string) error {
+		tags = append(tags, t...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tags, nil
 }
 
 // Builder convenience methods

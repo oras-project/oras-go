@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -63,8 +65,9 @@ func (ib *ImageBuilder) AddLayer(layer *models.Blob) *ImageBuilder {
 }
 
 // WithLayers sets all layers at once.
+// The input slice is copied to prevent caller mutation from affecting the builder.
 func (ib *ImageBuilder) WithLayers(layers []*models.Blob) *ImageBuilder {
-	ib.layers = layers
+	ib.layers = slices.Clone(layers)
 	return ib
 }
 
@@ -98,6 +101,13 @@ func (ib *ImageBuilder) WithAnnotations(annotations map[string]string) *ImageBui
 func (ib *ImageBuilder) Build(ctx context.Context) (*models.Image, error) {
 	if ib.config == nil {
 		return nil, errors.New("config is required for image manifest")
+	}
+
+	// Validate no nil layers.
+	for i, layer := range ib.layers {
+		if layer == nil {
+			return nil, fmt.Errorf("layer at index %d is nil", i)
+		}
 	}
 
 	// Build layer descriptors

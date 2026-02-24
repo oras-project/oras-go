@@ -71,6 +71,25 @@ func TestArtifactBuilder_Build_Success(t *testing.T) {
 	}
 }
 
+func TestArtifactBuilder_Build_NilBlob(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	blob := client.NewBlob("application/octet-stream", []byte("ok"))
+
+	_, err := client.BuildArtifact("application/vnd.test").
+		AddBlob(blob).
+		AddBlob(nil).
+		Build(ctx)
+	if err == nil {
+		t.Fatal("Build() expected error for nil blob, got nil")
+	}
+	if err.Error() != "blob at index 1 is nil" {
+		t.Errorf("Build() error = %q, want %q", err.Error(), "blob at index 1 is nil")
+	}
+}
+
 func TestArtifactBuilder_Build_EmptyArtifactType(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
@@ -386,5 +405,37 @@ func TestArtifactBuilder_Build_WithPlatformSubject(t *testing.T) {
 	}
 	if m.Subject.Digest != image.Digest() {
 		t.Errorf("Subject.Digest = %v, want %v", m.Subject.Digest, image.Digest())
+	}
+}
+
+func TestArtifactBuilder_WithBlobs_SliceIsolation(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+	client := orm.NewClient(store)
+
+	blob1 := client.NewBlob("application/octet-stream", []byte("b1"))
+	blob2 := client.NewBlob("application/octet-stream", []byte("b2"))
+
+	input := []*models.Blob{blob1}
+	builder := client.BuildArtifact("application/vnd.test").WithBlobs(input)
+
+	// Mutate the original slice after calling WithBlobs.
+	input[0] = blob2
+
+	artifact, err := builder.Build(ctx)
+	if err != nil {
+		t.Fatalf("Build() unexpected error: %v", err)
+	}
+
+	blobs, err := artifact.Blobs(ctx)
+	if err != nil {
+		t.Fatalf("Blobs() unexpected error: %v", err)
+	}
+	// The builder should still have blob1, not blob2.
+	if len(blobs) != 1 {
+		t.Fatalf("Blobs() returned %d, want 1", len(blobs))
+	}
+	if blobs[0].Digest() != blob1.Digest() {
+		t.Errorf("Blobs()[0].Digest() = %v, want %v (blob1)", blobs[0].Digest(), blob1.Digest())
 	}
 }
