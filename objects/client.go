@@ -142,12 +142,14 @@ func (c *Client) getFromCache(dgst digest.Digest) (models.Content, bool) {
 	return elem.Value.(cacheEntry).content, true
 }
 
-// addToCache adds content to the identity map.
+// addToCache adds content to the identity map and returns the content stored
+// in the cache. If an entry for the same digest already exists, the existing
+// entry is promoted and returned (preserving identity for concurrent callers).
 // If MaxCacheSize is set and the cache is full, the least recently used entry
 // is evicted.
-func (c *Client) addToCache(content models.Content) {
+func (c *Client) addToCache(content models.Content) models.Content {
 	if !c.options.Cache {
-		return
+		return content
 	}
 
 	c.mu.Lock()
@@ -155,11 +157,10 @@ func (c *Client) addToCache(content models.Content) {
 
 	dgst := content.Digest()
 
-	// If already cached, update and promote.
+	// If already cached, promote and return existing to preserve identity.
 	if elem, ok := c.identityMap[dgst]; ok {
-		elem.Value = cacheEntry{digest: dgst, content: content}
 		c.lruList.MoveToFront(elem)
-		return
+		return elem.Value.(cacheEntry).content
 	}
 
 	// Add new entry at front.
@@ -174,13 +175,16 @@ func (c *Client) addToCache(content models.Content) {
 			delete(c.identityMap, oldest.Value.(cacheEntry).digest)
 		}
 	}
+	return content
 }
 
 // NewBlob creates a new Blob from raw bytes.
 // The blob is configured with the client's target for push/fetch operations.
 func (c *Client) NewBlob(mediaType string, data []byte) *models.Blob {
 	blob := models.NewBlobFromBytes(mediaType, data, models.WithStorage(c.target, c.target))
-	c.addToCache(blob)
+	if cached, ok := c.addToCache(blob).(*models.Blob); ok {
+		return cached
+	}
 	return blob
 }
 
@@ -195,8 +199,9 @@ func (c *Client) FetchBlob(ctx context.Context, desc ocispec.Descriptor) (*model
 
 	// Create blob (content is lazily loaded)
 	blob := models.NewBlob(desc, c.target, c.target)
-	c.addToCache(blob)
-
+	if cached, ok := c.addToCache(blob).(*models.Blob); ok {
+		return cached, nil
+	}
 	return blob, nil
 }
 
@@ -227,21 +232,27 @@ func (c *Client) FetchManifest(ctx context.Context, desc ocispec.Descriptor) (mo
 // fetchArtifact fetches an artifact manifest.
 func (c *Client) fetchArtifact(ctx context.Context, desc ocispec.Descriptor) (*models.Artifact, error) {
 	artifact := models.NewArtifact(desc, c.target, c.target, c)
-	c.addToCache(artifact)
+	if cached, ok := c.addToCache(artifact).(*models.Artifact); ok {
+		return cached, nil
+	}
 	return artifact, nil
 }
 
 // fetchImage fetches an image manifest.
 func (c *Client) fetchImage(ctx context.Context, desc ocispec.Descriptor) (*models.Image, error) {
 	image := models.NewImage(desc, c.target, c.target, c)
-	c.addToCache(image)
+	if cached, ok := c.addToCache(image).(*models.Image); ok {
+		return cached, nil
+	}
 	return image, nil
 }
 
 // fetchIndex fetches an index.
 func (c *Client) fetchIndex(ctx context.Context, desc ocispec.Descriptor) (*models.Index, error) {
 	index := models.NewIndex(desc, c.target, c.target, c)
-	c.addToCache(index)
+	if cached, ok := c.addToCache(index).(*models.Index); ok {
+		return cached, nil
+	}
 	return index, nil
 }
 
@@ -267,7 +278,9 @@ func (c *Client) fetchManifestByInspection(ctx context.Context, desc ocispec.Des
 		if err != nil {
 			return nil, err
 		}
-		c.addToCache(artifact)
+		if cached, ok := c.addToCache(artifact).(*models.Artifact); ok {
+			return cached, nil
+		}
 		return artifact, nil
 	}
 
@@ -277,7 +290,9 @@ func (c *Client) fetchManifestByInspection(ctx context.Context, desc ocispec.Des
 		if err != nil {
 			return nil, err
 		}
-		c.addToCache(index)
+		if cached, ok := c.addToCache(index).(*models.Index); ok {
+			return cached, nil
+		}
 		return index, nil
 	}
 
@@ -287,7 +302,9 @@ func (c *Client) fetchManifestByInspection(ctx context.Context, desc ocispec.Des
 		if err != nil {
 			return nil, err
 		}
-		c.addToCache(image)
+		if cached, ok := c.addToCache(image).(*models.Image); ok {
+			return cached, nil
+		}
 		return image, nil
 	}
 
