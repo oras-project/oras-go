@@ -1,16 +1,16 @@
 # ORAS Go Library — Usage Scenarios
 
-This document describes the primary scenarios where oras-go is used and how the library's features map to each use case. It is intended for contributors, integrators, and anyone evaluating oras-go for their project.
+This document describes the primary scenarios where oras-go is used and how the library's features map to each scenario. It is intended for contributors, integrators, and anyone evaluating oras-go for their project.
 
 ---
 
-## 1. CLI Tools (oras CLI, Helm, Notation, Flux)
+## 1. Full Configuration Stack
 
-Command-line tools are the most common consumers of oras-go. These tools push, pull, tag, and manage OCI artifacts on remote registries.
+Loading the full container ecosystem configuration provides credentials, TLS certificates, registry mirrors, and more for interacting with remote registries.
 
 ### Capabilities Used
 
-- **`config.LoadConfigs`** — Unified loader for Docker config.json, containers auth.json, registries.conf, registries.d, and certs.d. CLI tools benefit from loading the full configuration stack to respect the user's existing container ecosystem settings.
+- **`config.LoadConfigs`** — Unified loader for Docker config.json, containers auth.json, registries.conf, registries.d, and certs.d.
 - **`oras.Copy`** — Copy artifacts between registries, or from a registry to local OCI layout.
 - **`oras.PackManifest`** — Build OCI image manifests (v1.0 or v1.1) from local files before pushing.
 - **`oras.Tag` / `oras.TagN`** — Apply one or more tags to a manifest already present in a registry.
@@ -24,43 +24,45 @@ Command-line tools are the most common consumers of oras-go. These tools push, p
 
 ```go
 // 1. Load all container ecosystem configs (credentials, TLS, mirrors, etc.).
-configs, _ := config.LoadConfigs(config.LoadConfigsOptions{})
+configs, _ := config.LoadConfigs()
 
-// 2. Set up repository with credentials and TLS from loaded configs.
-repo, _ := remote.NewRepository("registry.example.com/myapp")
-repo.Client = &auth.Client{
-    Credential: configs.CredentialFunc(),
-}
+// 2. Get registry properties (resolves aliases, rewrites, TLS from certs.d).
+props, _ := configs.RegistryProperties("registry.example.com/myapp")
 
-// 3. Pack local files into an OCI manifest.
+// 3. Build a configured client with credentials from Docker/Podman config.
+builder := remote.NewClientBuilder()
+builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
+
+// 4. Create repository with full config-driven settings.
+repo, _ := remote.NewRepositoryWithProperties(props, builder)
+
+// 5. Pack local files into an OCI manifest.
 fs, _ := file.New("/tmp/workspace")
 defer fs.Close()
 desc, _ := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1, "application/vnd.myapp.config.v1", oras.PackManifestOptions{
     Layers: layerDescriptors,
 })
 
-// 4. Push to registry.
+// 6. Push to registry.
 _, _ = oras.Copy(ctx, fs, desc.Digest.String(), repo, "latest", oras.DefaultCopyOptions)
 ```
 
-### Why Load Full Configs
+Not all use cases require the full configuration stack. The remaining scenarios below demonstrate using individual features when simpler setups suffice.
 
-Even though CLI tools may not need policy or signature verification, loading the full configuration stack provides significant benefits:
+### Benefits of Loading Full Configs
+
+Loading the full configuration stack provides significant benefits:
 
 - **Broader credential coverage** — Reads both Docker `config.json` and containers `auth.json`, so credentials stored by either Docker or Podman are found automatically.
 - **Per-registry TLS** — Picks up custom CA certificates and client certs from `certs.d` without requiring CLI flags.
 - **Mirror support** — Respects registry mirrors configured in `registries.conf`, which is essential for enterprise and air-gapped environments.
 - **Ecosystem consistency** — Users configure these files once and expect all registry-interacting tools to respect them.
 
-### Why oras-go
-
-CLI tools need a library that abstracts the OCI Distribution Spec without requiring a container runtime. oras-go provides a pure-Go client with no daemon dependency, making it suitable for lightweight CLI binaries.
-
 ---
 
-## 2. Container Runtimes and Image Managers (Podman, Buildah, Skopeo-like tools)
+## 2. Policy Enforcement
 
-These tools interact with registries at a lower level and require full containers-ecosystem configuration support.
+Policy evaluation and signature verification can be added to the configuration-driven workflow to enforce allow/deny decisions before pulling images.
 
 ### Capabilities Used
 
@@ -75,13 +77,10 @@ These tools interact with registries at a lower level and require full container
 
 ```go
 // 1. Load all container ecosystem configs at once.
-configs, _ := config.LoadConfigs(config.LoadConfigsOptions{})
+configs, _ := config.LoadConfigs()
 
-// 2. Resolve mirrors and rewrites for a pull.
+// 2. Check policy before pulling.
 ref := "docker.io/library/nginx:latest"
-locations := configs.RegistriesConfig.ResolveReference(ref)
-
-// 3. Check policy before pulling.
 evaluator, _ := policy.NewEvaluator(configs.PolicyConfig,
     policy.WithSignedByVerifier(
         signature.NewSignedByVerifier(
@@ -94,24 +93,25 @@ allowed, _ := evaluator.Evaluate(ctx, policy.ImageReference{
     Scope:     "docker.io/library/nginx",
     Reference: ref,
 })
-
-// 4. Pull from the first available mirror.
-for _, loc := range locations {
-    repo, _ := remote.NewRepository(loc)
-    // configure TLS from certs.d, auth from configs...
-    _, _ = oras.Copy(ctx, repo, ref, localStore, "", oras.DefaultCopyOptions)
+if !allowed {
+    log.Fatal("image rejected by policy")
 }
+
+// 3. Set up repository with credentials, TLS, and mirror resolution from configs.
+props, _ := configs.RegistryProperties(ref)
+builder := remote.NewClientBuilder()
+builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
+repo, _ := remote.NewRepositoryWithProperties(props, builder)
+
+// 4. Pull the image.
+_, _ = oras.Copy(ctx, repo, ref, localStore, "", oras.DefaultCopyOptions)
 ```
-
-### Key Difference from CLI Tools
-
-Both CLI tools and container runtimes should load the full configuration stack via `config.LoadConfigs`. The key difference is that container runtimes additionally require policy evaluation and signature verification before pulling or running images, whereas CLI tools typically do not enforce these checks.
 
 ---
 
-## 3. CI/CD Pipelines and Artifact Distribution
+## 3. Artifact Packing and Distribution
 
-Build systems use oras-go to publish build outputs (binaries, SBOMs, Helm charts, WASM modules) as OCI artifacts.
+OCI artifacts such as binaries, SBOMs, Helm charts, and WASM modules can be packed into manifests and pushed to registries.
 
 ### Capabilities Used
 
@@ -146,7 +146,7 @@ oras.TagN(ctx, repo, desc.Digest.String(), []string{"v1.2", "v1", "latest"}, ora
 
 ## 4. Registry Mirroring and Replication
 
-Enterprises mirror registries for air-gapped environments, caching, or compliance.
+Registries can be mirrored for air-gapped environments, caching, or compliance.
 
 ### Capabilities Used
 
@@ -177,7 +177,7 @@ desc, _ := oras.Copy(ctx, srcRepo, "latest", dstRepo, "latest", opts)
 
 ## 5. OCI Layout and Local Storage
 
-Applications that work with OCI artifacts offline use local storage backends.
+OCI artifacts can be stored and manipulated offline using local storage backends.
 
 ### Capabilities Used
 
@@ -209,9 +209,9 @@ _, _ = oras.Copy(ctx, ociStore, "latest", dstRepo, "latest", oras.DefaultCopyOpt
 
 ---
 
-## 6. Credential Management Libraries
+## 6. Credential Management
 
-Applications that manage registry credentials across Docker, Podman, and native platform keystores.
+Registry credentials can be managed across Docker, Podman, and native platform keystores.
 
 ### Capabilities Used
 
@@ -224,24 +224,24 @@ Applications that manage registry credentials across Docker, Podman, and native 
 ### Typical Flow
 
 ```go
-// Create a credential function that checks multiple sources.
+// Create a credential store that checks multiple sources.
 dockerStore, _ := credentials.NewStoreFromDocker(credentials.StoreOptions{})
 fileStore, _ := credentials.NewFileStore("/custom/auth.json")
 fallback := credentials.NewStoreWithFallbacks(dockerStore, fileStore)
 
 client := &auth.Client{
-    Credential: credentials.Credential(fallback),
+    CredentialFunc: remote.GetCredentialFunc(fallback),
 }
 
 repo, _ := remote.NewRepository("ghcr.io/org/repo")
-repo.Client = client
+repo.Registry.Client = client
 ```
 
 ---
 
 ## 7. Image Signature Verification
 
-Applications that enforce image provenance and integrity before pulling or running images.
+Image provenance and integrity can be enforced before pulling or running images.
 
 ### Capabilities Used
 
@@ -256,7 +256,7 @@ Applications that enforce image provenance and integrity before pulling or runni
 
 ```go
 // Load policy and registries.d config.
-configs, _ := config.LoadConfigs(config.LoadConfigsOptions{})
+configs, _ := config.LoadConfigs()
 
 // Build verifier from lookaside config.
 sigStore := signature.NewLookasideStoreFromConfig(configs.RegistriesDConfig, scope)
@@ -282,7 +282,7 @@ if !allowed {
 
 ## 8. Library Integration and Middleware
 
-Libraries and frameworks that wrap oras-go to add cross-cutting concerns.
+oras-go can be wrapped with middleware to add cross-cutting concerns.
 
 ### Capabilities Used
 
@@ -315,11 +315,11 @@ repo := middleware(baseRepo)
 
 | Scenario | Key Packages | Config Loading | Policy | Signatures |
 |---|---|---|---|---|
-| CLI tools | `oras`, `remote`, `config`, `credentials` | Full stack | Optional | No |
-| Container runtimes | `oras`, `remote`, `config`, `policy`, `signature` | Full stack | Yes | Yes |
-| CI/CD pipelines | `oras`, `remote`, `memory` | Docker config.json | No | No |
+| Full config stack | `oras`, `remote`, `config`, `credentials` | Full stack | Optional | No |
+| Policy enforcement | `oras`, `remote`, `config`, `policy`, `signature` | Full stack | Yes | Yes |
+| Artifact distribution | `oras`, `remote`, `memory` | Optional | No | No |
 | Registry mirroring | `oras`, `remote` | Optional | No | No |
 | OCI local storage | `oras`, `oci`, `file`, `memory` | None | No | No |
 | Credential management | `credentials`, `auth`, `config` | Docker + containers auth | No | No |
 | Signature verification | `config`, `policy`, `signature` | Policy + registries.d | Yes | Yes |
-| Middleware/library | `remote`, `policy` | Varies | Optional | Optional |
+| Middleware | `remote`, `policy` | Varies | Optional | Optional |
