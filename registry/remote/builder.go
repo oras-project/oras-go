@@ -26,6 +26,7 @@ import (
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
 )
@@ -58,6 +59,11 @@ type ClientBuilder struct {
 	// TokenFetcher is an optional custom token fetcher.
 	// If nil, the default token fetching behavior is used.
 	TokenFetcher auth.TokenFetcher
+
+	// PolicyEvaluator is an optional policy evaluator for allow/deny decisions.
+	// If set, repositories created by NewRepositoryWithProperties will
+	// automatically enforce policy on read/write operations.
+	PolicyEvaluator *policy.Evaluator
 }
 
 // NewClientBuilder creates a new ClientBuilder with default settings.
@@ -244,6 +250,7 @@ func NewRegistryWithProperties(props *properties.Registry, builder *ClientBuilde
 		Client:    client,
 		Reference: registry.Reference{Registry: props.Reference.Registry},
 		PlainHTTP: props.Transport.PlainHTTP,
+		Policy:    builder.PolicyEvaluator,
 	}
 
 	return reg, nil
@@ -270,6 +277,7 @@ func NewRepositoryWithProperties(props *properties.Registry, builder *ClientBuil
 		Client:    client,
 		Reference: registry.Reference{Registry: props.Reference.Registry},
 		PlainHTTP: props.Transport.PlainHTTP,
+		Policy:    builder.PolicyEvaluator,
 	}
 
 	// Create repository

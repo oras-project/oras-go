@@ -80,31 +80,23 @@ Policy evaluation and signature verification can be added to the configuration-d
 // 1. Load all container ecosystem configs at once.
 configs, _ := config.LoadConfigs()
 
-// 2. Check policy before pulling.
+// 2. Build a configured client with credentials and policy enforcement.
 ref := "docker.io/library/nginx:latest"
-evaluator, _ := policy.NewEvaluator(configs.PolicyConfig,
+builder := remote.NewClientBuilder()
+builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
+builder.PolicyEvaluator, _ = policy.NewEvaluator(configs.PolicyConfig,
     policy.WithSignedByVerifier(
         signature.NewSignedByVerifier(
             signature.NewLookasideStoreFromConfig(configs.RegistriesDConfig, scope),
         ),
     ),
 )
-allowed, _ := evaluator.Evaluate(ctx, policy.ImageReference{
-    Transport: "docker",
-    Scope:     "docker.io/library/nginx",
-    Reference: ref,
-})
-if !allowed {
-    log.Fatal("image rejected by policy")
-}
 
-// 3. Set up repository with credentials, TLS, and mirror resolution from configs.
+// 3. Set up repository — policy is enforced automatically on all operations.
 props, _ := configs.RegistryProperties(ref)
-builder := remote.NewClientBuilder()
-builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
 repo, _ := remote.NewRepositoryWithProperties(props, builder)
 
-// 4. Pull the image.
+// 4. Pull the image (policy checked automatically before fetch).
 _, _ = oras.Copy(ctx, repo, ref, localStore, "", oras.DefaultCopyOptions)
 ```
 

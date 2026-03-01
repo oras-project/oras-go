@@ -33,6 +33,7 @@ import (
 
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
 )
@@ -659,6 +660,59 @@ func TestNewRepositoryWithProperties_WithBuilder(t *testing.T) {
 
 	if repo == nil {
 		t.Fatal("NewRepositoryWithProperties() returned nil repository")
+	}
+}
+
+func TestNewRepositoryWithProperties_WithPolicyEvaluator(t *testing.T) {
+	pol := policy.NewInsecureAcceptAnythingPolicy()
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("NewEvaluator() error = %v", err)
+	}
+
+	builder := NewClientBuilder()
+	builder.PolicyEvaluator = evaluator
+
+	props := &properties.Registry{
+		Reference: properties.Reference{
+			Registry:   "example.com",
+			Repository: "test/repo",
+		},
+	}
+
+	repo, err := NewRepositoryWithProperties(props, builder)
+	if err != nil {
+		t.Fatalf("NewRepositoryWithProperties() error = %v", err)
+	}
+
+	if repo.Registry.Policy != evaluator {
+		t.Error("Repository.Registry.Policy should be set to the builder's PolicyEvaluator")
+	}
+}
+
+func TestNewRegistryWithProperties_WithPolicyEvaluator(t *testing.T) {
+	pol := policy.NewInsecureAcceptAnythingPolicy()
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("NewEvaluator() error = %v", err)
+	}
+
+	builder := NewClientBuilder()
+	builder.PolicyEvaluator = evaluator
+
+	props := &properties.Registry{
+		Reference: properties.Reference{
+			Registry: "example.com",
+		},
+	}
+
+	reg, err := NewRegistryWithProperties(props, builder)
+	if err != nil {
+		t.Fatalf("NewRegistryWithProperties() error = %v", err)
+	}
+
+	if reg.Policy != evaluator {
+		t.Error("Registry.Policy should be set to the builder's PolicyEvaluator")
 	}
 }
 
