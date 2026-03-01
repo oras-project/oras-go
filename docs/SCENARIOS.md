@@ -29,7 +29,8 @@ configs, _ := config.LoadConfigs()
 // 2. Get registry properties (resolves aliases, rewrites, TLS from certs.d).
 props, _ := configs.RegistryProperties("registry.example.com/myapp")
 
-// 3. Build a configured client with credentials from Docker/Podman config.
+// 3. Build a configured client with credentials.
+//    Resolution order: OS credential helpers → Docker config.json → containers auth.json
 builder := remote.NewClientBuilder()
 builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
 

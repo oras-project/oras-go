@@ -271,7 +271,7 @@ func Test_DynamicStore_authConfigured(t *testing.T) {
 	}
 }
 
-func Test_DynamicStore_authConfigured_DetectDefaultNativeStore(t *testing.T) {
+func Test_DynamicStore_authConfigured_IgnoreDefaultNativeStore(t *testing.T) {
 	// prepare test content
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "auth_configured.json")
@@ -290,8 +290,8 @@ func Test_DynamicStore_authConfigured_DetectDefaultNativeStore(t *testing.T) {
 	}
 
 	opts := StoreOptions{
-		AllowPlaintextPut:        true,
-		DetectDefaultNativeStore: true,
+		AllowPlaintextPut:       true,
+		IgnoreDefaultNativeStore: true,
 	}
 	ds, err := NewStore(configPath, opts)
 	if err != nil {
@@ -348,7 +348,7 @@ func Test_DynamicStore_authConfigured_DetectDefaultNativeStore(t *testing.T) {
 	}
 }
 
-func Test_DynamicStore_noAuthConfigured(t *testing.T) {
+func Test_DynamicStore_noAuthConfigured_IgnoreDefaultNativeStore(t *testing.T) {
 	// prepare test content
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "no_auth_configured.json")
@@ -363,7 +363,10 @@ func Test_DynamicStore_noAuthConfigured(t *testing.T) {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
-	ds, err := NewStore(configPath, StoreOptions{AllowPlaintextPut: true})
+	ds, err := NewStore(configPath, StoreOptions{
+		AllowPlaintextPut:       true,
+		IgnoreDefaultNativeStore: true,
+	})
 	if err != nil {
 		t.Fatal("NewStore() error =", err)
 	}
@@ -423,7 +426,7 @@ func Test_DynamicStore_noAuthConfigured(t *testing.T) {
 	}
 }
 
-func Test_DynamicStore_noAuthConfigured_DetectDefaultNativeStore(t *testing.T) {
+func Test_DynamicStore_noAuthConfigured(t *testing.T) {
 	// prepare test content
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "no_auth_configured.json")
@@ -438,11 +441,7 @@ func Test_DynamicStore_noAuthConfigured_DetectDefaultNativeStore(t *testing.T) {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
-	opts := StoreOptions{
-		AllowPlaintextPut:        true,
-		DetectDefaultNativeStore: true,
-	}
-	ds, err := NewStore(configPath, opts)
+	ds, err := NewStore(configPath, StoreOptions{AllowPlaintextPut: true})
 	if err != nil {
 		t.Fatal("NewStore() error =", err)
 	}

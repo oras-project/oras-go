@@ -91,20 +91,22 @@ type StoreOptions struct {
 	//     plaintext in the config file when native store is not available.
 	AllowPlaintextPut bool
 
-	// DetectDefaultNativeStore enables detecting the platform-default native
+	// IgnoreDefaultNativeStore disables detecting the platform-default native
 	// credentials store when the config file has no authentication information.
 	//
-	// If DetectDefaultNativeStore is set to true, the store will detect and set
-	// the default native credentials store in the "credsStore" field of the
-	// config file.
+	// By default (false), the store will detect and use the platform-default
+	// native credentials store:
 	//   - Windows: "wincred"
 	//   - Linux: "pass" or "secretservice"
 	//   - macOS: "osxkeychain"
 	//
+	// Set to true to skip native store detection and fall back to the
+	// plain-text config file.
+	//
 	// References:
 	//   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 	//   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
-	DetectDefaultNativeStore bool
+	IgnoreDefaultNativeStore bool
 }
 
 // defaultConfigLoader is set by the config package during init.
@@ -128,7 +130,7 @@ func NewStoreFromConfig(cfg ConfigFile, opts StoreOptions) *DynamicStore {
 		config:  cfg,
 		options: opts,
 	}
-	if opts.DetectDefaultNativeStore && !cfg.IsAuthConfigured() {
+	if !opts.IgnoreDefaultNativeStore && !cfg.IsAuthConfigured() {
 		// no authentication configured, detect the default credentials store
 		ds.detectedCredsStore = getDefaultHelperSuffix()
 	}
