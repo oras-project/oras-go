@@ -10,32 +10,47 @@ Command-line tools are the most common consumers of oras-go. These tools push, p
 
 ### Capabilities Used
 
+- **`config.LoadConfigs`** — Unified loader for Docker config.json, containers auth.json, registries.conf, registries.d, and certs.d. CLI tools benefit from loading the full configuration stack to respect the user's existing container ecosystem settings.
 - **`oras.Copy`** — Copy artifacts between registries, or from a registry to local OCI layout.
 - **`oras.PackManifest`** — Build OCI image manifests (v1.0 or v1.1) from local files before pushing.
 - **`oras.Tag` / `oras.TagN`** — Apply one or more tags to a manifest already present in a registry.
 - **`oras.Fetch` / `oras.FetchBytes`** — Pull content by reference, optionally selecting a specific platform.
 - **`remote.Repository`** — Low-level access to a single repository (resolve, push, fetch, delete, list tags/referrers).
 - **`remote.Registry`** — Enumerate repositories within a registry.
-- **Credential management** — `credentials.NewStoreFromDocker()` or `credentials.NewFileStore()` for Docker/Podman auth integration.
+- **TLS configuration via certs.d** — Per-registry TLS certificates without requiring manual `--ca-file` flags.
+- **Registry mirrors via registries.conf** — Automatic mirror resolution for enterprise and air-gapped environments.
 
 ### Typical Flow
 
 ```go
-// 1. Set up credentials from Docker config.
-store, _ := credentials.NewStoreFromDocker(credentials.StoreOptions{})
-repo, _ := remote.NewRepository("registry.example.com/myapp")
-repo.Client = &auth.Client{Credential: credentials.Credential(store)}
+// 1. Load all container ecosystem configs (credentials, TLS, mirrors, etc.).
+configs, _ := config.LoadConfigs(config.LoadConfigsOptions{})
 
-// 2. Pack local files into an OCI manifest.
+// 2. Set up repository with credentials and TLS from loaded configs.
+repo, _ := remote.NewRepository("registry.example.com/myapp")
+repo.Client = &auth.Client{
+    Credential: configs.CredentialFunc(),
+}
+
+// 3. Pack local files into an OCI manifest.
 fs, _ := file.New("/tmp/workspace")
 defer fs.Close()
 desc, _ := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1, "application/vnd.myapp.config.v1", oras.PackManifestOptions{
     Layers: layerDescriptors,
 })
 
-// 3. Push to registry.
+// 4. Push to registry.
 _, _ = oras.Copy(ctx, fs, desc.Digest.String(), repo, "latest", oras.DefaultCopyOptions)
 ```
+
+### Why Load Full Configs
+
+Even though CLI tools may not need policy or signature verification, loading the full configuration stack provides significant benefits:
+
+- **Broader credential coverage** — Reads both Docker `config.json` and containers `auth.json`, so credentials stored by either Docker or Podman are found automatically.
+- **Per-registry TLS** — Picks up custom CA certificates and client certs from `certs.d` without requiring CLI flags.
+- **Mirror support** — Respects registry mirrors configured in `registries.conf`, which is essential for enterprise and air-gapped environments.
+- **Ecosystem consistency** — Users configure these files once and expect all registry-interacting tools to respect them.
 
 ### Why oras-go
 
@@ -90,7 +105,7 @@ for _, loc := range locations {
 
 ### Key Difference from CLI Tools
 
-Container runtimes need the full config stack (mirrors, policy, signatures, TLS certs) loaded and applied together, whereas CLI tools often only need credentials and a direct registry connection.
+Both CLI tools and container runtimes should load the full configuration stack via `config.LoadConfigs`. The key difference is that container runtimes additionally require policy evaluation and signature verification before pulling or running images, whereas CLI tools typically do not enforce these checks.
 
 ---
 
@@ -300,7 +315,7 @@ repo := middleware(baseRepo)
 
 | Scenario | Key Packages | Config Loading | Policy | Signatures |
 |---|---|---|---|---|
-| CLI tools | `oras`, `remote`, `credentials` | Docker config.json | Optional | No |
+| CLI tools | `oras`, `remote`, `config`, `credentials` | Full stack | Optional | No |
 | Container runtimes | `oras`, `remote`, `config`, `policy`, `signature` | Full stack | Yes | Yes |
 | CI/CD pipelines | `oras`, `remote`, `memory` | Docker config.json | No | No |
 | Registry mirroring | `oras`, `remote` | Optional | No | No |
