@@ -15,31 +15,28 @@ limitations under the License.
 
 package policy
 
-import "github.com/oras-project/oras-go/v3/registry/remote/config"
-
-// TransportName represents a supported transport type.
-// Deprecated: Use config.TransportName instead.
-type TransportName = config.TransportName
+// TransportName represents a supported transport type
+type TransportName string
 
 const (
 	// TransportNameDocker represents the docker transport
-	TransportNameDocker = config.TransportNameDocker
+	TransportNameDocker TransportName = "docker"
 	// TransportNameAtomic represents the atomic transport
-	TransportNameAtomic = config.TransportNameAtomic
+	TransportNameAtomic TransportName = "atomic"
 	// TransportNameContainersStorage represents the containers-storage transport
-	TransportNameContainersStorage = config.TransportNameContainersStorage
+	TransportNameContainersStorage TransportName = "containers-storage"
 	// TransportNameDir represents the dir transport
-	TransportNameDir = config.TransportNameDir
+	TransportNameDir TransportName = "dir"
 	// TransportNameDockerArchive represents the docker-archive transport
-	TransportNameDockerArchive = config.TransportNameDockerArchive
+	TransportNameDockerArchive TransportName = "docker-archive"
 	// TransportNameDockerDaemon represents the docker-daemon transport
-	TransportNameDockerDaemon = config.TransportNameDockerDaemon
+	TransportNameDockerDaemon TransportName = "docker-daemon"
 	// TransportNameOCI represents the oci transport
-	TransportNameOCI = config.TransportNameOCI
+	TransportNameOCI TransportName = "oci"
 	// TransportNameOCIArchive represents the oci-archive transport
-	TransportNameOCIArchive = config.TransportNameOCIArchive
+	TransportNameOCIArchive TransportName = "oci-archive"
 	// TransportNameSIF represents the sif transport
-	TransportNameSIF = config.TransportNameSIF
+	TransportNameSIF TransportName = "sif"
 	// TransportNameTarball represents the tarball transport
-	TransportNameTarball = config.TransportNameTarball
+	TransportNameTarball TransportName = "tarball"
 )

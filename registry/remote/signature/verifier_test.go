@@ -22,7 +22,6 @@ import (
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/opencontainers/go-digest"
-	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
@@ -93,7 +92,7 @@ func TestDefaultSignedByVerifier_Verify_Success(t *testing.T) {
 
 	// Create verifier and verify.
 	verifier := NewSignedByVerifier(store)
-	req := &config.PRSignedBy{
+	req := &policy.PRSignedBy{
 		KeyType: "GPGKeys",
 		KeyPath: keyFile,
 	}
@@ -121,7 +120,7 @@ func TestDefaultSignedByVerifier_Verify_NoSignatures(t *testing.T) {
 	createKeyFile(t, entity, keyFile)
 
 	imgDigest := digest.FromString("test")
-	req := &config.PRSignedBy{
+	req := &policy.PRSignedBy{
 		KeyType: "GPGKeys",
 		KeyPath: keyFile,
 	}
@@ -160,7 +159,7 @@ func TestDefaultSignedByVerifier_Verify_WrongKey(t *testing.T) {
 	createKeyFile(t, verifierKey, keyFile)
 
 	verifier := NewSignedByVerifier(store)
-	req := &config.PRSignedBy{
+	req := &policy.PRSignedBy{
 		KeyType: "GPGKeys",
 		KeyPath: keyFile,
 	}
@@ -199,7 +198,7 @@ func TestDefaultSignedByVerifier_Verify_DigestMismatch(t *testing.T) {
 	createKeyFile(t, entity, keyFile)
 
 	verifier := NewSignedByVerifier(store)
-	req := &config.PRSignedBy{
+	req := &policy.PRSignedBy{
 		KeyType: "GPGKeys",
 		KeyPath: keyFile,
 	}
@@ -237,11 +236,11 @@ func TestDefaultSignedByVerifier_Verify_IdentityMismatch(t *testing.T) {
 	createKeyFile(t, entity, keyFile)
 
 	verifier := NewSignedByVerifier(store)
-	req := &config.PRSignedBy{
+	req := &policy.PRSignedBy{
 		KeyType: "GPGKeys",
 		KeyPath: keyFile,
-		SignedIdentity: &config.SignedIdentity{
-			Type: config.IdentityMatchExact,
+		SignedIdentity: &policy.SignedIdentity{
+			Type: policy.IdentityMatchExact,
 		},
 	}
 	image := policy.ImageReference{
@@ -266,7 +265,7 @@ func TestDefaultSignedByVerifier_Verify_NoDigestInRef(t *testing.T) {
 
 	store := newMockStore()
 	verifier := NewSignedByVerifier(store)
-	req := &config.PRSignedBy{
+	req := &policy.PRSignedBy{
 		KeyType: "GPGKeys",
 		KeyPath: keyFile,
 	}

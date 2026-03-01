@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/opencontainers/go-digest"
-	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
@@ -45,7 +44,7 @@ func NewSignedByVerifier(store SignatureStore) *DefaultSignedByVerifier {
 //  3. For each signature: verifies the OpenPGP signature, parses the payload,
 //     validates the digest matches, and applies identity matching.
 //  4. Returns true if at least one valid signature is found.
-func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *config.PRSignedBy, image policy.ImageReference) (bool, error) {
+func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *policy.PRSignedBy, image policy.ImageReference) (bool, error) {
 	// Load keyring.
 	keyring, err := v.loadKeyRing(req)
 	if err != nil {
@@ -105,7 +104,7 @@ func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *config.PRSign
 
 // loadKeyRing loads an OpenPGP keyring from the PRSignedBy requirement's
 // key configuration.
-func (v *DefaultSignedByVerifier) loadKeyRing(req *config.PRSignedBy) (*KeyRing, error) {
+func (v *DefaultSignedByVerifier) loadKeyRing(req *policy.PRSignedBy) (*KeyRing, error) {
 	var keyPaths []string
 	var keyDatas [][]byte
 

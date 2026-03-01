@@ -69,7 +69,7 @@ Policy evaluation and signature verification can be added to the configuration-d
 
 - **`config.LoadConfigs`** — Unified loader for Docker config.json, containers auth.json, registries.conf, policy.json, registries.d, and certs.d.
 - **`config.RegistriesConfig`** — Registry mirrors, blocked registries, unqualified search registries, and prefix-based rewriting.
-- **`config.Policy` / `policy.Evaluator`** — Containers-policy.json evaluation (accept, reject, signedBy, sigstoreSigned).
+- **`policy.Policy` / `policy.Evaluator`** — Containers-policy.json evaluation (accept, reject, signedBy, sigstoreSigned).
 - **`signature.NewSignedByVerifier`** — OpenPGP signature verification via lookaside storage.
 - **`signature.LookasideStore`** — Fetch/store simple signing signatures from file:// or https:// lookaside locations configured in registries.d.
 - **TLS configuration via certs.d** — Per-registry TLS certificates.
@@ -84,7 +84,7 @@ configs, _ := config.LoadConfigs()
 ref := "docker.io/library/nginx:latest"
 builder := remote.NewClientBuilder()
 builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
-builder.PolicyEvaluator, _ = policy.NewEvaluator(configs.PolicyConfig,
+builder.PolicyEvaluator, _ = configs.PolicyEvaluator(
     policy.WithSignedByVerifier(
         signature.NewSignedByVerifier(
             signature.NewLookasideStoreFromConfig(configs.RegistriesDConfig, scope),
@@ -238,7 +238,7 @@ Image provenance and integrity can be enforced before pulling or running images.
 
 ### Capabilities Used
 
-- **`config.Policy`** — Load and evaluate containers-policy.json with requirement types: `insecureAcceptAnything`, `reject`, `signedBy`, `sigstoreSigned`.
+- **`policy.Policy`** — Load and evaluate containers-policy.json with requirement types: `insecureAcceptAnything`, `reject`, `signedBy`, `sigstoreSigned`.
 - **`policy.Evaluator`** — Apply policy rules to image references.
 - **`signature.SimpleSigningPayload`** — Parse and validate "atomic container signature" payloads.
 - **`signature.VerifyOpenPGPSignature`** — Verify OpenPGP (GPG) detached signatures.

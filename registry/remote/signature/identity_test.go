@@ -18,7 +18,7 @@ package signature
 import (
 	"testing"
 
-	"github.com/oras-project/oras-go/v3/registry/remote/config"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
 func TestMatchSignedIdentity_Default(t *testing.T) {
@@ -68,7 +68,7 @@ func TestMatchSignedIdentity_Default(t *testing.T) {
 }
 
 func TestMatchSignedIdentity_MatchExact(t *testing.T) {
-	si := &config.SignedIdentity{Type: config.IdentityMatchExact}
+	si := &policy.SignedIdentity{Type: policy.IdentityMatchExact}
 
 	tests := []struct {
 		name             string
@@ -104,7 +104,7 @@ func TestMatchSignedIdentity_MatchExact(t *testing.T) {
 }
 
 func TestMatchSignedIdentity_MatchRepository(t *testing.T) {
-	si := &config.SignedIdentity{Type: config.IdentityMatchRepository}
+	si := &policy.SignedIdentity{Type: policy.IdentityMatchRepository}
 
 	tests := []struct {
 		name             string
@@ -146,8 +146,8 @@ func TestMatchSignedIdentity_MatchRepository(t *testing.T) {
 }
 
 func TestMatchSignedIdentity_ExactReference(t *testing.T) {
-	si := &config.SignedIdentity{
-		Type:            config.IdentityMatchExactReference,
+	si := &policy.SignedIdentity{
+		Type:            policy.IdentityMatchExactReference,
 		DockerReference: "registry.example.com/repo:v1",
 	}
 
@@ -182,8 +182,8 @@ func TestMatchSignedIdentity_ExactReference(t *testing.T) {
 }
 
 func TestMatchSignedIdentity_ExactRepository(t *testing.T) {
-	si := &config.SignedIdentity{
-		Type:             config.IdentityMatchExactRepository,
+	si := &policy.SignedIdentity{
+		Type:             policy.IdentityMatchExactRepository,
 		DockerRepository: "registry.example.com/repo",
 	}
 
@@ -218,8 +218,8 @@ func TestMatchSignedIdentity_ExactRepository(t *testing.T) {
 }
 
 func TestMatchSignedIdentity_Remap(t *testing.T) {
-	si := &config.SignedIdentity{
-		Type:         config.IdentityMatchRemap,
+	si := &policy.SignedIdentity{
+		Type:         policy.IdentityMatchRemap,
 		Prefix:       "mirror.example.com",
 		SignedPrefix: "registry.example.com",
 	}
@@ -264,7 +264,7 @@ func TestMatchSignedIdentity_Remap(t *testing.T) {
 }
 
 func TestMatchSignedIdentity_UnknownType(t *testing.T) {
-	si := &config.SignedIdentity{Type: "unknownType"}
+	si := &policy.SignedIdentity{Type: "unknownType"}
 	_, err := MatchSignedIdentity(si, "ref", "signed")
 	if err == nil {
 		t.Fatal("expected error for unknown type")

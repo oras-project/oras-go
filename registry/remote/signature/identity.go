@@ -19,30 +19,30 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/oras-project/oras-go/v3/registry/remote/config"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
 // MatchSignedIdentity checks whether the signed docker reference matches the
 // image reference according to the identity matching rules.
 // If signedIdentity is nil, the default (matchRepoDigestOrExact) is used.
-func MatchSignedIdentity(signedIdentity *config.SignedIdentity, imageRef, signedDockerRef string) (bool, error) {
+func MatchSignedIdentity(signedIdentity *policy.SignedIdentity, imageRef, signedDockerRef string) (bool, error) {
 	if signedIdentity == nil {
 		// Default: matchRepoDigestOrExact
 		return matchRepoDigestOrExact(imageRef, signedDockerRef)
 	}
 
 	switch signedIdentity.Type {
-	case config.IdentityMatchExact:
+	case policy.IdentityMatchExact:
 		return matchExact(imageRef, signedDockerRef), nil
-	case config.IdentityMatchRepoDigestOrExact:
+	case policy.IdentityMatchRepoDigestOrExact:
 		return matchRepoDigestOrExact(imageRef, signedDockerRef)
-	case config.IdentityMatchRepository:
+	case policy.IdentityMatchRepository:
 		return matchRepository(imageRef, signedDockerRef), nil
-	case config.IdentityMatchExactReference:
+	case policy.IdentityMatchExactReference:
 		return matchExactReference(signedIdentity.DockerReference, signedDockerRef), nil
-	case config.IdentityMatchExactRepository:
+	case policy.IdentityMatchExactRepository:
 		return matchExactRepository(signedIdentity.DockerRepository, signedDockerRef), nil
-	case config.IdentityMatchRemap:
+	case policy.IdentityMatchRemap:
 		return remapIdentity(signedIdentity.Prefix, signedIdentity.SignedPrefix, imageRef, signedDockerRef), nil
 	default:
 		return false, fmt.Errorf("unknown identity match type: %s", signedIdentity.Type)
