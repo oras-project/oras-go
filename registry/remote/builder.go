@@ -286,5 +286,62 @@ func NewRepositoryWithProperties(props *properties.Registry, builder *ClientBuil
 		_ = repo.SetReferrersCapability(false)
 	}
 
+	// Build mirror repositories
+	mirrors, err := buildMirrorRepositories(props, builder)
+	if err != nil {
+		return nil, err
+	}
+	repo.mirrors = mirrors
+
 	return repo, nil
+}
+
+// buildMirrorRepositories creates mirror Repository instances from the
+// mirror properties. Each mirror gets its own auth.Client built from the
+// mirror's transport settings.
+func buildMirrorRepositories(props *properties.Registry, builder *ClientBuilder) ([]mirrorRepository, error) {
+	if len(props.Mirrors) == 0 {
+		return nil, nil
+	}
+
+	mirrors := make([]mirrorRepository, 0, len(props.Mirrors))
+	for _, m := range props.Mirrors {
+		// Build mirror properties by combining mirror-specific transport
+		// with the primary registry's credentials and attributes.
+		mirrorProps := &properties.Registry{
+			Reference: properties.Reference{
+				Registry:   m.Location,
+				Repository: props.Reference.Repository,
+			},
+			Transport:  m.Transport,
+			Credential: props.Credential,
+			Attributes: props.Attributes,
+		}
+
+		mirrorClient, err := builder.Build(mirrorProps)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build mirror client for %s: %w", m.Location, err)
+		}
+
+		mirrorReg := &Registry{
+			Client:    mirrorClient,
+			Reference: registry.Reference{Registry: m.Location},
+			PlainHTTP: m.Transport.PlainHTTP,
+		}
+
+		pullPolicy := m.PullFromMirror
+		if pullPolicy == "" {
+			pullPolicy = PullFromMirrorAll
+		}
+
+		mirrors = append(mirrors, mirrorRepository{
+			Repository: &Repository{
+				Registry:       mirrorReg,
+				RepositoryName: props.Reference.Repository,
+			},
+			pullFromMirror: pullPolicy,
+		})
+	}
+
+	return mirrors, nil
 }
