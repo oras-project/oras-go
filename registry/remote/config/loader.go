@@ -253,6 +253,15 @@ func (c *Configs) RegistryProperties(ref string) (*properties.Registry, error) {
 	return props, nil
 }
 
+// PolicyEvaluator creates a [policy.Evaluator] from the loaded policy config.
+// Returns (nil, nil) if no policy configuration was loaded.
+func (c *Configs) PolicyEvaluator(opts ...policy.EvaluatorOption) (*policy.Evaluator, error) {
+	if c.PolicyConfig == nil {
+		return nil, nil
+	}
+	return policy.NewEvaluator(c.PolicyConfig, opts...)
+}
+
 // CredentialStore creates a [credentials.Store] combining Docker config and
 // containers auth.json credentials. The Docker config store is used as the
 // primary store, with the containers auth store as a fallback.

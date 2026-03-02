@@ -190,12 +190,8 @@ configs, _ := config.LoadConfigs()
 ref := "docker.io/library/nginx:latest"
 builder := remote.NewClientBuilder()
 builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
-builder.PolicyEvaluator, _ = policy.NewEvaluator(configs.PolicyConfig,
-    policy.WithSignedByVerifier(
-        signature.NewSignedByVerifier(
-            signature.NewLookasideStoreFromConfig(configs.RegistriesDConfig, scope),
-        ),
-    ),
+builder.PolicyEvaluator, _ = configs.PolicyEvaluator(
+    policy.WithSignedByVerifier(signature.NewSignedByVerifierFromConfig(configs.RegistriesDConfig, scope)),
 )
 
 // 3. Set up repository — policy is enforced automatically on all operations.
@@ -357,13 +353,9 @@ Image provenance and integrity can be enforced before pulling or running images.
 // Load policy and registries.d config.
 configs, _ := config.LoadConfigs()
 
-// Build verifier from lookaside config.
-sigStore := signature.NewLookasideStoreFromConfig(configs.RegistriesDConfig, scope)
-verifier := signature.NewSignedByVerifier(sigStore)
-
-// Create evaluator with verifier.
-evaluator, _ := policy.NewEvaluator(configs.PolicyConfig,
-    policy.WithSignedByVerifier(verifier),
+// Create evaluator with signature verification from registries.d config.
+evaluator, _ := configs.PolicyEvaluator(
+    policy.WithSignedByVerifier(signature.NewSignedByVerifierFromConfig(configs.RegistriesDConfig, scope)),
 )
 
 // Check policy before allowing the image.

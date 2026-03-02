@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
@@ -35,6 +36,17 @@ type DefaultSignedByVerifier struct {
 // signature store.
 func NewSignedByVerifier(store SignatureStore) *DefaultSignedByVerifier {
 	return &DefaultSignedByVerifier{store: store}
+}
+
+// NewSignedByVerifierFromConfig creates a DefaultSignedByVerifier using
+// lookaside storage configured in registries.d for the given image scope.
+// Returns nil if no lookaside URL is configured for the scope.
+func NewSignedByVerifierFromConfig(cfg *config.RegistriesDConfig, scope string) *DefaultSignedByVerifier {
+	store := NewLookasideStoreFromConfig(cfg, scope)
+	if store == nil {
+		return nil
+	}
+	return NewSignedByVerifier(store)
 }
 
 // Verify implements policy.SignedByVerifier.
