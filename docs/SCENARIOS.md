@@ -59,6 +59,33 @@ Loading the full configuration stack provides significant benefits:
 - **Mirror support** — Respects registry mirrors configured in `registries.conf`, which is essential for enterprise and air-gapped environments.
 - **Ecosystem consistency** — Users configure these files once and expect all registry-interacting tools to respect them.
 
+### Custom Configuration Paths
+
+Use `LoadConfigsWithOptions` to override default paths, or construct a `Configs` struct directly for full control.
+
+```go
+// Load configs from custom paths (missing files are silently skipped).
+configs, _ := config.LoadConfigsWithOptions(config.LoadConfigsOptions{
+    DockerConfigPath:     "/opt/myapp/docker-config.json",
+    RegistriesConfigPath: "/opt/myapp/registries.conf",
+    PolicyConfigPath:     "/opt/myapp/policy.json",
+    CertsDirPaths:        []string{"/opt/myapp/certs.d"},
+})
+```
+
+You can also build a `Configs` directly without calling `LoadConfigs`:
+
+```go
+// Load only what you need and assemble a Configs manually.
+pol, _ := policy.LoadPolicy("/opt/myapp/policy.json")
+dockerCfg, _ := config.Load("/opt/myapp/docker-config.json")
+
+configs := &config.Configs{
+    DockerConfig: dockerCfg,
+    PolicyConfig: pol,
+}
+```
+
 ---
 
 ## 2. Policy Enforcement
