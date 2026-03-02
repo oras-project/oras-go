@@ -59,12 +59,27 @@ Loading the full configuration stack provides significant benefits:
 - **Mirror support** — Respects registry mirrors configured in `registries.conf`, which is essential for enterprise and air-gapped environments.
 - **Ecosystem consistency** — Users configure these files once and expect all registry-interacting tools to respect them.
 
-### Custom Configuration Paths
+### Configuration Loading Options
 
-Use `LoadConfigsWithOptions` to override default paths, or construct a `Configs` struct directly for full control.
+There are three ways to build a `Configs`, each offering a different level of control.
+
+**`LoadConfigs`** searches all default locations automatically. It reads Docker
+`config.json`, containers `auth.json`, `registries.conf`, `policy.json`,
+`registries.d`, and `certs.d` from their standard system and user paths.
+Files that do not exist are silently skipped — the call succeeds even when
+none of the files are present.
 
 ```go
-// Load configs from custom paths (missing files are silently skipped).
+configs, _ := config.LoadConfigs()
+```
+
+**`LoadConfigsWithOptions`** lets you override specific paths. Any path you
+set is used instead of the default for that config. However, fields left
+empty still trigger the default search — for example, omitting
+`DockerConfigPath` still checks `$DOCKER_CONFIG` and `~/.docker/config.json`.
+Missing files (whether default or overridden) are silently skipped.
+
+```go
 configs, _ := config.LoadConfigsWithOptions(config.LoadConfigsOptions{
     DockerConfigPath:     "/opt/myapp/docker-config.json",
     RegistriesConfigPath: "/opt/myapp/registries.conf",
@@ -73,10 +88,12 @@ configs, _ := config.LoadConfigsWithOptions(config.LoadConfigsOptions{
 })
 ```
 
-You can also build a `Configs` directly without calling `LoadConfigs`:
+**Direct construction** gives full control. No default paths are searched
+and no files are read — the struct contains only what you explicitly provide.
+This is useful when you want a subset of configs or are loading them from
+non-file sources.
 
 ```go
-// Load only what you need and assemble a Configs manually.
 pol, _ := policy.LoadPolicy("/opt/myapp/policy.json")
 dockerCfg, _ := config.Load("/opt/myapp/docker-config.json")
 
