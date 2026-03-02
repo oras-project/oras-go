@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
@@ -54,6 +55,9 @@ type Configs struct {
 	// RegistriesConfig is the loaded registries.conf, or nil if not found.
 	RegistriesConfig *RegistriesConfig
 
+	// PolicyConfig is the loaded containers-policy.json, or nil if not found.
+	PolicyConfig *policy.Policy
+
 	// RegistriesDConfig is the loaded registries.d signature storage config,
 	// or nil if no configuration was found.
 	RegistriesDConfig *RegistriesDConfig
@@ -79,6 +83,11 @@ type LoadConfigsOptions struct {
 	// RegistriesConfigPath overrides the registries.conf path.
 	// When empty, the system default locations are searched.
 	RegistriesConfigPath string
+
+	// PolicyConfigPath overrides the containers-policy.json path.
+	// When empty, the default locations are searched
+	// ($HOME/.config/containers/policy.json, then /etc/containers/policy.json).
+	PolicyConfigPath string
 
 	// RegistriesDPath overrides the registries.d directory path.
 	// When empty, the system default locations are searched
@@ -161,6 +170,29 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 			// Not found — leave nil.
 		} else {
 			result.RegistriesConfig = cfg
+		}
+	}
+
+	// Load policy config.
+	policyPath := opts.PolicyConfigPath
+	if policyPath != "" {
+		if _, err := os.Stat(policyPath); err == nil {
+			pol, err := policy.LoadPolicy(policyPath)
+			if err != nil {
+				return nil, err
+			}
+			result.PolicyConfig = pol
+		}
+	} else {
+		defaultPath, err := policy.GetDefaultPolicyPath()
+		if err == nil {
+			if _, err := os.Stat(defaultPath); err == nil {
+				pol, err := policy.LoadPolicy(defaultPath)
+				if err != nil {
+					return nil, err
+				}
+				result.PolicyConfig = pol
+			}
 		}
 	}
 

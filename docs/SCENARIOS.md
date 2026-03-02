@@ -80,12 +80,11 @@ Policy evaluation and signature verification can be added to the configuration-d
 // 1. Load all container ecosystem configs at once.
 configs, _ := config.LoadConfigs()
 
-// 2. Load policy separately and build evaluator.
-pol, _ := policy.LoadDefault()
+// 2. Build a configured client with credentials and policy enforcement.
 ref := "docker.io/library/nginx:latest"
 builder := remote.NewClientBuilder()
 builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
-builder.PolicyEvaluator, _ = policy.NewEvaluator(pol,
+builder.PolicyEvaluator, _ = policy.NewEvaluator(configs.PolicyConfig,
     policy.WithSignedByVerifier(
         signature.NewSignedByVerifier(
             signature.NewLookasideStoreFromConfig(configs.RegistriesDConfig, scope),
@@ -251,14 +250,13 @@ Image provenance and integrity can be enforced before pulling or running images.
 ```go
 // Load policy and registries.d config.
 configs, _ := config.LoadConfigs()
-pol, _ := policy.LoadDefault()
 
 // Build verifier from lookaside config.
 sigStore := signature.NewLookasideStoreFromConfig(configs.RegistriesDConfig, scope)
 verifier := signature.NewSignedByVerifier(sigStore)
 
 // Create evaluator with verifier.
-evaluator, _ := policy.NewEvaluator(pol,
+evaluator, _ := policy.NewEvaluator(configs.PolicyConfig,
     policy.WithSignedByVerifier(verifier),
 )
 
