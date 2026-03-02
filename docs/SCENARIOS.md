@@ -105,7 +105,69 @@ configs := &config.Configs{
 
 ---
 
-## 2. Policy Enforcement
+## 2. CLI Tool with Flag Overrides
+
+CLI tools typically load the full configuration stack and then override specific settings from command-line flags. The library's layered credential resolution and mutable property fields make this straightforward.
+
+### Capabilities Used
+
+- **`config.LoadConfigs`** — Load all container ecosystem configs as a baseline.
+- **`properties.Registry`** — Mutable struct whose transport, credential, and attribute fields can be overridden after creation.
+- **`credentials.Credential`** — Direct credential that takes priority over the credential store when set on properties.
+- **`remote.ClientBuilder`** — Credential store acts as a fallback when no explicit credential is set on properties.
+
+### Typical Flow
+
+```go
+// 1. Load all configs from default locations as a baseline.
+configs, _ := config.LoadConfigs()
+
+// 2. Get config-driven properties for the target reference.
+ref := "registry.example.com/myapp:v1.0"
+props, _ := configs.RegistryProperties(ref)
+
+// 3. Override transport settings from CLI flags.
+if *plainHTTP {
+    props.Transport.PlainHTTP = true
+}
+if *insecure {
+    props.Transport.Insecure = true
+}
+if *caFile != "" {
+    props.Transport.CACerts = append(props.Transport.CACerts, *caFile)
+}
+
+// 4. Override credentials from CLI flags.
+//    When set, props.Credential takes priority over the credential store.
+if *username != "" {
+    props.Credential = credentials.Credential{
+        Username: *username,
+        Password: *password,
+    }
+}
+
+// 5. Build client — config-file credentials act as automatic fallback.
+builder := remote.NewClientBuilder()
+builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
+
+// 6. Create repository and operate.
+repo, _ := remote.NewRepositoryWithProperties(props, builder)
+_, _ = oras.Copy(ctx, repo, ref, localStore, "", oras.DefaultCopyOptions)
+```
+
+### Credential Resolution Order
+
+The `ClientBuilder` resolves credentials in this order:
+
+1. **`props.Credential`** (highest priority) — Explicit credential from CLI flags like `--username`/`--password`.
+2. **`builder.CredentialStore`** (fallback) — Credentials from Docker config.json, containers auth.json, or OS credential helpers.
+3. **Empty credential** — No authentication if neither source provides credentials.
+
+This means CLI flags always win when provided, and config-file credentials are used automatically when they are not.
+
+---
+
+## 3. Policy Enforcement
 
 Policy evaluation and signature verification can be added to the configuration-driven workflow to enforce allow/deny decisions before pulling images.
 
@@ -146,7 +208,7 @@ _, _ = oras.Copy(ctx, repo, ref, localStore, "", oras.DefaultCopyOptions)
 
 ---
 
-## 3. Artifact Packing and Distribution
+## 4. Artifact Packing and Distribution
 
 OCI artifacts such as binaries, SBOMs, Helm charts, and WASM modules can be packed into manifests and pushed to registries.
 
@@ -181,7 +243,7 @@ oras.TagN(ctx, repo, desc.Digest.String(), []string{"v1.2", "v1", "latest"}, ora
 
 ---
 
-## 4. Registry Mirroring and Replication
+## 5. Registry Mirroring and Replication
 
 Registries can be mirrored for air-gapped environments, caching, or compliance.
 
@@ -212,7 +274,7 @@ desc, _ := oras.Copy(ctx, srcRepo, "latest", dstRepo, "latest", opts)
 
 ---
 
-## 5. OCI Layout and Local Storage
+## 6. OCI Layout and Local Storage
 
 OCI artifacts can be stored and manipulated offline using local storage backends.
 
@@ -246,7 +308,7 @@ _, _ = oras.Copy(ctx, ociStore, "latest", dstRepo, "latest", oras.DefaultCopyOpt
 
 ---
 
-## 6. Credential Management
+## 7. Credential Management
 
 Registry credentials can be managed across Docker, Podman, and native platform keystores.
 
@@ -276,7 +338,7 @@ repo.Registry.Client = client
 
 ---
 
-## 7. Image Signature Verification
+## 8. Image Signature Verification
 
 Image provenance and integrity can be enforced before pulling or running images.
 
@@ -317,7 +379,7 @@ if !allowed {
 
 ---
 
-## 8. Library Integration and Middleware
+## 9. Library Integration and Middleware
 
 oras-go can be wrapped with middleware to add cross-cutting concerns.
 
@@ -353,6 +415,7 @@ repo := middleware(baseRepo)
 | Scenario | Key Packages | Config Loading | Policy | Signatures |
 |---|---|---|---|---|
 | Full config stack | `oras`, `remote`, `config`, `credentials` | Full stack | Optional | No |
+| CLI tool with flag overrides | `oras`, `remote`, `config`, `credentials`, `properties` | Full stack + overrides | Optional | No |
 | Policy enforcement | `oras`, `remote`, `config`, `policy`, `signature` | Full stack | Yes | Yes |
 | Artifact distribution | `oras`, `remote`, `memory` | Optional | No | No |
 | Registry mirroring | `oras`, `remote` | Optional | No | No |
