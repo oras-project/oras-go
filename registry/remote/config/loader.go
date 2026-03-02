@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
-	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
@@ -37,13 +36,6 @@ const (
 	containersConfigDir = "containers"
 	// xdgRuntimeDirEnv is the XDG runtime directory environment variable.
 	xdgRuntimeDirEnv = "XDG_RUNTIME_DIR"
-
-	// PolicyConfUserDir is the user-level configuration directory for policy.json
-	PolicyConfUserDir = ".config/containers"
-	// PolicyConfFileName is the name of the policy configuration file
-	PolicyConfFileName = "policy.json"
-	// PolicyConfSystemPath is the system-wide policy.json path
-	PolicyConfSystemPath = "/etc/containers/policy.json"
 )
 
 // Configs holds loaded configuration from Docker config.json and
@@ -61,9 +53,6 @@ type Configs struct {
 
 	// RegistriesConfig is the loaded registries.conf, or nil if not found.
 	RegistriesConfig *RegistriesConfig
-
-	// PolicyConfig is the loaded containers-policy.json, or nil if not found.
-	PolicyConfig *policy.Policy
 
 	// RegistriesDConfig is the loaded registries.d signature storage config,
 	// or nil if no configuration was found.
@@ -90,11 +79,6 @@ type LoadConfigsOptions struct {
 	// RegistriesConfigPath overrides the registries.conf path.
 	// When empty, the system default locations are searched.
 	RegistriesConfigPath string
-
-	// PolicyConfigPath overrides the containers-policy.json path.
-	// When empty, the default locations are searched
-	// ($HOME/.config/containers/policy.json, then /etc/containers/policy.json).
-	PolicyConfigPath string
 
 	// RegistriesDPath overrides the registries.d directory path.
 	// When empty, the system default locations are searched
@@ -180,29 +164,6 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 		}
 	}
 
-	// Load policy config.
-	policyPath := opts.PolicyConfigPath
-	if policyPath != "" {
-		if _, err := os.Stat(policyPath); err == nil {
-			pol, err := policy.LoadPolicy(policyPath)
-			if err != nil {
-				return nil, err
-			}
-			result.PolicyConfig = pol
-		}
-	} else {
-		defaultPath, err := getDefaultPolicyPath()
-		if err == nil {
-			if _, err := os.Stat(defaultPath); err == nil {
-				pol, err := policy.LoadPolicy(defaultPath)
-				if err != nil {
-					return nil, err
-				}
-				result.PolicyConfig = pol
-			}
-		}
-	}
-
 	// Load registries.d signature storage config.
 	if opts.RegistriesDPath != "" {
 		if _, err := os.Stat(opts.RegistriesDPath); err == nil {
@@ -282,34 +243,6 @@ func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.St
 		return stores[0], nil
 	}
 	return credentials.NewStoreWithFallbacks(stores[0], stores[1:]...), nil
-}
-
-// PolicyEvaluator creates a policy.Evaluator from the loaded policy config.
-// Returns (nil, nil) if no policy configuration was loaded.
-func (c *Configs) PolicyEvaluator(opts ...policy.EvaluatorOption) (*policy.Evaluator, error) {
-	if c.PolicyConfig == nil {
-		return nil, nil
-	}
-	return policy.NewEvaluator(c.PolicyConfig, opts...)
-}
-
-// getDefaultPolicyPath returns the default path to policy.json.
-// It checks $HOME/.config/containers/policy.json first, then falls back to
-// /etc/containers/policy.json.
-func getDefaultPolicyPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get user home directory: %w", err)
-	}
-
-	// Try user-specific path first
-	userPath := filepath.Join(homeDir, PolicyConfUserDir, PolicyConfFileName)
-	if _, err := os.Stat(userPath); err == nil {
-		return userPath, nil
-	}
-
-	// Fall back to system-wide path
-	return PolicyConfSystemPath, nil
 }
 
 // defaultDockerConfigPath returns the default Docker config.json path.

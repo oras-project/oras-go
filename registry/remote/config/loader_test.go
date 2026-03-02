@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
-	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
 func TestLoadConfigs_BothPresent(t *testing.T) {
@@ -518,47 +517,3 @@ func TestConfigs_CredentialStore_NoneLoaded(t *testing.T) {
 	}
 }
 
-func TestConfigs_PolicyEvaluator_NilPolicy(t *testing.T) {
-	configs := &Configs{}
-
-	evaluator, err := configs.PolicyEvaluator()
-	if err != nil {
-		t.Fatalf("PolicyEvaluator() error: %v", err)
-	}
-	if evaluator != nil {
-		t.Error("PolicyEvaluator() should return nil when PolicyConfig is nil")
-	}
-}
-
-func TestConfigs_PolicyEvaluator_WithPolicy(t *testing.T) {
-	configs := &Configs{
-		PolicyConfig: &policy.Policy{
-			Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
-		},
-	}
-
-	evaluator, err := configs.PolicyEvaluator()
-	if err != nil {
-		t.Fatalf("PolicyEvaluator() error: %v", err)
-	}
-	if evaluator == nil {
-		t.Fatal("PolicyEvaluator() should return a valid evaluator")
-	}
-}
-
-func TestConfigs_PolicyEvaluator_WithOptions(t *testing.T) {
-	configs := &Configs{
-		PolicyConfig: &policy.Policy{
-			Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
-		},
-	}
-
-	// Pass an option to verify it's wired through.
-	evaluator, err := configs.PolicyEvaluator(policy.WithSignedByVerifier(nil))
-	if err != nil {
-		t.Fatalf("PolicyEvaluator() error: %v", err)
-	}
-	if evaluator == nil {
-		t.Fatal("PolicyEvaluator() should return a valid evaluator")
-	}
-}
