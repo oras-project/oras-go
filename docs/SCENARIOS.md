@@ -239,7 +239,66 @@ oras.TagN(ctx, repo, desc.Digest.String(), []string{"v1.2", "v1", "latest"}, ora
 
 ---
 
-## 5. Registry Mirroring and Replication
+## 5. Object-Oriented Artifacts (Experimental)
+
+The `objects` package provides a higher-level, type-safe API for building and navigating OCI artifacts. It uses fluent builders and typed models instead of raw descriptors, and handles blob pushing and manifest construction in a single step.
+
+### Capabilities Used
+
+- **`objects.Client`** — Entry point wrapping any ORAS storage implementation with caching and lazy loading.
+- **`objects.BuildArtifact`** — Fluent builder for OCI artifact manifests.
+- **`objects.BuildImage`** — Fluent builder for container images with config, layers, and platform.
+- **`objects.BuildIndex`** — Fluent builder for multi-platform manifest indexes.
+- **`objects.FetchByReference`** — Fetch and navigate typed models (Artifact, Image, Index, Blob).
+
+### Typical Flow
+
+```go
+// Create an objects client wrapping any ORAS store.
+client := objects.NewClient(store)
+
+// Build and push an artifact in one step — no separate memory store or Copy needed.
+artifact, _ := client.BuildArtifact("application/vnd.example.sbom.v1").
+    AddBlob(client.NewBlob("application/json", configData)).
+    AddBlob(client.NewBlob("application/octet-stream", payload)).
+    WithAnnotation("org.opencontainers.image.created", time.Now().Format(time.RFC3339)).
+    BuildAndPush(ctx, "registry.example.com/builds/sbom:v1.2.3")
+
+// Fetch and navigate relationships.
+manifest, _ := client.FetchByReference(ctx, "registry.example.com/myimage:latest")
+image := manifest.(*models.Image)
+layers, _ := image.Layers(ctx)
+config, _ := image.Config(ctx)
+```
+
+### Multi-Platform Images
+
+```go
+amd64Image, _ := client.BuildImage().
+    WithConfig(amd64Config).
+    AddLayer(amd64Layer).
+    WithPlatform(&ocispec.Platform{Architecture: "amd64", OS: "linux"}).
+    Build(ctx)
+
+arm64Image, _ := client.BuildImage().
+    WithConfig(arm64Config).
+    AddLayer(arm64Layer).
+    WithPlatform(&ocispec.Platform{Architecture: "arm64", OS: "linux"}).
+    Build(ctx)
+
+index, _ := client.BuildIndex().
+    AddManifest(amd64Image).
+    AddManifest(arm64Image).
+    BuildAndPush(ctx, "registry.example.com/myimage:latest")
+```
+
+### Comparison with Core APIs
+
+The objects package sits on top of the core ORAS APIs. Use the core APIs (`PackManifest` + `Copy`) when you need fine-grained control over the copy graph, hooks, or cross-repository blob mounting. Use the objects package when you want a simpler, more declarative interface for building and navigating artifacts.
+
+---
+
+## 6. Registry Mirroring and Replication
 
 Registries can be mirrored for air-gapped environments, caching, or compliance.
 
@@ -270,7 +329,7 @@ desc, _ := oras.Copy(ctx, srcRepo, "latest", dstRepo, "latest", opts)
 
 ---
 
-## 6. OCI Layout and Local Storage
+## 7. OCI Layout and Local Storage
 
 OCI artifacts can be stored and manipulated offline using local storage backends.
 
@@ -304,7 +363,7 @@ _, _ = oras.Copy(ctx, ociStore, "latest", dstRepo, "latest", oras.DefaultCopyOpt
 
 ---
 
-## 7. Credential Management
+## 8. Credential Management
 
 Registry credentials can be managed across Docker, Podman, and native platform keystores.
 
@@ -334,7 +393,7 @@ repo.Registry.Client = client
 
 ---
 
-## 8. Image Signature Verification
+## 9. Image Signature Verification
 
 Image provenance and integrity can be enforced before pulling or running images.
 
@@ -371,7 +430,7 @@ if !allowed {
 
 ---
 
-## 9. Library Integration and Middleware
+## 10. Library Integration and Middleware
 
 oras-go can be wrapped with middleware to add cross-cutting concerns.
 
@@ -410,6 +469,7 @@ repo := middleware(baseRepo)
 | CLI tool with flag overrides | `oras`, `remote`, `config`, `credentials`, `properties` | Full stack + overrides | Optional | No |
 | Policy enforcement | `oras`, `remote`, `config`, `policy`, `signature` | Full stack | Yes | Yes |
 | Artifact distribution | `oras`, `remote`, `memory` | Optional | No | No |
+| Object-oriented artifacts | `objects`, `memory` | Optional | No | No |
 | Registry mirroring | `oras`, `remote` | Optional | No | No |
 | OCI local storage | `oras`, `oci`, `file`, `memory` | None | No | No |
 | Credential management | `credentials`, `auth`, `config` | Docker + containers auth | No | No |
