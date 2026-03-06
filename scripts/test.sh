@@ -23,6 +23,12 @@ trap "rm -rf .test/" EXIT
 
 export CGO_ENABLED=0
 for pkg in `go list ./pkg/... | grep -v /vendor/`; do
+    # Skip packages with no test files to avoid Go 1.25+ covdata tool
+    # issues when running with an auto-downloaded toolchain.
+    test_count=$(go list -f '{{len .TestGoFiles}}+{{len .XTestGoFiles}}' "$pkg" | bc)
+    if [ "$test_count" -eq 0 ]; then
+        continue
+    fi
     go test -v -covermode=atomic \
         -coverprofile=".cover/$(echo $pkg | sed 's/\//_/g').cover.out" $pkg
 done
