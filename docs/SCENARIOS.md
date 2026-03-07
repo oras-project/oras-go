@@ -363,7 +363,59 @@ _, _ = oras.Copy(ctx, ociStore, "latest", dstRepo, "latest", oras.DefaultCopyOpt
 
 ---
 
-## 8. Credential Management
+## 8. Transparent Content Caching
+
+Content fetched from remote registries can be cached locally to avoid redundant downloads. The `content/cache` package wraps any `ReadOnlyTarget` with a cache layer backed by any `content.Storage` (OCI layout, memory, etc.).
+
+### Capabilities Used
+
+- **`cache.CacheReadOnlyTarget`** — Wraps a `ReadOnlyTarget` with a cache: checks local cache before fetching from source, and caches content while reading.
+- **`cache.Cache` / `cache.NewFromEnv`** — Helper that reads the `ORAS_CACHE` environment variable and creates a file-backed cached target using an OCI storage backend.
+- **`content/oci.NewStorage`** — Process-safe OCI storage used as the cache backing store (unlike `oci.New`, it omits `index.json` writes so concurrent processes do not corrupt each other).
+
+### Typical Flow
+
+```go
+// Option 1: environment variable-driven (mirrors ORAS CLI behaviour).
+// Returns nil if ORAS_CACHE is unset, so callers can skip wrapping.
+c := cache.NewFromEnv()
+if c != nil {
+    repo, err = c.ReadOnlyTarget(repo)
+}
+
+// Option 2: explicit cache directory.
+c := &cache.Cache{Root: "/var/cache/oras"}
+cachedRepo, err := c.ReadOnlyTarget(repo)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Option 3: bring your own storage (e.g. in-memory for tests).
+memCache := memory.New()
+cachedRepo := cache.CacheReadOnlyTarget(repo, memCache)
+
+// Use cachedRepo like any ReadOnlyTarget.
+desc, rc, err := cachedRepo.(registry.ReferenceFetcher).FetchReference(ctx, "latest")
+```
+
+### How Caching Works
+
+- **`Fetch`** — Checks the cache first. On a miss, streams content from the source and writes it to the cache while the caller reads. Subsequent fetches of the same digest are served entirely from cache.
+- **`FetchReference`** — Resolves the reference to a descriptor via a lightweight HEAD request, then checks the cache. On a cache hit, no content body is downloaded from the source. On a miss, fetches from source and caches while reading.
+- **`Exists`** — Returns `true` if content is present in either cache or source.
+
+### When to Use `oci.NewStorage` vs `oci.New`
+
+Use `oci.NewStorage` (not `oci.New`) when the cache directory may be accessed by multiple processes concurrently. `oci.New` maintains an `index.json` file that is not safe for concurrent writes; `oci.NewStorage` omits it, making it safe for shared use as a content-addressed cache.
+
+### Limitations
+
+- The cache wraps `ReadOnlyTarget` only — push and tag operations always go directly to the source.
+- If the source implements `registry.ReferenceFetcher`, the cached target also exposes `FetchReference` with caching. Other optional interfaces are not promoted.
+
+---
+
+## 9. Credential Management
 
 Registry credentials can be managed across Docker, Podman, and native platform keystores.
 
@@ -393,7 +445,7 @@ repo.Registry.Client = client
 
 ---
 
-## 9. Image Signature Verification
+## 10. Image Signature Verification
 
 Image provenance and integrity can be enforced before pulling or running images.
 
@@ -430,7 +482,7 @@ if !allowed {
 
 ---
 
-## 10. Library Integration and Middleware
+## 11. Library Integration and Middleware
 
 oras-go can be wrapped with middleware to add cross-cutting concerns.
 
@@ -472,6 +524,7 @@ repo := middleware(baseRepo)
 | Object-oriented artifacts | `objects`, `memory` | Optional | No | No |
 | Registry mirroring | `oras`, `remote` | Optional | No | No |
 | OCI local storage | `oras`, `oci`, `file`, `memory` | None | No | No |
+| Content caching | `content/cache`, `content/oci` | Optional (env var) | No | No |
 | Credential management | `credentials`, `auth`, `config` | Docker + containers auth | No | No |
 | Signature verification | `config`, `policy`, `signature` | Policy + registries.d | Yes | Yes |
 | Middleware | `remote`, `policy` | Varies | Optional | Optional |

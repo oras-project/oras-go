@@ -126,34 +126,31 @@ type referenceTarget struct {
 }
 
 // FetchReference fetches the content identified by the reference.
-// It must fetch from the source to resolve the reference to a descriptor,
-// but returns cached content if available. Newly fetched content is cached
-// while being read.
+// It first resolves the reference to a descriptor via a lightweight HEAD
+// request, then serves from the local cache if available. On a cache miss,
+// the content is fetched from the source and cached while being read.
+//
+// Trade-off: a cache miss requires one extra HEAD request (Resolve) compared
+// to a direct FetchReference call. Cache hits avoid downloading any content
+// body from the source.
 func (t *referenceTarget) FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error) {
-	// Must fetch from source to resolve the reference to a descriptor
-	desc, rc, err := t.ReferenceFetcher.FetchReference(ctx, reference)
+	// Resolve via HEAD to get the descriptor without downloading content.
+	desc, err := t.Resolve(ctx, reference)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	// Check if content already exists in cache
-	exists, err := t.cache.Exists(ctx, desc)
-	if err != nil {
-		rc.Close()
-		return ocispec.Descriptor{}, nil, err
-	}
-	if exists {
-		// Close the remote reader and serve from cache instead
-		if err := rc.Close(); err != nil {
-			return ocispec.Descriptor{}, nil, err
-		}
-		rc, err = t.cache.Fetch(ctx, desc)
-		if err != nil {
-			return ocispec.Descriptor{}, nil, err
-		}
+	// Cache hit: serve from cache without issuing a GET to the source.
+	if rc, err := t.cache.Fetch(ctx, desc); err == nil {
 		return desc, rc, nil
 	}
 
-	// Cache the content while reading
-	return desc, t.cacheReadCloser(ctx, rc, desc), nil
+	// Cache miss: fetch from source and cache while reading.
+	// Use the descriptor returned by FetchReference (not Resolve) to handle
+	// the case where the tag was updated between the two calls.
+	fetchedDesc, rc, err := t.ReferenceFetcher.FetchReference(ctx, reference)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	return fetchedDesc, t.cacheReadCloser(ctx, rc, fetchedDesc), nil
 }
