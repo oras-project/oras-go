@@ -17,9 +17,8 @@ package registry
 
 import (
 	"fmt"
-	"strings"
 
-	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // ParseReferenceList parses a string containing a base reference with
@@ -35,50 +34,24 @@ import (
 //
 // All references in the list must be of the same type (either all tags or all digests).
 func ParseReferenceList(artifact string) ([]Reference, error) {
-	registry, path := splitRegistry(artifact)
-	if path == "" {
-		return nil, fmt.Errorf("%w: missing registry or repository", errdef.ErrInvalidReference)
+	ps, err := properties.NewReferenceList(artifact)
+	if err != nil {
+		return nil, fmt.Errorf("%w", err)
 	}
 
-	repository, digestRef, tagRef := splitRepository(path)
-
-	// Determine if we have tags or digests
-	references := tagRef
-	isTag := tagRef != ""
-	if !isTag {
-		references = digestRef
-	}
-
-	delimiter := "@"
-	if isTag {
-		delimiter = ":"
-	}
-	base := registry + "/" + repository
-
-	// Split the reference part by commas
-	refItems := strings.Split(references, ",")
-	if len(refItems) == 0 {
-		return nil, fmt.Errorf("%w: empty reference list", errdef.ErrInvalidReference)
-	}
-
-	// Create a Reference for each item
-	refs := make([]Reference, 0, len(refItems))
-	for _, item := range refItems {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			return nil, fmt.Errorf("%w: empty reference in list", errdef.ErrInvalidReference)
+	refs := make([]Reference, 0, len(ps))
+	for _, p := range ps {
+		reference := p.Digest
+		if reference == "" {
+			reference = p.Tag
 		}
-
-		// Construct the full reference string
-		fullRef := base + delimiter + item
-
-		// Parse the reference
-		ref, err := ParseReference(fullRef)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse reference %q: %w", fullRef, err)
-		}
-
-		refs = append(refs, ref)
+		refs = append(refs, Reference{
+			Registry:   p.Registry,
+			Repository: p.Repository,
+			Reference:  reference,
+			Tag:        p.Tag,
+			Digest:     p.Digest,
+		})
 	}
 
 	return refs, nil

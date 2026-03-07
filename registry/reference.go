@@ -23,6 +23,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // regular expressions for components.
@@ -147,86 +148,23 @@ type Reference struct {
 // Deprecated: Use [github.com/oras-project/oras-go/v3/registry/remote/properties.NewReference] instead.
 // This function will be removed in a future version.
 func ParseReference(artifact string) (Reference, error) {
-	// Strip URI schemes if present
-	artifact = strings.TrimPrefix(artifact, "oci://")
-	artifact = strings.TrimPrefix(artifact, "http://")
-	artifact = strings.TrimPrefix(artifact, "https://")
-
-	registry, path := splitRegistry(artifact)
-	if path == "" {
-		return Reference{}, fmt.Errorf("%w: missing registry or repository", errdef.ErrInvalidReference)
+	p, err := properties.NewReference(artifact)
+	if err != nil {
+		return Reference{}, err
 	}
 
-	repository, digestStr, tag := splitRepository(path)
-
-	// Determine the reference value (digest takes precedence over tag)
-	reference := digestStr
+	reference := p.Digest
 	if reference == "" {
-		reference = tag
+		reference = p.Tag
 	}
 
-	ref := Reference{
-		Registry:   registry,
-		Repository: repository,
+	return Reference{
+		Registry:   p.Registry,
+		Repository: p.Repository,
 		Reference:  reference,
-		Tag:        tag,
-		Digest:     digestStr,
-	}
-
-	if err := ref.ValidateRegistry(); err != nil {
-		return Reference{}, err
-	}
-
-	if err := ref.ValidateRepository(); err != nil {
-		return Reference{}, err
-	}
-
-	if len(ref.Reference) == 0 {
-		return ref, nil
-	}
-
-	validator := ref.ValidateReferenceAsDigest
-	if digestStr == "" {
-		validator = ref.ValidateReferenceAsTag
-	}
-	if err := validator(); err != nil {
-		return Reference{}, err
-	}
-
-	return ref, nil
-}
-
-// splitRepository splits the path into repository, digest, and tag.
-func splitRepository(path string) (repository, digest, tag string) {
-	if index := strings.Index(path, "@"); index != -1 {
-		// `digest` found; Valid Form A (if not B)
-		repository = path[:index]
-		digest = path[index+1:]
-
-		if index = strings.Index(repository, ":"); index != -1 {
-			// `tag` found since `digest` already present; Valid Form B
-			// Extract and save the tag before removing it from repository
-			tag = repository[index+1:]
-			repository = repository[:index]
-		}
-		return repository, digest, tag
-	}
-
-	if index := strings.Index(path, ":"); index != -1 {
-		// `tag` found; Valid Form C
-		return path[:index], "", path[index+1:]
-	}
-
-	// empty `reference`; Valid Form D
-	return path, "", ""
-}
-
-func splitRegistry(artifact string) (string, string) {
-	parts := strings.SplitN(artifact, "/", 2)
-	if len(parts) == 1 {
-		return parts[0], ""
-	}
-	return parts[0], parts[1]
+		Tag:        p.Tag,
+		Digest:     p.Digest,
+	}, nil
 }
 
 // Validate the entire reference object; the registry, the repository, and the
