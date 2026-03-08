@@ -68,8 +68,15 @@ func Logout(ctx context.Context, store credentials.Store, registryName string) e
 	return nil
 }
 
-// GetCredentialFunc returns a GetCredentialFunc() function that can be used by auth.Client.
+// GetCredentialFunc returns a CredentialFunc that retrieves credentials from
+// the given store. If store is nil, the returned function always returns
+// EmptyCredential without error.
 func GetCredentialFunc(store credentials.Store) credentials.CredentialFunc {
+	if store == nil {
+		return func(context.Context, string) (credentials.Credential, error) {
+			return credentials.EmptyCredential, nil
+		}
+	}
 	return func(ctx context.Context, hostport string) (credentials.Credential, error) {
 		hostport = ServerAddressFromHostname(hostport)
 		if hostport == "" {
