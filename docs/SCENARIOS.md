@@ -488,10 +488,10 @@ oras-go can be wrapped with middleware to add cross-cutting concerns.
 
 ### Capabilities Used
 
-- **`remote.RepositoryMiddleware`** — Wrap repositories with additional behavior (logging, metrics, policy, warning handling).
+- **`remote.RepositoryMiddleware`** — Wrap repositories with additional behavior (metrics, policy, tracing).
 - **`remote.Compose`** — Chain multiple middlewares together.
 - **`remote.WithPolicyEnforcement`** — Built-in middleware for applying container policy checks.
-- **`remote.WithWarningHandler`** — Built-in middleware for processing registry warnings.
+- **`Registry.HandleWarning`** — Callback invoked for each RFC 7234 `Warning` header returned by the registry.
 - **`CopyOptions.PolicyCheck`** — Callback hook for policy enforcement in the copy path.
 - **`CopyGraphOptions.PreCopy` / `PostCopy` / `OnCopySkipped`** — Hooks for custom logic during graph traversal.
 
@@ -501,15 +501,119 @@ oras-go can be wrapped with middleware to add cross-cutting concerns.
 // Compose middlewares for a production repository client.
 middleware := remote.Compose(
     remote.WithPolicyEnforcement(evaluator, "docker", scope),
-    remote.WithWarningHandler(func(w remote.Warning) {
-        log.Printf("Registry warning: %s", w.Text)
-    }),
-    myCustomLoggingMiddleware(),
+    myMetricsMiddleware(),
 )
 
 baseRepo, _ := remote.NewRepository("registry.example.com/app")
 repo := middleware(baseRepo)
+
+// Handle registry deprecation warnings.
+repo.Registry.HandleWarning = func(w remote.Warning) {
+    log.Printf("Registry warning: %s", w.Text)
+}
 ```
+
+---
+
+## 12. Retry Transport
+
+The `retry` package provides an `http.RoundTripper` that automatically retries failed requests with exponential backoff. It is a thin wrapper around any inner transport and is safe to compose with other transports.
+
+### Capabilities Used
+
+- **`retry.NewTransport`** — Wraps an `http.RoundTripper` with the default retry policy (retries on 429, 500, 502, 503, 504 and network errors).
+- **`retry.NewClient`** — Convenience function returning an `*http.Client` with the retry transport already wired.
+- **`retry.Policy`** — Interface for custom retry/backoff logic; replace `Transport.Policy` to override defaults.
+
+### Typical Flow
+
+```go
+// Option 1: use the pre-built retry client directly.
+repo, _ := remote.NewRepository("registry.example.com/app")
+repo.Registry.Client = retry.NewClient()
+
+// Option 2: wrap an existing transport (e.g. one with custom TLS config).
+tlsTransport := &http.Transport{TLSClientConfig: tlsConfig}
+repo.Registry.Client = &auth.Client{
+    Client: &http.Client{
+        Transport: retry.NewTransport(tlsTransport),
+    },
+    Credential: remote.GetCredentialFunc(store),
+}
+
+// Option 3: custom retry policy.
+repo.Registry.Client = &auth.Client{
+    Client: &http.Client{
+        Transport: &retry.Transport{
+            Base: http.DefaultTransport,
+            Policy: func() retry.Policy { return myPolicy },
+        },
+    },
+}
+```
+
+### Default Retry Behaviour
+
+The default policy retries up to 5 times with exponential backoff (capped at 30 s) on:
+- HTTP 429 Too Many Requests (respects `Retry-After` header)
+- HTTP 500, 502, 503, 504
+- Network-level errors (connection refused, EOF, etc.)
+
+Requests with bodies are only retried when `Request.GetBody` is set, so the body can be rewound.
+
+---
+
+## 13. Debug Logging Transport
+
+The `LoggingTransport` wraps any `http.RoundTripper` and logs every HTTP request and response at `slog.LevelDebug` using the standard library `log/slog` package — no additional dependencies required.
+
+Because oras-go performs concurrent HTTP requests (parallel blob fetches, manifest resolution, referrers listing), each request/response pair is assigned a sequential integer ID so that log lines from different goroutines can be correlated even when interleaved.
+
+### Capabilities Used
+
+- **`remote.NewLoggingTransport`** — Wraps an inner transport with debug logging; accepts an optional `*slog.Logger` (defaults to `slog.Default()`).
+- **`log/slog`** (stdlib) — Structured logging; configure a handler to write JSON, text, or any custom format.
+
+### Typical Flow
+
+```go
+// Minimal: log to stderr using the default slog handler.
+repo, _ := remote.NewRepository("registry.example.com/app")
+repo.Registry.Client = &auth.Client{
+    Client: &http.Client{
+        Transport: remote.NewLoggingTransport(http.DefaultTransport, nil),
+    },
+    Credential: remote.GetCredentialFunc(store),
+}
+
+// With a custom JSON logger.
+jsonLogger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+}))
+transport := remote.NewLoggingTransport(http.DefaultTransport, jsonLogger)
+```
+
+### Composing Retry and Logging
+
+Place `LoggingTransport` outside `retry.Transport` to log every attempt, or inside to log only successful round trips. Typically you want every attempt logged:
+
+```go
+// Logs each attempt; retries are visible as separate request/response pairs.
+transport := remote.NewLoggingTransport(retry.NewTransport(nil), nil)
+
+repo.Registry.Client = &auth.Client{
+    Client:     &http.Client{Transport: transport},
+    Credential: remote.GetCredentialFunc(store),
+}
+```
+
+### Safety
+
+- `Authorization` and `Set-Cookie` headers are replaced with `*****`.
+- Response bodies containing `"token"` or `"access_token"` fields are redacted.
+- Only `application/json`, `text/plain`, `text/html`, and `*+json` content types are printed.
+- Body reads are capped at 16 KiB; larger bodies are truncated.
+- The response body is fully restored after logging so callers see the complete body.
 
 ---
 
@@ -528,3 +632,5 @@ repo := middleware(baseRepo)
 | Credential management | `credentials`, `auth`, `config` | Docker + containers auth | No | No |
 | Signature verification | `config`, `policy`, `signature` | Policy + registries.d | Yes | Yes |
 | Middleware | `remote`, `policy` | Varies | Optional | Optional |
+| Retry transport | `remote/retry` | None | No | No |
+| Debug logging transport | `remote` | None | No | No |
