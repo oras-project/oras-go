@@ -1,6 +1,6 @@
 # ORAS Go Library — Usage Scenarios
 
-This document describes the primary scenarios where oras-go is used and how the library's features map to each scenario. It is intended for contributors, integrators, and anyone evaluating oras-go for their project.
+This document describes the primary scenarios where oras-go is used and how the library's features map to each scenario. It is targeted for contributors, integrators, and anyone evaluating oras-go for their project.
 
 ---
 
