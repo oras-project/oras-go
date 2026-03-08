@@ -265,6 +265,10 @@ func NewRegistryWithProperties(props *properties.Registry, builder *ClientBuilde
 		Policy:    builder.PolicyEvaluator,
 	}
 
+	if builder.Logger != nil {
+		reg.HandleWarning = NewWarningLogger(props.Reference.Registry, builder.Logger)
+	}
+
 	return reg, nil
 }
 
@@ -290,6 +294,10 @@ func NewRepositoryWithProperties(props *properties.Registry, builder *ClientBuil
 		Reference: registry.Reference{Registry: props.Reference.Registry},
 		PlainHTTP: props.Transport.PlainHTTP,
 		Policy:    builder.PolicyEvaluator,
+	}
+
+	if builder.Logger != nil {
+		reg.HandleWarning = NewWarningLogger(props.Reference.Registry, builder.Logger)
 	}
 
 	// Create repository
