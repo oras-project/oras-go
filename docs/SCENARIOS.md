@@ -74,7 +74,7 @@ configs, _ := config.LoadConfigs()
 ```
 
 **`LoadConfigsWithOptions`** lets you override specific paths. Any path you
-set is used instead of the default for that config. However, fields left
+set is used instead of the default for that config type. However, fields left
 empty still trigger the default search — for example, omitting
 `DockerConfigPath` still checks `$DOCKER_CONFIG` and `~/.docker/config.json`.
 Missing files (whether default or overridden) are silently skipped.
