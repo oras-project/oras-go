@@ -40,10 +40,12 @@ func Ingest(dir string, content io.Reader) (path string, ingestErr error) {
 	}()
 
 	if err := tempFile.Chmod(0600); err != nil {
-		return "", fmt.Errorf("failed to ensure permission: %w", err)
+		ingestErr = fmt.Errorf("failed to ensure permission: %w", err)
+		return
 	}
 	if _, err := io.Copy(tempFile, content); err != nil {
-		return "", fmt.Errorf("failed to ingest: %w", err)
+		ingestErr = fmt.Errorf("failed to ingest: %w", err)
+		return
 	}
 	return
 }
