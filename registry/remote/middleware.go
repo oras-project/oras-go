@@ -54,17 +54,6 @@ func WithPolicyEnforcement(evaluator *policy.Evaluator, transport policy.Transpo
 	}
 }
 
-// WithWarningHandler creates a middleware that processes warnings from repository operations.
-// The handler function is called for each warning received.
-func WithWarningHandler(handler func(Warning)) RepositoryMiddleware {
-	return func(repo registry.Repository) registry.Repository {
-		return &warningHandlerRepository{
-			Repository: repo,
-			handler:    handler,
-		}
-	}
-}
-
 // policyEnforcingRepository wraps a Repository and enforces policy on all operations.
 type policyEnforcingRepository struct {
 	registry.Repository
@@ -235,20 +224,3 @@ func (s *policyEnforcingManifestStore) Tag(ctx context.Context, desc ocispec.Des
 	return s.ManifestStore.Tag(ctx, desc, reference)
 }
 
-// warningHandlerRepository wraps a Repository and processes warnings.
-type warningHandlerRepository struct {
-	registry.Repository
-	handler func(Warning)
-}
-
-// Blobs returns the underlying blob store.
-// Warnings are processed at the Repository level through the underlying client.
-func (r *warningHandlerRepository) Blobs() registry.BlobStore {
-	return r.Repository.Blobs()
-}
-
-// Manifests returns the underlying manifest store.
-// Warnings are processed at the Repository level through the underlying client.
-func (r *warningHandlerRepository) Manifests() registry.ManifestStore {
-	return r.Repository.Manifests()
-}

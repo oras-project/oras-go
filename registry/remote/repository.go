@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -142,8 +143,8 @@ type Repository struct {
 	// NOTE: Must keep fields in sync with clone().
 
 	// referrersCapability tracks if the repository supports Referrers API.
-	// This is lazily initialized on first access.
-	referrersCapability *ReferrerCapability
+	// Lazily initialized via atomic CAS on first access; safe for concurrent use.
+	referrersCapability atomic.Pointer[ReferrerCapability]
 
 	// referrersPingLock locks the pingReferrers() method and allows only
 	// one go-routine to send the request.
@@ -151,7 +152,8 @@ type Repository struct {
 
 	// referrersMergePool provides a way to manage concurrent updates to a
 	// referrers index tagged by referrers tag schema.
-	referrersMergePool *ReferrerMergePool
+	// Lazily initialized via atomic CAS on first access; safe for concurrent use.
+	referrersMergePool atomic.Pointer[ReferrerMergePool]
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -308,11 +310,13 @@ func (r *Repository) SetReferrersCapability(capable bool) {
 }
 
 // getReferrersCapability returns the referrers capability, initializing it if needed.
+// Safe for concurrent use: uses atomic CAS to ensure only one instance is created.
 func (r *Repository) getReferrersCapability() *ReferrerCapability {
-	if r.referrersCapability == nil {
-		r.referrersCapability = NewReferrerCapability()
+	if cap := r.referrersCapability.Load(); cap != nil {
+		return cap
 	}
-	return r.referrersCapability
+	r.referrersCapability.CompareAndSwap(nil, NewReferrerCapability())
+	return r.referrersCapability.Load()
 }
 
 // loadReferrersState atomically loads r.referrersState.
@@ -321,11 +325,13 @@ func (r *Repository) loadReferrersState() referrersState {
 }
 
 // getReferrersMergePool returns the referrers merge pool, initializing it if needed.
+// Safe for concurrent use: uses atomic CAS to ensure only one instance is created.
 func (r *Repository) getReferrersMergePool() *ReferrerMergePool {
-	if r.referrersMergePool == nil {
-		r.referrersMergePool = NewReferrerMergePool()
+	if pool := r.referrersMergePool.Load(); pool != nil {
+		return pool
 	}
-	return r.referrersMergePool
+	r.referrersMergePool.CompareAndSwap(nil, NewReferrerMergePool())
+	return r.referrersMergePool.Load()
 }
 
 // do sends an HTTP request and returns an HTTP response using the HTTP client

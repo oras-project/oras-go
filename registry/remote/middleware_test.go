@@ -277,29 +277,6 @@ func TestWithPolicyEnforcement_Manifests(t *testing.T) {
 	}
 }
 
-func TestWithWarningHandler(t *testing.T) {
-	var receivedWarnings []Warning
-
-	handler := func(w Warning) {
-		receivedWarnings = append(receivedWarnings, w)
-	}
-
-	baseRepo := &mockRepository{}
-	middleware := WithWarningHandler(handler)
-	wrapped := middleware(baseRepo)
-
-	// Verify the wrapped repository returns proper blob and manifest stores
-	blobs := wrapped.Blobs()
-	if blobs == nil {
-		t.Error("Blobs() should not return nil")
-	}
-
-	manifests := wrapped.Manifests()
-	if manifests == nil {
-		t.Error("Manifests() should not return nil")
-	}
-}
-
 // orderTrackingRepository tracks the order of middleware execution.
 type orderTrackingRepository struct {
 	registry.Repository
