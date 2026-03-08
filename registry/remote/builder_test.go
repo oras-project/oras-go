@@ -612,10 +612,10 @@ func TestNewRepositoryWithProperties_ReferrersAPISupported(t *testing.T) {
 		t.Fatalf("NewRepositoryWithProperties() error = %v", err)
 	}
 
-	// Try to set capability to false, should fail because it's already set to true
-	err = repo.SetReferrersCapability(false)
-	if err == nil {
-		t.Error("SetReferrersCapability(false) should return error when already set to true")
+	// Conflicting set is silently ignored; capability should remain supported.
+	repo.SetReferrersCapability(false)
+	if !repo.getReferrersCapability().IsSupported() {
+		t.Error("conflicting SetReferrersCapability(false) should be ignored when already set to supported")
 	}
 }
 
@@ -635,10 +635,10 @@ func TestNewRepositoryWithProperties_ReferrersAPIUnsupported(t *testing.T) {
 		t.Fatalf("NewRepositoryWithProperties() error = %v", err)
 	}
 
-	// Try to set capability to true, should fail because it's already set to false
-	err = repo.SetReferrersCapability(true)
-	if err == nil {
-		t.Error("SetReferrersCapability(true) should return error when already set to false")
+	// Conflicting set is silently ignored; capability should remain unsupported.
+	repo.SetReferrersCapability(true)
+	if !repo.getReferrersCapability().IsUnsupported() {
+		t.Error("conflicting SetReferrersCapability(true) should be ignored when already set to unsupported")
 	}
 }
 

@@ -7423,20 +7423,16 @@ func TestRepository_SetReferrersCapability(t *testing.T) {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
 	}
 
-	// valid first time set
-	if err := repo.SetReferrersCapability(true); err != nil {
-		t.Errorf("Repository.SetReferrersCapability() error = %v", err)
-	}
+	// first set
+	repo.SetReferrersCapability(true)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
 	}
 
-	// invalid second time set, state should be no changed
-	if err := repo.SetReferrersCapability(false); !errors.Is(err, ErrReferrersCapabilityAlreadySet) {
-		t.Errorf("Repository.SetReferrersCapability() error = %v, wantErr %v", err, ErrReferrersCapabilityAlreadySet)
-	}
+	// conflicting second set is silently ignored; state should be unchanged
+	repo.SetReferrersCapability(false)
 	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+		t.Errorf("Repository.loadReferrersState() = %v, want %v (conflicting set should be ignored)", state, referrersStateSupported)
 	}
 }
 

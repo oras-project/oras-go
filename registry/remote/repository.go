@@ -289,33 +289,22 @@ func (r *Repository) skipReferrersGC() bool {
 // SetReferrersCapability indicates the Referrers API capability of the remote
 // repository. true: capable; false: not capable.
 //
-// SetReferrersCapability is valid only when it is called for the first time.
-// SetReferrersCapability returns ErrReferrersCapabilityAlreadySet if the
-// Referrers API capability has been already set.
+// SetReferrersCapability has no effect if the capability has already been set
+// to the same value. If the capability has been set to a conflicting value it
+// is silently ignored; the first value set wins.
 //   - When the capability is set to true, the Referrers() function will always
 //     request the Referrers API. Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers
 //   - When the capability is set to false, the Referrers() function will always
 //     request the Referrers Tag. Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#referrers-tag-schema
 //   - When the capability is not set, the Referrers() function will automatically
 //     determine which API to use.
-func (r *Repository) SetReferrersCapability(capable bool) error {
+func (r *Repository) SetReferrersCapability(capable bool) {
 	cap := r.getReferrersCapability()
 	if capable {
-		if err := cap.SetSupported(); err != nil {
-			return fmt.Errorf("%w: current capability = %v, new capability = %v",
-				ErrReferrersCapabilityAlreadySet,
-				cap.IsSupported(),
-				capable)
-		}
+		cap.TrySetSupported()
 	} else {
-		if err := cap.SetUnsupported(); err != nil {
-			return fmt.Errorf("%w: current capability = %v, new capability = %v",
-				ErrReferrersCapabilityAlreadySet,
-				cap.IsSupported(),
-				capable)
-		}
+		cap.TrySetUnsupported()
 	}
-	return nil
 }
 
 // getReferrersCapability returns the referrers capability, initializing it if needed.

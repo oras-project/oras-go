@@ -289,9 +289,9 @@ func NewRepositoryWithProperties(props *properties.Registry, builder *ClientBuil
 	// Set Referrers API capability if specified
 	switch props.Attributes.ReferrersAPI {
 	case properties.ReferrersAPISupported:
-		_ = repo.SetReferrersCapability(true)
+		repo.SetReferrersCapability(true)
 	case properties.ReferrersAPIUnsupported:
-		_ = repo.SetReferrersCapability(false)
+		repo.SetReferrersCapability(false)
 	}
 
 	// Build mirror repositories
