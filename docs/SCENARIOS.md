@@ -55,7 +55,7 @@ Not all use cases require the full configuration stack. The remaining scenarios 
 Loading the full configuration stack provides significant benefits:
 
 - **Broader credential coverage** — Reads both Docker `config.json` and containers `auth.json`, so credentials stored by either Docker or Podman are found automatically.
-- **Per-registry TLS** — Picks up custom CA certificates and client certs from `certs.d` without requiring CLI flags.
+- **Per-registry TLS** — Utilizes custom CA certificates and client certs from `certs.d` without requiring CLI flags.
 - **Mirror support** — Respects registry mirrors configured in `registries.conf`, which is essential for enterprise and air-gapped environments.
 - **Ecosystem consistency** — Users configure these files once and expect all registry-interacting tools to respect them.
 
