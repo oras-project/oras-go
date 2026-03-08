@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -64,6 +65,11 @@ type ClientBuilder struct {
 	// If set, repositories created by NewRepositoryWithProperties will
 	// automatically enforce policy on read/write operations.
 	PolicyEvaluator *policy.Evaluator
+
+	// Logger enables HTTP request/response debug logging when non-nil.
+	// Each retry attempt is logged individually. If nil, no logging transport
+	// is added. Use slog.Default() to log to the default handler.
+	Logger *slog.Logger
 }
 
 // NewClientBuilder creates a new ClientBuilder with default settings.
@@ -175,12 +181,18 @@ func (b *ClientBuilder) buildTransport(tlsConfig *tls.Config) http.RoundTripper 
 	}
 
 	// Wrap with retry transport
-	retryTransport := &retry.Transport{
+	var transport http.RoundTripper = &retry.Transport{
 		Base:   base,
 		Policy: b.RetryPolicy,
 	}
 
-	return retryTransport
+	// Wrap with logging transport if a logger is configured.
+	// Placed outside retry so each attempt is individually logged.
+	if b.Logger != nil {
+		transport = NewLoggingTransport(transport, b.Logger)
+	}
+
+	return transport
 }
 
 // buildHTTPClient creates an HTTP client with the given transport.

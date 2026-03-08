@@ -586,31 +586,36 @@ Because oras-go performs concurrent HTTP requests (parallel blob fetches, manife
 
 ### Typical Flow
 
-```go
-// Minimal: log to stderr using the default slog handler.
-repo, _ := remote.NewRepository("registry.example.com/app")
-repo.Registry.Client = &auth.Client{
-    Client: &http.Client{
-        Transport: remote.NewLoggingTransport(http.DefaultTransport, nil),
-    },
-    Credential: remote.GetCredentialFunc(store),
-}
+The easiest way to enable debug logging is via `ClientBuilder.Logger`. When set,
+`ClientBuilder` wraps the transport stack automatically — logging sits outside retry
+so each attempt is individually logged:
 
-// With a custom JSON logger.
-jsonLogger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-    Level: slog.LevelDebug,
-}))
-transport := remote.NewLoggingTransport(http.DefaultTransport, jsonLogger)
+```go
+configs, _ := config.LoadConfigs()
+props, _ := configs.RegistryProperties("registry.example.com/app")
+
+builder := remote.NewClientBuilder()
+builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
+builder.Logger = slog.Default() // enable HTTP debug logging
+
+repo, _ := remote.NewRepositoryWithProperties(props, builder)
 ```
 
-### Composing Retry and Logging
-
-Place `LoggingTransport` outside `retry.Transport` to log every attempt, or inside to log only successful round trips. Typically you want every attempt logged:
+For a custom JSON logger routed to a specific output:
 
 ```go
-// Logs each attempt; retries are visible as separate request/response pairs.
-transport := remote.NewLoggingTransport(retry.NewTransport(nil), nil)
+builder.Logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+    Level: slog.LevelDebug,
+}))
+```
 
+When using `ClientBuilder`, the transport stack is:
+`LoggingTransport → retry.Transport → http.Transport (TLS from certs.d)`
+
+If you need to add logging without `ClientBuilder`, use `NewLoggingTransport` directly:
+
+```go
+transport := remote.NewLoggingTransport(retry.NewTransport(nil), slog.Default())
 repo.Registry.Client = &auth.Client{
     Client:     &http.Client{Transport: transport},
     Credential: remote.GetCredentialFunc(store),
