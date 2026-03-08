@@ -42,6 +42,9 @@ func Test_isDigestReference(t *testing.T) {
 		{"digest with at sign", "repo@sha256:abc123", true},
 		{"bare digest", "sha256:abc123def456", true},
 		{"empty", "", false},
+		{"localhost port no path", "localhost:5000", false},
+		{"localhost port with path", "localhost:5000/repo", false},
+		{"localhost port with tag", "localhost:5000/repo:latest", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
