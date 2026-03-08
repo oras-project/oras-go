@@ -175,7 +175,7 @@ Policy evaluation and signature verification can be added to the configuration-d
 
 - **`config.LoadConfigs`** — Unified loader for Docker config.json, containers auth.json, registries.conf, policy.json, registries.d, and certs.d.
 - **`config.RegistriesConfig`** — Registry mirrors, blocked registries, unqualified search registries, and prefix-based rewriting.
-- **`policy.Policy` / `policy.Evaluator`** — Containers-policy.json evaluation (accept, reject, signedBy, sigstoreSigned).
+- **`policy.Policy` / `policy.Evaluator`** — containers-policy.json evaluation (accept, reject, signedBy, sigstoreSigned).
 - **`signature.NewSignedByVerifier`** — OpenPGP signature verification via lookaside storage.
 - **`signature.LookasideStore`** — Fetch/store simple signing signatures from file:// or https:// lookaside locations configured in registries.d.
 - **TLS configuration via certs.d** — Per-registry TLS certificates.
