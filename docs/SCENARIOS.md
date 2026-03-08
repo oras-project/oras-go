@@ -527,21 +527,30 @@ The `retry` package provides an `http.RoundTripper` that automatically retries f
 
 ### Typical Flow
 
+The recommended way to use retry with full TLS support (certs.d, insecure flag) is through
+`ClientBuilder`, which builds the `retry.Transport` internally and wires TLS automatically:
+
 ```go
-// Option 1: use the pre-built retry client directly.
+configs, _ := config.LoadConfigs()
+props, _ := configs.RegistryProperties("registry.example.com/app")
+
+builder := remote.NewClientBuilder()
+builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
+// ClientBuilder.Build() internally calls buildTLSConfig() (applies props.Transport.CACerts
+// from certs.d and props.Transport.Insecure) then wraps the result in retry.Transport.
+repo, _ := remote.NewRepositoryWithProperties(props, builder)
+```
+
+When you need retry without the full config stack, wire it manually. Note that in this case
+TLS configuration (CA certificates, insecure skip verify) must be set up by the caller — it
+is not picked up from certs.d or `registries.conf` automatically:
+
+```go
+// Minimal retry with no custom TLS (uses http.DefaultTransport).
 repo, _ := remote.NewRepository("registry.example.com/app")
 repo.Registry.Client = retry.NewClient()
 
-// Option 2: wrap an existing transport (e.g. one with custom TLS config).
-tlsTransport := &http.Transport{TLSClientConfig: tlsConfig}
-repo.Registry.Client = &auth.Client{
-    Client: &http.Client{
-        Transport: retry.NewTransport(tlsTransport),
-    },
-    Credential: remote.GetCredentialFunc(store),
-}
-
-// Option 3: custom retry policy.
+// Custom retry policy.
 repo.Registry.Client = &auth.Client{
     Client: &http.Client{
         Transport: &retry.Transport{
@@ -549,6 +558,7 @@ repo.Registry.Client = &auth.Client{
             Policy: func() retry.Policy { return myPolicy },
         },
     },
+    Credential: remote.GetCredentialFunc(store),
 }
 ```
 
