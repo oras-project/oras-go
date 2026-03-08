@@ -30,15 +30,7 @@ import (
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/errdef"
-	"github.com/oras-project/oras-go/v3/registry"
 )
-
-func TestRegistryInterface(t *testing.T) {
-	var reg any = &Registry{}
-	if _, ok := reg.(registry.Registry); !ok {
-		t.Error("&Registry{} does not conform registry.Registry")
-	}
-}
 
 func TestRegistry_TLS(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

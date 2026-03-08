@@ -58,35 +58,6 @@ type Repository interface {
 	Manifests() ManifestStore
 }
 
-// ReadableRepository provides read-only access to a repository.
-// This interface enables narrower function signatures for operations
-// that only need to read content from a repository.
-type ReadableRepository interface {
-	content.Fetcher
-	content.Resolver
-	ReferenceFetcher
-}
-
-// WritableRepository provides write access to a repository.
-// This interface enables narrower function signatures for operations
-// that only need to write content to a repository.
-type WritableRepository interface {
-	content.Pusher
-	content.Tagger
-	ReferencePusher
-}
-
-// ReadOnlyRepository combines read-only access with existence checking
-// and tag/referrer listing. This is useful for operations that need
-// to inspect repository contents without modifying them.
-type ReadOnlyRepository interface {
-	ReadableRepository
-	// Exists returns true if the described content exists.
-	Exists(ctx context.Context, target ocispec.Descriptor) (bool, error)
-	ReferrerLister
-	TagLister
-}
-
 // BlobStore is a CAS with the ability to stat and delete its content.
 type BlobStore interface {
 	content.Storage

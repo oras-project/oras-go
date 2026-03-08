@@ -18,6 +18,7 @@ package registry_test
 
 import (
 	"context"
+	_ "crypto/sha256" // required to parse sha256 digest. See [Reference.Digest]
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -43,13 +44,6 @@ func TestMain(m *testing.M) {
 		p := r.URL.Path
 		m := r.Method
 		switch {
-		case p == "/v2/_catalog" && m == "GET":
-			result := struct {
-				Repositories []string `json:"repositories"`
-			}{
-				Repositories: []string{"public/repo1", "public/repo2", "internal/repo3"},
-			}
-			json.NewEncoder(w).Encode(result)
 		case p == fmt.Sprintf("/v2/%s/tags/list", exampleRepositoryName) && m == "GET":
 			result := struct {
 				Tags []string `json:"tags"`
@@ -70,25 +64,47 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// ExampleRepositories gives example snippets for listing repositories in the registry without pagination.
-func ExampleRepositories() {
-	reg, err := remote.NewRegistry(host)
+// ExampleParseReference_digest demonstrates parsing a reference string with
+// digest and print its components.
+func ExampleParseReference_digest() {
+	rawRef := "ghcr.io/oras-project/oras-go@sha256:601d05a48832e7946dab8f49b14953549bebf42e42f4d7973b1a5a287d77ab76"
+	ref, err := registry.ParseReference(rawRef)
 	if err != nil {
-		panic(err) // Handle error
+		panic(err)
 	}
 
-	ctx := context.Background()
-	repos, err := registry.Repositories(ctx, reg)
+	fmt.Println("Registry:", ref.Registry)
+	fmt.Println("Repository:", ref.Repository)
+
+	digest, err := ref.GetDigest()
 	if err != nil {
-		panic(err) // Handle error
+		panic(err)
 	}
-	for _, repo := range repos {
-		fmt.Println(repo)
-	}
+	fmt.Println("Digest:", digest)
+
 	// Output:
-	// public/repo1
-	// public/repo2
-	// internal/repo3
+	// Registry: ghcr.io
+	// Repository: oras-project/oras-go
+	// Digest: sha256:601d05a48832e7946dab8f49b14953549bebf42e42f4d7973b1a5a287d77ab76
+}
+
+// ExampleParseReference_withScheme demonstrates parsing a reference with
+// a URI scheme and printing its components.
+func ExampleParseReference_withScheme() {
+	rawRef := "oci://ghcr.io/oras-project/oras-go:v3.0.0"
+	ref, err := registry.ParseReference(rawRef)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Registry:", ref.Registry)
+	fmt.Println("Repository:", ref.Repository)
+	fmt.Println("Tag:", ref.Reference)
+
+	// Output:
+	// Registry: ghcr.io
+	// Repository: oras-project/oras-go
+	// Tag: v3.0.0
 }
 
 // ExampleTags gives example snippets for listing tags in the repository without pagination.
