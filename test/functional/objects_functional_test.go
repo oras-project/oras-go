@@ -889,6 +889,9 @@ func TestORM_AnnotationsProtection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchByReference: %v", err)
 	}
+	if err := fetched.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
 
 	ann := fetched.Annotations()
 	ann["mutated"] = "should-not-affect-original"
