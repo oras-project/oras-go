@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package configuration
+package config
 
 import (
 	"encoding/json"
@@ -23,11 +23,7 @@ import (
 	"reflect"
 	"testing"
 
-<<<<<<<< HEAD:registry/remote/internal/configuration/config_test.go
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration/configtest"
-========
 	"github.com/oras-project/oras-go/v3/registry/remote/config/configtest"
->>>>>>>> 21e90fe (feat: add containers-certs.d support and config-to-properties bridge):registry/remote/config/config_test.go
 )
 
 func TestLoad_badPath(t *testing.T) {
