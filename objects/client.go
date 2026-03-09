@@ -229,63 +229,30 @@ func (c *Client) FetchManifest(ctx context.Context, desc ocispec.Descriptor) (mo
 	}
 }
 
-// fetchArtifact fetches an artifact manifest and pre-loads its content.
+// fetchArtifact returns an artifact model for the given descriptor.
+// Content is loaded lazily; call Load() to populate manifest fields.
 func (c *Client) fetchArtifact(ctx context.Context, desc ocispec.Descriptor) (*models.Artifact, error) {
-	if cached, ok := c.getFromCache(desc.Digest); ok {
-		if artifact, ok := cached.(*models.Artifact); ok {
-			return artifact, nil
-		}
-	}
-	manifestBytes, err := content.FetchAll(ctx, c.target, desc)
-	if err != nil {
-		return nil, err
-	}
-	artifact, err := models.NewArtifactFromManifestBytes(desc, c.target, c.target, c, manifestBytes)
-	if err != nil {
-		return nil, err
-	}
+	artifact := models.NewArtifact(desc, c.target, c.target, c)
 	if cached, ok := c.addToCache(artifact).(*models.Artifact); ok {
 		return cached, nil
 	}
 	return artifact, nil
 }
 
-// fetchImage fetches an image manifest and pre-loads its content.
+// fetchImage returns an image model for the given descriptor.
+// Content is loaded lazily; call Load() to populate manifest fields.
 func (c *Client) fetchImage(ctx context.Context, desc ocispec.Descriptor) (*models.Image, error) {
-	if cached, ok := c.getFromCache(desc.Digest); ok {
-		if image, ok := cached.(*models.Image); ok {
-			return image, nil
-		}
-	}
-	manifestBytes, err := content.FetchAll(ctx, c.target, desc)
-	if err != nil {
-		return nil, err
-	}
-	image, err := models.NewImageFromManifestBytes(desc, c.target, c.target, c, manifestBytes)
-	if err != nil {
-		return nil, err
-	}
+	image := models.NewImage(desc, c.target, c.target, c)
 	if cached, ok := c.addToCache(image).(*models.Image); ok {
 		return cached, nil
 	}
 	return image, nil
 }
 
-// fetchIndex fetches an index manifest and pre-loads its content.
+// fetchIndex returns an index model for the given descriptor.
+// Content is loaded lazily; call Load() to populate manifest fields.
 func (c *Client) fetchIndex(ctx context.Context, desc ocispec.Descriptor) (*models.Index, error) {
-	if cached, ok := c.getFromCache(desc.Digest); ok {
-		if index, ok := cached.(*models.Index); ok {
-			return index, nil
-		}
-	}
-	manifestBytes, err := content.FetchAll(ctx, c.target, desc)
-	if err != nil {
-		return nil, err
-	}
-	index, err := models.NewIndexFromManifestBytes(desc, c.target, c.target, c, manifestBytes)
-	if err != nil {
-		return nil, err
-	}
+	index := models.NewIndex(desc, c.target, c.target, c)
 	if cached, ok := c.addToCache(index).(*models.Index); ok {
 		return cached, nil
 	}
