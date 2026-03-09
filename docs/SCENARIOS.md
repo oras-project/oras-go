@@ -1,6 +1,6 @@
 # ORAS Go Library — Usage Scenarios
 
-This document describes the primary scenarios where oras-go is used and how the library's features map to each scenario. It is intended for contributors, integrators, and anyone evaluating oras-go for their project.
+This document describes the primary scenarios where oras-go is used and how the library's features map to each scenario. It is targeted for contributors, integrators, and anyone evaluating oras-go for their project.
 
 ---
 
@@ -40,6 +40,7 @@ repo, _ := remote.NewRepositoryWithProperties(props, builder)
 // 5. Pack local files into an OCI manifest.
 fs, _ := file.New("/tmp/workspace")
 defer fs.Close()
+// layerDescriptors are the []ocispec.Descriptor returned by fs.Add() for each file.
 desc, _ := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1, "application/vnd.myapp.config.v1", oras.PackManifestOptions{
     Layers: layerDescriptors,
 })
@@ -55,7 +56,7 @@ Not all use cases require the full configuration stack. The remaining scenarios 
 Loading the full configuration stack provides significant benefits:
 
 - **Broader credential coverage** — Reads both Docker `config.json` and containers `auth.json`, so credentials stored by either Docker or Podman are found automatically.
-- **Per-registry TLS** — Picks up custom CA certificates and client certs from `certs.d` without requiring CLI flags.
+- **Per-registry TLS** — Utilizes custom CA certificates and client certs from `certs.d` without requiring CLI flags.
 - **Mirror support** — Respects registry mirrors configured in `registries.conf`, which is essential for enterprise and air-gapped environments.
 - **Ecosystem consistency** — Users configure these files once and expect all registry-interacting tools to respect them.
 
@@ -74,7 +75,7 @@ configs, _ := config.LoadConfigs()
 ```
 
 **`LoadConfigsWithOptions`** lets you override specific paths. Any path you
-set is used instead of the default for that config. However, fields left
+set is used instead of the default for that config type. However, fields left
 empty still trigger the default search — for example, omitting
 `DockerConfigPath` still checks `$DOCKER_CONFIG` and `~/.docker/config.json`.
 Missing files (whether default or overridden) are silently skipped.
@@ -119,6 +120,14 @@ CLI tools typically load the full configuration stack and then override specific
 ### Typical Flow
 
 ```go
+// CLI flag declarations (typically at package level or in a setup function).
+plainHTTP := flag.Bool("plain-http", false, "Allow plain HTTP connections")
+insecure  := flag.Bool("insecure", false, "Skip TLS verification")
+caFile    := flag.String("ca-file", "", "Path to CA certificate file")
+username  := flag.String("username", "", "Registry username")
+password  := flag.String("password", "", "Registry password")
+flag.Parse()
+
 // 1. Load all configs from default locations as a baseline.
 configs, _ := config.LoadConfigs()
 
@@ -163,19 +172,19 @@ The `ClientBuilder` resolves credentials in this order:
 2. **`builder.CredentialStore`** (fallback) — Credentials from Docker config.json, containers auth.json, or OS credential helpers.
 3. **Empty credential** — No authentication if neither source provides credentials.
 
-This means CLI flags always win when provided, and config-file credentials are used automatically when they are not.
+This means CLI flags always win when provided, and config-file credentials are used automatically otherwise.
 
 ---
 
 ## 3. Policy Enforcement
 
-Policy evaluation and signature verification can be added to the configuration-driven workflow to enforce allow/deny decisions before pulling images.
+Policy evaluation and signature verification can be added to the configuration-driven workflow to enforce trust decisions before pulling images.
 
 ### Capabilities Used
 
 - **`config.LoadConfigs`** — Unified loader for Docker config.json, containers auth.json, registries.conf, policy.json, registries.d, and certs.d.
 - **`config.RegistriesConfig`** — Registry mirrors, blocked registries, unqualified search registries, and prefix-based rewriting.
-- **`policy.Policy` / `policy.Evaluator`** — Containers-policy.json evaluation (accept, reject, signedBy, sigstoreSigned).
+- **`policy.Policy` / `policy.Evaluator`** — containers-policy.json evaluation (accept, reject, signedBy, sigstoreSigned).
 - **`signature.NewSignedByVerifier`** — OpenPGP signature verification via lookaside storage.
 - **`signature.LookasideStore`** — Fetch/store simple signing signatures from file:// or https:// lookaside locations configured in registries.d.
 - **TLS configuration via certs.d** — Per-registry TLS certificates.
@@ -190,6 +199,8 @@ configs, _ := config.LoadConfigs()
 ref := "docker.io/library/nginx:latest"
 builder := remote.NewClientBuilder()
 builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
+// scope identifies the registry/repository being accessed (e.g. "registry.example.com/app").
+// It is used to select the matching policy rule and signature lookaside configuration.
 builder.PolicyEvaluator, _ = configs.PolicyEvaluator(
     policy.WithSignedByVerifier(signature.NewSignedByVerifierFromConfig(configs.RegistriesDConfig, scope)),
 )
@@ -213,6 +224,7 @@ OCI artifacts such as binaries, SBOMs, Helm charts, and WASM modules can be pack
 - **`oras.PackManifest`** with `PackManifestVersion1_1` — Attach custom artifact types and annotations.
 - **`oras.Copy`** with `CopyOptions.MapRoot` — Transform manifests during promotion (e.g., platform selection).
 - **`oras.TagN`** — Tag a single artifact with multiple versions simultaneously (e.g., `v1.2.3`, `v1.2`, `v1`, `latest`).
+- **`oras.TagBytes` / `oras.TagBytesN`** — Push raw bytes as an artifact and tag it in one call (shorthand for `PushBytes` + `TagN`).
 - **`content/memory`** — Stage artifacts in-memory before pushing to avoid disk I/O.
 - **Cross-repository blob mounting** — Efficient promotion between repositories using `MountFrom` in copy hooks.
 
@@ -227,6 +239,8 @@ desc, _ := oras.PackManifest(ctx, memStore, oras.PackManifestVersion1_1,
         ManifestAnnotations: map[string]string{
             "org.opencontainers.image.created": time.Now().Format(time.RFC3339),
         },
+        // sbomLayers is a []ocispec.Descriptor of blobs already pushed to memStore,
+        // e.g. the SPDX or CycloneDX document content.
         Layers: sbomLayers,
     },
 )
@@ -235,6 +249,10 @@ desc, _ := oras.PackManifest(ctx, memStore, oras.PackManifestVersion1_1,
 repo, _ := remote.NewRepository("registry.example.com/builds/sbom")
 _, _ = oras.Copy(ctx, memStore, desc.Digest.String(), repo, "v1.2.3", oras.DefaultCopyOptions)
 oras.TagN(ctx, repo, desc.Digest.String(), []string{"v1.2", "v1", "latest"}, oras.DefaultTagNOptions)
+
+// Shorthand: push raw bytes and tag atomically.
+configData := []byte(`{"key":"value"}`)
+_, _ = oras.TagBytes(ctx, repo, "application/vnd.example.config.v1+json", configData, "config-v1")
 ```
 
 ---
@@ -258,6 +276,7 @@ The `objects` package provides a higher-level, type-safe API for building and na
 client := objects.NewClient(store)
 
 // Build and push an artifact in one step — no separate memory store or Copy needed.
+// payload is the raw []byte content of the artifact layer (e.g. a binary or document).
 artifact, _ := client.BuildArtifact("application/vnd.example.sbom.v1").
     AddBlob(client.NewBlob("application/json", configData)).
     AddBlob(client.NewBlob("application/octet-stream", payload)).
@@ -272,6 +291,8 @@ config, _ := image.Config(ctx)
 ```
 
 ### Multi-Platform Images
+
+Build individual per-architecture images, then combine them into a manifest index. Pulling the index reference lets the runtime automatically select the correct platform variant.
 
 ```go
 amd64Image, _ := client.BuildImage().
@@ -294,7 +315,7 @@ index, _ := client.BuildIndex().
 
 ### Comparison with Core APIs
 
-The objects package sits on top of the core ORAS APIs. Use the core APIs (`PackManifest` + `Copy`) when you need fine-grained control over the copy graph, hooks, or cross-repository blob mounting. Use the objects package when you want a simpler, more declarative interface for building and navigating artifacts.
+The `objects` package sits on top of the core ORAS APIs. Use the core APIs (`PackManifest` + `Copy`) when you need fine-grained control over the copy graph, hooks, or cross-repository blob mounting. Use the `objects` package when you want a simpler, more declarative interface for building and navigating artifacts.
 
 ---
 
@@ -305,10 +326,10 @@ Registries can be mirrored for air-gapped environments, caching, or compliance.
 ### Capabilities Used
 
 - **`oras.Copy` / `oras.CopyGraph`** — Deep copy of artifacts including all referenced blobs and manifests.
+- **`oras.ExtendedCopy`** — Copy an artifact and all of its referrers (signatures, SBOMs, attestations) in a single call.
 - **`CopyGraphOptions.PreCopy` / `PostCopy`** — Hook into copy operations for progress reporting, logging, or custom validation.
 - **`CopyGraphOptions.MountFrom`** — Cross-mount blobs instead of re-uploading when source and destination are on the same registry.
 - **`remote.Registry.Repositories`** — Enumerate all repositories in a source registry.
-- **Referrers support** — Copy OCI referrers (signatures, attestations, SBOMs) alongside their subjects.
 
 ### Typical Flow
 
@@ -326,6 +347,19 @@ opts := oras.CopyOptions{
 }
 desc, _ := oras.Copy(ctx, srcRepo, "latest", dstRepo, "latest", opts)
 ```
+
+### Copying Referrers
+
+`oras.ExtendedCopy` copies an artifact and all of its referrers (signatures, SBOMs,
+attestations) in one call. Use it when mirroring images that carry attached artifacts:
+
+```go
+// Copy nginx:latest and every referrer attached to it (e.g. Cosign signatures, SBOMs).
+_, _ = oras.ExtendedCopy(ctx, srcRepo, "latest", dstRepo, "latest", oras.DefaultExtendedCopyOptions)
+```
+
+`ExtendedCopyOptions` also accepts a `FindPredecessors` function so you can filter which
+referrers are copied (e.g. only signatures, or only a specific artifact type).
 
 ---
 
@@ -357,7 +391,7 @@ _, _ = oras.Copy(ctx, ociStore, "latest", dstRepo, "latest", oras.DefaultCopyOpt
 
 ### Use Cases
 
-- Air-gapped deployments: export on connected machine, transfer media, import on isolated machine.
+- Air-gapped deployments: export on connected machine; transfer media; import on isolated machine.
 - Local testing and development without a running registry.
 - Build caches stored as OCI layouts.
 
@@ -492,6 +526,7 @@ oras-go can be wrapped with middleware to add cross-cutting concerns.
 - **`remote.Compose`** — Chain multiple middlewares together.
 - **`remote.WithPolicyEnforcement`** — Built-in middleware for applying container policy checks.
 - **`Registry.HandleWarning`** — Callback invoked for each RFC 7234 `Warning` header returned by the registry.
+- **`remote.NewWarningLogger`** — Creates a `HandleWarning` callback that logs each unique warning exactly once using `log/slog`, suppressing duplicates.
 - **`CopyOptions.PolicyCheck`** — Callback hook for policy enforcement in the copy path.
 - **`CopyGraphOptions.PreCopy` / `PostCopy` / `OnCopySkipped`** — Hooks for custom logic during graph traversal.
 
@@ -508,6 +543,13 @@ baseRepo, _ := remote.NewRepository("registry.example.com/app")
 repo := middleware(baseRepo)
 
 // Handle registry deprecation warnings.
+// NewWarningLogger deduplicates: each unique warning text is logged only once.
+repo.Registry.HandleWarning = remote.NewWarningLogger(slog.Default())
+```
+
+For manual warning handling without deduplication:
+
+```go
 repo.Registry.HandleWarning = func(w remote.Warning) {
     log.Printf("Registry warning: %s", w.Text)
 }
@@ -632,6 +674,121 @@ repo.Registry.Client = &auth.Client{
 
 ---
 
+## 14. Referrers
+
+OCI Referrers allow attaching metadata artifacts (signatures, SBOMs, attestations, provenance) to an existing subject manifest. oras-go provides both low-level `remote.Repository` methods and the higher-level `oras.ExtendedCopy` for working with referrers.
+
+### Capabilities Used
+
+- **`oras.PackManifest`** with `Subject` field — Create a referrer manifest linked to a subject digest.
+- **`remote.Repository.Referrers`** — List all referrers for a given subject digest, with optional artifact type filtering.
+- **`oras.ExtendedCopy`** — Copy an artifact and all of its attached referrers in one call.
+- **`ocispec.Descriptor.ArtifactType`** — Filter referrers by type (e.g. only signatures, only SBOMs).
+
+### Typical Flow
+
+```go
+// 1. Push the subject image first.
+repo, _ := remote.NewRepository("registry.example.com/myapp")
+subjectDesc, _ := oras.Copy(ctx, srcStore, "latest", repo, "latest", oras.DefaultCopyOptions)
+
+// 2. Build a referrer manifest (e.g. an SBOM) linked to the subject.
+sbomContent := []byte(`{"spdxVersion":"SPDX-2.3",...}`)
+sbomDesc, _ := oras.PushBytes(ctx, repo, "application/spdx+json", sbomContent)
+
+memStore := memory.New()
+sbomManifestDesc, _ := oras.PackManifest(ctx, memStore, oras.PackManifestVersion1_1,
+    "application/vnd.example.sbom.v1",
+    oras.PackManifestOptions{
+        Subject: &subjectDesc,
+        Layers:  []ocispec.Descriptor{sbomDesc},
+    },
+)
+
+// 3. Push the referrer manifest.
+_, _ = oras.Copy(ctx, memStore, sbomManifestDesc.Digest.String(), repo, "", oras.DefaultCopyOptions)
+
+// 4. List referrers for the subject.
+err := repo.Referrers(ctx, subjectDesc, "", func(referrers []ocispec.Descriptor) error {
+    for _, ref := range referrers {
+        fmt.Printf("Referrer: %s (type: %s)\n", ref.Digest, ref.ArtifactType)
+    }
+    return nil
+})
+
+// 5. Filter by artifact type — only list SBOMs.
+err = repo.Referrers(ctx, subjectDesc, "application/vnd.example.sbom.v1",
+    func(referrers []ocispec.Descriptor) error {
+        // Only referrers matching the artifact type are returned.
+        return nil
+    },
+)
+```
+
+### Copying an Artifact with All Its Referrers
+
+Use `oras.ExtendedCopy` to mirror an image and everything attached to it:
+
+```go
+srcRepo, _ := remote.NewRepository("registry.example.com/myapp")
+dstRepo, _ := remote.NewRepository("mirror.example.com/myapp")
+
+// Copies the subject manifest and all referrers (signatures, SBOMs, etc.).
+_, _ = oras.ExtendedCopy(ctx, srcRepo, "latest", dstRepo, "latest", oras.DefaultExtendedCopyOptions)
+```
+
+---
+
+## 15. Structured Error Handling
+
+oras-go returns typed errors that allow callers to distinguish between categories of failure and act accordingly — for example, retrying on network errors but treating a missing artifact as a user error.
+
+### Capabilities Used
+
+- **`errdef.ErrNotFound`** — The referenced artifact, tag, or blob does not exist in the registry.
+- **`errdef.ErrAlreadyExists`** — The content was already present (push is idempotent, but callers may log or skip).
+- **`errdef.ErrSizeExceedsLimit`** — Content exceeds the configured size limit.
+- **`oras.CopyError`** — Wraps errors from `oras.Copy` / `oras.CopyGraph`, indicating which node failed and whether the error originated from the source or destination.
+- **`oras.CopyErrorOrigin`** — Enum distinguishing `CopyErrorOriginSource` from `CopyErrorOriginDestination`.
+- **`errors.As`** (stdlib) — Unwrap typed errors for structured handling.
+
+### Typical Flow
+
+```go
+// Check whether a manifest exists before attempting a pull.
+_, err := repo.Resolve(ctx, "myapp:v1.0")
+if errors.Is(err, errdef.ErrNotFound) {
+    log.Println("image not found — skipping")
+} else if err != nil {
+    return fmt.Errorf("resolve failed: %w", err)
+}
+
+// Push content and handle the already-exists case gracefully.
+desc, err := oras.PushBytes(ctx, repo, mediaType, content)
+if errors.Is(err, errdef.ErrAlreadyExists) {
+    log.Printf("content %s already present", desc.Digest)
+} else if err != nil {
+    return err
+}
+
+// Copy with structured error reporting — distinguish source from destination failures.
+_, err = oras.Copy(ctx, src, "latest", dst, "latest", oras.DefaultCopyOptions)
+if err != nil {
+    var copyErr *oras.CopyError
+    if errors.As(err, &copyErr) {
+        switch copyErr.Origin {
+        case oras.CopyErrorOriginSource:
+            log.Printf("fetch failed from source at %s: %v", copyErr.Descriptor.Digest, copyErr.Err)
+        case oras.CopyErrorOriginDestination:
+            log.Printf("push failed to destination at %s: %v", copyErr.Descriptor.Digest, copyErr.Err)
+        }
+    }
+    return err
+}
+```
+
+---
+
 ## Summary Matrix
 
 | Scenario | Key Packages | Config Loading | Policy | Signatures |
@@ -649,3 +806,5 @@ repo.Registry.Client = &auth.Client{
 | Middleware | `remote`, `policy` | Varies | Optional | Optional |
 | Retry transport | `remote/retry` | None | No | No |
 | Debug logging transport | `remote` | None | No | No |
+| Referrers | `oras`, `remote` | Optional | No | No |
+| Structured error handling | `oras`, `errdef` | None | No | No |
