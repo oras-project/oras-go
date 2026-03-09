@@ -1,604 +1,482 @@
-# ORAS Go v3 Registry Package Design Document
+# ORAS Go v3 Registry Package Design
 
-## Executive Summary
+## Overview
 
-This document provides a critical analysis of the current registry package architecture and proposes a path forward for v3 that emphasizes separation of concerns, improved testability, and gradual adoption. The focus is on enabling non-breaking changes where possible, with clear deprecation paths for unavoidable breaking changes.
+This document describes the architecture of the `registry` and `registry/remote` packages in ORAS Go v3. It covers the package structure, key abstractions, data-flow diagrams, and the design rationale behind major subsystems.
 
 ---
 
-## 1. Current State Analysis
-
-### 1.1 Package Structure Overview
+## 1. Package Structure
 
 ```
 registry/
-├── registry.go           # Registry interface (minimal)
-├── repository.go         # Repository interface + helpers (dense)
-├── reference.go          # Reference parsing
-├── reference_list.go     # Batch reference parsing
-└── remote/
-    ├── registry.go       # Remote Registry implementation
-    ├── repository.go     # Remote Repository (1725 lines)
-    ├── auth.go           # Login/Logout functions
-    ├── referrers.go      # Referrers API
-    ├── auth/
-    │   ├── client.go     # Auth client (449 lines)
-    │   ├── cache.go      # Token caching
-    │   ├── challenge.go  # WWW-Authenticate parsing
-    │   └── scope.go      # OAuth2 scope management
-    ├── credentials/
-    │   ├── credential.go # Credential type + functions
-    │   ├── store.go      # Store interface
-    │   └── ...           # Various store implementations
-    ├── properties/       # NEW: Registry configuration
-    └── internal/
-        └── configuration/ # NEW: Policy/registries.conf support
-```
-
-### 1.2 Key Design Decisions in Current Branch
-
-| Feature | Status | Breaking? |
-|---------|--------|-----------|
-| URI scheme stripping in Reference | Implemented | No (additive) |
-| Tag/Digest fields in Reference | Implemented | No (deprecated Reference field) |
-| ParseReferenceList | Implemented | No (additive) |
-| Credential moved to credentials pkg | Implemented | Yes |
-| auth.Client.CredentialFunc renamed | Implemented | Yes |
-| ForceAttemptOAuth2 → SetLegacyMode | Implemented | Yes |
-| properties package | Implemented | No (additive) |
-| configuration package | Implemented | No (additive) |
-
----
-
-## 2. Separation of Concerns: Critical Analysis
-
-### 2.1 Problem: auth.Client is Overloaded
-
-**Current Responsibilities (449 lines):**
-1. HTTP request/response handling
-2. Credential resolution
-3. Challenge parsing (WWW-Authenticate)
-4. Token caching integration
-5. Bearer token fetching (OAuth2 + distribution spec)
-6. Basic auth encoding
-7. Request body rewinding
-8. Header management
-
-**Issues:**
-- Hard to test individual behaviors
-- Token fetching logic embedded in client
-- Cache is optional but code paths diverge significantly
-- Legacy vs OAuth2 mode handled via boolean flag
-
-**Recommendation: Extract TokenFetcher Interface**
-
-```go
-// auth/token.go (NEW)
-package auth
-
-// TokenFetcher abstracts the token acquisition strategy.
-type TokenFetcher interface {
-    // FetchToken acquires an access token for the given parameters.
-    FetchToken(ctx context.Context, params TokenParams) (string, error)
-}
-
-type TokenParams struct {
-    Registry string
-    Realm    string
-    Service  string
-    Scopes   []string
-    Cred     credentials.Credential
-}
-
-// DistributionTokenFetcher implements the distribution spec token endpoint.
-type DistributionTokenFetcher struct {
-    Client *http.Client
-    Header http.Header
-}
-
-// OAuth2TokenFetcher implements RFC 6749 password/refresh_token grants.
-type OAuth2TokenFetcher struct {
-    Client   *http.Client
-    Header   http.Header
-    ClientID string
-}
-```
-
-**Migration Path (Non-Breaking):**
-1. Add `TokenFetcher` interface and implementations
-2. Add `Client.TokenFetcher` field (optional, defaults to current behavior)
-3. Deprecate embedded logic over multiple minor versions
-4. Remove in v4
-
----
-
-### 2.2 Problem: Global DefaultClient Shared State
-
-**Current State:**
-```go
-var DefaultClient = &Client{
-    Client: retry.DefaultClient,
-    Header: http.Header{headerUserAgent: {"oras-go"}},
-    Cache:  DefaultCache,
-}
-```
-
-**Issues:**
-- All repositories share the same token cache by default
-- Different registries may require different auth strategies
-- Testing requires careful cache clearing
-- Cannot easily have per-registry configuration
-
-**Recommendation: Registry-Scoped Clients**
-
-Instead of global defaults, use the new `properties.Registry` to build configured clients:
-
-```go
-// remote/client.go (NEW)
-package remote
-
-// ClientBuilder creates auth clients from registry properties.
-type ClientBuilder struct {
-    // BaseTransport is the underlying HTTP transport.
-    BaseTransport http.RoundTripper
-
-    // RetryPolicy configures retry behavior.
-    RetryPolicy *retry.Policy
-
-    // CacheFactory creates caches for each registry.
-    // If nil, a per-registry cache is created.
-    CacheFactory func(registry string) auth.Cache
-}
-
-// Build creates an auth.Client configured for the given registry.
-func (b *ClientBuilder) Build(props *properties.Registry) *auth.Client {
-    // ... configure transport, auth, cache per registry
-}
-```
-
-**Migration Path (Non-Breaking):**
-1. Introduce `ClientBuilder` in v3.0
-2. Add `Repository.SetClient()` method (already exists as field)
-3. Document best practices for per-registry configuration
-4. `DefaultClient` remains for backward compatibility
-
----
-
-### 2.3 Problem: Repository as Monolithic Union Type
-
-**Current Definition:**
-```go
-type Repository interface {
-    content.Storage        // Fetch, Push, Exists
-    content.Deleter        // Delete
-    content.TagResolver    // Resolve, Tag
-    ReferenceFetcher       // FetchReference
-    ReferencePusher        // PushReference
-    ReferrerLister         // Referrers
-    TagLister              // Tags
-
-    Blobs() BlobStore
-    Manifests() ManifestStore
-}
-```
-
-**Issues:**
-- 12+ methods in one interface
-- Consumers must implement everything or embed
-- Optional features (Mounter) require type assertions
-- Hard to create read-only or write-only wrappers
-
-**Recommendation: Compose Smaller Interfaces**
-
-```go
-// repository.go - Core read operations
-type ReadableRepository interface {
-    content.Fetcher         // Fetch
-    content.Resolver        // Resolve
-    ReferenceFetcher        // FetchReference
-}
-
-// repository.go - Core write operations
-type WritableRepository interface {
-    content.Pusher          // Push
-    content.Tagger          // Tag
-    ReferencePusher         // PushReference
-}
-
-// repository.go - Full repository (backward compatible)
-type Repository interface {
-    ReadableRepository
-    WritableRepository
-    content.Storage         // Exists (read), Delete (write)
-    content.Deleter
-    ReferrerLister
-    TagLister
-
-    Blobs() BlobStore
-    Manifests() ManifestStore
-}
-
-// Optional interfaces remain as type assertions
-type Mounter interface { ... }
-type BlobMountable interface { ... }
-```
-
-**Migration Path (Non-Breaking):**
-1. Add `ReadableRepository` and `WritableRepository` interfaces
-2. Helper functions accept narrower interfaces where possible
-3. Existing code continues to work with full `Repository`
-
----
-
-### 2.4 Problem: Scattered Policy Enforcement
-
-**Current State:**
-Policy checks are scattered across repository.go:
-- `Fetch()` calls `checkPolicy()`
-- `Push()` calls `checkPolicy()`
-- `Resolve()` calls `checkPolicy()`
-- `Tag()` calls `checkPolicy()`
-- `FetchReference()` calls `checkPolicy()`
-- `PushReference()` calls `checkPolicy()`
-
-**Issues:**
-- Easy to miss adding policy check to new methods
-- Cannot easily disable for testing
-- Policy evaluation happens per-operation (potentially redundant)
-
-**Recommendation: Middleware Pattern**
-
-```go
-// remote/middleware.go (NEW)
-package remote
-
-// RepositoryMiddleware wraps repository operations.
-type RepositoryMiddleware func(Repository) Repository
-
-// WithPolicyEnforcement returns middleware that enforces container policy.
-func WithPolicyEnforcement(evaluator *configuration.PolicyEvaluator) RepositoryMiddleware {
-    return func(repo Repository) Repository {
-        return &policyEnforcingRepository{
-            Repository: repo,
-            evaluator:  evaluator,
-        }
-    }
-}
-
-// WithWarningHandler returns middleware that processes RFC 7234 warnings.
-func WithWarningHandler(handler func(Warning)) RepositoryMiddleware {
-    return func(repo Repository) Repository {
-        return &warningHandlingRepository{
-            Repository: repo,
-            handler:    handler,
-        }
-    }
-}
-```
-
-**Migration Path:**
-1. Extract policy logic into middleware
-2. Add `Repository.WithMiddleware()` or constructor option
-3. Default behavior remains unchanged
-4. Document how to customize/disable
-
----
-
-### 2.5 Problem: Credential Type Location
-
-**Current State (v3 branch):**
-- `credentials.Credential` - the type definition
-- `credentials.CredentialFunc` - the resolver function type
-- `auth.Client.CredentialFunc` - uses credentials package type
-- `properties.Registry.Credential` - uses `auth.Credential` (BUG: should be `credentials.Credential`)
-
-**Issues:**
-- Import cycle risk between auth and credentials
-- `properties.Registry` references wrong type (`auth.Credential` undefined)
-- Confusion about canonical location
-
-**Recommendation: Single Source of Truth**
-
-```go
-// credentials/credential.go - CANONICAL location
-package credentials
-
-type Credential struct { ... }
-type CredentialFunc func(ctx context.Context, hostport string) (Credential, error)
-
-// auth/client.go - imports credentials
-package auth
-import "...credentials"
-type Client struct {
-    CredentialFunc credentials.CredentialFunc
-}
-
-// properties/registry.go - imports credentials (FIX NEEDED)
-package properties
-import "...credentials"
-type Registry struct {
-    Credential credentials.Credential  // NOT auth.Credential
-}
-```
-
-**Immediate Fix Required:**
-```diff
-// properties/registry.go
--import "github.com/oras-project/oras-go/v3/registry/remote/auth"
-+import "github.com/oras-project/oras-go/v3/registry/remote/credentials"
-
- type Registry struct {
--    Credential auth.Credential
-+    Credential credentials.Credential
- }
-```
-
----
-
-### 2.6 Problem: Referrers State Machine Complexity
-
-**Current State:**
-The referrers implementation tracks API capability via atomic state:
-- `referrerStateUnknown`
-- `referrerStateSupported`
-- `referrerStateUnsupported`
-
-Plus complex merge pool logic for tag schema updates.
-
-**Issues:**
-- State transitions spread across multiple functions
-- Concurrent access requires careful synchronization
-- Hard to test state transitions in isolation
-
-**Recommendation: Encapsulate State Machine**
-
-```go
-// remote/referrers_state.go (NEW)
-package remote
-
-// ReferrerCapability tracks a registry's Referrers API support.
-type ReferrerCapability struct {
-    mu    sync.RWMutex
-    state referrerState
-}
-
-func (c *ReferrerCapability) IsSupported() bool { ... }
-func (c *ReferrerCapability) MarkSupported() { ... }
-func (c *ReferrerCapability) MarkUnsupported() { ... }
-func (c *ReferrerCapability) Reset() { ... }
-
-// ReferrerMergePool manages concurrent tag schema updates.
-type ReferrerMergePool struct { ... }
-```
-
-**Migration Path (Internal Only):**
-This is an internal refactoring with no public API changes.
-
----
-
-## 3. Proposed Package Reorganization
-
-### 3.1 Target Structure for v3
-
-```
-registry/
-├── registry.go           # Registry interface
-├── repository.go         # Repository interfaces (smaller, composable)
-├── reference.go          # Reference parsing
-├── reference_list.go     # Batch operations
+├── interfaces.go         # Repository, BlobStore, ManifestStore, TagLister, etc.
+├── reference.go          # Reference parsing and validation
 │
 └── remote/
-    ├── registry.go       # Remote Registry
-    ├── repository.go     # Remote Repository (refactored)
-    ├── client.go         # NEW: ClientBuilder
-    ├── middleware.go     # NEW: Repository middleware
+    ├── registry.go       # Remote Registry (catalog, ping, repository lookup)
+    ├── repository.go     # Remote Repository implementation (~64 KB)
+    ├── builder.go        # ClientBuilder: factory for auth.Client + Repository
+    ├── middleware.go      # RepositoryMiddleware, WithPolicyEnforcement, Compose
+    ├── mirror.go         # Mirror fallback logic (PullFromMirrorAll/DigestOnly/TagOnly)
+    ├── referrers.go      # Referrers API implementation
+    ├── referrers_state.go # Atomic referrer capability state machine
+    ├── auth.go           # Login/Logout helpers
+    ├── warning.go        # RFC 7234 warning header handling
+    ├── logging_transport.go # slog-based HTTP debug transport
+    ├── url.go            # URL builder utilities
     │
     ├── auth/
-    │   ├── client.go     # Auth client (simplified)
-    │   ├── cache.go      # Token caching
-    │   ├── challenge.go  # Challenge parsing
-    │   ├── scope.go      # Scope management
-    │   └── token.go      # NEW: TokenFetcher interface
+    │   ├── client.go     # auth.Client: auth-decorated HTTP client
+    │   ├── token.go      # TokenFetcher interface + Distribution/OAuth2/Composite impls
+    │   ├── cache.go      # Token and auth-header caching
+    │   ├── challenge.go  # WWW-Authenticate challenge parsing
+    │   └── scope.go      # OAuth2 scope management
     │
     ├── credentials/
-    │   ├── credential.go # CANONICAL Credential type
-    │   ├── store.go      # Store interface
-    │   ├── file_store.go
+    │   ├── credential.go # Credential type (canonical location)
+    │   ├── store.go      # Store interface + CredentialFunc
+    │   ├── file_store.go # Docker config.json credential store
     │   ├── memory_store.go
-    │   └── native_store.go
+    │   └── native_store.go # OS keychain integration
     │
-    ├── properties/       # Registry configuration
-    │   ├── registry.go
-    │   ├── transport.go
-    │   └── attributes.go
+    ├── properties/
+    │   ├── registry.go   # Registry (Reference, Transport, Credential, Mirrors)
+    │   ├── reference.go  # Reference (Registry, Repository, Tag, Digest)
+    │   ├── transport.go  # Transport (TLS, PlainHTTP, HeaderFlags)
+    │   ├── attributes.go # Attributes (ReferrersAPI capability hint)
+    │   └── mirror.go     # Mirror (Location, Transport, PullFromMirror)
     │
-    └── internal/
-        ├── configuration/  # Policy, registries.conf
-        ├── referrers/      # NEW: Referrers state machine
-        └── errutil/
+    ├── config/
+    │   ├── loader.go     # LoadConfigs / LoadConfigsWithOptions from system paths
+    │   ├── config.go     # Docker config.json parser
+    │   ├── registries.go # registries.conf / registries.d YAML parser
+    │   ├── registriesd.go # registries.d directory support
+    │   ├── certsd.go     # /etc/containers/certs.d certificate discovery
+    │   └── properties.go # Configs → properties.Registry conversion
+    │
+    ├── policy/
+    │   ├── policy.go     # Policy type + requirements (InsecureAcceptAnything, Reject, PRSignedBy)
+    │   ├── evaluator.go  # Evaluator: IsImageAllowed
+    │   ├── requirement.go # PolicyRequirement interface
+    │   └── transport.go  # TransportName constants (docker, atomic, etc.)
+    │
+    ├── signature/
+    │   ├── verifier.go   # DefaultSignedByVerifier: OpenPGP signature verification
+    │   ├── storage.go    # SignatureStorage interface
+    │   ├── lookaside.go  # LookasideStore: file:// and HTTP signature backends
+    │   ├── simplesigning.go # atomic container signature payload format
+    │   ├── openpgp.go    # CreateOpenPGPSignature helper
+    │   └── identity.go   # matchRepoDigestOrExact identity matching
+    │
+    └── retry/
+        ├── client.go     # Retry-decorated http.Client
+        └── policy.go     # RetryPolicy interface + DefaultPolicy
 ```
-
-### 3.2 Dependency Direction
-
-```
-                    ┌─────────────────────┐
-                    │      registry/      │
-                    │  (interfaces only)  │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-              ▼                ▼                ▼
-     ┌────────────────┐ ┌────────────┐ ┌───────────────┐
-     │ remote/auth/   │ │ remote/    │ │ remote/       │
-     │ (auth client)  │ │credentials/│ │ properties/   │
-     └───────┬────────┘ │ (stores)   │ │ (config)      │
-             │          └──────┬─────┘ └───────────────┘
-             │                 │
-             └────────┬────────┘
-                      │
-                      ▼
-            ┌─────────────────┐
-            │ remote/         │
-            │ repository.go   │
-            │ (implementation)│
-            └─────────────────┘
-```
-
-**Key Principle:** Lower packages never import higher packages. `credentials` is foundational; `auth` depends on `credentials`; `repository` composes both.
 
 ---
 
-## 4. Breaking vs Non-Breaking Changes
+## 2. Core Interfaces
 
-### 4.1 Non-Breaking Additions (v3.0)
+### 2.1 Repository Interface Hierarchy
 
-| Change | Impact |
-|--------|--------|
-| Add `TokenFetcher` interface | Extensibility |
-| Add `ClientBuilder` | Better configuration |
-| Add `ReadableRepository`/`WritableRepository` | Narrower function signatures |
-| Add repository middleware support | Policy customization |
-| Add `Credential.IsEmpty()` method | Convenience |
+```mermaid
+classDiagram
+    class Repository {
+        <<interface>>
+        +Fetch(ctx, desc) ReadCloser
+        +Push(ctx, desc, reader) error
+        +Exists(ctx, desc) bool
+        +Delete(ctx, desc) error
+        +Resolve(ctx, ref) Descriptor
+        +Tag(ctx, desc, ref) error
+        +FetchReference(ctx, ref) Descriptor, ReadCloser
+        +PushReference(ctx, desc, reader, ref) error
+        +Referrers(ctx, desc, type, fn) error
+        +Tags(ctx, last, fn) error
+        +Blobs() BlobStore
+        +Manifests() ManifestStore
+    }
 
-### 4.2 Deprecations (v3.0, Remove in v4)
+    class BlobStore {
+        <<interface>>
+        +Fetch(ctx, desc) ReadCloser
+        +Push(ctx, desc, reader) error
+        +Exists(ctx, desc) bool
+        +Delete(ctx, desc) error
+        +Resolve(ctx, ref) Descriptor
+        +FetchReference(ctx, ref) Descriptor, ReadCloser
+    }
 
-| Deprecated | Replacement |
-|------------|-------------|
-| `Reference.Reference` field | `Reference.Tag` + `Reference.Digest` |
-| Direct `DefaultClient` modification | `ClientBuilder` |
-| `auth.Client` embedded token logic | `TokenFetcher` interface |
+    class ManifestStore {
+        <<interface>>
+        +Tag(ctx, desc, ref) error
+        +PushReference(ctx, desc, reader, ref) error
+    }
 
-### 4.3 Breaking Changes (v3.0)
+    class Mounter {
+        <<interface>>
+        +Mount(ctx, desc, fromRepo, getContent) error
+    }
 
-| Change | Migration |
-|--------|-----------|
-| `Credential` canonical location | Update imports from `auth` to `credentials` |
-| `auth.Client.Credential` → `CredentialFunc` | Rename field usage |
-| `ForceAttemptOAuth2` removed | Use `SetLegacyMode()` |
+    Repository --> BlobStore : Blobs()
+    Repository --> ManifestStore : Manifests()
+    ManifestStore --|> BlobStore : extends
+    Mounter ..|> BlobStore : optional type assertion
+```
+
+### 2.2 Content Package Interfaces (embedded)
+
+`Repository` embeds several interfaces from the `content` package:
+
+| Embedded Interface | Methods |
+|---|---|
+| `content.Storage` | `Fetch`, `Push`, `Exists` |
+| `content.Deleter` | `Delete` |
+| `content.TagResolver` | `Tag`, `Resolve` |
+| `registry.ReferenceFetcher` | `FetchReference` |
+| `registry.ReferencePusher` | `PushReference` |
+| `registry.ReferrerLister` | `Referrers` |
+| `registry.TagLister` | `Tags` |
 
 ---
 
-## 5. Immediate Fixes Required
+## 3. Authentication Architecture
 
-The following issues exist in the current branch and need resolution:
+### 3.1 Component Relationships
 
-### 5.1 Compiler Errors
+```mermaid
+graph TD
+    subgraph credentials
+        Credential["credentials.Credential\n(Username, Password,\nRefreshToken, AccessToken)"]
+        CredentialFunc["credentials.CredentialFunc\nfunc(ctx, hostport) Credential"]
+        Store["credentials.Store interface\nGet / Put / Delete"]
+        FileStore["FileStore\n(Docker config.json)"]
+        NativeStore["NativeStore\n(OS keychain)"]
+        MemStore["MemoryStore"]
+    end
 
+    subgraph auth
+        Client["auth.Client\n(auth-decorated http.Client)"]
+        TokenFetcher["TokenFetcher interface\nFetchToken(ctx, params, cred)"]
+        DistFetcher["DistributionTokenFetcher\n(GET /token)"]
+        OAuthFetcher["OAuth2TokenFetcher\n(POST /token)"]
+        Composite["CompositeTokenFetcher\n(selects strategy)"]
+        Cache["auth.Cache\n(token + auth-header cache)"]
+    end
+
+    Store --> FileStore
+    Store --> NativeStore
+    Store --> MemStore
+    Client --> CredentialFunc
+    Client --> Cache
+    Client --> TokenFetcher
+    TokenFetcher --> DistFetcher
+    TokenFetcher --> OAuthFetcher
+    TokenFetcher --> Composite
+    Composite --> DistFetcher
+    Composite --> OAuthFetcher
+    CredentialFunc --> Credential
 ```
-registry.go:33:18: undefined: auth.Credential
-```
-**Fix:** Change `properties/registry.go` to import `credentials.Credential`
 
-```
-reference_list.go:46:5: non-boolean condition in if statement
-```
-**Fix:** Review conditional logic in `ParseReferenceList`
+### 3.2 Authentication Flow
 
-```
-memory.go, memory_test.go: unused imports
-```
-**Fix:** Remove unused `descriptor` imports
+```mermaid
+sequenceDiagram
+    participant App
+    participant auth.Client
+    participant Cache
+    participant Registry
+    participant TokenEndpoint
 
-### 5.2 Type Consistency
+    App->>auth.Client: Do(request)
+    auth.Client->>Registry: HTTP request (no auth)
+    Registry-->>auth.Client: 401 WWW-Authenticate: Bearer realm=...
+    auth.Client->>Cache: lookup token for scope
+    alt cache hit
+        Cache-->>auth.Client: cached token
+    else cache miss
+        auth.Client->>auth.Client: resolve credential (CredentialFunc)
+        auth.Client->>TokenEndpoint: FetchToken (Distribution GET or OAuth2 POST)
+        TokenEndpoint-->>auth.Client: access token
+        auth.Client->>Cache: store token
+    end
+    auth.Client->>Registry: HTTP request + Authorization: Bearer <token>
+    Registry-->>auth.Client: 200 OK
+    auth.Client-->>App: response
+```
 
-The `properties.Registry.Credential` field references `auth.Credential` which doesn't exist. This should be `credentials.Credential`.
+### 3.3 TokenFetcher Strategy Selection
+
+`CompositeTokenFetcher` selects the token acquisition strategy at runtime:
+
+```mermaid
+flowchart TD
+    A[FetchToken called] --> B{cred.AccessToken != empty?}
+    B -- yes --> C[Return AccessToken directly]
+    B -- no --> D{cred == EmptyCredential\nor LegacyMode && no RefreshToken?}
+    D -- yes --> E[DistributionTokenFetcher\nGET /token?service=...&scope=...]
+    D -- no --> F[OAuth2TokenFetcher\nPOST /token grant_type=password\nor refresh_token]
+```
 
 ---
 
-## 6. Implementation Priorities
+## 4. ClientBuilder and Registry Construction
 
-### Phase 1: Fix Compilation (Immediate)
-1. Fix `properties/registry.go` import
-2. Fix `reference_list.go` conditional
-3. Remove unused imports
+`ClientBuilder` is the recommended factory for creating auth-configured clients and repositories. It replaces ad-hoc `auth.DefaultClient` usage.
 
-### Phase 2: Stabilize v3 API (Before Release)
-1. Finalize `Credential` location in `credentials` package
-2. Document breaking changes in migration guide
-3. Add deprecation notices
+```mermaid
+graph LR
+    subgraph Input
+        Props["properties.Registry\n(Reference, Transport,\nCredential, Mirrors)"]
+        Builder["ClientBuilder\n(BaseTransport, RetryPolicy,\nCacheFactory, CredentialStore,\nTokenFetcher, PolicyEvaluator, Logger)"]
+    end
 
-### Phase 3: Separation Improvements (v3.x)
-1. Extract `TokenFetcher` interface
-2. Add `ClientBuilder`
-3. Add repository middleware support
+    subgraph Output
+        AuthClient["auth.Client"]
+        Repo["remote.Repository"]
+        Reg["remote.Registry"]
+        Mirrors["[]mirrorRepository"]
+    end
 
-### Phase 4: Interface Refinement (v3.x/v4)
-1. Add `ReadableRepository`/`WritableRepository`
-2. Encapsulate referrers state machine
-3. Remove deprecated APIs
+    Builder --> |Build(props)| AuthClient
+    Props --> AuthClient
+    AuthClient --> Repo
+    AuthClient --> Reg
+    Props --> Mirrors
+    Builder --> Mirrors
+    Mirrors --> Repo
+```
 
----
-
-## 7. Testing Strategy
-
-### 7.1 Unit Test Improvements
-
-With better separation:
-- `TokenFetcher` implementations testable in isolation
-- Policy middleware testable without full repository
-- Cache behavior testable independently
-
-### 7.2 Integration Test Patterns
+**Usage pattern:**
 
 ```go
-// Example: Testing with custom token fetcher
-func TestCustomTokenFetcher(t *testing.T) {
-    fetcher := &MockTokenFetcher{
-        Token: "test-token",
-    }
-    client := &auth.Client{
-        TokenFetcher: fetcher,
-    }
-    // ... test auth flow
-}
+builder := remote.NewClientBuilder()
+builder.CredentialStore = myStore
+builder.PolicyEvaluator = evaluator
+builder.Logger = slog.Default()
 
-// Example: Testing without policy
-func TestRepositoryWithoutPolicy(t *testing.T) {
-    repo := remote.NewRepository(ref)
-    // No policy middleware = no policy checks
-    // ... test repository operations
-}
+props, _ := properties.NewRegistry("registry.example.com/app/myimage")
+repo, _ := remote.NewRepositoryWithProperties(props, builder)
 ```
 
 ---
 
-## 8. Conclusion
+## 5. Mirror Fallback
 
-The v3 registry package is on a good trajectory with several valuable additions:
-- URI scheme flexibility
-- Improved reference parsing
-- Registry properties abstraction
-- Policy/configuration support
+When a repository has mirrors configured, read operations try mirrors in order before falling back to the primary.
 
-The primary areas for improvement are:
-1. **Credential type consolidation** - Ensure single canonical location
-2. **Auth client decomposition** - Extract token fetching for testability
-3. **Repository middleware** - Enable policy customization
-4. **Interface composition** - Allow narrower function signatures
+```mermaid
+flowchart TD
+    A[Resolve / Fetch / FetchReference / Exists] --> B{mirrors configured?}
+    B -- no --> Z[Primary Registry]
+    B -- yes --> C[For each mirror in order]
+    C --> D{mirror.shouldUseForReference?}
+    D -- no --> C
+    D -- yes --> E[Try mirror]
+    E -- success --> F[Return result]
+    E -- error: context.Canceled\nor DeadlineExceeded --> G[Return error immediately]
+    E -- other error --> C
+    C -- all mirrors exhausted --> Z[Primary Registry]
+    Z --> H[Return result or error]
+```
 
-By introducing these changes incrementally with deprecation notices, we can improve separation of concerns while minimizing disruption to existing users.
+**Pull policies** (`PullFromMirror` field on `properties.Mirror`):
+
+| Value | Behavior |
+|---|---|
+| `"all"` (default) | Use mirror for both tag and digest references |
+| `"digest-only"` | Use mirror only for `@sha256:...` references |
+| `"tag-only"` | Use mirror only for `:tag` references |
 
 ---
 
-## Appendix A: Current Diagnostic Issues
+## 6. Middleware Pattern
 
+`RepositoryMiddleware` is a function type that wraps a `registry.Repository`. Middlewares are composed with `Compose`.
+
+```mermaid
+graph LR
+    App --> MW1["middleware 1\n(outermost)"]
+    MW1 --> MW2["middleware 2"]
+    MW2 --> MW3["middleware N\n(innermost)"]
+    MW3 --> Repo["remote.Repository\n(HTTP calls)"]
 ```
-reference_list.go:46:5    non-boolean condition in if statement
-memory_test.go:29:2       unused import "descriptor"
-registry.go:33:18         undefined: auth.Credential
-registry_test.go:65:28    undefined: auth.EmptyCredential
-registry_test.go:127:20   undefined: auth.Credential
-memory.go:28:2            unused import "descriptor"
+
+**Built-in middleware:**
+
+```go
+// Apply policy enforcement to an existing repository
+enforced := remote.WithPolicyEnforcement(evaluator, policy.TransportNameDocker, scope)(repo)
+
+// Compose multiple middlewares
+composed := remote.Compose(
+    remote.WithPolicyEnforcement(evaluator, policy.TransportNameDocker, scope),
+    myLoggingMiddleware,
+)(repo)
 ```
 
-## Appendix B: Related PRs
+`policyEnforcingRepository` wraps all read and write methods — `Fetch`, `Push`, `Resolve`, `Tag`, `FetchReference`, `PushReference` — as well as the sub-stores returned by `Blobs()` and `Manifests()`.
 
-- PR #1095: fix: graph.Memory should use digest as map key
-- PR #1091: Add URI Scheme Stripping Support
-- PR #1087: refactor: add registries properties
-- PR #1086: feat: add cache support
-- PR #1045: Add ParseReferenceList method
-- PR #1042: Add support for tag and digest in Reference
-- PR #1038: Remove ForceAttemptOAuth2, add SetLegacyMode
-- PR #1013: Add support for policy.json allow/deny
+---
+
+## 7. Policy and Signature Verification
+
+### 7.1 Package Relationships
+
+```mermaid
+graph TD
+    subgraph config
+        Loader["config.LoadConfigsWithOptions\n(LoadConfigsOptions:\nPolicyConfigPath,\nRegistriesDPath,\nDockerConfigPath, ...)"]
+        Configs["config.Configs\n{PolicyConfig, RegistriesDConfig,\nDockerConfig, ...}"]
+        Loader --> Configs
+    end
+
+    subgraph policy
+        Policy["policy.Policy\n(default + per-scope requirements)"]
+        Evaluator["policy.Evaluator\nIsImageAllowed(ctx, ImageReference)"]
+        PRSignedBy["PRSignedBy\n{KeyType, KeyPath}"]
+        Reject["Reject"]
+        Insecure["InsecureAcceptAnything"]
+        Policy --> PRSignedBy
+        Policy --> Reject
+        Policy --> Insecure
+        Configs --> |PolicyEvaluator(opts...)| Evaluator
+    end
+
+    subgraph signature
+        Verifier["DefaultSignedByVerifier\nVerify(ctx, scope, digest, key)"]
+        LookasideStore["LookasideStore\nPutSignature / GetSignatures\n(file:// or HTTP)"]
+        SimpleSigning["SimpleSigningPayload\n{critical.image.docker-manifest-digest,\n critical.identity.docker-reference}"]
+        Verifier --> LookasideStore
+        Verifier --> SimpleSigning
+    end
+
+    Configs --> |NewSignedByVerifierFromConfig(cfg, scope)| Verifier
+    Evaluator --> |WithSignedByVerifier(verifier)| Verifier
+```
+
+### 7.2 Signature Verification Flow
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Evaluator
+    participant PRSignedBy
+    participant DefaultSignedByVerifier
+    participant LookasideStore
+    participant OpenPGP
+
+    App->>Evaluator: IsImageAllowed(ctx, ImageReference)
+    Evaluator->>Evaluator: match scope → policy requirement
+    Evaluator->>PRSignedBy: IsSatisfied(ctx, imageRef, verifier)
+    PRSignedBy->>DefaultSignedByVerifier: Verify(ctx, scope, digest, keyPath)
+    DefaultSignedByVerifier->>LookasideStore: GetSignatures(ctx, scope, digest)
+    LookasideStore-->>DefaultSignedByVerifier: []sigData
+    loop for each signature
+        DefaultSignedByVerifier->>OpenPGP: verify signature against key
+        DefaultSignedByVerifier->>DefaultSignedByVerifier: parse SimpleSigningPayload
+        DefaultSignedByVerifier->>DefaultSignedByVerifier: matchRepoDigestOrExact(imageRef, signedRef)
+    end
+    DefaultSignedByVerifier-->>PRSignedBy: verified / not verified
+    PRSignedBy-->>Evaluator: satisfied / not satisfied
+    Evaluator-->>App: allowed bool, error
+```
+
+### 7.3 Config Loading
+
+`config.LoadConfigsWithOptions` aggregates configuration from multiple sources:
+
+| `LoadConfigsOptions` field | Source |
+|---|---|
+| `PolicyConfigPath` | `containers-policy.json` path (custom override) |
+| `RegistriesDPath` | `registries.d` directory path (custom override) |
+| `DockerConfigPath` | `config.json` path (custom override) |
+| (defaults) | `/etc/containers/policy.json`, `~/.config/containers/registries.d`, `~/.docker/config.json` |
+
+The returned `config.Configs` provides:
+- `Configs.PolicyEvaluator(opts...)` — creates a `*policy.Evaluator`
+- `config.NewSignedByVerifierFromConfig(cfg.RegistriesDConfig, scope)` — creates a `*signature.DefaultSignedByVerifier` via longest-prefix matching on the registries.d YAML keys
+
+---
+
+## 8. Package Dependency Graph
+
+```mermaid
+graph BT
+    retry --> auth
+    credentials --> auth
+    credentials --> builder["remote (builder.go)"]
+    auth --> builder
+    properties --> builder
+    policy --> builder
+    retry --> builder
+
+    builder --> registry_remote["remote.Repository\nremote.Registry"]
+
+    config --> policy
+    config --> signature
+    signature --> policy
+
+    registry_remote --> registry["registry\n(interfaces)"]
+```
+
+**Key principle:** dependencies flow upward. `credentials` and `retry` are foundational with no internal dependencies. `auth` depends on `credentials`. `properties` is standalone. `builder` composes them all. `config`, `policy`, and `signature` form the security layer above the transport.
+
+---
+
+## 9. Referrers API State Machine
+
+The `remote.Repository` tracks whether the target registry supports the OCI Referrers API (introduced in Distribution Spec v1.1). This avoids re-probing on every call.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unknown : initial state
+    Unknown --> Supported : 200 from GET /referrers/
+    Unknown --> Unsupported : 404 / fallback to tag schema
+    Supported --> Supported : subsequent Referrers() calls
+    Unsupported --> Unsupported : use tag schema (_oras.index.*)
+    Supported --> Unknown : SetReferrersCapability(reset)
+```
+
+---
+
+## 10. Breaking Changes from v2
+
+| Area | v2 | v3 |
+|---|---|---|
+| `Credential` type location | `auth.Credential` | `credentials.Credential` (canonical) |
+| `auth.Client.Credential` field | direct credential | `CredentialFunc credentials.CredentialFunc` |
+| `ForceAttemptOAuth2` flag | `bool` field on `auth.Client` | removed; use `SetLegacyMode()` |
+| Token fetching | embedded in `auth.Client` | extracted to `TokenFetcher` interface |
+| Registry configuration | manual field-by-field setup | `properties.Registry` + `ClientBuilder` |
+| Policy enforcement | not available | `policy` package + `WithPolicyEnforcement` middleware |
+| Mirror support | not available | `properties.Mirror` + mirror fallback in `Repository` |
+| Signature verification | not available | `signature` package + `LookasideStore` |
+| Config loading | not available | `config.LoadConfigsWithOptions` |
+
+---
+
+## 11. Testing Strategy
+
+### Unit Tests
+- `TokenFetcher` implementations (`DistributionTokenFetcher`, `OAuth2TokenFetcher`) are testable in isolation via the `TokenFetcher` interface.
+- `policyEnforcingRepository` is a pure wrapper — policy logic is testable without a live registry.
+- `LookasideStore` supports `file://` URIs, enabling signature tests without an HTTP server.
+
+### Functional Tests (`test/functional/`)
+The functional test suite (`//go:build functional`) requires a live registry (default: `localhost:5000`):
+
+| Test file | Coverage |
+|---|---|
+| `registry_test.go` | Ping, catalog, tag listing |
+| `repository_test.go` | Push, pull, delete, resolve, referrers |
+| `objects_functional_test.go` | `objects` package ORM API |
+| `signature_test.go` | GPG sign/verify pipeline via `LookasideStore` |
+| `config_test.go` | `LoadConfigsWithOptions` + full policy pipeline |
+
+Run with:
+```bash
+cd test/functional
+go test -tags functional -v ./...
+```
