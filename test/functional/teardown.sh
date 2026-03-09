@@ -15,13 +15,21 @@
 
 set -euo pipefail
 
-PID_FILE="/tmp/oras-functional-test-portforward.pid"
+PID_FILE="/tmp/oras-functional-portforward.pid"
 
-# Kill port-forward
-if [ -f "$PID_FILE" ]; then
-  kill "$(cat "$PID_FILE")" 2>/dev/null || true
-  rm -f "$PID_FILE"
+echo "==> Stopping port-forwards..."
+if [ -f "${PID_FILE}" ]; then
+  while IFS= read -r pid; do
+    kill "${pid}" 2>/dev/null || true
+  done < "${PID_FILE}"
+  rm -f "${PID_FILE}"
 fi
 
-# Delete namespace
+echo "==> Deleting namespace oras-functional-test..."
 kubectl delete namespace oras-functional-test --ignore-not-found
+
+echo "==> Cleaning up temporary files..."
+rm -rf /tmp/oras-functional-certs
+rm -f /tmp/oras-functional-env
+
+echo "==> Teardown complete."

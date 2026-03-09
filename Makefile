@@ -40,9 +40,11 @@ fix-encoding:
 .PHONY: test-functional
 test-functional:
 	./test/functional/setup.sh
-	go test -race -v -tags functional ./test/functional/ -timeout 300s; \
+	set -a && . /tmp/oras-functional-env && set +a && \
+	cd test/functional && \
+	go test -race -v -tags functional . -timeout 300s; \
 	EXIT_CODE=$$?; \
-	./test/functional/teardown.sh; \
+	cd $(CURDIR) && ./test/functional/teardown.sh; \
 	exit $$EXIT_CODE
 
 .PHONY: vendor
