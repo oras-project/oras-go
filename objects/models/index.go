@@ -94,8 +94,13 @@ func (idx *Index) Size() int64 {
 }
 
 // Annotations returns a copy of the annotations associated with this index.
-// The returned map is safe to modify without affecting the index.
+// If the index manifest is already loaded, annotations are read from the
+// manifest body (where they are authoritative). Otherwise the descriptor
+// annotations are used as a fallback. The returned map is safe to modify.
 func (idx *Index) Annotations() map[string]string {
+	if m, ok := idx.index.peek(); ok {
+		return maps.Clone(m.Annotations)
+	}
 	return maps.Clone(idx.descriptor.Annotations)
 }
 
