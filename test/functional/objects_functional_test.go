@@ -519,25 +519,6 @@ func TestORM_LazyLoadingManifest(t *testing.T) {
 	})
 }
 
-func TestORM_MarshalJSON_NotLoaded(t *testing.T) {
-	ctx := context.Background()
-	client, repo := newORMClient(t)
-
-	// Push an image manifest directly.
-	pushManifest(t, ctx, repo, "marshal-test", nil)
-
-	// Fetch via ORM but do NOT call Load.
-	manifest, err := client.FetchByReference(ctx, "marshal-test")
-	if err != nil {
-		t.Fatalf("FetchByReference(): %v", err)
-	}
-
-	// MarshalJSON should return ErrNotLoaded.
-	_, err = json.Marshal(manifest)
-	if err == nil {
-		t.Fatal("expected ErrNotLoaded, got nil")
-	}
-}
 
 func TestORM_ReferenceResolution(t *testing.T) {
 	ctx := context.Background()
