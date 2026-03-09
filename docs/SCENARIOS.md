@@ -55,7 +55,7 @@ Not all use cases require the full configuration stack. The remaining scenarios 
 
 Loading the full configuration stack provides significant benefits:
 
-- **Broader credential coverage** — Reads both Docker `config.json` and containers `auth.json`, so credentials stored by either Docker or Podman are found automatically.
+- **Broader credential coverage** — Reads both Docker `config.json` and Containers Tools `auth.json`, so credentials stored by either Docker or Podman are found automatically.
 - **Per-registry TLS** — Utilizes custom CA certificates and client certs from `certs.d` without requiring CLI flags.
 - **Mirror support** — Respects registry mirrors configured in `registries.conf`, which is essential for enterprise and air-gapped environments.
 - **Ecosystem consistency** — Users configure these files once and expect all registry-interacting tools to respect them.
@@ -115,7 +115,7 @@ CLI tools typically load the full configuration stack and then override specific
 - **`config.LoadConfigs`** — Load all container ecosystem configs as a baseline.
 - **`properties.Registry`** — Mutable struct whose transport, credential, and attribute fields can be overridden after creation.
 - **`credentials.Credential`** — Direct credential that takes priority over the credential store when set on properties.
-- **`remote.ClientBuilder`** — Credential store acts as a fallback when no explicit credential is set on properties.
+- **`remote.ClientBuilder.CredentialStore`** — Credential store acts as a fallback when no explicit credential is set on properties.
 
 ### Typical Flow
 
@@ -391,7 +391,7 @@ _, _ = oras.Copy(ctx, ociStore, "latest", dstRepo, "latest", oras.DefaultCopyOpt
 
 ### Use Cases
 
-- Air-gapped deployments: export on connected machine; transfer media; import on isolated machine.
+- Air-gapped deployments: Export on connected machine. Transfer media. Import on isolated machine.
 - Local testing and development without a running registry.
 - Build caches stored as OCI layouts.
 
