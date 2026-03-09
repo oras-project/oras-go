@@ -94,8 +94,13 @@ func (i *Image) Size() int64 {
 }
 
 // Annotations returns a copy of the annotations associated with this image.
-// The returned map is safe to modify without affecting the image.
+// If the manifest is already loaded, annotations are read from the manifest
+// body (where they are authoritative). Otherwise the descriptor annotations
+// are used as a fallback. The returned map is safe to modify.
 func (i *Image) Annotations() map[string]string {
+	if m, ok := i.manifest.peek(); ok {
+		return maps.Clone(m.Annotations)
+	}
 	return maps.Clone(i.descriptor.Annotations)
 }
 
