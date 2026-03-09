@@ -504,7 +504,7 @@ evaluator, _ := configs.PolicyEvaluator(
 )
 
 // Check policy before allowing the image.
-allowed, _ := evaluator.Evaluate(ctx, policy.ImageReference{
+allowed, _ := evaluator.IsImageAllowed(ctx, policy.ImageReference{
     Transport: "docker",
     Scope:     "registry.example.com/app",
     Reference: "registry.example.com/app:v1.0@sha256:abc...",
