@@ -12,6 +12,12 @@ This guide covers the breaking changes and migration steps for upgrading from OR
 | Reference struct enhanced | Reference parsing | [Reference Struct](reference-struct.md) |
 | Registry/Repository refactor | Repository configuration | [Registry/Repository Refactor](registry-repository-refactor.md) |
 
+## AI-Assisted Migration
+
+For bulk migration of a codebase, use the ready-made AI prompt:
+
+**[ai-migration-prompt.md](ai-migration-prompt.md)** — copy the prompt into Claude, Copilot, or any AI assistant along with your source files. It covers all breaking changes, search-and-replace patterns, and guidance for adopting new v3 features.
+
 ## Quick Start
 
 1. **Update module path** in all imports:
@@ -63,6 +69,22 @@ This guide covers the breaking changes and migration steps for upgrading from OR
 - [Auth Client Changes](auth-client-changes.md) - Authentication API changes
 - [Reference Struct](reference-struct.md) - Reference parsing enhancements
 - [Registry/Repository Refactor](registry-repository-refactor.md) - Repository configuration changes
+- [Config-to-Properties Mapping](config-properties-mapping.md) - registries.conf → properties bridge
+- [AI Migration Prompt](ai-migration-prompt.md) - Ready-to-use prompt for AI-assisted migration
+
+## New Packages in v3
+
+| Package | Description |
+|---------|-------------|
+| `registry/remote/policy` | `containers-policy.json` enforcement (`Evaluator.IsImageAllowed`) |
+| `registry/remote/signature` | Atomic container signature signing/verification (`LookasideStore`, OpenPGP) |
+| `registry/remote/config` | Unified config loader (`LoadConfigsWithOptions`) for policy, registries.d, Docker config, certs |
+| `registry/remote/properties` | Typed registry configuration (`Registry`, `Transport`, `Mirror`) |
+| `registry/remote/builder.go` | `ClientBuilder` factory for auth clients and repositories |
+| `registry/remote/middleware.go` | `RepositoryMiddleware`, `WithPolicyEnforcement`, `Compose` |
+| `registry/remote/mirror.go` | Mirror fallback logic with `PullFromMirror*` policies |
+| `content/cache` | Caching wrapper (`cache.New`) for content stores |
+| `objects` | ORM-like API for images, artifacts, and image indexes |
 
 ## Non-Breaking Additions in v3
 
