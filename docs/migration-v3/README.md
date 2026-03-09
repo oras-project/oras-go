@@ -2,21 +2,24 @@
 
 This guide covers the breaking changes and migration steps for upgrading from ORAS Go v2 to v3.
 
-## Summary of Breaking Changes
-
-| Change | Impact | Migration Guide |
-|--------|--------|-----------------|
-| Module path changed | All imports | [Module Name](module-name.md) |
-| Credential type relocated | Auth code | [Credential Relocation](credential-relocation.md) |
-| Auth client API changes | Auth configuration | [Auth Client Changes](auth-client-changes.md) |
-| Reference struct enhanced | Reference parsing | [Reference Struct](reference-struct.md) |
-| Registry/Repository refactor | Repository configuration | [Registry/Repository Refactor](registry-repository-refactor.md) |
-
 ## AI-Assisted Migration
 
 For bulk migration of a codebase, use the ready-made AI prompt:
 
 **[ai-migration-prompt.md](ai-migration-prompt.md)** — copy the prompt into Claude, Copilot, or any AI assistant along with your source files. It covers all breaking changes, search-and-replace patterns, and guidance for adopting new v3 features.
+
+## Summary of Breaking Changes
+
+| Change | Impact |
+|--------|--------|
+| Module path changed (`oras.land/oras-go/v2` → `github.com/oras-project/oras-go/v3`) | All imports |
+| `auth.Credential` → `credentials.Credential` | Auth code |
+| `auth.Client.Credential` → `auth.Client.CredentialFunc` | Auth configuration |
+| `ForceAttemptOAuth2` removed; use `SetLegacyMode()` (inverted semantics) | Auth configuration |
+| `repo.Client/PlainHTTP/HandleWarning/Policy` → `repo.Registry.*` | Repository configuration |
+| `repo.Reference.Repository` → `repo.RepositoryName` | Repository configuration |
+| `ref.Reference` field deprecated → use `ref.GetReference()` | Reference parsing |
+| `RepositoryOptions` type removed | Repository construction |
 
 ## Quick Start
 
@@ -62,16 +65,6 @@ For bulk migration of a codebase, use the ready-made AI prompt:
 
 5. Run `go mod tidy` to update dependencies.
 
-## Migration Guides
-
-- [Module Name Change](module-name.md) - Module path migration
-- [Credential Relocation](credential-relocation.md) - Credential type package move
-- [Auth Client Changes](auth-client-changes.md) - Authentication API changes
-- [Reference Struct](reference-struct.md) - Reference parsing enhancements
-- [Registry/Repository Refactor](registry-repository-refactor.md) - Repository configuration changes
-- [Config-to-Properties Mapping](config-properties-mapping.md) - registries.conf → properties bridge
-- [AI Migration Prompt](ai-migration-prompt.md) - Ready-to-use prompt for AI-assisted migration
-
 ## New Packages in v3
 
 | Package | Description |
@@ -86,31 +79,18 @@ For bulk migration of a codebase, use the ready-made AI prompt:
 | `content/cache` | Caching wrapper (`cache.New`) for content stores |
 | `objects` | ORM-like API for images, artifacts, and image indexes |
 
-## Non-Breaking Additions in v3
+## Reference Docs
 
-- **URI Scheme Support**: `ParseReference()` now accepts `oci://`, `http://`, and `https://` schemes
-- **Reference List Parsing**: New `ParseReferenceList()` for batch operations
-- **Tag/Digest Fields**: Direct access to tag and digest in `Reference` struct
-- **Registry Properties**: New `properties` package for registry configuration
-- **Cache Support**: New `cache` package for content caching
-- **Policy Support**: Container policy (`policy.json`) support
-- **TokenFetcher Interface**: Pluggable token acquisition strategies in `auth.Client`
-- **ClientBuilder**: Builder pattern for creating `auth.Client` from registry properties
-- **Repository Middleware**: Middleware pattern for cross-cutting concerns (policy enforcement, warnings)
-- **Composable Interfaces**: New `ReadableRepository`, `WritableRepository`, and `ReadOnlyRepository` interfaces for narrower function signatures
-- **Config-to-Properties Bridge**: Convert `registries.conf` settings into `properties.Registry` for seamless builder integration
-- **Mirror Support**: Registry mirrors from `registries.conf` are populated into `properties.Registry.Mirrors`
-- **Unified Config Loader**: `config.LoadConfigs()` loads both Docker `config.json` and `registries.conf` in one call
+- [Config-to-Properties Mapping](config-properties-mapping.md) - Field-by-field `registries.conf` → `properties.Registry` mapping
 
 ## Config-Based Repository Creation
 
-v3 introduces a bridge between container configuration files and the builder pattern. Load a `registries.conf` to get transport settings (insecure, reference rewriting, blocked registries), then feed the resulting properties to the builder:
+v3 introduces a bridge between container configuration files and the builder pattern:
 
 ```go
 import (
     "github.com/oras-project/oras-go/v3/registry/remote"
     "github.com/oras-project/oras-go/v3/registry/remote/config"
-    "github.com/oras-project/oras-go/v3/registry/remote/credentials"
 )
 
 // Load registries.conf for transport settings.
@@ -120,22 +100,10 @@ regConf, _ := config.LoadRegistriesConfig("/etc/containers/registries.conf")
 // applies insecure settings, checks blocked registries).
 props, _ := regConf.RegistryProperties("docker.io/library/alpine:latest")
 
-// Create a credential store for authentication.
 builder := remote.NewClientBuilder()
 builder.CredentialStore = myCredentialStore
 
-// Build a repository from properties.
 repo, _ := remote.NewRepositoryWithProperties(props, builder)
-```
-
-For unqualified image names, use `SearchRegistryProperties` to try each configured search registry:
-
-```go
-results, _ := regConf.SearchRegistryProperties("alpine:latest")
-for _, props := range results {
-    repo, err := remote.NewRepositoryWithProperties(props, builder)
-    // try each registry in order...
-}
 ```
 
 ## Community Support
