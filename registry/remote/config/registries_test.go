@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package configuration
+package config
 
 import (
 	"os"
@@ -158,6 +158,40 @@ location = "mirror.example.com"
 								Location: "mirror.example.com",
 							},
 						},
+					},
+				},
+				Aliases: map[string]string{},
+			},
+			wantErr: false,
+		},
+		{
+			name: "config with oras-specific attributes",
+			content: `
+[[registry]]
+prefix = "basic-auth.example.com"
+force-basic-auth = true
+
+[[registry]]
+prefix = "referrers-supported.example.com"
+referrers-api = "supported"
+
+[[registry]]
+prefix = "referrers-unsupported.example.com"
+referrers-api = "unsupported"
+`,
+			want: &RegistriesConfig{
+				Registries: []Registry{
+					{
+						Prefix:         "basic-auth.example.com",
+						ForceBasicAuth: true,
+					},
+					{
+						Prefix:       "referrers-supported.example.com",
+						ReferrersAPI: "supported",
+					},
+					{
+						Prefix:       "referrers-unsupported.example.com",
+						ReferrersAPI: "unsupported",
 					},
 				},
 				Aliases: map[string]string{},
@@ -668,12 +702,12 @@ func TestMergeRegistriesConfig(t *testing.T) {
 		UnqualifiedSearchRegistries: []string{"quay.io", "docker.io"},
 		ShortNameMode:               "enforcing",
 		Registries: []Registry{
-			{Prefix: "quay.io", Insecure: true}, // Override
-			{Prefix: "gcr.io", Location: "mirror.gcr.io"}, // Add new
+			{Prefix: "quay.io", Insecure: true},               // Override
+			{Prefix: "gcr.io", Location: "mirror.gcr.io"},     // Add new
 		},
 		Aliases: map[string]string{
-			"nginx":  "quay.io/nginx/nginx", // Override
-			"ubuntu": "docker.io/library/ubuntu", // Add new
+			"nginx":  "quay.io/nginx/nginx",              // Override
+			"ubuntu": "docker.io/library/ubuntu",         // Add new
 		},
 	}
 
