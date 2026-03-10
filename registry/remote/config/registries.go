@@ -52,6 +52,17 @@ type Registry struct {
 	Mirrors []Mirror `toml:"mirror"`
 	// MirrorByDigestOnly restricts mirrors to digest-based pulls only.
 	MirrorByDigestOnly bool `toml:"mirror-by-digest-only"`
+	// ForceBasicAuth forces HTTP Basic authentication regardless of what the
+	// registry advertises. When true, if the registry challenges with Bearer
+	// auth the client will use Basic auth instead. Requires the registry to
+	// also accept Basic auth credentials. This is an ORAS-specific field and
+	// may be ignored by other tools that parse registries.conf.
+	ForceBasicAuth bool `toml:"force-basic-auth"`
+	// ReferrersAPI indicates whether the registry supports the OCI Referrers
+	// API. Valid values: "supported", "unsupported". An empty or unrecognized
+	// value defaults to auto-detection on first use. This is an ORAS-specific
+	// field and may be ignored by other tools that parse registries.conf.
+	ReferrersAPI string `toml:"referrers-api"`
 }
 
 // Mirror represents a registry mirror configuration.

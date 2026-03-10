@@ -118,6 +118,7 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 		CredentialFunc: credentialFunc,
 		Cache:          cache,
 		TokenFetcher:   b.TokenFetcher,
+		ForceBasicAuth: props.Attributes.ForceBasicAuth,
 	}
 
 	return client, nil

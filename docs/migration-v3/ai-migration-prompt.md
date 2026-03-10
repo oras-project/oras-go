@@ -306,6 +306,8 @@ SEARCH-AND-REPLACE CHEAT SHEET
 | repo.Reference.Repository           | repo.RepositoryName                            |
 | ref.Reference (field read)          | ref.GetReference()                             |
 | evaluator.Evaluate(                 | evaluator.IsImageAllowed(                      |
+| remote.GetCredentialFunc(           | remote.NewCredentialFunc(                      |
+| auth.WithScopeHint(                 | auth.WithScopes(                               |
 
 ────────────────────────────────────────────────────────────
 AFTER MIGRATION

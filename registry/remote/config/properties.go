@@ -68,11 +68,22 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 		return nil, err
 	}
 
-	// Step 5: Apply transport settings and mirrors from the original
-	// (pre-rewrite) registry entry.
+	// Step 5: Apply transport settings, attributes, and mirrors from the
+	// original (pre-rewrite) registry entry.
 	if origReg != nil {
 		if origReg.Insecure {
 			props.Transport.Insecure = true
+		}
+
+		if origReg.ForceBasicAuth {
+			props.Attributes.ForceBasicAuth = true
+		}
+
+		switch origReg.ReferrersAPI {
+		case "supported":
+			props.Attributes.ReferrersAPI = properties.ReferrersAPISupported
+		case "unsupported":
+			props.Attributes.ReferrersAPI = properties.ReferrersAPIUnsupported
 		}
 
 		// Step 6: Populate mirrors.

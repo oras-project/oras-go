@@ -18,6 +18,8 @@ package config
 import (
 	"errors"
 	"testing"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 func TestRegistriesConfig_RegistryProperties(t *testing.T) {
@@ -374,6 +376,66 @@ func TestNewRegistryProperties_MirrorByDigestOnlyDefault(t *testing.T) {
 	}
 	if props.Mirrors[2].PullFromMirror != "all" {
 		t.Errorf("Mirrors[2].PullFromMirror = %q, want %q", props.Mirrors[2].PullFromMirror, "all")
+	}
+}
+
+func TestNewRegistryProperties_ForceBasicAuth(t *testing.T) {
+	config := &RegistriesConfig{
+		Registries: []Registry{
+			{Prefix: "basic-auth.example.com", ForceBasicAuth: true},
+			{Prefix: "normal.example.com"},
+		},
+		Aliases: map[string]string{},
+	}
+
+	props, err := NewRegistryProperties("basic-auth.example.com/image:v1", config)
+	if err != nil {
+		t.Fatalf("NewRegistryProperties() unexpected error: %v", err)
+	}
+	if !props.Attributes.ForceBasicAuth {
+		t.Error("Attributes.ForceBasicAuth should be true")
+	}
+
+	props, err = NewRegistryProperties("normal.example.com/image:v1", config)
+	if err != nil {
+		t.Fatalf("NewRegistryProperties() unexpected error: %v", err)
+	}
+	if props.Attributes.ForceBasicAuth {
+		t.Error("Attributes.ForceBasicAuth should be false for normal registry")
+	}
+}
+
+func TestNewRegistryProperties_ReferrersAPI(t *testing.T) {
+	config := &RegistriesConfig{
+		Registries: []Registry{
+			{Prefix: "supported.example.com", ReferrersAPI: "supported"},
+			{Prefix: "unsupported.example.com", ReferrersAPI: "unsupported"},
+			{Prefix: "default.example.com", ReferrersAPI: ""},
+			{Prefix: "unknown-value.example.com", ReferrersAPI: "bogus"},
+		},
+		Aliases: map[string]string{},
+	}
+
+	tests := []struct {
+		ref  string
+		want properties.ReferrersAPI
+	}{
+		{"supported.example.com/image:v1", properties.ReferrersAPISupported},
+		{"unsupported.example.com/image:v1", properties.ReferrersAPIUnsupported},
+		{"default.example.com/image:v1", properties.ReferrersAPIUnknown},
+		{"unknown-value.example.com/image:v1", properties.ReferrersAPIUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ref, func(t *testing.T) {
+			props, err := NewRegistryProperties(tt.ref, config)
+			if err != nil {
+				t.Fatalf("NewRegistryProperties() unexpected error: %v", err)
+			}
+			if props.Attributes.ReferrersAPI != tt.want {
+				t.Errorf("Attributes.ReferrersAPI = %v, want %v", props.Attributes.ReferrersAPI, tt.want)
+			}
+		})
 	}
 }
 

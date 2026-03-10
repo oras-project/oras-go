@@ -127,7 +127,7 @@ func Example_pullImageUsingDockerCredentials() {
 	repo.Registry.Client = &auth.Client{
 		Client:         retry.DefaultClient,
 		Cache:          auth.NewCache(),
-		CredentialFunc: remote.GetCredentialFunc(credStore), // Use the credentials store
+		CredentialFunc: remote.NewCredentialFunc(credStore), // Use the credentials store
 	}
 
 	// 2. Copy from the remote repository to the OCI layout store

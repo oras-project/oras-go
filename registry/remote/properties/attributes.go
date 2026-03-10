@@ -46,4 +46,11 @@ type Attributes struct {
 	// - ReferrersAPIUnsupported: the registry does not support the Referrers API
 	// - ReferrersAPIUnknown: the capability is unknown and will be auto-detected
 	ReferrersAPI ReferrersAPI
+
+	// ForceBasicAuth forces the client to use HTTP Basic authentication
+	// regardless of what authentication scheme the registry advertises.
+	// When true, if the registry challenges with Bearer auth, the client
+	// will use Basic auth instead. This requires the registry to also
+	// accept Basic auth credentials.
+	ForceBasicAuth bool
 }

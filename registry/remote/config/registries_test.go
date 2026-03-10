@@ -165,6 +165,40 @@ location = "mirror.example.com"
 			wantErr: false,
 		},
 		{
+			name: "config with oras-specific attributes",
+			content: `
+[[registry]]
+prefix = "basic-auth.example.com"
+force-basic-auth = true
+
+[[registry]]
+prefix = "referrers-supported.example.com"
+referrers-api = "supported"
+
+[[registry]]
+prefix = "referrers-unsupported.example.com"
+referrers-api = "unsupported"
+`,
+			want: &RegistriesConfig{
+				Registries: []Registry{
+					{
+						Prefix:         "basic-auth.example.com",
+						ForceBasicAuth: true,
+					},
+					{
+						Prefix:       "referrers-supported.example.com",
+						ReferrersAPI: "supported",
+					},
+					{
+						Prefix:       "referrers-unsupported.example.com",
+						ReferrersAPI: "unsupported",
+					},
+				},
+				Aliases: map[string]string{},
+			},
+			wantErr: false,
+		},
+		{
 			name:    "empty config",
 			content: "",
 			want: &RegistriesConfig{
