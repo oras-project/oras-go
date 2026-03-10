@@ -68,7 +68,7 @@ func main() {
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(repo.Reference.Registry, auth.Credential{
+		CredentialFunc: credentials.StaticCredentialFunc(repo.Reference.Registry, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),
@@ -287,7 +287,7 @@ func main() {
 	repo.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(repo.Reference.Registry, auth.Credential{
+		CredentialFunc: credentials.StaticCredentialFunc(repo.Reference.Registry, credentials.Credential{
 			Username: "username",
 			Password: "password",
 		}),
