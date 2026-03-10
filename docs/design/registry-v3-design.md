@@ -239,7 +239,7 @@ graph LR
         Mirrors["[]mirrorRepository"]
     end
 
-    Builder --> |Build(props)| AuthClient
+    Builder -- "Build(props)" --> AuthClient
     Props --> AuthClient
     AuthClient --> Repo
     AuthClient --> Reg
@@ -341,7 +341,7 @@ graph TD
         Policy --> PRSignedBy
         Policy --> Reject
         Policy --> Insecure
-        Configs --> |PolicyEvaluator(opts...)| Evaluator
+        Configs -- "PolicyEvaluator(opts...)" --> Evaluator
     end
 
     subgraph signature
@@ -352,8 +352,8 @@ graph TD
         Verifier --> SimpleSigning
     end
 
-    Configs --> |NewSignedByVerifierFromConfig(cfg, scope)| Verifier
-    Evaluator --> |WithSignedByVerifier(verifier)| Verifier
+    Configs -- "NewSignedByVerifierFromConfig(cfg, scope)" --> Verifier
+    Evaluator -- "WithSignedByVerifier(verifier)" --> Verifier
 ```
 
 ### 7.2 Signature Verification Flow
