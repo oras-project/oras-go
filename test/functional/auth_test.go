@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 )
 
 func TestBasicAuthPushPull(t *testing.T) {
@@ -72,5 +73,42 @@ func TestWrongCredentialsFail(t *testing.T) {
 	err := repo.Push(ctx, desc, bytes.NewReader(content))
 	if err == nil {
 		t.Fatal("Expected push with wrong credentials to fail, but it succeeded")
+	}
+}
+
+func TestCredentialHelperPushPull(t *testing.T) {
+	ctx := context.Background()
+
+	// Build the test credential helper binary and get a NativeStore backed by it.
+	store, _ := buildCredHelper(t)
+
+	// Store valid credentials for the auth registry endpoint.
+	if err := store.Put(ctx, authRegistryEndpoint, credentials.Credential{
+		Username: "testuser",
+		Password: "testpass",
+	}); err != nil {
+		t.Fatalf("storing credentials via helper: %v", err)
+	}
+
+	// Create a repository that obtains credentials from the helper.
+	repo := newCredHelperRepo(t, uniqueRepoName(t), store)
+
+	// Push a blob.
+	content, desc := generateContent(t, 64)
+	if err := repo.Push(ctx, desc, bytes.NewReader(content)); err != nil {
+		t.Fatalf("push via credential helper failed: %v", err)
+	}
+
+	// Push a manifest with a tag so we can resolve it.
+	tag := "cred-helper-test"
+	manifestDesc := packAndPush(t, ctx, repo, tag, []ocispec.Descriptor{desc})
+
+	// Resolve the manifest back to verify the round-trip.
+	resolvedDesc, err := repo.Resolve(ctx, tag)
+	if err != nil {
+		t.Fatalf("resolve via credential helper failed: %v", err)
+	}
+	if resolvedDesc.Digest != manifestDesc.Digest {
+		t.Fatalf("digest mismatch: got %s, want %s", resolvedDesc.Digest, manifestDesc.Digest)
 	}
 }
