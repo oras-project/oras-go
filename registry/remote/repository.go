@@ -43,7 +43,7 @@ import (
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 )
 
@@ -154,8 +154,12 @@ type Repository struct {
 
 	// Policy is an optional policy evaluator for allow/deny decisions.
 	// If nil, no policy enforcement is performed.
+	// Policies can be loaded from a file via [policy.Load] or constructed
+	// programmatically via [policy.NewPolicy]. The default file-based loading
+	// ([policy.LoadDefault]) uses platform-specific paths; see the policy
+	// package documentation for cross-platform details.
 	// Reference: https://man.archlinux.org/man/containers-policy.json.5.en
-	Policy *configuration.Evaluator
+	Policy *policy.Evaluator
 
 	// NOTE: Must keep fields in sync with clone().
 
@@ -296,8 +300,8 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 		ref = reference
 	}
 
-	imageRef := configuration.ImageReference{
-		Transport: configuration.TransportDocker,
+	imageRef := policy.ImageReference{
+		Transport: policy.TransportNameDocker,
 		Scope:     r.Reference.Repository,
 		Reference: ref,
 	}

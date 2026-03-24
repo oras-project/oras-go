@@ -13,11 +13,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package configuration implements support for containers-policy.json format
+// Package policy implements support for containers-policy.json format
 // for OCI image signature verification policies.
 //
 // Reference: https://man.archlinux.org/man/containers-policy.json.5.en
-package configuration
+package policy
 
 import (
 	"encoding/json"
@@ -31,34 +31,10 @@ const (
 	PolicyConfUserDir = ".config/containers"
 	// PolicyConfFileName is the name of the policy configuration file
 	PolicyConfFileName = "policy.json"
-	// PolicyConfSystemPath is the system-wide policy.json path
+	// PolicyConfSystemPath is the system-wide policy.json path (Linux only).
+	// On non-Linux platforms, this path is not used by default.
+	// Use [Load] or [LoadPolicy] with an explicit path for cross-platform usage.
 	PolicyConfSystemPath = "/etc/containers/policy.json"
-)
-
-// TransportName represents a supported transport type
-type TransportName string
-
-const (
-	// TransportDocker represents the docker transport
-	TransportDocker TransportName = "docker"
-	// TransportAtomic represents the atomic transport
-	TransportAtomic TransportName = "atomic"
-	// TransportContainersStorage represents the containers-storage transport
-	TransportContainersStorage TransportName = "containers-storage"
-	// TransportDir represents the dir transport
-	TransportDir TransportName = "dir"
-	// TransportDockerArchive represents the docker-archive transport
-	TransportDockerArchive TransportName = "docker-archive"
-	// TransportDockerDaemon represents the docker-daemon transport
-	TransportDockerDaemon TransportName = "docker-daemon"
-	// TransportOCI represents the oci transport
-	TransportOCI TransportName = "oci"
-	// TransportOCIArchive represents the oci-archive transport
-	TransportOCIArchive TransportName = "oci-archive"
-	// TransportSIF represents the sif transport
-	TransportSIF TransportName = "sif"
-	// TransportTarball represents the tarball transport
-	TransportTarball TransportName = "tarball"
 )
 
 // Policy represents a containers-policy.json configuration
@@ -83,26 +59,84 @@ type PolicyRequirement interface {
 	Validate() error
 }
 
+// NewPolicy creates a new empty Policy.
+// Use this for programmatic policy construction without a file.
+func NewPolicy() *Policy {
+	return &Policy{
+		Default:    make(PolicyRequirements, 0),
+		Transports: make(map[TransportName]TransportScopes),
+	}
+}
+
+// NewInsecureAcceptAnythingPolicy creates a policy that accepts all images.
+// This is useful for testing or development environments.
+func NewInsecureAcceptAnythingPolicy() *Policy {
+	return &Policy{
+		Default: PolicyRequirements{&InsecureAcceptAnything{}},
+	}
+}
+
+// NewRejectAllPolicy creates a policy that rejects all images.
+// This is a safe default that requires explicit configuration to allow images.
+func NewRejectAllPolicy() *Policy {
+	return &Policy{
+		Default: PolicyRequirements{&Reject{}},
+	}
+}
+
+// SetDefault sets the default policy requirements.
+func (p *Policy) SetDefault(reqs ...PolicyRequirement) *Policy {
+	p.Default = reqs
+	return p
+}
+
+// SetTransportScope sets the policy requirements for a specific transport and scope.
+func (p *Policy) SetTransportScope(transport TransportName, scope string, reqs ...PolicyRequirement) *Policy {
+	if p.Transports == nil {
+		p.Transports = make(map[TransportName]TransportScopes)
+	}
+	if p.Transports[transport] == nil {
+		p.Transports[transport] = make(TransportScopes)
+	}
+	p.Transports[transport][scope] = reqs
+	return p
+}
+
 // GetDefaultPolicyPath returns the default path to policy.json.
 // It checks $HOME/.config/containers/policy.json first, then falls back to
-// /etc/containers/policy.json.
+// the system-wide path.
+//
+// On Linux, the system-wide path is /etc/containers/policy.json.
+// On other platforms (macOS, Windows, etc.), only the user-level path
+// ($HOME/.config/containers/policy.json) is checked, since the system-wide
+// path is Linux-specific. Use [Load] or [LoadPolicy] with an explicit path
+// for cross-platform usage.
 func GetDefaultPolicyPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	// Try user-specific path first
+	// Try user-specific path first (works on all platforms)
 	userPath := filepath.Join(homeDir, PolicyConfUserDir, PolicyConfFileName)
 	if _, err := os.Stat(userPath); err == nil {
 		return userPath, nil
 	}
 
-	// Fall back to system-wide path
-	return PolicyConfSystemPath, nil
+	// Fall back to system-wide path (Linux only)
+	if systemPolicyPath != "" {
+		return systemPolicyPath, nil
+	}
+
+	return "", fmt.Errorf("no policy.json found at %s and no system-wide default is available on this platform", userPath)
 }
 
-// LoadPolicy loads a policy from the specified file path
+// Load loads a policy from the specified file path.
+func Load(path string) (*Policy, error) {
+	return LoadPolicy(path)
+}
+
+// LoadPolicy loads a policy from the specified file path.
 func LoadPolicy(path string) (*Policy, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -117,8 +151,10 @@ func LoadPolicy(path string) (*Policy, error) {
 	return &policy, nil
 }
 
-// LoadDefaultPolicy loads the policy from the default location
-func LoadDefaultPolicy() (*Policy, error) {
+// LoadDefault loads the policy from the default location.
+// On non-Linux platforms, this only checks the user-level path.
+// See [GetDefaultPolicyPath] for details on path resolution.
+func LoadDefault() (*Policy, error) {
 	path, err := GetDefaultPolicyPath()
 	if err != nil {
 		return nil, err
@@ -127,9 +163,9 @@ func LoadDefaultPolicy() (*Policy, error) {
 	return LoadPolicy(path)
 }
 
-// SavePolicy saves a policy to the specified file path
-func SavePolicy(policy *Policy, path string) error {
-	data, err := json.MarshalIndent(policy, "", "  ")
+// Save saves a policy to the specified file path.
+func (p *Policy) Save(path string) error {
+	data, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal policy: %w", err)
 	}
@@ -147,7 +183,7 @@ func SavePolicy(policy *Policy, path string) error {
 	return nil
 }
 
-// Validate validates the policy configuration
+// Validate validates the policy configuration.
 func (p *Policy) Validate() error {
 	// Validate default requirements
 	for _, req := range p.Default {

@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package configuration_test
+package policy_test
 
 import (
 	"context"
@@ -22,20 +22,20 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
 // ExamplePolicy_basic demonstrates creating a basic policy
 func ExamplePolicy_basic() {
 	// Create a policy that rejects everything by default
-	p := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.Reject{}},
+	p := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.Reject{}},
 	}
 
 	// Add a transport-specific policy for docker that accepts anything
-	p.Transports = map[configuration.TransportName]configuration.TransportScopes{
-		configuration.TransportDocker: {
-			"": configuration.PolicyRequirements{&configuration.InsecureAcceptAnything{}},
+	p.Transports = map[policy.TransportName]policy.TransportScopes{
+		policy.TransportNameDocker: {
+			"": policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
 		},
 	}
 
@@ -45,16 +45,16 @@ func ExamplePolicy_basic() {
 
 // ExamplePolicy_signedBy demonstrates creating a policy with signature verification
 func ExamplePolicy_signedBy() {
-	p := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.Reject{}},
-		Transports: map[configuration.TransportName]configuration.TransportScopes{
-			configuration.TransportDocker: {
-				"docker.io/myorg": configuration.PolicyRequirements{
-					&configuration.PRSignedBy{
+	p := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.Reject{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				"docker.io/myorg": policy.PolicyRequirements{
+					&policy.PRSignedBy{
 						KeyType: "GPGKeys",
 						KeyPath: "/path/to/trusted-key.gpg",
-						SignedIdentity: &configuration.SignedIdentity{
-							Type: configuration.MatchRepository,
+						SignedIdentity: &policy.SignedIdentity{
+							Type: policy.IdentityMatchRepository,
 						},
 					},
 				},
@@ -67,29 +67,29 @@ func ExamplePolicy_signedBy() {
 	// Output: Policy requires GPG signatures for docker.io/myorg
 }
 
-// ExampleLoadPolicy demonstrates loading a policy from a file
-func ExampleLoadPolicy() {
+// ExampleLoad demonstrates loading a policy from a file
+func ExampleLoad() {
 	// Create a temporary policy file
 	tmpDir := os.TempDir()
 	policyPath := filepath.Join(tmpDir, "example-policy.json")
 
 	// Create and save a policy
-	p := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.Reject{}},
-		Transports: map[configuration.TransportName]configuration.TransportScopes{
-			configuration.TransportDocker: {
-				"": configuration.PolicyRequirements{&configuration.InsecureAcceptAnything{}},
+	p := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.Reject{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				"": policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
 			},
 		},
 	}
 
-	if err := configuration.SavePolicy(p, policyPath); err != nil {
+	if err := p.Save(policyPath); err != nil {
 		log.Fatalf("Failed to save policy: %v", err)
 	}
 	defer os.Remove(policyPath)
 
 	// Load the policy
-	loaded, err := configuration.LoadPolicy(policyPath)
+	loaded, err := policy.Load(policyPath)
 	if err != nil {
 		log.Fatalf("Failed to load policy: %v", err)
 	}
@@ -101,19 +101,19 @@ func ExampleLoadPolicy() {
 // ExampleEvaluator_IsImageAllowed demonstrates evaluating a policy
 func ExampleEvaluator_IsImageAllowed() {
 	// Create a permissive policy for testing
-	p := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.InsecureAcceptAnything{}},
+	p := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
 	}
 
 	// Create an evaluator
-	evaluator, err := configuration.NewEvaluator(p)
+	evaluator, err := policy.NewEvaluator(p)
 	if err != nil {
 		log.Fatalf("Failed to create evaluator: %v", err)
 	}
 
 	// Check if an image is allowed
-	image := configuration.ImageReference{
-		Transport: configuration.TransportDocker,
+	image := policy.ImageReference{
+		Transport: policy.TransportNameDocker,
 		Scope:     "docker.io/library/nginx",
 		Reference: "docker.io/library/nginx:latest",
 	}
@@ -129,22 +129,22 @@ func ExampleEvaluator_IsImageAllowed() {
 
 // ExamplePolicy_GetRequirementsForImage demonstrates getting requirements for a specific image
 func ExamplePolicy_GetRequirementsForImage() {
-	p := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.Reject{}},
-		Transports: map[configuration.TransportName]configuration.TransportScopes{
-			configuration.TransportDocker: {
-				"":                        configuration.PolicyRequirements{&configuration.InsecureAcceptAnything{}},
-				"docker.io/library/nginx": configuration.PolicyRequirements{&configuration.Reject{}},
+	p := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.Reject{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				"":                        policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
+				"docker.io/library/nginx": policy.PolicyRequirements{&policy.Reject{}},
 			},
 		},
 	}
 
 	// Get requirements for nginx specifically
-	nginxReqs := p.GetRequirementsForImage(configuration.TransportDocker, "docker.io/library/nginx")
+	nginxReqs := p.GetRequirementsForImage(policy.TransportNameDocker, "docker.io/library/nginx")
 	fmt.Printf("Nginx requirements: %s\n", nginxReqs[0].Type())
 
 	// Get requirements for other docker images
-	otherReqs := p.GetRequirementsForImage(configuration.TransportDocker, "docker.io/library/alpine")
+	otherReqs := p.GetRequirementsForImage(policy.TransportNameDocker, "docker.io/library/alpine")
 	fmt.Printf("Other docker requirements: %s\n", otherReqs[0].Type())
 
 	// Output:
@@ -154,21 +154,21 @@ func ExamplePolicy_GetRequirementsForImage() {
 
 // ExamplePolicy_sigstore demonstrates creating a sigstore-based policy
 func ExamplePolicy_sigstore() {
-	p := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.Reject{}},
-		Transports: map[configuration.TransportName]configuration.TransportScopes{
-			configuration.TransportDocker: {
-				"docker.io/myorg": configuration.PolicyRequirements{
-					&configuration.PRSigstoreSigned{
+	p := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.Reject{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				"docker.io/myorg": policy.PolicyRequirements{
+					&policy.PRSigstoreSigned{
 						KeyPath: "/path/to/cosign.pub",
-						Fulcio: &configuration.FulcioConfig{
+						Fulcio: &policy.FulcioConfig{
 							CAPath:       "/path/to/fulcio-ca.pem",
 							OIDCIssuer:   "https://oauth2.sigstore.dev/auth",
 							SubjectEmail: "user@example.com",
 						},
 						RekorPublicKeyPath: "/path/to/rekor.pub",
-						SignedIdentity: &configuration.SignedIdentity{
-							Type: configuration.MatchRepository,
+						SignedIdentity: &policy.SignedIdentity{
+							Type: policy.IdentityMatchRepository,
 						},
 					},
 				},

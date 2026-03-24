@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package configuration
+package policy
 
 import (
 	"testing"
@@ -29,28 +29,28 @@ func TestSignedIdentity_ValidateAllTypes(t *testing.T) {
 		{
 			name: "matchExact valid",
 			identity: &SignedIdentity{
-				Type: MatchExact,
+				Type: IdentityMatchExact,
 			},
 			wantErr: false,
 		},
 		{
 			name: "matchRepoDigestOrExact valid",
 			identity: &SignedIdentity{
-				Type: MatchRepoDigestOrExact,
+				Type: IdentityMatchRepoDigestOrExact,
 			},
 			wantErr: false,
 		},
 		{
 			name: "matchRepository valid",
 			identity: &SignedIdentity{
-				Type: MatchRepository,
+				Type: IdentityMatchRepository,
 			},
 			wantErr: false,
 		},
 		{
 			name: "exactReference valid",
 			identity: &SignedIdentity{
-				Type:            ExactReference,
+				Type:            IdentityMatchExactReference,
 				DockerReference: "docker.io/library/nginx:latest",
 			},
 			wantErr: false,
@@ -58,14 +58,14 @@ func TestSignedIdentity_ValidateAllTypes(t *testing.T) {
 		{
 			name: "exactReference missing dockerReference",
 			identity: &SignedIdentity{
-				Type: ExactReference,
+				Type: IdentityMatchExactReference,
 			},
 			wantErr: true,
 		},
 		{
 			name: "exactRepository valid",
 			identity: &SignedIdentity{
-				Type:             ExactRepository,
+				Type:             IdentityMatchExactRepository,
 				DockerRepository: "docker.io/library/nginx",
 			},
 			wantErr: false,
@@ -73,14 +73,14 @@ func TestSignedIdentity_ValidateAllTypes(t *testing.T) {
 		{
 			name: "exactRepository missing dockerRepository",
 			identity: &SignedIdentity{
-				Type: ExactRepository,
+				Type: IdentityMatchExactRepository,
 			},
 			wantErr: true,
 		},
 		{
 			name: "remapIdentity valid",
 			identity: &SignedIdentity{
-				Type:         RemapIdentity,
+				Type:         IdentityMatchRemap,
 				Prefix:       "docker.io/",
 				SignedPrefix: "quay.io/",
 			},
@@ -89,7 +89,7 @@ func TestSignedIdentity_ValidateAllTypes(t *testing.T) {
 		{
 			name: "remapIdentity missing prefix",
 			identity: &SignedIdentity{
-				Type:         RemapIdentity,
+				Type:         IdentityMatchRemap,
 				SignedPrefix: "quay.io/",
 			},
 			wantErr: true,
@@ -97,7 +97,7 @@ func TestSignedIdentity_ValidateAllTypes(t *testing.T) {
 		{
 			name: "remapIdentity missing signedPrefix",
 			identity: &SignedIdentity{
-				Type:   RemapIdentity,
+				Type:   IdentityMatchRemap,
 				Prefix: "docker.io/",
 			},
 			wantErr: true,
@@ -193,7 +193,7 @@ func TestPRSignedBy_ValidateKeySources(t *testing.T) {
 				KeyType: "GPGKeys",
 				KeyPath: "/path/to/key.gpg",
 				SignedIdentity: &SignedIdentity{
-					Type: MatchRepository,
+					Type: IdentityMatchRepository,
 				},
 			},
 			wantErr: false,
@@ -204,7 +204,7 @@ func TestPRSignedBy_ValidateKeySources(t *testing.T) {
 				KeyType: "GPGKeys",
 				KeyPath: "/path/to/key.gpg",
 				SignedIdentity: &SignedIdentity{
-					Type: ExactReference,
+					Type: IdentityMatchExactReference,
 					// Missing DockerReference
 				},
 			},
@@ -283,7 +283,7 @@ func TestPRSigstoreSigned_Validate(t *testing.T) {
 			req: &PRSigstoreSigned{
 				KeyPath: "/path/key.pub",
 				SignedIdentity: &SignedIdentity{
-					Type: ExactRepository,
+					Type: IdentityMatchExactRepository,
 					// Missing DockerRepository
 				},
 			},
@@ -298,7 +298,7 @@ func TestPRSigstoreSigned_Validate(t *testing.T) {
 				RekorPublicKeyPath: "/path/rekor.pub",
 				RekorPublicKeyData: []byte("rekor key"),
 				SignedIdentity: &SignedIdentity{
-					Type: MatchExact,
+					Type: IdentityMatchExact,
 				},
 			},
 			wantErr: false,
@@ -389,15 +389,15 @@ func TestFulcioConfig_Validate(t *testing.T) {
 	}
 }
 
-// Test all IdentityMatchType constants
-func TestIdentityMatchType_Constants(t *testing.T) {
-	types := []IdentityMatchType{
-		MatchExact,
-		MatchRepoDigestOrExact,
-		MatchRepository,
-		ExactReference,
-		ExactRepository,
-		RemapIdentity,
+// Test all IdentityMatch constants
+func TestIdentityMatch_Constants(t *testing.T) {
+	types := []IdentityMatch{
+		IdentityMatchExact,
+		IdentityMatchRepoDigestOrExact,
+		IdentityMatchRepository,
+		IdentityMatchExactReference,
+		IdentityMatchExactRepository,
+		IdentityMatchRemap,
 	}
 
 	for _, matchType := range types {
@@ -406,11 +406,11 @@ func TestIdentityMatchType_Constants(t *testing.T) {
 
 			// Add required fields based on type
 			switch matchType {
-			case ExactReference:
+			case IdentityMatchExactReference:
 				identity.DockerReference = "docker.io/library/nginx:latest"
-			case ExactRepository:
+			case IdentityMatchExactRepository:
 				identity.DockerRepository = "docker.io/library/nginx"
-			case RemapIdentity:
+			case IdentityMatchRemap:
 				identity.Prefix = "docker.io/"
 				identity.SignedPrefix = "quay.io/"
 			}
@@ -483,7 +483,7 @@ func TestSignedIdentity_EmptyFields(t *testing.T) {
 		{
 			name: "exactReference with empty dockerReference",
 			identity: &SignedIdentity{
-				Type:            ExactReference,
+				Type:            IdentityMatchExactReference,
 				DockerReference: "",
 			},
 			wantErr: true,
@@ -491,7 +491,7 @@ func TestSignedIdentity_EmptyFields(t *testing.T) {
 		{
 			name: "exactRepository with empty dockerRepository",
 			identity: &SignedIdentity{
-				Type:             ExactRepository,
+				Type:             IdentityMatchExactRepository,
 				DockerRepository: "",
 			},
 			wantErr: true,
@@ -499,7 +499,7 @@ func TestSignedIdentity_EmptyFields(t *testing.T) {
 		{
 			name: "remapIdentity with empty prefix",
 			identity: &SignedIdentity{
-				Type:         RemapIdentity,
+				Type:         IdentityMatchRemap,
 				Prefix:       "",
 				SignedPrefix: "quay.io/",
 			},
@@ -508,7 +508,7 @@ func TestSignedIdentity_EmptyFields(t *testing.T) {
 		{
 			name: "remapIdentity with empty signedPrefix",
 			identity: &SignedIdentity{
-				Type:         RemapIdentity,
+				Type:         IdentityMatchRemap,
 				Prefix:       "docker.io/",
 				SignedPrefix: "",
 			},

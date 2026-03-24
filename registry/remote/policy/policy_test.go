@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package configuration
+package policy
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func TestPolicy_GetRequirementsForImage(t *testing.T) {
 			policy: &Policy{
 				Default: PolicyRequirements{&Reject{}},
 			},
-			transport: TransportDocker,
+			transport: TransportNameDocker,
 			scope:     "docker.io/library/nginx",
 			wantType:  TypeReject,
 		},
@@ -45,12 +45,12 @@ func TestPolicy_GetRequirementsForImage(t *testing.T) {
 			policy: &Policy{
 				Default: PolicyRequirements{&Reject{}},
 				Transports: map[TransportName]TransportScopes{
-					TransportDocker: {
+					TransportNameDocker: {
 						"": PolicyRequirements{&InsecureAcceptAnything{}},
 					},
 				},
 			},
-			transport: TransportDocker,
+			transport: TransportNameDocker,
 			scope:     "docker.io/library/nginx",
 			wantType:  TypeInsecureAcceptAnything,
 		},
@@ -59,13 +59,13 @@ func TestPolicy_GetRequirementsForImage(t *testing.T) {
 			policy: &Policy{
 				Default: PolicyRequirements{&Reject{}},
 				Transports: map[TransportName]TransportScopes{
-					TransportDocker: {
+					TransportNameDocker: {
 						"":                        PolicyRequirements{&InsecureAcceptAnything{}},
 						"docker.io/library/nginx": PolicyRequirements{&Reject{}},
 					},
 				},
 			},
-			transport: TransportDocker,
+			transport: TransportNameDocker,
 			scope:     "docker.io/library/nginx",
 			wantType:  TypeReject,
 		},
@@ -88,14 +88,14 @@ func TestPolicy_JSONMarshalUnmarshal(t *testing.T) {
 	policy := &Policy{
 		Default: PolicyRequirements{&Reject{}},
 		Transports: map[TransportName]TransportScopes{
-			TransportDocker: {
+			TransportNameDocker: {
 				"": PolicyRequirements{&InsecureAcceptAnything{}},
 				"docker.io/library/nginx": PolicyRequirements{
 					&PRSignedBy{
 						KeyType: "GPGKeys",
 						KeyPath: "/path/to/key.gpg",
 						SignedIdentity: &SignedIdentity{
-							Type: MatchExact,
+							Type: IdentityMatchExact,
 						},
 					},
 				},
@@ -120,7 +120,7 @@ func TestPolicy_JSONMarshalUnmarshal(t *testing.T) {
 		t.Error("default requirement not preserved")
 	}
 
-	dockerScopes := unmarshaled.Transports[TransportDocker]
+	dockerScopes := unmarshaled.Transports[TransportNameDocker]
 	if len(dockerScopes[""]) != 1 || dockerScopes[""][0].Type() != TypeInsecureAcceptAnything {
 		t.Error("docker default requirement not preserved")
 	}
@@ -138,19 +138,19 @@ func TestPolicy_SaveAndLoad(t *testing.T) {
 	original := &Policy{
 		Default: PolicyRequirements{&Reject{}},
 		Transports: map[TransportName]TransportScopes{
-			TransportDocker: {
+			TransportNameDocker: {
 				"": PolicyRequirements{&InsecureAcceptAnything{}},
 			},
 		},
 	}
 
 	// Save
-	if err := SavePolicy(original, policyPath); err != nil {
+	if err := original.Save(policyPath); err != nil {
 		t.Fatalf("failed to save policy: %v", err)
 	}
 
 	// Load
-	loaded, err := LoadPolicy(policyPath)
+	loaded, err := Load(policyPath)
 	if err != nil {
 		t.Fatalf("failed to load policy: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestPolicy_SaveAndLoad(t *testing.T) {
 		t.Error("loaded policy default not correct")
 	}
 
-	if len(loaded.Transports[TransportDocker][""]) != 1 {
+	if len(loaded.Transports[TransportNameDocker][""]) != 1 {
 		t.Error("loaded policy docker transport not correct")
 	}
 }
@@ -198,7 +198,7 @@ func TestPolicy_Validate(t *testing.T) {
 						KeyType: "GPGKeys",
 						KeyPath: "/path/to/key.gpg",
 						SignedIdentity: &SignedIdentity{
-							Type: ExactReference,
+							Type: IdentityMatchExactReference,
 							// Missing DockerReference
 						},
 					},
@@ -232,7 +232,7 @@ func TestEvaluator_IsImageAllowed(t *testing.T) {
 				Default: PolicyRequirements{&InsecureAcceptAnything{}},
 			},
 			image: ImageReference{
-				Transport: TransportDocker,
+				Transport: TransportNameDocker,
 				Scope:     "docker.io/library/nginx",
 				Reference: "docker.io/library/nginx:latest",
 			},
@@ -245,7 +245,7 @@ func TestEvaluator_IsImageAllowed(t *testing.T) {
 				Default: PolicyRequirements{&Reject{}},
 			},
 			image: ImageReference{
-				Transport: TransportDocker,
+				Transport: TransportNameDocker,
 				Scope:     "docker.io/library/nginx",
 				Reference: "docker.io/library/nginx:latest",
 			},
@@ -263,7 +263,7 @@ func TestEvaluator_IsImageAllowed(t *testing.T) {
 				},
 			},
 			image: ImageReference{
-				Transport: TransportDocker,
+				Transport: TransportNameDocker,
 				Scope:     "docker.io/library/nginx",
 				Reference: "docker.io/library/nginx:latest",
 			},
@@ -355,22 +355,36 @@ func TestRequirement_Validation(t *testing.T) {
 
 func TestGetDefaultPolicyPath(t *testing.T) {
 	path, err := GetDefaultPolicyPath()
-	if err != nil {
-		t.Fatalf("GetDefaultPolicyPath() error = %v", err)
-	}
 
-	// Should return either user path or system path
 	homeDir, _ := os.UserHomeDir()
 	userPath := filepath.Join(homeDir, PolicyConfUserDir, PolicyConfFileName)
-	systemPath := PolicyConfSystemPath
 
-	if path != userPath && path != systemPath {
-		t.Errorf("GetDefaultPolicyPath() = %v, want %v or %v", path, userPath, systemPath)
+	if _, statErr := os.Stat(userPath); statErr == nil {
+		// User policy file exists — should succeed with that path
+		if err != nil {
+			t.Fatalf("GetDefaultPolicyPath() error = %v", err)
+		}
+		if path != userPath {
+			t.Errorf("GetDefaultPolicyPath() = %v, want %v", path, userPath)
+		}
+	} else if systemPolicyPath != "" {
+		// No user policy but system path available (Linux)
+		if err != nil {
+			t.Fatalf("GetDefaultPolicyPath() error = %v", err)
+		}
+		if path != PolicyConfSystemPath {
+			t.Errorf("GetDefaultPolicyPath() = %v, want %v", path, PolicyConfSystemPath)
+		}
+	} else {
+		// No user policy and no system path (non-Linux) — should error
+		if err == nil {
+			t.Error("GetDefaultPolicyPath() should error on non-Linux without user policy")
+		}
 	}
 }
 
-// Test LoadDefaultPolicy
-func TestLoadDefaultPolicy(t *testing.T) {
+// Test LoadDefault
+func TestLoadDefault(t *testing.T) {
 	// Create a temporary policy file in the home directory
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -392,17 +406,17 @@ func TestLoadDefaultPolicy(t *testing.T) {
 	testPolicy := &Policy{
 		Default: PolicyRequirements{&InsecureAcceptAnything{}},
 	}
-	if err := SavePolicy(testPolicy, userPolicyPath); err != nil {
+	if err := testPolicy.Save(userPolicyPath); err != nil {
 		t.Fatalf("failed to save test policy: %v", err)
 	}
 
-	// Test LoadDefaultPolicy
-	loaded, err := LoadDefaultPolicy()
+	// Test LoadDefault
+	loaded, err := LoadDefault()
 	if err != nil {
-		t.Errorf("LoadDefaultPolicy() error = %v", err)
+		t.Errorf("LoadDefault() error = %v", err)
 	}
 	if loaded == nil {
-		t.Error("LoadDefaultPolicy() returned nil policy")
+		t.Error("LoadDefault() returned nil policy")
 	}
 }
 
@@ -421,7 +435,7 @@ func TestShouldAcceptImage(t *testing.T) {
 				Default: PolicyRequirements{&InsecureAcceptAnything{}},
 			},
 			image: ImageReference{
-				Transport: TransportDocker,
+				Transport: TransportNameDocker,
 				Scope:     "docker.io/library/nginx",
 				Reference: "docker.io/library/nginx:latest",
 			},
@@ -434,7 +448,7 @@ func TestShouldAcceptImage(t *testing.T) {
 				Default: PolicyRequirements{&Reject{}},
 			},
 			image: ImageReference{
-				Transport: TransportDocker,
+				Transport: TransportNameDocker,
 				Scope:     "docker.io/library/nginx",
 				Reference: "docker.io/library/nginx:latest",
 			},
@@ -445,7 +459,7 @@ func TestShouldAcceptImage(t *testing.T) {
 			name:   "nil policy",
 			policy: nil,
 			image: ImageReference{
-				Transport: TransportDocker,
+				Transport: TransportNameDocker,
 				Scope:     "docker.io/library/nginx",
 				Reference: "docker.io/library/nginx:latest",
 			},
@@ -519,7 +533,7 @@ func TestEvaluator_SigstoreSigned(t *testing.T) {
 	}
 
 	image := ImageReference{
-		Transport: TransportDocker,
+		Transport: TransportNameDocker,
 		Scope:     "docker.io/library/nginx",
 		Reference: "docker.io/library/nginx:latest",
 	}
@@ -546,7 +560,7 @@ func TestPolicy_ValidateTransportScopes(t *testing.T) {
 			policy: &Policy{
 				Default: PolicyRequirements{&Reject{}},
 				Transports: map[TransportName]TransportScopes{
-					TransportDocker: {
+					TransportNameDocker: {
 						"docker.io": PolicyRequirements{&InsecureAcceptAnything{}},
 					},
 				},
@@ -558,7 +572,7 @@ func TestPolicy_ValidateTransportScopes(t *testing.T) {
 			policy: &Policy{
 				Default: PolicyRequirements{&Reject{}},
 				Transports: map[TransportName]TransportScopes{
-					TransportDocker: {
+					TransportNameDocker: {
 						"docker.io": PolicyRequirements{
 							&PRSignedBy{
 								// Missing KeyType
@@ -582,16 +596,16 @@ func TestPolicy_ValidateTransportScopes(t *testing.T) {
 	}
 }
 
-// Test LoadPolicy with non-existent file
-func TestLoadPolicy_NonExistent(t *testing.T) {
-	_, err := LoadPolicy("/nonexistent/path/policy.json")
+// Test Load with non-existent file
+func TestLoad_NonExistent(t *testing.T) {
+	_, err := Load("/nonexistent/path/policy.json")
 	if err == nil {
-		t.Error("LoadPolicy() should fail for non-existent file")
+		t.Error("Load() should fail for non-existent file")
 	}
 }
 
-// Test LoadPolicy with invalid JSON
-func TestLoadPolicy_InvalidJSON(t *testing.T) {
+// Test Load with invalid JSON
+func TestLoad_InvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	policyPath := filepath.Join(tmpDir, "policy.json")
 
@@ -600,14 +614,14 @@ func TestLoadPolicy_InvalidJSON(t *testing.T) {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	_, err := LoadPolicy(policyPath)
+	_, err := Load(policyPath)
 	if err == nil {
-		t.Error("LoadPolicy() should fail for invalid JSON")
+		t.Error("Load() should fail for invalid JSON")
 	}
 }
 
-// Test SavePolicy with invalid policy
-func TestSavePolicy_ErrorCases(t *testing.T) {
+// Test Policy.Save with invalid path
+func TestPolicy_Save_ErrorCases(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Test with read-only directory
@@ -622,27 +636,38 @@ func TestSavePolicy_ErrorCases(t *testing.T) {
 	}
 
 	policyPath := filepath.Join(readOnlyDir, "policy.json")
-	err := SavePolicy(policy, policyPath)
+	err := policy.Save(policyPath)
 	if err == nil {
-		t.Error("SavePolicy() should fail for read-only directory")
+		t.Error("Save() should fail for read-only directory")
 	}
 }
 
-// Test GetDefaultPolicyPath when home directory doesn't exist
+// Test GetDefaultPolicyPath when user policy doesn't exist
 func TestGetDefaultPolicyPath_NoUserPolicy(t *testing.T) {
-	// This test ensures the function returns a path even if user policy doesn't exist
 	path, err := GetDefaultPolicyPath()
-	if err != nil {
-		t.Errorf("GetDefaultPolicyPath() error = %v", err)
-	}
-	if path == "" {
-		t.Error("GetDefaultPolicyPath() returned empty path")
-	}
-	// Should return either user path or system path
-	if path != PolicyConfSystemPath {
-		// If not system path, check it's a valid user path
-		if !filepath.IsAbs(path) {
-			t.Errorf("GetDefaultPolicyPath() returned non-absolute path: %s", path)
+
+	if systemPolicyPath != "" {
+		// On Linux, should fall back to system path
+		if err != nil {
+			t.Errorf("GetDefaultPolicyPath() error = %v", err)
+		}
+		if path == "" {
+			t.Error("GetDefaultPolicyPath() returned empty path")
+		}
+		if path != PolicyConfSystemPath {
+			if !filepath.IsAbs(path) {
+				t.Errorf("GetDefaultPolicyPath() returned non-absolute path: %s", path)
+			}
+		}
+	} else {
+		// On non-Linux without user policy, should return an error
+		homeDir, _ := os.UserHomeDir()
+		userPath := filepath.Join(homeDir, PolicyConfUserDir, PolicyConfFileName)
+		if _, statErr := os.Stat(userPath); statErr != nil {
+			// User policy doesn't exist either — expect error
+			if err == nil {
+				t.Error("GetDefaultPolicyPath() should error on non-Linux without user policy")
+			}
 		}
 	}
 }
@@ -662,7 +687,7 @@ func TestPolicy_MultipleRequirements(t *testing.T) {
 	}
 
 	image := ImageReference{
-		Transport: TransportDocker,
+		Transport: TransportNameDocker,
 		Scope:     "docker.io/library/nginx",
 		Reference: "docker.io/library/nginx:latest",
 	}
@@ -688,7 +713,7 @@ func TestEvaluator_NoRequirements(t *testing.T) {
 	}
 
 	image := ImageReference{
-		Transport: TransportDocker,
+		Transport: TransportNameDocker,
 		Scope:     "docker.io/library/nginx",
 		Reference: "docker.io/library/nginx:latest",
 	}
@@ -702,16 +727,16 @@ func TestEvaluator_NoRequirements(t *testing.T) {
 // Test all transport types
 func TestPolicy_AllTransports(t *testing.T) {
 	transports := []TransportName{
-		TransportDocker,
-		TransportAtomic,
-		TransportContainersStorage,
-		TransportDir,
-		TransportDockerArchive,
-		TransportDockerDaemon,
-		TransportOCI,
-		TransportOCIArchive,
-		TransportSIF,
-		TransportTarball,
+		TransportNameDocker,
+		TransportNameAtomic,
+		TransportNameContainersStorage,
+		TransportNameDir,
+		TransportNameDockerArchive,
+		TransportNameDockerDaemon,
+		TransportNameOCI,
+		TransportNameOCIArchive,
+		TransportNameSIF,
+		TransportNameTarball,
 	}
 
 	for _, transport := range transports {
@@ -767,7 +792,7 @@ func TestPolicyRequirements_JSONRoundTrip(t *testing.T) {
 						{KeyData: "inline key data"},
 					},
 					SignedIdentity: &SignedIdentity{
-						Type: MatchExact,
+						Type: IdentityMatchExact,
 					},
 				},
 			},
@@ -791,7 +816,7 @@ func TestPolicyRequirements_JSONRoundTrip(t *testing.T) {
 					RekorPublicKeyPath: "/path/rekor.pub",
 					RekorPublicKeyData: []byte("rekor key"),
 					SignedIdentity: &SignedIdentity{
-						Type: MatchRepository,
+						Type: IdentityMatchRepository,
 					},
 				},
 			},

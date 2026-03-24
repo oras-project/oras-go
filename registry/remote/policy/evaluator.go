@@ -13,11 +13,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package configuration
+package policy
 
 import (
 	"context"
 	"fmt"
+
+	"github.com/oras-project/oras-go/v3/errdef"
 )
 
 // ImageReference represents a reference to an image
@@ -30,13 +32,48 @@ type ImageReference struct {
 	Reference string
 }
 
+// SignedByVerifier verifies GPG/simple signing signatures.
+// Implementations should verify that the image is signed with a valid key
+// as specified in the PRSignedBy requirement.
+type SignedByVerifier interface {
+	Verify(ctx context.Context, req *PRSignedBy, image ImageReference) (bool, error)
+}
+
+// SigstoreVerifier verifies sigstore signatures.
+// Implementations should verify that the image is signed with valid sigstore
+// signatures as specified in the PRSigstoreSigned requirement.
+type SigstoreVerifier interface {
+	Verify(ctx context.Context, req *PRSigstoreSigned, image ImageReference) (bool, error)
+}
+
 // Evaluator evaluates policy requirements against image references
 type Evaluator struct {
-	policy *Policy
+	policy           *Policy
+	signedByVerifier SignedByVerifier
+	sigstoreVerifier SigstoreVerifier
+}
+
+// EvaluatorOption configures an Evaluator
+type EvaluatorOption func(*Evaluator)
+
+// WithSignedByVerifier sets the verifier for PRSignedBy requirements.
+// If not set, evaluating PRSignedBy requirements will return ErrUnsupported.
+func WithSignedByVerifier(v SignedByVerifier) EvaluatorOption {
+	return func(e *Evaluator) {
+		e.signedByVerifier = v
+	}
+}
+
+// WithSigstoreVerifier sets the verifier for PRSigstoreSigned requirements.
+// If not set, evaluating PRSigstoreSigned requirements will return ErrUnsupported.
+func WithSigstoreVerifier(v SigstoreVerifier) EvaluatorOption {
+	return func(e *Evaluator) {
+		e.sigstoreVerifier = v
+	}
 }
 
 // NewEvaluator creates a new policy evaluator
-func NewEvaluator(policy *Policy) (*Evaluator, error) {
+func NewEvaluator(policy *Policy, opts ...EvaluatorOption) (*Evaluator, error) {
 	if policy == nil {
 		return nil, fmt.Errorf("policy cannot be nil")
 	}
@@ -45,9 +82,15 @@ func NewEvaluator(policy *Policy) (*Evaluator, error) {
 		return nil, fmt.Errorf("invalid policy: %w", err)
 	}
 
-	return &Evaluator{
+	e := &Evaluator{
 		policy: policy,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt(e)
+	}
+
+	return e, nil
 }
 
 // IsImageAllowed determines if an image is allowed by the policy
@@ -100,19 +143,19 @@ func (e *Evaluator) evaluateReject(ctx context.Context, req *Reject, image Image
 }
 
 // evaluateSignedBy evaluates a signedBy requirement
-// Note: This is a placeholder implementation. Full signature verification
-// would require integration with GPG/signing libraries.
 func (e *Evaluator) evaluateSignedBy(ctx context.Context, req *PRSignedBy, image ImageReference) (bool, error) {
-	// TODO: Implement actual signature verification https://github.com/oras-project/oras-go/issues/1029
-	return false, fmt.Errorf("signedBy verification not yet implemented")
+	if e.signedByVerifier == nil {
+		return false, fmt.Errorf("signedBy verification requires a SignedByVerifier: %w", errdef.ErrUnsupported)
+	}
+	return e.signedByVerifier.Verify(ctx, req, image)
 }
 
 // evaluateSigstoreSigned evaluates a sigstoreSigned requirement
-// Note: This is a placeholder implementation. Full signature verification
-// would require integration with sigstore libraries.
 func (e *Evaluator) evaluateSigstoreSigned(ctx context.Context, req *PRSigstoreSigned, image ImageReference) (bool, error) {
-	// TODO: Implement actual sigstore verification https://github.com/oras-project/oras-go/issues/1029
-	return false, fmt.Errorf("sigstoreSigned verification not yet implemented")
+	if e.sigstoreVerifier == nil {
+		return false, fmt.Errorf("sigstoreSigned verification requires a SigstoreVerifier: %w", errdef.ErrUnsupported)
+	}
+	return e.sigstoreVerifier.Verify(ctx, req, image)
 }
 
 // ShouldAcceptImage is a convenience function that returns true if the image is allowed

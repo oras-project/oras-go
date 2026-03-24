@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package configuration
+package policy
 
 import (
 	"encoding/json"
@@ -57,22 +57,22 @@ func (r *Reject) Validate() error {
 	return nil
 }
 
-// IdentityMatchType represents the type of identity matching
-type IdentityMatchType string
+// IdentityMatch represents the type of identity matching
+type IdentityMatch string
 
 const (
-	// MatchExact matches the exact identity
-	MatchExact IdentityMatchType = "matchExact"
-	// MatchRepoDigestOrExact matches repository digest or exact
-	MatchRepoDigestOrExact IdentityMatchType = "matchRepoDigestOrExact"
-	// MatchRepository matches the repository
-	MatchRepository IdentityMatchType = "matchRepository"
-	// ExactReference matches exact reference
-	ExactReference IdentityMatchType = "exactReference"
-	// ExactRepository matches exact repository
-	ExactRepository IdentityMatchType = "exactRepository"
-	// RemapIdentity remaps identity
-	RemapIdentity IdentityMatchType = "remapIdentity"
+	// IdentityMatchExact matches the exact identity
+	IdentityMatchExact IdentityMatch = "matchExact"
+	// IdentityMatchRepoDigestOrExact matches repository digest or exact
+	IdentityMatchRepoDigestOrExact IdentityMatch = "matchRepoDigestOrExact"
+	// IdentityMatchRepository matches the repository
+	IdentityMatchRepository IdentityMatch = "matchRepository"
+	// IdentityMatchExactReference matches exact reference
+	IdentityMatchExactReference IdentityMatch = "exactReference"
+	// IdentityMatchExactRepository matches exact repository
+	IdentityMatchExactRepository IdentityMatch = "exactRepository"
+	// IdentityMatchRemap remaps identity
+	IdentityMatchRemap IdentityMatch = "remapIdentity"
 )
 
 // SignedByKeyData represents GPG key data for signature verification
@@ -122,7 +122,7 @@ func (r *PRSignedBy) Validate() error {
 // SignedIdentity represents identity matching rules
 type SignedIdentity struct {
 	// Type is the identity match type
-	Type IdentityMatchType `json:"type"`
+	Type IdentityMatch `json:"type"`
 	// DockerReference is used for certain match types
 	DockerReference string `json:"dockerReference,omitempty"`
 	// DockerRepository is used for certain match types
@@ -136,23 +136,23 @@ type SignedIdentity struct {
 // Validate validates the signed identity configuration
 func (si *SignedIdentity) Validate() error {
 	switch si.Type {
-	case MatchExact, MatchRepoDigestOrExact:
+	case IdentityMatchExact, IdentityMatchRepoDigestOrExact:
 		// No additional fields required
 		return nil
-	case MatchRepository:
+	case IdentityMatchRepository:
 		// No additional fields required
 		return nil
-	case ExactReference:
+	case IdentityMatchExactReference:
 		if si.DockerReference == "" {
 			return fmt.Errorf("dockerReference is required for exactReference type")
 		}
 		return nil
-	case ExactRepository:
+	case IdentityMatchExactRepository:
 		if si.DockerRepository == "" {
 			return fmt.Errorf("dockerRepository is required for exactRepository type")
 		}
 		return nil
-	case RemapIdentity:
+	case IdentityMatchRemap:
 		if si.Prefix == "" || si.SignedPrefix == "" {
 			return fmt.Errorf("both prefix and signedPrefix are required for remapIdentity type")
 		}

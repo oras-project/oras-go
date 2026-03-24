@@ -17,13 +17,12 @@ package remote
 
 import (
 	"context"
-	"io"
 	"strings"
 	"testing"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/registry"
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
 var testReference = registry.Reference{
@@ -46,10 +45,10 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 
 	// Test with reject policy
 	t.Run("reject policy", func(t *testing.T) {
-		pol := &configuration.Policy{
-			Default: configuration.PolicyRequirements{&configuration.Reject{}},
+		pol := &policy.Policy{
+			Default: policy.PolicyRequirements{&policy.Reject{}},
 		}
-		evaluator, err := configuration.NewEvaluator(pol)
+		evaluator, err := policy.NewEvaluator(pol)
 		if err != nil {
 			t.Fatalf("failed to create evaluator: %v", err)
 		}
@@ -66,10 +65,10 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 
 	// Test with accept policy
 	t.Run("accept policy", func(t *testing.T) {
-		pol := &configuration.Policy{
-			Default: configuration.PolicyRequirements{&configuration.InsecureAcceptAnything{}},
+		pol := &policy.Policy{
+			Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
 		}
-		evaluator, err := configuration.NewEvaluator(pol)
+		evaluator, err := policy.NewEvaluator(pol)
 		if err != nil {
 			t.Fatalf("failed to create evaluator: %v", err)
 		}
@@ -83,10 +82,10 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 }
 
 func TestRepository_Clone_Policy(t *testing.T) {
-	pol := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.InsecureAcceptAnything{}},
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
 	}
-	evaluator, err := configuration.NewEvaluator(pol)
+	evaluator, err := policy.NewEvaluator(pol)
 	if err != nil {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
@@ -106,10 +105,10 @@ func TestRepository_Clone_Policy(t *testing.T) {
 func TestRepository_Fetch_PolicyCheck(t *testing.T) {
 	// This test verifies that Fetch calls checkPolicy
 	// We use a reject policy to ensure Fetch fails before attempting network calls
-	pol := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.Reject{}},
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.Reject{}},
 	}
-	evaluator, err := configuration.NewEvaluator(pol)
+	evaluator, err := policy.NewEvaluator(pol)
 	if err != nil {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
@@ -136,10 +135,10 @@ func TestRepository_Fetch_PolicyCheck(t *testing.T) {
 
 func TestRepository_Push_PolicyCheck(t *testing.T) {
 	// This test verifies that Push calls checkPolicy
-	pol := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.Reject{}},
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.Reject{}},
 	}
-	evaluator, err := configuration.NewEvaluator(pol)
+	evaluator, err := policy.NewEvaluator(pol)
 	if err != nil {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
@@ -168,10 +167,10 @@ func TestRepository_Push_PolicyCheck(t *testing.T) {
 
 func TestRepository_Resolve_PolicyCheck(t *testing.T) {
 	// This test verifies that Resolve calls checkPolicy
-	pol := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.Reject{}},
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.Reject{}},
 	}
-	evaluator, err := configuration.NewEvaluator(pol)
+	evaluator, err := policy.NewEvaluator(pol)
 	if err != nil {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
@@ -192,17 +191,17 @@ func TestRepository_Resolve_PolicyCheck(t *testing.T) {
 
 func TestRepository_ScopeSpecificPolicy(t *testing.T) {
 	// Test that scope-specific policies work correctly
-	pol := &configuration.Policy{
-		Default: configuration.PolicyRequirements{&configuration.Reject{}},
-		Transports: map[configuration.TransportName]configuration.TransportScopes{
-			configuration.TransportDocker: {
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.Reject{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
 				// Allow all docker repositories
-				"": configuration.PolicyRequirements{&configuration.InsecureAcceptAnything{}},
+				"": policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
 			},
 		},
 	}
 
-	evaluator, err := configuration.NewEvaluator(pol)
+	evaluator, err := policy.NewEvaluator(pol)
 	if err != nil {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
@@ -217,13 +216,4 @@ func TestRepository_ScopeSpecificPolicy(t *testing.T) {
 	if err != nil {
 		t.Errorf("checkPolicy() should succeed for allowed docker transport, got: %v", err)
 	}
-}
-
-// mockReadCloser is a simple mock for testing
-type mockReadCloser struct {
-	io.Reader
-}
-
-func (m *mockReadCloser) Close() error {
-	return nil
 }
