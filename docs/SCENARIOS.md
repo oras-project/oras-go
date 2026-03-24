@@ -808,3 +808,28 @@ if err != nil {
 | Debug logging transport | `remote` | None | No | No |
 | Referrers | `oras`, `remote` | Optional | No | No |
 | Structured error handling | `oras`, `errdef` | None | No | No |
+
+---
+
+## Glossary
+
+| Term | Definition |
+|---|---|
+| **Artifact** | Any piece of content stored in an OCI registry — container images, Helm charts, WASM modules, SBOMs, signatures, etc. In OCI Image Manifest v1.1, the `artifactType` field declares what kind of artifact a manifest represents. |
+| **Blob** | An opaque, content-addressable chunk of data stored in a registry. Blobs hold layer data, configuration objects, and other binary content. Each blob is identified by its digest. |
+| **Blob Mounting** | A registry optimization that copies a blob between repositories on the same registry without re-uploading the bytes. Also called *cross-repository mounting*. |
+| **Descriptor** | A small JSON object (`ocispec.Descriptor`) that references a piece of content by its media type, digest, and size. Descriptors appear in manifests and indexes to point to blobs, configs, and layers. |
+| **Digest** | A content-addressable identifier of the form `algorithm:hex` (e.g., `sha256:abc123…`). Two pieces of content with the same bytes always produce the same digest. |
+| **Index** | An OCI Image Index (also called a *manifest list*) that groups multiple manifests — typically one per platform (OS + architecture) — under a single reference. |
+| **Lookaside** | An external storage location (file path or HTTPS URL) configured in `registries.d` where detached image signatures are stored and fetched, separate from the registry itself. |
+| **Manifest** | A JSON document that describes a single OCI artifact — its config descriptor, layer descriptors, annotations, and optional subject. A manifest is itself stored as a blob and addressed by digest. |
+| **Media Type** | A MIME-type string (e.g., `application/vnd.oci.image.manifest.v1+json`) that declares the format of a blob or manifest. |
+| **OCI** | The Open Container Initiative — a set of specifications for container image formats, runtime behavior, and distribution (registry) APIs. |
+| **OCI Layout** | An on-disk directory structure defined by the OCI Image Layout Specification for storing image content offline. Contains an `index.json`, an `oci-layout` marker, and a `blobs/` directory. |
+| **Platform** | An OS and architecture combination (e.g., `linux/amd64`, `linux/arm64`) used to select the correct manifest from an index. |
+| **Reference** | A string that identifies content in a registry. A reference can be a tag (e.g., `latest`) or a digest (e.g., `sha256:abc…`). A fully qualified reference includes the registry and repository (e.g., `registry.example.com/myapp:v1.0`). |
+| **Referrer** | An artifact whose manifest contains a `subject` field pointing to another manifest's digest. Referrers attach metadata (signatures, SBOMs, attestations) to a subject artifact. |
+| **Registry** | A server that hosts OCI repositories and implements the OCI Distribution Specification API for pushing, pulling, and discovering content. |
+| **Repository** | A named collection of manifests within a registry (e.g., `registry.example.com/myapp`). A repository can contain multiple tags and digests. |
+| **Subject** | The manifest that a referrer points to via its `subject` field. For example, if an SBOM manifest references an image manifest, the image manifest is the subject. |
+| **Tag** | A mutable, human-readable name (e.g., `latest`, `v1.0`) that points to a single manifest digest within a repository. Tags can be reassigned to different digests over time. |
