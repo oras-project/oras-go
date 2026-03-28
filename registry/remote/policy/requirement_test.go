@@ -153,25 +153,13 @@ func TestPRSignedBy_ValidateKeySources(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid with keyDatas",
-			req: &PRSignedBy{
-				KeyType: "GPGKeys",
-				KeyDatas: []SignedByKeyData{
-					{KeyPath: "/path/key.gpg"},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid with multiple key sources",
+			name: "multiple key sources rejected",
 			req: &PRSignedBy{
 				KeyType:  "GPGKeys",
 				KeyPath:  "/path/key.gpg",
-				KeyData:  "inline data",
 				KeyPaths: []string{"/another.gpg"},
-				KeyDatas: []SignedByKeyData{{KeyData: "more data"}},
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name: "missing keyType",
@@ -246,9 +234,7 @@ func TestPRSigstoreSigned_Validate(t *testing.T) {
 		{
 			name: "valid with keyDatas",
 			req: &PRSigstoreSigned{
-				KeyDatas: []SigstoreKeyData{
-					{PublicKeyFile: "/path/key.pub"},
-				},
+				KeyDatas: []string{"base64encodedpublickey"},
 			},
 			wantErr: false,
 		},
@@ -256,7 +242,9 @@ func TestPRSigstoreSigned_Validate(t *testing.T) {
 			name: "valid with fulcio",
 			req: &PRSigstoreSigned{
 				Fulcio: &FulcioConfig{
-					CAPath: "/path/ca.pem",
+					CAPath:       "/path/ca.pem",
+					OIDCIssuer:   "https://oauth.example.com",
+					SubjectEmail: "user@example.com",
 				},
 			},
 			wantErr: false,
@@ -294,7 +282,7 @@ func TestPRSigstoreSigned_Validate(t *testing.T) {
 			req: &PRSigstoreSigned{
 				KeyPath:            "/path/key.pub",
 				KeyData:            []byte("key data"),
-				KeyDatas:           []SigstoreKeyData{{PublicKeyFile: "/key.pub"}},
+				KeyDatas:           []string{"base64key"},
 				RekorPublicKeyPath: "/path/rekor.pub",
 				RekorPublicKeyData: []byte("rekor key"),
 				SignedIdentity: &SignedIdentity{
@@ -335,22 +323,28 @@ func TestFulcioConfig_Validate(t *testing.T) {
 		{
 			name: "valid with CAPath",
 			config: &FulcioConfig{
-				CAPath: "/path/ca.pem",
+				CAPath:       "/path/ca.pem",
+				OIDCIssuer:   "https://oauth.example.com",
+				SubjectEmail: "user@example.com",
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid with CAData",
 			config: &FulcioConfig{
-				CAData: []byte("ca certificate data"),
+				CAData:       []byte("ca certificate data"),
+				OIDCIssuer:   "https://oauth.example.com",
+				SubjectEmail: "user@example.com",
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid with both CAPath and CAData",
 			config: &FulcioConfig{
-				CAPath: "/path/ca.pem",
-				CAData: []byte("ca data"),
+				CAPath:       "/path/ca.pem",
+				CAData:       []byte("ca data"),
+				OIDCIssuer:   "https://oauth.example.com",
+				SubjectEmail: "user@example.com",
 			},
 			wantErr: false,
 		},
@@ -374,6 +368,22 @@ func TestFulcioConfig_Validate(t *testing.T) {
 			config: &FulcioConfig{
 				OIDCIssuer:   "https://oauth.example.com",
 				SubjectEmail: "user@example.com",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing oidcIssuer",
+			config: &FulcioConfig{
+				CAPath:       "/path/ca.pem",
+				SubjectEmail: "user@example.com",
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing subjectEmail",
+			config: &FulcioConfig{
+				CAPath:     "/path/ca.pem",
+				OIDCIssuer: "https://oauth.example.com",
 			},
 			wantErr: true,
 		},
@@ -444,34 +454,6 @@ func TestRequirementType_Constants(t *testing.T) {
 	}
 }
 
-// Test KeyData structures
-func TestSignedByKeyData_Structure(t *testing.T) {
-	keyData := SignedByKeyData{
-		KeyPath: "/path/to/key.gpg",
-		KeyData: "inline key data",
-	}
-
-	if keyData.KeyPath != "/path/to/key.gpg" {
-		t.Errorf("KeyPath not preserved")
-	}
-	if keyData.KeyData != "inline key data" {
-		t.Errorf("KeyData not preserved")
-	}
-}
-
-func TestSigstoreKeyData_Structure(t *testing.T) {
-	keyData := SigstoreKeyData{
-		PublicKeyFile: "/path/to/key.pub",
-		PublicKeyData: []byte("inline key data"),
-	}
-
-	if keyData.PublicKeyFile != "/path/to/key.pub" {
-		t.Errorf("PublicKeyFile not preserved")
-	}
-	if string(keyData.PublicKeyData) != "inline key data" {
-		t.Errorf("PublicKeyData not preserved")
-	}
-}
 
 // Test edge case: empty string fields
 func TestSignedIdentity_EmptyFields(t *testing.T) {
@@ -526,55 +508,3 @@ func TestSignedIdentity_EmptyFields(t *testing.T) {
 	}
 }
 
-// Test complex PRSignedBy with SignedByKeyData variations
-func TestPRSignedBy_KeyDatasVariations(t *testing.T) {
-	tests := []struct {
-		name    string
-		keyData []SignedByKeyData
-		wantErr bool
-	}{
-		{
-			name: "keyData with path",
-			keyData: []SignedByKeyData{
-				{KeyPath: "/path/key1.gpg"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "keyData with data",
-			keyData: []SignedByKeyData{
-				{KeyData: "inline key"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "keyData with both",
-			keyData: []SignedByKeyData{
-				{KeyPath: "/path/key.gpg", KeyData: "inline key"},
-			},
-			wantErr: false,
-		},
-		{
-			name: "multiple keyDatas",
-			keyData: []SignedByKeyData{
-				{KeyPath: "/path/key1.gpg"},
-				{KeyData: "inline key"},
-				{KeyPath: "/path/key2.gpg", KeyData: "more data"},
-			},
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := &PRSignedBy{
-				KeyType:  "GPGKeys",
-				KeyDatas: tt.keyData,
-			}
-			err := req.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}

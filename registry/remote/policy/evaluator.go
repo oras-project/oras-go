@@ -75,7 +75,7 @@ func WithSigstoreVerifier(v SigstoreVerifier) EvaluatorOption {
 // NewEvaluator creates a new policy evaluator
 func NewEvaluator(policy *Policy, opts ...EvaluatorOption) (*Evaluator, error) {
 	if policy == nil {
-		return nil, fmt.Errorf("policy cannot be nil")
+		return nil, fmt.Errorf("policy cannot be nil: %w", errdef.ErrMissingReference)
 	}
 
 	if err := policy.Validate(); err != nil {
@@ -98,7 +98,7 @@ func (e *Evaluator) IsImageAllowed(ctx context.Context, image ImageReference) (b
 	reqs := e.policy.GetRequirementsForImage(image.Transport, image.Scope)
 
 	if len(reqs) == 0 {
-		// No requirements means reject by default for safety
+		// No requirements: treat as a policy error and reject by default for safety.
 		return false, fmt.Errorf("no policy requirements found for %s:%s", image.Transport, image.Scope)
 	}
 

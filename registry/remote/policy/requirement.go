@@ -75,14 +75,6 @@ const (
 	IdentityMatchRemap IdentityMatch = "remapIdentity"
 )
 
-// SignedByKeyData represents GPG key data for signature verification
-type SignedByKeyData struct {
-	// KeyPath is the path to the GPG key file
-	KeyPath string `json:"keyPath,omitempty"`
-	// KeyData is the inline GPG key data
-	KeyData string `json:"keyData,omitempty"`
-}
-
 // PRSignedBy represents a simple signing policy requirement
 type PRSignedBy struct {
 	// KeyType specifies the type of key (e.g., "GPGKeys")
@@ -93,8 +85,6 @@ type PRSignedBy struct {
 	KeyData string `json:"keyData,omitempty"`
 	// KeyPaths is a list of key paths (alternative to KeyPath)
 	KeyPaths []string `json:"keyPaths,omitempty"`
-	// KeyDatas is a list of inline key data (alternative to KeyData)
-	KeyDatas []SignedByKeyData `json:"keyDatas,omitempty"`
 	// SignedIdentity specifies the identity matching rules
 	SignedIdentity *SignedIdentity `json:"signedIdentity,omitempty"`
 }
@@ -110,10 +100,22 @@ func (r *PRSignedBy) Validate() error {
 		return fmt.Errorf("keyType is required")
 	}
 
-	// Validate that at least one key source is provided
-	hasKey := r.KeyPath != "" || r.KeyData != "" || len(r.KeyPaths) > 0 || len(r.KeyDatas) > 0
-	if !hasKey {
-		return fmt.Errorf("at least one key source (keyPath, keyData, keyPaths, or keyDatas) must be specified")
+	// Per spec: exactly one of keyPath, keyPaths, and keyData must be present.
+	count := 0
+	if r.KeyPath != "" {
+		count++
+	}
+	if r.KeyData != "" {
+		count++
+	}
+	if len(r.KeyPaths) > 0 {
+		count++
+	}
+	if count == 0 {
+		return fmt.Errorf("exactly one of keyPath, keyData, or keyPaths must be specified")
+	}
+	if count > 1 {
+		return fmt.Errorf("exactly one of keyPath, keyData, or keyPaths must be specified, but multiple were provided")
 	}
 
 	return validateSignedIdentity(r.SignedIdentity)
@@ -172,22 +174,14 @@ func validateSignedIdentity(si *SignedIdentity) error {
 	return nil
 }
 
-// SigstoreKeyData represents a sigstore public key
-type SigstoreKeyData struct {
-	// PublicKeyFile is the path to the public key file
-	PublicKeyFile string `json:"publicKeyFile,omitempty"`
-	// PublicKeyData is inline public key data
-	PublicKeyData []byte `json:"publicKeyData,omitempty"`
-}
-
 // PRSigstoreSigned represents a sigstore signature policy requirement
 type PRSigstoreSigned struct {
 	// KeyPath is the path to the public key
 	KeyPath string `json:"keyPath,omitempty"`
 	// KeyData is inline public key data
 	KeyData []byte `json:"keyData,omitempty"`
-	// KeyDatas is a list of key data
-	KeyDatas []SigstoreKeyData `json:"keyDatas,omitempty"`
+	// KeyDatas is a list of base64-encoded public key data
+	KeyDatas []string `json:"keyDatas,omitempty"`
 	// Fulcio specifies Fulcio certificate verification
 	Fulcio *FulcioConfig `json:"fulcio,omitempty"`
 	// RekorPublicKeyPath is the path to the Rekor public key
@@ -237,6 +231,14 @@ func (fc *FulcioConfig) Validate() error {
 	// At least CA path or data should be provided
 	if fc.CAPath == "" && len(fc.CAData) == 0 {
 		return fmt.Errorf("either caPath or caData must be specified")
+	}
+
+	// Per spec: when fulcio is present, both oidcIssuer and subjectEmail are mandatory
+	if fc.OIDCIssuer == "" {
+		return fmt.Errorf("oidcIssuer is required when fulcio is configured")
+	}
+	if fc.SubjectEmail == "" {
+		return fmt.Errorf("subjectEmail is required when fulcio is configured")
 	}
 
 	return nil

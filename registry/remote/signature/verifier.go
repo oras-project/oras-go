@@ -134,19 +134,6 @@ func (v *DefaultSignedByVerifier) loadKeyRing(req *policy.PRSignedBy) (*KeyRing,
 			keyDatas = append(keyDatas, decoded)
 		}
 	}
-	for _, kd := range req.KeyDatas {
-		if kd.KeyPath != "" {
-			keyPaths = append(keyPaths, kd.KeyPath)
-		}
-		if kd.KeyData != "" {
-			decoded, err := base64.StdEncoding.DecodeString(kd.KeyData)
-			if err != nil {
-				keyDatas = append(keyDatas, []byte(kd.KeyData))
-			} else {
-				keyDatas = append(keyDatas, decoded)
-			}
-		}
-	}
 
 	return LoadKeyRing(keyPaths, keyDatas)
 }
