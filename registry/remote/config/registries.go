@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 )
 
 // RegistriesConfig represents a registries.conf configuration file.
@@ -106,14 +107,14 @@ func LoadRegistriesConfig(path string) (*RegistriesConfig, error) {
 
 // LoadSystemRegistriesConfig loads registries.conf from system default locations.
 // Load order (each layer overrides the previous):
-//  1. /etc/containers/registries.conf
+//  1. /etc/containers/registries.conf (or platform equivalent)
 //  2. /etc/containers/registries.conf.d/*.conf (alpha-numerical order)
 //  3. $HOME/.config/containers/registries.conf
 //  4. $HOME/.config/containers/registries.conf.d/*.conf (alpha-numerical order)
 func LoadSystemRegistriesConfig() (*RegistriesConfig, error) {
 	var config *RegistriesConfig
 
-	// 1. Load system config
+	// 1. Load system config.
 	if _, err := os.Stat(systemRegistriesConfPath); err == nil {
 		cfg, err := LoadRegistriesConfig(systemRegistriesConfPath)
 		if err != nil {
@@ -122,13 +123,13 @@ func LoadSystemRegistriesConfig() (*RegistriesConfig, error) {
 		config = cfg
 	}
 
-	// 2. Load and merge system drop-in configs
+	// 2. Load and merge system drop-in configs.
 	config, err := loadDropInConfigs(config, systemRegistriesConfDirPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Load and merge user config
+	// 3. Load and merge user config.
 	if homeDir, err := os.UserHomeDir(); err == nil {
 		userConfigPath := filepath.Join(homeDir, ".config", "containers", "registries.conf")
 		if cfg, err := LoadRegistriesConfig(userConfigPath); err == nil {
@@ -139,11 +140,85 @@ func LoadSystemRegistriesConfig() (*RegistriesConfig, error) {
 			}
 		}
 
-		// 4. Load and merge user drop-in configs
+		// 4. Load and merge user drop-in configs.
 		userDropInPath := filepath.Join(homeDir, ".config", "containers", "registries.conf.d")
 		config, err = loadDropInConfigs(config, userDropInPath)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	if config == nil {
+		return nil, ErrRegistriesConfigNotFound
+	}
+
+	return config, nil
+}
+
+// LoadSystemRegistriesConfigWithStrategy loads registries.conf using the
+// specified path resolution strategy.
+//
+// With [StrategyContainersImage] (default), all tiers are merged:
+//  1. System registries.conf (e.g., /etc/containers/registries.conf)
+//  2. System drop-ins (e.g., /etc/containers/registries.conf.d/*.conf)
+//  3. User registries.conf (e.g., $HOME/.config/containers/registries.conf)
+//  4. User drop-ins (e.g., $HOME/.config/containers/registries.conf.d/*.conf)
+//
+// With [StrategyUAPI] (EXPERIMENTAL), the first main config found wins
+// (user → system → vendor), but drop-ins from all tiers are always merged.
+func LoadSystemRegistriesConfigWithStrategy(strategy Strategy) (*RegistriesConfig, error) {
+	resolver := configpaths.NewResolver(configpaths.Strategy(strategy))
+	return loadRegistriesConfigFromResolver(resolver)
+}
+
+// loadRegistriesConfigFromResolver loads registries.conf using the given
+// path resolver.
+func loadRegistriesConfigFromResolver(resolver configpaths.PathResolver) (*RegistriesConfig, error) {
+	var config *RegistriesConfig
+
+	mainPaths := resolver.MainConfigPaths("registries")
+	dropInDirs := resolver.DropInDirs("registries")
+
+	switch resolver.MergeStrategy() {
+	case configpaths.FirstFoundWins:
+		// UAPI: use the first main config found.
+		for _, path := range mainPaths {
+			if _, err := os.Stat(path); err == nil {
+				cfg, err := LoadRegistriesConfig(path)
+				if err != nil {
+					return nil, err
+				}
+				config = cfg
+				break
+			}
+		}
+		// Drop-ins: merge from all tiers with same-filename replacement.
+		var err error
+		config, err = loadDropInConfigsUAPI(config, dropInDirs)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		// MergeAll: merge all main configs and drop-ins in order.
+		for _, path := range mainPaths {
+			if _, err := os.Stat(path); err == nil {
+				cfg, err := LoadRegistriesConfig(path)
+				if err != nil {
+					return nil, err
+				}
+				if config == nil {
+					config = cfg
+				} else {
+					config = mergeRegistriesConfig(config, cfg)
+				}
+			}
+		}
+		for _, dir := range dropInDirs {
+			var err error
+			config, err = loadDropInConfigs(config, dir)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -181,6 +256,63 @@ func loadDropInConfigs(config *RegistriesConfig, dirPath string) (*RegistriesCon
 			return nil, fmt.Errorf("failed to load drop-in config %s: %w", confPath, err)
 		}
 
+		if config == nil {
+			config = dropInConfig
+		} else {
+			config = mergeRegistriesConfig(config, dropInConfig)
+		}
+	}
+
+	return config, nil
+}
+
+// loadDropInConfigsUAPI loads drop-in configs from multiple directories using
+// UAPI semantics: if a file with the same name exists in a later directory,
+// it replaces the one from the earlier directory. After deduplication, files
+// are sorted lexicographically and merged in order.
+func loadDropInConfigsUAPI(config *RegistriesConfig, dirs []string) (*RegistriesConfig, error) {
+	// Collect all .conf files across all directories. Later directories
+	// override earlier ones when filenames collide.
+	type dropInEntry struct {
+		name string
+		path string
+	}
+	seen := make(map[string]int) // filename → index in entries
+	var entries []dropInEntry
+
+	for _, dirPath := range dirs {
+		if _, err := os.Stat(dirPath); err != nil {
+			continue
+		}
+		dirEntries, err := os.ReadDir(dirPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read drop-in directory %s: %w", dirPath, err)
+		}
+		for _, e := range dirEntries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+				continue
+			}
+			if idx, ok := seen[e.Name()]; ok {
+				// Replace earlier entry with same filename.
+				entries[idx] = dropInEntry{name: e.Name(), path: filepath.Join(dirPath, e.Name())}
+			} else {
+				seen[e.Name()] = len(entries)
+				entries = append(entries, dropInEntry{name: e.Name(), path: filepath.Join(dirPath, e.Name())})
+			}
+		}
+	}
+
+	// Sort lexicographically by filename.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].name < entries[j].name
+	})
+
+	// Load and merge in order.
+	for _, entry := range entries {
+		dropInConfig, err := LoadRegistriesConfig(entry.path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load drop-in config %s: %w", entry.path, err)
+		}
 		if config == nil {
 			config = dropInConfig
 		} else {

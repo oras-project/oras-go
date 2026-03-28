@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 	"gopkg.in/yaml.v3"
 )
 
@@ -150,13 +151,13 @@ func LoadRegistriesDConfig(path string) (*RegistriesDConfig, error) {
 func LoadSystemRegistriesDConfig() (*RegistriesDConfig, error) {
 	var config *RegistriesDConfig
 
-	// 1. Load system configs
+	// 1. Load system configs.
 	config, err := loadRegistriesDDir(config, systemRegistriesDPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Load user configs
+	// 2. Load user configs.
 	if homeDir, err := os.UserHomeDir(); err == nil {
 		userPath := filepath.Join(homeDir, ".config", "containers", "registries.d")
 		config, err = loadRegistriesDDir(config, userPath)
@@ -166,7 +167,31 @@ func LoadSystemRegistriesDConfig() (*RegistriesDConfig, error) {
 	}
 
 	if config == nil {
-		// Return empty config rather than nil.
+		return &RegistriesDConfig{
+			Docker: make(map[string]RegistriesDDockerConfig),
+		}, nil
+	}
+
+	return config, nil
+}
+
+// LoadSystemRegistriesDConfigWithStrategy loads and merges registries.d
+// configuration using the specified path resolution strategy.
+// When [StrategyUAPI] is used, the behavior is EXPERIMENTAL and may change.
+func LoadSystemRegistriesDConfigWithStrategy(strategy Strategy) (*RegistriesDConfig, error) {
+	resolver := configpaths.NewResolver(configpaths.Strategy(strategy))
+	dirs := resolver.RegistriesDDirs()
+
+	var config *RegistriesDConfig
+	for _, dir := range dirs {
+		var err error
+		config, err = loadRegistriesDDir(config, dir)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if config == nil {
 		return &RegistriesDConfig{
 			Docker: make(map[string]RegistriesDDockerConfig),
 		}, nil

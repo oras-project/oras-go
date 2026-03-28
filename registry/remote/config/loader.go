@@ -19,25 +19,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
-const (
-	dockerConfigDirEnv  = "DOCKER_CONFIG"
-	dockerConfigFileDir = ".docker"
-	dockerConfigFile    = "config.json"
-
-	// containersAuthFile is the name of the containers auth file.
-	containersAuthFile = "auth.json"
-	// containersConfigDir is the user-level containers config directory.
-	containersConfigDir = "containers"
-	// xdgRuntimeDirEnv is the XDG runtime directory environment variable.
-	xdgRuntimeDirEnv = "XDG_RUNTIME_DIR"
-)
 
 // Configs holds loaded configuration from Docker config.json and
 // system registries.conf. Fields are nil if the corresponding file
@@ -69,15 +57,19 @@ type Configs struct {
 
 // LoadConfigsOptions configures LoadConfigs behavior.
 type LoadConfigsOptions struct {
+	// Strategy selects the configuration file path resolution approach.
+	// Default (zero value) is [StrategyContainersImage].
+	// Setting this to [StrategyUAPI] is EXPERIMENTAL and may change as
+	// the upstream UAPI specification evolves.
+	Strategy Strategy
+
 	// DockerConfigPath overrides the Docker config.json path.
 	// When empty, the default path is used ($DOCKER_CONFIG/config.json
 	// or $HOME/.docker/config.json).
 	DockerConfigPath string
 
 	// ContainersAuthPath overrides the containers auth.json path.
-	// When empty, the default paths are searched:
-	// $XDG_RUNTIME_DIR/containers/auth.json, then
-	// $HOME/.config/containers/auth.json.
+	// When empty, the default paths are searched based on the Strategy.
 	ContainersAuthPath string
 
 	// RegistriesConfigPath overrides the registries.conf path.
@@ -85,18 +77,15 @@ type LoadConfigsOptions struct {
 	RegistriesConfigPath string
 
 	// PolicyConfigPath overrides the containers-policy.json path.
-	// When empty, the default locations are searched
-	// ($HOME/.config/containers/policy.json, then /etc/containers/policy.json).
+	// When empty, the default locations are searched based on the Strategy.
 	PolicyConfigPath string
 
 	// RegistriesDPath overrides the registries.d directory path.
-	// When empty, the system default locations are searched
-	// (/etc/containers/registries.d and $HOME/.config/containers/registries.d).
+	// When empty, the system default locations are searched.
 	RegistriesDPath string
 
 	// CertsDirPaths overrides the containers-certs.d base directories.
-	// When empty, the default paths are used (/etc/containers/certs.d
-	// and $HOME/.config/containers/certs.d).
+	// When empty, the default paths are used based on the Strategy.
 	CertsDirPaths []string
 }
 
@@ -112,12 +101,13 @@ func LoadConfigs() (*Configs, error) {
 // Returns an error only if a file exists but cannot be parsed.
 func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 	result := &Configs{}
+	resolver := configpaths.NewResolver(configpaths.Strategy(opts.Strategy))
 
 	// Load Docker config.
 	dockerPath := opts.DockerConfigPath
 	if dockerPath == "" {
 		var err error
-		dockerPath, err = defaultDockerConfigPath()
+		dockerPath, err = resolver.DockerConfigPath()
 		if err != nil {
 			return nil, fmt.Errorf("failed to determine Docker config path: %w", err)
 		}
@@ -140,7 +130,7 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 			result.ContainersAuthConfig = cfg
 		}
 	} else {
-		authPath, err := defaultContainersAuthPath()
+		authPath, err := resolver.AuthPrimaryPath()
 		if err == nil {
 			if _, err := os.Stat(authPath); err == nil {
 				cfg, err := Load(authPath)
@@ -162,12 +152,11 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 			result.RegistriesConfig = cfg
 		}
 	} else {
-		cfg, err := LoadSystemRegistriesConfig()
+		cfg, err := LoadSystemRegistriesConfigWithStrategy(opts.Strategy)
 		if err != nil {
 			if !errors.Is(err, ErrRegistriesConfigNotFound) {
 				return nil, err
 			}
-			// Not found — leave nil.
 		} else {
 			result.RegistriesConfig = cfg
 		}
@@ -175,6 +164,15 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 
 	// Load policy config.
 	policyPath := opts.PolicyConfigPath
+	if policyPath == "" {
+		policyPaths := resolver.PolicyPaths()
+		for _, p := range policyPaths {
+			if _, err := os.Stat(p); err == nil {
+				policyPath = p
+				break
+			}
+		}
+	}
 	if policyPath != "" {
 		if _, err := os.Stat(policyPath); err == nil {
 			pol, err := policy.LoadPolicy(policyPath)
@@ -182,17 +180,6 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 				return nil, err
 			}
 			result.PolicyConfig = pol
-		}
-	} else {
-		defaultPath, err := policy.GetDefaultPolicyPath()
-		if err == nil {
-			if _, err := os.Stat(defaultPath); err == nil {
-				pol, err := policy.LoadPolicy(defaultPath)
-				if err != nil {
-					return nil, err
-				}
-				result.PolicyConfig = pol
-			}
 		}
 	}
 
@@ -206,11 +193,10 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 			result.RegistriesDConfig = cfg
 		}
 	} else {
-		cfg, err := LoadSystemRegistriesDConfig()
+		cfg, err := LoadSystemRegistriesDConfigWithStrategy(opts.Strategy)
 		if err != nil {
 			return nil, err
 		}
-		// Only set if there's actual content.
 		if cfg.DefaultDocker != nil || len(cfg.Docker) > 0 {
 			result.RegistriesDConfig = cfg
 		}
@@ -220,7 +206,7 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 	if len(opts.CertsDirPaths) > 0 {
 		result.CertsDirPaths = opts.CertsDirPaths
 	} else {
-		result.CertsDirPaths = defaultCertsDirPaths()
+		result.CertsDirPaths = defaultCertsDirPathsWithStrategy(opts.Strategy)
 	}
 
 	return result, nil
@@ -286,35 +272,3 @@ func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.St
 	return credentials.NewStoreWithFallbacks(stores[0], stores[1:]...), nil
 }
 
-// defaultDockerConfigPath returns the default Docker config.json path.
-// It checks $DOCKER_CONFIG first, then falls back to $HOME/.docker/config.json.
-func defaultDockerConfigPath() (string, error) {
-	configDir := os.Getenv(dockerConfigDirEnv)
-	if configDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get user home directory: %w", err)
-		}
-		configDir = filepath.Join(homeDir, dockerConfigFileDir)
-	}
-	return filepath.Join(configDir, dockerConfigFile), nil
-}
-
-// defaultContainersAuthPath returns the default containers auth.json path.
-// It checks $XDG_RUNTIME_DIR/containers/auth.json first, then falls back
-// to $HOME/.config/containers/auth.json.
-func defaultContainersAuthPath() (string, error) {
-	// Try XDG_RUNTIME_DIR first.
-	if xdgRuntime := os.Getenv(xdgRuntimeDirEnv); xdgRuntime != "" {
-		path := filepath.Join(xdgRuntime, containersConfigDir, containersAuthFile)
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
-		}
-	}
-	// Fall back to $HOME/.config/containers/auth.json.
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get user home directory: %w", err)
-	}
-	return filepath.Join(homeDir, ".config", containersConfigDir, containersAuthFile), nil
-}

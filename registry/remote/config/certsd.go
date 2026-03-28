@@ -21,17 +21,21 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // defaultCertsDirPaths returns the default search paths for
-// containers-certs.d directories.
+// containers-certs.d directories using the current containers/image strategy.
 func defaultCertsDirPaths() []string {
-	paths := []string{"/etc/containers/certs.d"}
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".config", "containers", "certs.d"))
-	}
-	return paths
+	return defaultCertsDirPathsWithStrategy(StrategyContainersImage)
+}
+
+// defaultCertsDirPathsWithStrategy returns the search paths for
+// containers-certs.d directories using the specified strategy.
+func defaultCertsDirPathsWithStrategy(strategy Strategy) []string {
+	resolver := configpaths.NewResolver(configpaths.Strategy(strategy))
+	return resolver.CertsDirPaths()
 }
 
 // CertsDir holds TLS certificate paths discovered from a
