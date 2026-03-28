@@ -152,7 +152,13 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 			result.RegistriesConfig = cfg
 		}
 	} else {
-		cfg, err := LoadSystemRegistriesConfigWithStrategy(opts.Strategy)
+		var cfg *RegistriesConfig
+		var err error
+		if opts.Strategy == StrategyContainersImage {
+			cfg, err = LoadSystemRegistriesConfig()
+		} else {
+			cfg, err = LoadSystemRegistriesConfigWithStrategy(opts.Strategy)
+		}
 		if err != nil {
 			if !errors.Is(err, ErrRegistriesConfigNotFound) {
 				return nil, err
@@ -193,7 +199,13 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 			result.RegistriesDConfig = cfg
 		}
 	} else {
-		cfg, err := LoadSystemRegistriesDConfigWithStrategy(opts.Strategy)
+		var cfg *RegistriesDConfig
+		var err error
+		if opts.Strategy == StrategyContainersImage {
+			cfg, err = LoadSystemRegistriesDConfig()
+		} else {
+			cfg, err = LoadSystemRegistriesDConfigWithStrategy(opts.Strategy)
+		}
 		if err != nil {
 			return nil, err
 		}
