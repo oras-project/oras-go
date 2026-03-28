@@ -67,8 +67,8 @@ func ExamplePolicy_signedBy() {
 	// Output: Policy requires GPG signatures for docker.io/myorg
 }
 
-// ExampleLoad demonstrates loading a policy from a file
-func ExampleLoad() {
+// ExampleLoadPolicy demonstrates loading a policy from a file
+func ExampleLoadPolicy() {
 	// Create a temporary policy file
 	tmpDir := os.TempDir()
 	policyPath := filepath.Join(tmpDir, "example-policy.json")
@@ -89,7 +89,7 @@ func ExampleLoad() {
 	defer os.Remove(policyPath)
 
 	// Load the policy
-	loaded, err := policy.Load(policyPath)
+	loaded, err := policy.LoadPolicy(policyPath)
 	if err != nil {
 		log.Fatalf("Failed to load policy: %v", err)
 	}

@@ -24,17 +24,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
-	// PolicyConfUserDir is the user-level configuration directory for policy.json
-	PolicyConfUserDir = ".config/containers"
-	// PolicyConfFileName is the name of the policy configuration file
-	PolicyConfFileName = "policy.json"
-	// PolicyConfSystemPath is the system-wide policy.json path (Linux only).
-	// On non-Linux platforms, this path is not used by default.
-	// Use [Load] or [LoadPolicy] with an explicit path for cross-platform usage.
-	PolicyConfSystemPath = "/etc/containers/policy.json"
+	// policyConfUserDir is the user-level configuration directory for policy.json
+	policyConfUserDir = ".config/containers"
+	// policyConfFileName is the name of the policy configuration file
+	policyConfFileName = "policy.json"
 )
 
 // Policy represents a containers-policy.json configuration
@@ -109,7 +106,7 @@ func (p *Policy) SetTransportScope(transport TransportName, scope string, reqs .
 // On Linux, the system-wide path is /etc/containers/policy.json.
 // On other platforms (macOS, Windows, etc.), only the user-level path
 // ($HOME/.config/containers/policy.json) is checked, since the system-wide
-// path is Linux-specific. Use [Load] or [LoadPolicy] with an explicit path
+// path is Linux-specific. Use [LoadPolicy] with an explicit path
 // for cross-platform usage.
 func GetDefaultPolicyPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
@@ -118,7 +115,7 @@ func GetDefaultPolicyPath() (string, error) {
 	}
 
 	// Try user-specific path first (works on all platforms)
-	userPath := filepath.Join(homeDir, PolicyConfUserDir, PolicyConfFileName)
+	userPath := filepath.Join(homeDir, policyConfUserDir, policyConfFileName)
 	if _, err := os.Stat(userPath); err == nil {
 		return userPath, nil
 	}
@@ -129,11 +126,6 @@ func GetDefaultPolicyPath() (string, error) {
 	}
 
 	return "", fmt.Errorf("no policy.json found at %s and no system-wide default is available on this platform", userPath)
-}
-
-// Load loads a policy from the specified file path.
-func Load(path string) (*Policy, error) {
-	return LoadPolicy(path)
 }
 
 // LoadPolicy loads a policy from the specified file path.
@@ -172,11 +164,11 @@ func (p *Policy) Save(path string) error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write policy file %s: %w", path, err)
 	}
 
@@ -185,6 +177,10 @@ func (p *Policy) Save(path string) error {
 
 // Validate validates the policy configuration.
 func (p *Policy) Validate() error {
+	if len(p.Default) == 0 {
+		return fmt.Errorf("default policy requirements must not be empty")
+	}
+
 	// Validate default requirements
 	for _, req := range p.Default {
 		if err := req.Validate(); err != nil {
@@ -206,22 +202,76 @@ func (p *Policy) Validate() error {
 	return nil
 }
 
-// GetRequirementsForImage returns the policy requirements for a given transport and scope.
-// It follows the precedence rules: specific scope > transport default > global default.
-func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) PolicyRequirements {
-	// Check for transport-specific scope
-	if transportScopes, ok := p.Transports[transport]; ok {
-		// Try exact scope match first
-		if reqs, ok := transportScopes[scope]; ok {
-			return reqs
-		}
+// isPathPrefix reports whether prefix is a path prefix of s,
+// matching only at "/" boundaries. An empty prefix matches everything.
+func isPathPrefix(s, prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	if !strings.HasPrefix(s, prefix) {
+		return false
+	}
+	// Exact match or the next character is a path separator
+	return len(s) == len(prefix) || s[len(prefix)] == '/'
+}
 
-		// Try transport default (empty scope)
-		if reqs, ok := transportScopes[""]; ok {
+// GetRequirementsForImage returns the policy requirements for a given transport and scope.
+// It follows the precedence rules from the containers-policy.json spec:
+//  1. Exact scope match
+//  2. Longest prefix match (at "/" boundary)
+//  3. Wildcard subdomain match (*.example.com matches sub.example.com/...)
+//  4. Transport default (empty scope "")
+//  5. Global default
+func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) PolicyRequirements {
+	transportScopes, ok := p.Transports[transport]
+	if !ok {
+		return p.Default
+	}
+
+	// 1. Try exact scope match
+	if reqs, ok := transportScopes[scope]; ok {
+		return reqs
+	}
+
+	// 2. Try longest prefix match (at "/" boundary)
+	bestMatch := ""
+	for candidate := range transportScopes {
+		if candidate == "" {
+			continue
+		}
+		if strings.HasPrefix(candidate, "*.") {
+			continue // skip wildcards in prefix matching
+		}
+		if isPathPrefix(scope, candidate) && len(candidate) > len(bestMatch) {
+			bestMatch = candidate
+		}
+	}
+	if bestMatch != "" {
+		return transportScopes[bestMatch]
+	}
+
+	// 3. Try wildcard subdomain match (*.example.com matches sub.example.com/...)
+	for candidate, reqs := range transportScopes {
+		if !strings.HasPrefix(candidate, "*.") {
+			continue
+		}
+		// *.example.com should match sub.example.com and sub.example.com/repo
+		suffix := candidate[1:] // ".example.com"
+		// Extract the host part of the scope (before first "/")
+		host := scope
+		if idx := strings.Index(scope, "/"); idx != -1 {
+			host = scope[:idx]
+		}
+		if strings.HasSuffix(host, suffix) {
 			return reqs
 		}
 	}
 
-	// Fall back to global default
+	// 4. Try transport default (empty scope)
+	if reqs, ok := transportScopes[""]; ok {
+		return reqs
+	}
+
+	// 5. Fall back to global default
 	return p.Default
 }

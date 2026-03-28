@@ -69,6 +69,78 @@ func TestPolicy_GetRequirementsForImage(t *testing.T) {
 			scope:     "docker.io/library/nginx",
 			wantType:  TypeReject,
 		},
+		{
+			name: "prefix match at path boundary",
+			policy: &Policy{
+				Default: PolicyRequirements{&Reject{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/myorg": PolicyRequirements{&InsecureAcceptAnything{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/myorg/myrepo",
+			wantType:  TypeInsecureAcceptAnything,
+		},
+		{
+			name: "longest prefix wins",
+			policy: &Policy{
+				Default: PolicyRequirements{&Reject{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io":              PolicyRequirements{&InsecureAcceptAnything{}},
+						"docker.io/myorg":        PolicyRequirements{&Reject{}},
+						"docker.io/myorg/myrepo": PolicyRequirements{&InsecureAcceptAnything{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/myorg/myrepo",
+			wantType:  TypeInsecureAcceptAnything,
+		},
+		{
+			name: "prefix does not match partial path segment",
+			policy: &Policy{
+				Default: PolicyRequirements{&Reject{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/my": PolicyRequirements{&InsecureAcceptAnything{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/myorg/myrepo",
+			wantType:  TypeReject,
+		},
+		{
+			name: "wildcard subdomain match",
+			policy: &Policy{
+				Default: PolicyRequirements{&Reject{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"*.example.com": PolicyRequirements{&InsecureAcceptAnything{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "sub.example.com/myrepo",
+			wantType:  TypeInsecureAcceptAnything,
+		},
+		{
+			name: "wildcard does not match non-subdomain",
+			policy: &Policy{
+				Default: PolicyRequirements{&Reject{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"*.example.com": PolicyRequirements{&InsecureAcceptAnything{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "notexample.com/myrepo",
+			wantType:  TypeReject,
+		},
 	}
 
 	for _, tt := range tests {
@@ -150,7 +222,7 @@ func TestPolicy_SaveAndLoad(t *testing.T) {
 	}
 
 	// Load
-	loaded, err := Load(policyPath)
+	loaded, err := LoadPolicy(policyPath)
 	if err != nil {
 		t.Fatalf("failed to load policy: %v", err)
 	}
@@ -177,6 +249,13 @@ func TestPolicy_Validate(t *testing.T) {
 				Default: PolicyRequirements{&Reject{}},
 			},
 			wantErr: false,
+		},
+		{
+			name: "empty default requirements",
+			policy: &Policy{
+				Default: PolicyRequirements{},
+			},
+			wantErr: true,
 		},
 		{
 			name: "invalid signedBy requirement",
@@ -357,7 +436,7 @@ func TestGetDefaultPolicyPath(t *testing.T) {
 	path, err := GetDefaultPolicyPath()
 
 	homeDir, _ := os.UserHomeDir()
-	userPath := filepath.Join(homeDir, PolicyConfUserDir, PolicyConfFileName)
+	userPath := filepath.Join(homeDir, policyConfUserDir, policyConfFileName)
 
 	if _, statErr := os.Stat(userPath); statErr == nil {
 		// User policy file exists — should succeed with that path
@@ -372,8 +451,8 @@ func TestGetDefaultPolicyPath(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetDefaultPolicyPath() error = %v", err)
 		}
-		if path != PolicyConfSystemPath {
-			t.Errorf("GetDefaultPolicyPath() = %v, want %v", path, PolicyConfSystemPath)
+		if path != systemPolicyPath {
+			t.Errorf("GetDefaultPolicyPath() = %v, want %v", path, systemPolicyPath)
 		}
 	} else {
 		// No user policy and no system path (non-Linux) — should error
@@ -391,8 +470,8 @@ func TestLoadDefault(t *testing.T) {
 		t.Skip("Cannot get home directory")
 	}
 
-	userPolicyDir := filepath.Join(homeDir, PolicyConfUserDir)
-	userPolicyPath := filepath.Join(userPolicyDir, PolicyConfFileName)
+	userPolicyDir := filepath.Join(homeDir, policyConfUserDir)
+	userPolicyPath := filepath.Join(userPolicyDir, policyConfFileName)
 
 	// Clean up any existing test policy
 	defer os.Remove(userPolicyPath)
@@ -505,6 +584,13 @@ func TestNewEvaluator_Invalid(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "invalid policy - empty default",
+			policy: &Policy{
+				Default: PolicyRequirements{},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -596,16 +682,16 @@ func TestPolicy_ValidateTransportScopes(t *testing.T) {
 	}
 }
 
-// Test Load with non-existent file
-func TestLoad_NonExistent(t *testing.T) {
-	_, err := Load("/nonexistent/path/policy.json")
+// Test LoadPolicy with non-existent file
+func TestLoadPolicy_NonExistent(t *testing.T) {
+	_, err := LoadPolicy("/nonexistent/path/policy.json")
 	if err == nil {
-		t.Error("Load() should fail for non-existent file")
+		t.Error("LoadPolicy() should fail for non-existent file")
 	}
 }
 
-// Test Load with invalid JSON
-func TestLoad_InvalidJSON(t *testing.T) {
+// Test LoadPolicy with invalid JSON
+func TestLoadPolicy_InvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	policyPath := filepath.Join(tmpDir, "policy.json")
 
@@ -614,9 +700,9 @@ func TestLoad_InvalidJSON(t *testing.T) {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	_, err := Load(policyPath)
+	_, err := LoadPolicy(policyPath)
 	if err == nil {
-		t.Error("Load() should fail for invalid JSON")
+		t.Error("LoadPolicy() should fail for invalid JSON")
 	}
 }
 
@@ -654,7 +740,7 @@ func TestGetDefaultPolicyPath_NoUserPolicy(t *testing.T) {
 		if path == "" {
 			t.Error("GetDefaultPolicyPath() returned empty path")
 		}
-		if path != PolicyConfSystemPath {
+		if path != systemPolicyPath {
 			if !filepath.IsAbs(path) {
 				t.Errorf("GetDefaultPolicyPath() returned non-absolute path: %s", path)
 			}
@@ -662,7 +748,7 @@ func TestGetDefaultPolicyPath_NoUserPolicy(t *testing.T) {
 	} else {
 		// On non-Linux without user policy, should return an error
 		homeDir, _ := os.UserHomeDir()
-		userPath := filepath.Join(homeDir, PolicyConfUserDir, PolicyConfFileName)
+		userPath := filepath.Join(homeDir, policyConfUserDir, policyConfFileName)
 		if _, statErr := os.Stat(userPath); statErr != nil {
 			// User policy doesn't exist either — expect error
 			if err == nil {
@@ -701,10 +787,15 @@ func TestPolicy_MultipleRequirements(t *testing.T) {
 	}
 }
 
-// Test no requirements in policy
-func TestEvaluator_NoRequirements(t *testing.T) {
+// Test no requirements found for scope after matching
+func TestEvaluator_NoRequirementsForScope(t *testing.T) {
 	policy := &Policy{
-		Default: PolicyRequirements{},
+		Default: PolicyRequirements{&Reject{}},
+		Transports: map[TransportName]TransportScopes{
+			TransportNameDocker: {
+				"docker.io/library/nginx": PolicyRequirements{},
+			},
+		},
 	}
 
 	evaluator, err := NewEvaluator(policy)
@@ -720,7 +811,7 @@ func TestEvaluator_NoRequirements(t *testing.T) {
 
 	_, err = evaluator.IsImageAllowed(context.Background(), image)
 	if err == nil {
-		t.Error("IsImageAllowed() should fail when no requirements are defined")
+		t.Error("IsImageAllowed() should fail when no requirements are defined for the scope")
 	}
 }
 
@@ -780,17 +871,11 @@ func TestPolicyRequirements_JSONRoundTrip(t *testing.T) {
 			reqs: PolicyRequirements{&Reject{}},
 		},
 		{
-			name: "signedBy with all fields",
+			name: "signedBy with keyPath",
 			reqs: PolicyRequirements{
 				&PRSignedBy{
-					KeyType:  "GPGKeys",
-					KeyPath:  "/path/to/key.gpg",
-					KeyData:  "key data",
-					KeyPaths: []string{"/path1", "/path2"},
-					KeyDatas: []SignedByKeyData{
-						{KeyPath: "/path/key1.gpg"},
-						{KeyData: "inline key data"},
-					},
+					KeyType: "GPGKeys",
+					KeyPath: "/path/to/key.gpg",
 					SignedIdentity: &SignedIdentity{
 						Type: IdentityMatchExact,
 					},
@@ -802,11 +887,6 @@ func TestPolicyRequirements_JSONRoundTrip(t *testing.T) {
 			reqs: PolicyRequirements{
 				&PRSigstoreSigned{
 					KeyPath: "/path/to/key.pub",
-					KeyData: []byte("key data"),
-					KeyDatas: []SigstoreKeyData{
-						{PublicKeyFile: "/path/key.pub"},
-						{PublicKeyData: []byte("inline key")},
-					},
 					Fulcio: &FulcioConfig{
 						CAPath:       "/path/ca.pem",
 						CAData:       []byte("ca data"),
@@ -904,6 +984,30 @@ func TestPolicyRequirements_UnmarshalJSON_Errors(t *testing.T) {
 			err := json.Unmarshal([]byte(tt.data), &reqs)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("UnmarshalJSON() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsPathPrefix(t *testing.T) {
+	tests := []struct {
+		s      string
+		prefix string
+		want   bool
+	}{
+		{"docker.io/myorg/myrepo", "docker.io/myorg", true},
+		{"docker.io/myorg/myrepo", "docker.io/myorg/myrepo", true},
+		{"docker.io/myorg/myrepo", "docker.io/my", false},
+		{"docker.io/myorg", "docker.io/myorg/myrepo", false},
+		{"docker.io/myorg/myrepo", "", true},
+		{"docker.io/myorg", "docker.io/myorg", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.s+"_"+tt.prefix, func(t *testing.T) {
+			got := isPathPrefix(tt.s, tt.prefix)
+			if got != tt.want {
+				t.Errorf("isPathPrefix(%q, %q) = %v, want %v", tt.s, tt.prefix, got, tt.want)
 			}
 		})
 	}
