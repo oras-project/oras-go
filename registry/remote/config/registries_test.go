@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 )
 
 func TestLoadRegistriesConfig(t *testing.T) {
@@ -849,6 +851,186 @@ insecure = true
 		t.Error("quay.io should be insecure")
 	}
 }
+
+func TestLoadSystemRegistriesConfigWithStrategy_ContainersImage(t *testing.T) {
+	// Create a temp directory structure mimicking system paths.
+	tmpDir := t.TempDir()
+	sysConfDir := filepath.Join(tmpDir, "etc", "containers")
+	if err := os.MkdirAll(sysConfDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mainConf := `
+unqualified-search-registries = ["docker.io"]
+
+[[registry]]
+prefix = "docker.io"
+location = "registry-1.docker.io"
+`
+	if err := os.WriteFile(filepath.Join(sysConfDir, "registries.conf"), []byte(mainConf), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a custom resolver that points to our temp dirs.
+	resolver := &testResolver{
+		mainPaths: []string{filepath.Join(sysConfDir, "registries.conf")},
+		dropDirs:  nil,
+		strategy:  configpaths.MergeAll,
+	}
+
+	config, err := loadRegistriesConfigFromResolver(resolver)
+	if err != nil {
+		t.Fatalf("loadRegistriesConfigFromResolver() error = %v", err)
+	}
+	if len(config.UnqualifiedSearchRegistries) != 1 || config.UnqualifiedSearchRegistries[0] != "docker.io" {
+		t.Errorf("UnqualifiedSearchRegistries = %v, want [docker.io]", config.UnqualifiedSearchRegistries)
+	}
+	if len(config.Registries) != 1 || config.Registries[0].Prefix != "docker.io" {
+		t.Errorf("Registries = %v, want single docker.io registry", config.Registries)
+	}
+}
+
+func TestLoadSystemRegistriesConfigWithStrategy_UAPI(t *testing.T) {
+	// Create a temp directory structure for UAPI user path.
+	tmpDir := t.TempDir()
+	userDir := filepath.Join(tmpDir, "user", "containers")
+	if err := os.MkdirAll(userDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	userConf := `
+unqualified-search-registries = ["quay.io"]
+
+[[registry]]
+prefix = "quay.io"
+insecure = true
+`
+	if err := os.WriteFile(filepath.Join(userDir, "registries.conf"), []byte(userConf), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// System path that should NOT be loaded (first found wins).
+	sysDir := filepath.Join(tmpDir, "sys", "containers")
+	if err := os.MkdirAll(sysDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sysConf := `
+unqualified-search-registries = ["docker.io"]
+
+[[registry]]
+prefix = "docker.io"
+location = "registry-1.docker.io"
+`
+	if err := os.WriteFile(filepath.Join(sysDir, "registries.conf"), []byte(sysConf), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := &testResolver{
+		mainPaths: []string{
+			filepath.Join(userDir, "registries.conf"),
+			filepath.Join(sysDir, "registries.conf"),
+		},
+		dropDirs: nil,
+		strategy: configpaths.FirstFoundWins,
+	}
+
+	config, err := loadRegistriesConfigFromResolver(resolver)
+	if err != nil {
+		t.Fatalf("loadRegistriesConfigFromResolver() error = %v", err)
+	}
+	// Should use user config (first found wins), not system config.
+	if len(config.UnqualifiedSearchRegistries) != 1 || config.UnqualifiedSearchRegistries[0] != "quay.io" {
+		t.Errorf("UnqualifiedSearchRegistries = %v, want [quay.io]", config.UnqualifiedSearchRegistries)
+	}
+	if len(config.Registries) != 1 || config.Registries[0].Prefix != "quay.io" {
+		t.Errorf("Registries = %v, want single quay.io registry", config.Registries)
+	}
+}
+
+func TestLoadSystemRegistriesConfigWithStrategy_UAPI_DropInOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create main config.
+	userDir := filepath.Join(tmpDir, "user", "containers")
+	if err := os.MkdirAll(userDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	mainConf := `
+unqualified-search-registries = ["docker.io"]
+
+[[registry]]
+prefix = "docker.io"
+location = "registry-1.docker.io"
+`
+	if err := os.WriteFile(filepath.Join(userDir, "registries.conf"), []byte(mainConf), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create vendor drop-in directory with a config.
+	vendorDropIn := filepath.Join(tmpDir, "vendor", "containers", "registries.conf.d")
+	if err := os.MkdirAll(vendorDropIn, 0755); err != nil {
+		t.Fatal(err)
+	}
+	vendorConf := `
+[[registry]]
+prefix = "quay.io"
+insecure = false
+`
+	if err := os.WriteFile(filepath.Join(vendorDropIn, "10-quay.conf"), []byte(vendorConf), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create system drop-in directory with same filename (should override vendor).
+	systemDropIn := filepath.Join(tmpDir, "system", "containers", "registries.conf.d")
+	if err := os.MkdirAll(systemDropIn, 0755); err != nil {
+		t.Fatal(err)
+	}
+	systemConf := `
+[[registry]]
+prefix = "quay.io"
+insecure = true
+`
+	if err := os.WriteFile(filepath.Join(systemDropIn, "10-quay.conf"), []byte(systemConf), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := &testResolver{
+		mainPaths: []string{filepath.Join(userDir, "registries.conf")},
+		dropDirs:  []string{vendorDropIn, systemDropIn},
+		strategy:  configpaths.FirstFoundWins,
+	}
+
+	config, err := loadRegistriesConfigFromResolver(resolver)
+	if err != nil {
+		t.Fatalf("loadRegistriesConfigFromResolver() error = %v", err)
+	}
+
+	// The system drop-in should override vendor drop-in for same filename.
+	var quayReg *Registry
+	for i := range config.Registries {
+		if config.Registries[i].Prefix == "quay.io" {
+			quayReg = &config.Registries[i]
+			break
+		}
+	}
+	if quayReg == nil {
+		t.Fatal("quay.io registry not found after merge")
+	}
+	if !quayReg.Insecure {
+		t.Error("quay.io should be insecure (system drop-in should override vendor drop-in)")
+	}
+}
+
+// testResolver is a test helper implementing configpaths.PathResolver.
+type testResolver struct {
+	mainPaths []string
+	dropDirs  []string
+	strategy  configpaths.MergeStrategy
+}
+
+func (r *testResolver) MainConfigPaths(_ string) []string       { return r.mainPaths }
+func (r *testResolver) DropInDirs(_ string) []string             { return r.dropDirs }
+func (r *testResolver) MergeStrategy() configpaths.MergeStrategy { return r.strategy }
 
 // Helper function to check if a string contains another string.
 func contains(s, substr string) bool {
