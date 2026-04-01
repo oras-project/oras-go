@@ -7,3 +7,5 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	golang.org/x/sync v0.19.0
 )
+
+require github.com/BurntSushi/toml v1.6.0
