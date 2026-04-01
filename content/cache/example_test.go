@@ -20,19 +20,18 @@ import (
 
 	"github.com/oras-project/oras-go/v3/content/cache"
 	"github.com/oras-project/oras-go/v3/content/memory"
-	"github.com/oras-project/oras-go/v3/internal/cas"
 )
 
-// ExampleNew demonstrates how to wrap a ReadOnlyTarget with a cache layer.
-func ExampleNew() {
+// ExampleCacheReadOnlyTarget demonstrates how to wrap a ReadOnlyTarget with a cache layer.
+func ExampleCacheReadOnlyTarget() {
 	// Create a source store
 	source := memory.New()
 
-	// Create a cache store
-	cacheStore := cas.NewMemory()
+	// Create a cache store (using memory store for this example)
+	cacheStore := memory.New()
 
 	// Wrap the source with a cache layer
-	cachedTarget := cache.New(source, cacheStore)
+	cachedTarget := cache.CacheReadOnlyTarget(source, cacheStore)
 
 	// The cached target is ready to use
 	// Fetched content will be cached for subsequent fetches
@@ -41,27 +40,27 @@ func ExampleNew() {
 	// Output: true
 }
 
-// ExampleCache_CachedTarget demonstrates how to use the Cache helper
-// to conditionally wrap a target based on configuration.
-func ExampleCache_CachedTarget() {
+// ExampleCache_ReadOnlyTarget demonstrates how to use the Cache helper
+// to create a cached target with file-based storage.
+func ExampleCache_ReadOnlyTarget() {
 	// Create a source store
 	source := memory.New()
 
-	// Create a Cache configuration
+	// Create a Cache configuration with a valid root directory
 	// In practice, you might use cache.NewFromEnv() to read from ORAS_CACHE env var
 	c := &cache.Cache{
-		Root: "", // Empty root means caching is disabled
+		Root: "/tmp/oras-cache", // Specify cache root directory
 	}
 
-	// Get the cached target (returns original source if caching is disabled)
-	target, err := c.CachedTarget(source)
+	// Get the cached target
+	target, err := c.ReadOnlyTarget(source)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
 
-	// The target will be the same as source since caching is disabled
-	fmt.Println(target == source)
+	// The target wraps source with caching
+	fmt.Println(target != nil)
 
 	// Output: true
 }

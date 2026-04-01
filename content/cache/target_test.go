@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -32,7 +33,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3"
 	"github.com/oras-project/oras-go/v3/content/memory"
-	"github.com/oras-project/oras-go/v3/internal/cas"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote"
 )
@@ -53,14 +53,14 @@ func TestNew(t *testing.T) {
 	}
 
 	// create cache
-	cache := cas.NewMemory()
+	cache := memory.New()
 
 	// wrap source with cache
-	cachedTarget := New(source, cache)
+	cachedTarget := CacheReadOnlyTarget(source, cache)
 
 	// verify it returns a ReadOnlyTarget
 	if _, ok := cachedTarget.(oras.ReadOnlyTarget); !ok {
-		t.Error("New() did not return oras.ReadOnlyTarget")
+		t.Error("CacheReadOnlyTarget() did not return oras.ReadOnlyTarget")
 	}
 }
 
@@ -80,10 +80,10 @@ func TestTarget_Fetch(t *testing.T) {
 	}
 
 	// create cache
-	cache := cas.NewMemory()
+	cache := memory.New()
 
 	// wrap source with cache
-	cachedTarget := New(source, cache)
+	cachedTarget := CacheReadOnlyTarget(source, cache)
 
 	// first fetch - should cache the content
 	rc, err := cachedTarget.Fetch(ctx, desc)
@@ -143,13 +143,13 @@ func TestTarget_FetchCached(t *testing.T) {
 	}
 
 	// create cache and pre-populate it
-	cache := cas.NewMemory()
+	cache := memory.New()
 	if err := cache.Push(ctx, desc, bytes.NewReader(content)); err != nil {
 		t.Fatal("failed to push content to cache:", err)
 	}
 
 	// wrap source with cache
-	cachedTarget := New(source, cache)
+	cachedTarget := CacheReadOnlyTarget(source, cache)
 
 	// fetch should come from cache without hitting source
 	rc, err := cachedTarget.Fetch(ctx, desc)
@@ -184,10 +184,10 @@ func TestTarget_Exists(t *testing.T) {
 	}
 
 	// create empty cache
-	cache := cas.NewMemory()
+	cache := memory.New()
 
 	// wrap source with cache
-	cachedTarget := New(source, cache)
+	cachedTarget := CacheReadOnlyTarget(source, cache)
 
 	// content should exist (from source)
 	exists, err := cachedTarget.Exists(ctx, desc)
@@ -254,10 +254,10 @@ func TestTarget_Resolve(t *testing.T) {
 	}
 
 	// create empty cache
-	cache := cas.NewMemory()
+	cache := memory.New()
 
 	// wrap source with cache
-	cachedTarget := New(source, cache)
+	cachedTarget := CacheReadOnlyTarget(source, cache)
 
 	// resolve should work (delegates to source)
 	gotDesc, err := cachedTarget.Resolve(ctx, ref)
@@ -291,15 +291,17 @@ func TestReferenceTarget_FetchReference(t *testing.T) {
 		Size:      int64(len(manifestBytes)),
 	}
 
-	// setup mock registry
+	// setup mock registry, counting GET requests to verify cache hits avoid downloads
+	var getCount int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v2/test/manifests/latest":
 			if r.Method == http.MethodHead {
 				w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
-				w.Header().Set("Content-Length", "0")
+				w.Header().Set("Content-Length", strconv.FormatInt(manifestDesc.Size, 10))
 			} else if r.Method == http.MethodGet {
+				getCount++
 				w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 				w.Write(manifestBytes)
@@ -320,14 +322,14 @@ func TestReferenceTarget_FetchReference(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create repository:", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 
 	// create cache
-	cache := cas.NewMemory()
+	cache := memory.New()
 	ctx := context.Background()
 
 	// wrap repository with cache
-	cachedTarget := New(repo, cache)
+	cachedTarget := CacheReadOnlyTarget(repo, cache)
 
 	// verify it implements ReferenceFetcher
 	refFetcher, ok := cachedTarget.(registry.ReferenceFetcher)
@@ -335,7 +337,7 @@ func TestReferenceTarget_FetchReference(t *testing.T) {
 		t.Fatal("cached target does not implement registry.ReferenceFetcher")
 	}
 
-	// first fetch - should cache the content
+	// first fetch (cache miss) - resolves via HEAD then GETs from source and caches
 	gotDesc, rc, err := refFetcher.FetchReference(ctx, "latest")
 	if err != nil {
 		t.Fatal("FetchReference() error =", err)
@@ -353,6 +355,9 @@ func TestReferenceTarget_FetchReference(t *testing.T) {
 	if !bytes.Equal(got, manifestBytes) {
 		t.Errorf("FetchReference() content = %v, want %v", got, manifestBytes)
 	}
+	if getCount != 1 {
+		t.Errorf("expected 1 GET request on cache miss, got %d", getCount)
+	}
 
 	// verify content is now in cache
 	exists, err := cache.Exists(ctx, manifestDesc)
@@ -363,7 +368,7 @@ func TestReferenceTarget_FetchReference(t *testing.T) {
 		t.Error("content was not cached")
 	}
 
-	// second FetchReference - should still fetch from source but content comes from cache
+	// second fetch (cache hit) - resolves via HEAD only, no GET to source
 	gotDesc, rc, err = refFetcher.FetchReference(ctx, "latest")
 	if err != nil {
 		t.Fatal("second FetchReference() error =", err)
@@ -380,6 +385,9 @@ func TestReferenceTarget_FetchReference(t *testing.T) {
 	}
 	if !bytes.Equal(got, manifestBytes) {
 		t.Errorf("second FetchReference() content = %v, want %v", got, manifestBytes)
+	}
+	if getCount != 1 {
+		t.Errorf("expected no additional GET on cache hit, total GET count = %d", getCount)
 	}
 }
 
@@ -411,7 +419,7 @@ func TestNew_WithReferenceFetcher(t *testing.T) {
 			if r.Method == http.MethodHead {
 				w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
-				w.Header().Set("Content-Length", "0")
+				w.Header().Set("Content-Length", strconv.FormatInt(manifestDesc.Size, 10))
 			} else if r.Method == http.MethodGet {
 				w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
@@ -433,17 +441,17 @@ func TestNew_WithReferenceFetcher(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create repository:", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 
 	// create cache
-	cache := cas.NewMemory()
+	cache := memory.New()
 
 	// wrap repository with cache
-	cachedTarget := New(repo, cache)
+	cachedTarget := CacheReadOnlyTarget(repo, cache)
 
 	// verify it returns a referenceTarget (implements ReferenceFetcher)
 	if _, ok := cachedTarget.(registry.ReferenceFetcher); !ok {
-		t.Error("New() with ReferenceFetcher source did not return registry.ReferenceFetcher")
+		t.Error("CacheReadOnlyTarget() with ReferenceFetcher source did not return registry.ReferenceFetcher")
 	}
 }
 
@@ -452,14 +460,14 @@ func TestNew_WithoutReferenceFetcher(t *testing.T) {
 	source := memory.New()
 
 	// create cache
-	cache := cas.NewMemory()
+	cache := memory.New()
 
 	// wrap source with cache
-	cachedTarget := New(source, cache)
+	cachedTarget := CacheReadOnlyTarget(source, cache)
 
 	// verify it does NOT return a referenceTarget
 	if _, ok := cachedTarget.(registry.ReferenceFetcher); ok {
-		t.Error("New() with non-ReferenceFetcher source returned registry.ReferenceFetcher")
+		t.Error("CacheReadOnlyTarget() with non-ReferenceFetcher source returned registry.ReferenceFetcher")
 	}
 }
 
@@ -478,8 +486,13 @@ func (e *errorStorage) Fetch(_ context.Context, _ ocispec.Descriptor) (io.ReadCl
 	return io.NopCloser(bytes.NewReader([]byte("cached"))), nil
 }
 
-func (e *errorStorage) Push(_ context.Context, _ ocispec.Descriptor, _ io.Reader) error {
-	return e.pushErr
+func (e *errorStorage) Push(_ context.Context, _ ocispec.Descriptor, r io.Reader) error {
+	if e.pushErr != nil {
+		return e.pushErr
+	}
+	// Drain the reader so the cacheReadCloser pipe does not block.
+	_, _ = io.Copy(io.Discard, r)
+	return nil
 }
 
 func (e *errorStorage) Exists(_ context.Context, _ ocispec.Descriptor) (bool, error) {
@@ -528,9 +541,9 @@ func TestTarget_Fetch_SourceError(t *testing.T) {
 
 	expectedErr := errors.New("source fetch error")
 	source := &errorSource{fetchErr: expectedErr}
-	cache := cas.NewMemory()
+	cache := memory.New()
 
-	cachedTarget := New(source, cache)
+	cachedTarget := CacheReadOnlyTarget(source, cache)
 	ctx := context.Background()
 
 	_, err := cachedTarget.Fetch(ctx, desc)
@@ -543,26 +556,6 @@ func TestTarget_Fetch_SourceError(t *testing.T) {
 }
 
 func TestReferenceTarget_FetchReference_Error(t *testing.T) {
-	manifest := ocispec.Manifest{
-		Versioned: specs.Versioned{SchemaVersion: 2},
-		MediaType: ocispec.MediaTypeImageManifest,
-		Config: ocispec.Descriptor{
-			MediaType: ocispec.MediaTypeImageConfig,
-			Digest:    digest.FromBytes([]byte("{}")),
-			Size:      2,
-		},
-		Layers: []ocispec.Descriptor{},
-	}
-	manifestBytes, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal("failed to marshal manifest:", err)
-	}
-	manifestDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    digest.FromBytes(manifestBytes),
-		Size:      int64(len(manifestBytes)),
-	}
-
 	// setup mock registry that returns error
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -578,58 +571,17 @@ func TestReferenceTarget_FetchReference_Error(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create repository:", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 
-	cache := cas.NewMemory()
+	cache := memory.New()
 	ctx := context.Background()
 
-	cachedTarget := New(repo, cache)
+	cachedTarget := CacheReadOnlyTarget(repo, cache)
 	refFetcher := cachedTarget.(registry.ReferenceFetcher)
 
 	_, _, err = refFetcher.FetchReference(ctx, "latest")
 	if err == nil {
 		t.Error("FetchReference() expected error, got nil")
-	}
-
-	// Test with cache.Exists error
-	errCache := &errorStorage{existsErr: errors.New("exists error")}
-
-	// setup working mock registry for this test
-	ts2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/v2/test/manifests/latest":
-			if r.Method == http.MethodHead {
-				w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
-				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
-				w.Header().Set("Content-Length", "0")
-			} else if r.Method == http.MethodGet {
-				w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
-				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
-				w.Write(manifestBytes)
-			}
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer ts2.Close()
-
-	u2, err := url.Parse(ts2.URL)
-	if err != nil {
-		t.Fatal("failed to parse test server URL:", err)
-	}
-
-	repo2, err := remote.NewRepository(u2.Host + "/test")
-	if err != nil {
-		t.Fatal("failed to create repository:", err)
-	}
-	repo2.PlainHTTP = true
-
-	cachedTarget2 := New(repo2, errCache)
-	refFetcher2 := cachedTarget2.(registry.ReferenceFetcher)
-
-	_, _, err = refFetcher2.FetchReference(ctx, "latest")
-	if err == nil {
-		t.Error("FetchReference() with cache.Exists error expected error, got nil")
 	}
 }
 
@@ -654,7 +606,7 @@ func TestTarget_Fetch_CachePushError(t *testing.T) {
 		pushErr:  errors.New("push error"),
 	}
 
-	cachedTarget := New(source, errCache)
+	cachedTarget := CacheReadOnlyTarget(source, errCache)
 
 	// fetch - cache push will fail
 	rc, err := cachedTarget.Fetch(ctx, desc)
@@ -689,8 +641,8 @@ func TestTarget_Fetch_ReaderCloseError(t *testing.T) {
 		closeErr: closeErr,
 	}
 
-	cache := cas.NewMemory()
-	cachedTarget := New(source, cache)
+	cache := memory.New()
+	cachedTarget := CacheReadOnlyTarget(source, cache)
 	ctx := context.Background()
 
 	// fetch
@@ -739,7 +691,7 @@ func (m *mockSourceWithCloseError) Exists(_ context.Context, _ ocispec.Descripto
 	return true, nil
 }
 
-func TestReferenceTarget_FetchReference_CacheExistsButFetchFails(t *testing.T) {
+func TestReferenceTarget_FetchReference_CacheFetchFailsFallsBack(t *testing.T) {
 	manifest := ocispec.Manifest{
 		Versioned: specs.Versioned{SchemaVersion: 2},
 		MediaType: ocispec.MediaTypeImageManifest,
@@ -767,7 +719,7 @@ func TestReferenceTarget_FetchReference_CacheExistsButFetchFails(t *testing.T) {
 			if r.Method == http.MethodHead {
 				w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
-				w.Header().Set("Content-Length", "0")
+				w.Header().Set("Content-Length", strconv.FormatInt(manifestDesc.Size, 10))
 			} else if r.Method == http.MethodGet {
 				w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
 				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
@@ -788,20 +740,33 @@ func TestReferenceTarget_FetchReference_CacheExistsButFetchFails(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create repository:", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 
-	// Cache that says content exists but fails to fetch
+	// Cache that always fails on Fetch — simulates a corrupt or unavailable cache.
+	// FetchReference should fall back to the source and succeed.
 	errCache := &errorStorage{
-		exists:   true,
 		fetchErr: errors.New("cache fetch error"),
 	}
 
 	ctx := context.Background()
-	cachedTarget := New(repo, errCache)
+	cachedTarget := CacheReadOnlyTarget(repo, errCache)
 	refFetcher := cachedTarget.(registry.ReferenceFetcher)
 
-	_, _, err = refFetcher.FetchReference(ctx, "latest")
-	if err == nil {
-		t.Error("FetchReference() with cache fetch error expected error, got nil")
+	gotDesc, rc, err := refFetcher.FetchReference(ctx, "latest")
+	if err != nil {
+		t.Fatal("FetchReference() expected fallback to source, got error:", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("FetchReference().Read() error =", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal("FetchReference().Close() error =", err)
+	}
+	if gotDesc.Digest != manifestDesc.Digest {
+		t.Errorf("FetchReference() descriptor digest = %v, want %v", gotDesc.Digest, manifestDesc.Digest)
+	}
+	if !bytes.Equal(got, manifestBytes) {
+		t.Errorf("FetchReference() content = %v, want %v", got, manifestBytes)
 	}
 }

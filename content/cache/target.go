@@ -34,10 +34,16 @@ type target struct {
 	cache content.Storage
 }
 
-// New creates a new cached target.
+// CacheReadOnlyTarget creates a new cached target.
 // The returned target will first check the cache for content before
 // fetching from the source. Fetched content is cached while being read.
-func New(source oras.ReadOnlyTarget, cache content.Storage) oras.ReadOnlyTarget {
+//
+// Note: The returned target implements only oras.ReadOnlyTarget. If the source
+// implements additional interfaces (e.g., registry.ReferenceFetcher), those
+// methods are also available through the returned target. However, type
+// assertions for other interfaces beyond ReadOnlyTarget may fail since
+// embedding an interface only promotes that interface's method set.
+func CacheReadOnlyTarget(source oras.ReadOnlyTarget, cache content.Storage) oras.ReadOnlyTarget {
 	t := &target{
 		ReadOnlyTarget: source,
 		cache:          cache,
@@ -119,33 +125,32 @@ type referenceTarget struct {
 	registry.ReferenceFetcher
 }
 
-// FetchReference fetches the content identified by the reference from the
-// remote and caches the fetched content.
-// Cached content will only be read via Fetch; FetchReference will always
-// fetch from the source first.
+// FetchReference fetches the content identified by the reference.
+// It first resolves the reference to a descriptor via a lightweight HEAD
+// request, then serves from the local cache if available. On a cache miss,
+// the content is fetched from the source and cached while being read.
+//
+// Trade-off: a cache miss requires one extra HEAD request (Resolve) compared
+// to a direct FetchReference call. Cache hits avoid downloading any content
+// body from the source.
 func (t *referenceTarget) FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error) {
-	desc, rc, err := t.ReferenceFetcher.FetchReference(ctx, reference)
+	// Resolve via HEAD to get the descriptor without downloading content.
+	desc, err := t.Resolve(ctx, reference)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	// skip caching if the content already exists in cache
-	exists, err := t.cache.Exists(ctx, desc)
-	if err != nil {
-		rc.Close()
-		return ocispec.Descriptor{}, nil, err
-	}
-	if exists {
-		if err := rc.Close(); err != nil {
-			return ocispec.Descriptor{}, nil, err
-		}
-		// get rc from the cache
-		rc, err = t.cache.Fetch(ctx, desc)
-		if err != nil {
-			return ocispec.Descriptor{}, nil, err
-		}
+	// Cache hit: serve from cache without issuing a GET to the source.
+	if rc, err := t.cache.Fetch(ctx, desc); err == nil {
 		return desc, rc, nil
 	}
 
-	return desc, t.cacheReadCloser(ctx, rc, desc), nil
+	// Cache miss: fetch from source and cache while reading.
+	// Use the descriptor returned by FetchReference (not Resolve) to handle
+	// the case where the tag was updated between the two calls.
+	fetchedDesc, rc, err := t.ReferenceFetcher.FetchReference(ctx, reference)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	return fetchedDesc, t.cacheReadCloser(ctx, rc, fetchedDesc), nil
 }
