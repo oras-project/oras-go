@@ -21,6 +21,9 @@ import (
 	"os"
 )
 
+// fileChmod is the function used to set file permissions, overridable in tests.
+var fileChmod = (*os.File).Chmod
+
 // Ingest writes content into a temporary ingest file with the file name format
 // "oras_credstore_temp_{randomString}".
 func Ingest(dir string, content io.Reader) (path string, ingestErr error) {
@@ -39,7 +42,7 @@ func Ingest(dir string, content io.Reader) (path string, ingestErr error) {
 		}
 	}()
 
-	if err := tempFile.Chmod(0600); err != nil {
+	if err := fileChmod(tempFile, 0600); err != nil {
 		ingestErr = fmt.Errorf("failed to ensure permission: %w", err)
 		return
 	}
