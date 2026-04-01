@@ -350,3 +350,176 @@ func TestReference_String(t *testing.T) {
 		})
 	}
 }
+
+func TestParseReferenceWithSchemes(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    Reference
+		wantErr bool
+	}{
+		// oci:// scheme tests
+		{
+			name:  "oci scheme with digest (valid form A)",
+			input: fmt.Sprintf("oci://localhost/hello-world@%s", ValidDigest),
+			want: Reference{
+				Registry:   "localhost",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme with tag (valid form C)",
+			input: "oci://registry.example.com/hello-world:v1",
+			want: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "v1",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme with tag and digest (valid form B)",
+			input: fmt.Sprintf("oci://registry.example.com/hello-world:v2@%s", ValidDigest),
+			want: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme basic reference (valid form D)",
+			input: "oci://127.0.0.1:5000/hello-world",
+			want: Reference{
+				Registry:   "127.0.0.1:5000",
+				Repository: "hello-world",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme with IPv6 registry",
+			input: "oci://[::1]:5000/hello-world:latest",
+			want: Reference{
+				Registry:   "[::1]:5000",
+				Repository: "hello-world",
+				Reference:  "latest",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "oci scheme with multi-level repository",
+			input: "oci://ghcr.io/oras-project/oras-go:v3.0.0",
+			want: Reference{
+				Registry:   "ghcr.io",
+				Repository: "oras-project/oras-go",
+				Reference:  "v3.0.0",
+			},
+			wantErr: false,
+		},
+
+		// http:// scheme tests
+		{
+			name:  "http scheme with digest",
+			input: fmt.Sprintf("http://localhost/hello-world@%s", ValidDigest),
+			want: Reference{
+				Registry:   "localhost",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+			},
+			wantErr: false,
+		},
+		{
+			name:  "http scheme with tag",
+			input: "http://registry.example.com:8080/hello-world:v1",
+			want: Reference{
+				Registry:   "registry.example.com:8080",
+				Repository: "hello-world",
+				Reference:  "v1",
+			},
+			wantErr: false,
+		},
+
+		// https:// scheme tests
+		{
+			name:  "https scheme with digest",
+			input: fmt.Sprintf("https://localhost/hello-world@%s", ValidDigest),
+			want: Reference{
+				Registry:   "localhost",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+			},
+			wantErr: false,
+		},
+		{
+			name:  "https scheme with tag",
+			input: "https://registry.example.com/hello-world:v1",
+			want: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "v1",
+			},
+			wantErr: false,
+		},
+
+		// Backward compatibility - no scheme
+		{
+			name:  "no scheme (backward compatibility)",
+			input: "localhost/hello-world:v1",
+			want: Reference{
+				Registry:   "localhost",
+				Repository: "hello-world",
+				Reference:  "v1",
+			},
+			wantErr: false,
+		},
+
+		// Edge cases - invalid inputs should still fail validation
+		{
+			name:    "oci scheme but missing repository",
+			input:   "oci://localhost",
+			wantErr: true,
+		},
+		{
+			name:    "oci scheme but invalid registry",
+			input:   "oci://invalid registry/repo",
+			wantErr: true,
+		},
+		{
+			name:    "oci scheme but invalid repository name",
+			input:   "oci://localhost/UPPERCASE",
+			wantErr: true,
+		},
+		{
+			name:    "scheme in wrong position (middle)",
+			input:   "localhost/oci://hello-world",
+			wantErr: true,
+		},
+
+		// Case sensitivity - schemes should be lowercase
+		{
+			name:    "uppercase OCI scheme not stripped",
+			input:   "OCI://localhost/hello-world",
+			wantErr: true, // "OCI:" will be parsed as invalid registry
+		},
+		{
+			name:    "mixed case scheme not stripped",
+			input:   "Oci://localhost/hello-world",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseReference(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseReference() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ParseReference() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

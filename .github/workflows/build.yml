@@ -17,12 +17,10 @@ on:
   push:
     branches: 
       - main
-      - release-*
       - v2
   pull_request:
     branches:
       - main
-      - release-*
       - v2
 
 jobs:
@@ -43,6 +41,6 @@ jobs:
       - name: Run unit tests
         run: make test
       - name: Upload coverage to codecov.io
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
