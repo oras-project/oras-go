@@ -1240,57 +1240,53 @@ func TestLoadSystemRegistriesConfig_InvalidSystemConfig(t *testing.T) {
 	}
 }
 
+// stubResolver is a test-only PathResolver that returns fixed paths,
+// avoiding any dependency on the real OS environment.
+type stubResolver struct {
+	mainPaths  []string
+	dropInDirs []string
+	strategy   configpaths.MergeStrategy
+}
+
+func (r *stubResolver) MainConfigPaths(_ string) []string        { return r.mainPaths }
+func (r *stubResolver) DropInDirs(_ string) []string             { return r.dropInDirs }
+func (r *stubResolver) MergeStrategy() configpaths.MergeStrategy { return r.strategy }
+
 func TestLoadRegistriesConfigFromResolver_FirstFoundWins_ErrorInMainConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create a valid main config that exists but is invalid TOML at user level.
-	userConfigDir := filepath.Join(tmpDir, ".config", "containers")
-	if err := os.MkdirAll(userConfigDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(userConfigDir, "registries.conf"), []byte("[[[bad"), 0644); err != nil {
+	// Create an invalid main config.
+	mainPath := filepath.Join(tmpDir, "registries.conf")
+	if err := os.WriteFile(mainPath, []byte("[[[bad"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	origSysPath := systemRegistriesConfPath
-	origSysDirPath := systemRegistriesConfDirPath
-	defer func() {
-		systemRegistriesConfPath = origSysPath
-		systemRegistriesConfDirPath = origSysDirPath
-	}()
-	systemRegistriesConfPath = filepath.Join(tmpDir, "nonexistent")
-	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
-
-	t.Setenv("HOME", tmpDir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	_, err := LoadSystemRegistriesConfigWithStrategy(StrategyUAPI)
+	resolver := &stubResolver{
+		mainPaths:  []string{mainPath},
+		dropInDirs: []string{filepath.Join(tmpDir, "nonexistent.d")},
+		strategy:   configpaths.FirstFoundWins,
+	}
+	_, err := loadRegistriesConfigFromResolver(resolver)
 	if err == nil {
-		t.Error("expected error when UAPI main config is invalid")
+		t.Error("expected error when FirstFoundWins main config is invalid")
 	}
 }
 
 func TestLoadRegistriesConfigFromResolver_MergeAll_ErrorInMainConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create an invalid system config.
-	sysConfigPath := filepath.Join(tmpDir, "registries.conf")
-	if err := os.WriteFile(sysConfigPath, []byte("[[[bad"), 0644); err != nil {
+	// Create an invalid main config.
+	mainPath := filepath.Join(tmpDir, "registries.conf")
+	if err := os.WriteFile(mainPath, []byte("[[[bad"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	origSysPath := systemRegistriesConfPath
-	origSysDirPath := systemRegistriesConfDirPath
-	defer func() {
-		systemRegistriesConfPath = origSysPath
-		systemRegistriesConfDirPath = origSysDirPath
-	}()
-	systemRegistriesConfPath = sysConfigPath
-	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
-
-	t.Setenv("HOME", filepath.Join(tmpDir, "nonexistent"))
-
-	_, err := LoadSystemRegistriesConfigWithStrategy(StrategyContainersImage)
+	resolver := &stubResolver{
+		mainPaths:  []string{mainPath},
+		dropInDirs: []string{filepath.Join(tmpDir, "nonexistent.d")},
+		strategy:   configpaths.MergeAll,
+	}
+	_, err := loadRegistriesConfigFromResolver(resolver)
 	if err == nil {
 		t.Error("expected error when MergeAll main config is invalid")
 	}
@@ -1299,13 +1295,13 @@ func TestLoadRegistriesConfigFromResolver_MergeAll_ErrorInMainConfig(t *testing.
 func TestLoadRegistriesConfigFromResolver_MergeAll_DropInError(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create valid system config.
-	sysConfigPath := filepath.Join(tmpDir, "registries.conf")
-	if err := os.WriteFile(sysConfigPath, []byte(`unqualified-search-registries = ["docker.io"]`), 0644); err != nil {
+	// Create a valid main config.
+	mainPath := filepath.Join(tmpDir, "registries.conf")
+	if err := os.WriteFile(mainPath, []byte(`unqualified-search-registries = ["docker.io"]`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create drop-in dir with invalid file.
+	// Create drop-in dir with an invalid file.
 	confDir := filepath.Join(tmpDir, "registries.conf.d")
 	if err := os.MkdirAll(confDir, 0755); err != nil {
 		t.Fatal(err)
@@ -1314,18 +1310,12 @@ func TestLoadRegistriesConfigFromResolver_MergeAll_DropInError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origSysPath := systemRegistriesConfPath
-	origSysDirPath := systemRegistriesConfDirPath
-	defer func() {
-		systemRegistriesConfPath = origSysPath
-		systemRegistriesConfDirPath = origSysDirPath
-	}()
-	systemRegistriesConfPath = sysConfigPath
-	systemRegistriesConfDirPath = confDir
-
-	t.Setenv("HOME", filepath.Join(tmpDir, "nonexistent"))
-
-	_, err := LoadSystemRegistriesConfigWithStrategy(StrategyContainersImage)
+	resolver := &stubResolver{
+		mainPaths:  []string{mainPath},
+		dropInDirs: []string{confDir},
+		strategy:   configpaths.MergeAll,
+	}
+	_, err := loadRegistriesConfigFromResolver(resolver)
 	if err == nil {
 		t.Error("expected error when MergeAll drop-in config is invalid")
 	}
@@ -1334,42 +1324,29 @@ func TestLoadRegistriesConfigFromResolver_MergeAll_DropInError(t *testing.T) {
 func TestLoadRegistriesConfigFromResolver_FirstFoundWins_DropInError(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create valid user config.
-	userConfigDir := filepath.Join(tmpDir, ".config", "containers")
-	if err := os.MkdirAll(userConfigDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	userConfig := `
-unqualified-search-registries = ["docker.io"]
-`
-	if err := os.WriteFile(filepath.Join(userConfigDir, "registries.conf"), []byte(userConfig), 0644); err != nil {
+	// Create a valid main config.
+	mainPath := filepath.Join(tmpDir, "registries.conf")
+	if err := os.WriteFile(mainPath, []byte(`unqualified-search-registries = ["docker.io"]`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create user drop-in dir with invalid file.
-	userDropInDir := filepath.Join(userConfigDir, "registries.conf.d")
-	if err := os.MkdirAll(userDropInDir, 0755); err != nil {
+	// Create drop-in dir with an invalid file.
+	dropInDir := filepath.Join(tmpDir, "registries.conf.d")
+	if err := os.MkdirAll(dropInDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(userDropInDir, "bad.conf"), []byte("[[[bad"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dropInDir, "bad.conf"), []byte("[[[bad"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	origSysPath := systemRegistriesConfPath
-	origSysDirPath := systemRegistriesConfDirPath
-	defer func() {
-		systemRegistriesConfPath = origSysPath
-		systemRegistriesConfDirPath = origSysDirPath
-	}()
-	systemRegistriesConfPath = filepath.Join(tmpDir, "nonexistent")
-	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
-
-	t.Setenv("HOME", tmpDir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	_, err := LoadSystemRegistriesConfigWithStrategy(StrategyUAPI)
+	resolver := &stubResolver{
+		mainPaths:  []string{mainPath},
+		dropInDirs: []string{dropInDir},
+		strategy:   configpaths.FirstFoundWins,
+	}
+	_, err := loadRegistriesConfigFromResolver(resolver)
 	if err == nil {
-		t.Error("expected error when UAPI drop-in config is invalid")
+		t.Error("expected error when FirstFoundWins drop-in config is invalid")
 	}
 }
 
