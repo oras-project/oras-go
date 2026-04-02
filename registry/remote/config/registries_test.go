@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 )
 
 func TestLoadRegistriesConfig(t *testing.T) {
@@ -1579,6 +1581,12 @@ type stubResolver struct {
 func (r *stubResolver) MainConfigPaths(_ string) []string        { return r.mainPaths }
 func (r *stubResolver) DropInDirs(_ string) []string             { return r.dropInDirs }
 func (r *stubResolver) MergeStrategy() configpaths.MergeStrategy { return r.strategy }
+func (r *stubResolver) AuthPrimaryPath() (string, error)         { return "", nil }
+func (r *stubResolver) AuthFallbackPaths() []string              { return nil }
+func (r *stubResolver) CertsDirPaths() []string                  { return nil }
+func (r *stubResolver) RegistriesDDirs() []string                { return nil }
+func (r *stubResolver) PolicyPaths() []string                    { return nil }
+func (r *stubResolver) DockerConfigPath() (string, error)        { return "", nil }
 
 func TestLoadRegistriesConfigFromResolver_FirstFoundWins_ErrorInMainConfig(t *testing.T) {
 	tmpDir := t.TempDir()
