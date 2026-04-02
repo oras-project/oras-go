@@ -29,7 +29,7 @@ func TestNewResolver_Default(t *testing.T) {
 		t.Fatal("NewResolver(ContainersImage) returned nil")
 	}
 	if r.MergeStrategy() != MergeAll {
-		t.Errorf("MergeStrategy() = %d, want MergeAll (%d)", r.MergeStrategy(), MergeAll)
+		t.Errorf("MergeStrategy() = %v, want MergeAll", r.MergeStrategy())
 	}
 }
 
@@ -39,7 +39,7 @@ func TestNewResolver_UAPI(t *testing.T) {
 		t.Fatal("NewResolver(UAPI) returned nil")
 	}
 	if r.MergeStrategy() != FirstFoundWins {
-		t.Errorf("MergeStrategy() = %d, want FirstFoundWins (%d)", r.MergeStrategy(), FirstFoundWins)
+		t.Errorf("MergeStrategy() = %v, want FirstFoundWins", r.MergeStrategy())
 	}
 }
 
@@ -47,8 +47,9 @@ func TestCurrentResolver_MainConfigPaths(t *testing.T) {
 	r := NewResolver(ContainersImage)
 	paths := r.MainConfigPaths("registries")
 	if len(paths) == 0 {
-		t.Fatal("MainConfigPaths returned empty slice")
+		t.Fatal("MainConfigPaths returned empty")
 	}
+	// All paths should end with registries.conf
 	for _, p := range paths {
 		if !strings.HasSuffix(p, "registries.conf") {
 			t.Errorf("path %q does not end with registries.conf", p)
@@ -60,7 +61,7 @@ func TestCurrentResolver_DropInDirs(t *testing.T) {
 	r := NewResolver(ContainersImage)
 	dirs := r.DropInDirs("registries")
 	if len(dirs) == 0 {
-		t.Fatal("DropInDirs returned empty slice")
+		t.Fatal("DropInDirs returned empty")
 	}
 	for _, d := range dirs {
 		if !strings.HasSuffix(d, "registries.conf.d") {
@@ -69,135 +70,176 @@ func TestCurrentResolver_DropInDirs(t *testing.T) {
 	}
 }
 
+func TestCurrentResolver_AuthPrimaryPath(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	r := NewResolver(ContainersImage)
+	path, err := r.AuthPrimaryPath()
+	if err != nil {
+		t.Fatalf("AuthPrimaryPath() error: %v", err)
+	}
+	if !strings.HasSuffix(path, filepath.Join("containers", "auth.json")) {
+		t.Errorf("path %q does not end with containers/auth.json", path)
+	}
+}
+
+func TestCurrentResolver_AuthPrimaryPath_XDGRuntime(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("XDG_RUNTIME_DIR not used on Windows")
+	}
+	tmpDir := t.TempDir()
+	xdgAuthDir := filepath.Join(tmpDir, "containers")
+	if err := os.MkdirAll(xdgAuthDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdgAuthDir, "auth.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", tmpDir)
+
+	r := NewResolver(ContainersImage)
+	path, err := r.AuthPrimaryPath()
+	if err != nil {
+		t.Fatalf("AuthPrimaryPath() error: %v", err)
+	}
+	want := filepath.Join(tmpDir, "containers", "auth.json")
+	if path != want {
+		t.Errorf("AuthPrimaryPath() = %q, want %q", path, want)
+	}
+}
+
+func TestCurrentResolver_CertsDirPaths(t *testing.T) {
+	r := NewResolver(ContainersImage)
+	paths := r.CertsDirPaths()
+	if len(paths) == 0 {
+		t.Fatal("CertsDirPaths returned empty")
+	}
+	for _, p := range paths {
+		if !strings.HasSuffix(p, "certs.d") {
+			t.Errorf("path %q does not end with certs.d", p)
+		}
+	}
+}
+
+func TestCurrentResolver_PolicyPaths(t *testing.T) {
+	r := NewResolver(ContainersImage)
+	paths := r.PolicyPaths()
+	if len(paths) == 0 {
+		t.Fatal("PolicyPaths returned empty")
+	}
+	for _, p := range paths {
+		if !strings.HasSuffix(p, "policy.json") {
+			t.Errorf("path %q does not end with policy.json", p)
+		}
+	}
+}
+
+func TestCurrentResolver_DockerConfigPath(t *testing.T) {
+	t.Setenv("DOCKER_CONFIG", "")
+	r := NewResolver(ContainersImage)
+	path, err := r.DockerConfigPath()
+	if err != nil {
+		t.Fatalf("DockerConfigPath() error: %v", err)
+	}
+	if !strings.HasSuffix(path, filepath.Join(".docker", "config.json")) {
+		t.Errorf("path %q does not end with .docker/config.json", path)
+	}
+}
+
+func TestCurrentResolver_DockerConfigPath_EnvOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("DOCKER_CONFIG", tmpDir)
+	r := NewResolver(ContainersImage)
+	path, err := r.DockerConfigPath()
+	if err != nil {
+		t.Fatalf("DockerConfigPath() error: %v", err)
+	}
+	want := filepath.Join(tmpDir, "config.json")
+	if path != want {
+		t.Errorf("DockerConfigPath() = %q, want %q", path, want)
+	}
+}
+
 func TestUAPIResolver_MainConfigPaths(t *testing.T) {
+	t.Setenv("HOME", "/tmp/fakehome")
+	t.Setenv("XDG_CONFIG_HOME", "")
 	r := NewResolver(UAPI)
 	paths := r.MainConfigPaths("registries")
+
+	// Should have at least user path; on non-Windows also system and vendor.
 	if len(paths) == 0 {
-		t.Fatal("MainConfigPaths returned empty slice")
+		t.Fatal("MainConfigPaths returned empty")
 	}
-	// First path should be user-level (contains home dir or XDG path).
-	// On all platforms the user path comes first in UAPI order.
-	first := paths[0]
-	if !strings.HasSuffix(first, "registries.conf") {
-		t.Errorf("first path %q does not end with registries.conf", first)
+
+	// First path should be user (UAPI: user → system → vendor).
+	if !strings.Contains(paths[0], "fakehome") && !strings.Contains(paths[0], "APPDATA") {
+		t.Errorf("first path %q should be user-level", paths[0])
 	}
-	// Verify user path comes before system path by checking that the first
-	// path does not start with a system directory.
-	if runtime.GOOS != "windows" {
-		if strings.HasPrefix(first, "/etc/") || strings.HasPrefix(first, "/usr/") {
-			t.Errorf("first UAPI path %q appears to be a system path, expected user path first", first)
+
+	for _, p := range paths {
+		if !strings.HasSuffix(p, "registries.conf") {
+			t.Errorf("path %q does not end with registries.conf", p)
 		}
 	}
 }
 
 func TestUAPIResolver_DropInDirs(t *testing.T) {
+	t.Setenv("HOME", "/tmp/fakehome")
+	t.Setenv("XDG_CONFIG_HOME", "")
 	r := NewResolver(UAPI)
 	dirs := r.DropInDirs("registries")
+
 	if len(dirs) == 0 {
-		t.Fatal("DropInDirs returned empty slice")
+		t.Fatal("DropInDirs returned empty")
 	}
-	// On non-Windows, expect rootful or rootless directories.
+
+	// Should include .conf.d directories.
+	hasConfD := false
+	for _, d := range dirs {
+		if strings.HasSuffix(d, "registries.conf.d") {
+			hasConfD = true
+		}
+	}
+	if !hasConfD {
+		t.Error("DropInDirs should include registries.conf.d directories")
+	}
+
+	// On non-Windows, should include rootful or rootless dirs.
 	if runtime.GOOS != "windows" {
-		foundRoot := false
+		hasRootDir := false
 		for _, d := range dirs {
 			if strings.Contains(d, "rootful") || strings.Contains(d, "rootless") {
-				foundRoot = true
-				break
+				hasRootDir = true
 			}
 		}
-		if !foundRoot {
-			t.Error("DropInDirs on non-Windows should include rootful or rootless directories")
-		}
-	}
-	// All conf.d dirs should contain "registries" in the path.
-	for _, d := range dirs {
-		if !strings.Contains(d, "registries") {
-			t.Errorf("dir %q does not contain 'registries'", d)
+		if !hasRootDir {
+			t.Error("DropInDirs should include rootful/rootless directories on non-Windows")
 		}
 	}
 }
 
 func TestUAPIResolver_XDGConfigHome(t *testing.T) {
-	// Save and restore XDG_CONFIG_HOME.
-	origXDG := os.Getenv(xdgConfigHomeEnv)
-	defer os.Setenv(xdgConfigHomeEnv, origXDG)
-
-	customDir := t.TempDir()
-	os.Setenv(xdgConfigHomeEnv, customDir)
-
-	r := NewResolver(UAPI)
-	paths := r.MainConfigPaths("registries")
-	if len(paths) == 0 {
-		t.Fatal("MainConfigPaths returned empty slice")
-	}
-	// The first path (user level) should be under our custom XDG dir.
-	if !strings.HasPrefix(paths[0], customDir) {
-		t.Errorf("first path %q should start with XDG_CONFIG_HOME %q", paths[0], customDir)
-	}
-}
-
-func TestUAPIResolver_UserDir_NilFunc(t *testing.T) {
-	r := &uapiResolver{
-		userConfDir: nil,
-	}
-	got := r.userDir()
-	if got != "" {
-		t.Errorf("userDir() = %q, want empty string", got)
-	}
-}
-
-func TestDefaultXDGConfigHome_WithXDGSet(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-	got := defaultXDGConfigHome()
-	want := filepath.Join(tmpDir, "containers")
-	if got != want {
-		t.Errorf("defaultXDGConfigHome() = %q, want %q", got, want)
-	}
-}
-
-func TestDefaultXDGConfigHome_WithoutXDG(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-	got := defaultXDGConfigHome()
-	want := filepath.Join(tmpDir, ".config", "containers")
-	if got != want {
-		t.Errorf("defaultXDGConfigHome() = %q, want %q", got, want)
-	}
-}
-
-func TestUAPIResolver_MainConfigPaths_NoOptionalDirs(t *testing.T) {
-	r := &uapiResolver{
-		vendorConfDir: "",
-		systemConfDir: "",
-		userConfDir:   nil,
-	}
+	r := NewResolver(UAPI)
 	paths := r.MainConfigPaths("registries")
-	if len(paths) != 0 {
-		t.Errorf("MainConfigPaths() returned %d paths, want 0", len(paths))
+
+	// First path should use XDG_CONFIG_HOME.
+	want := filepath.Join(tmpDir, "containers", "registries.conf")
+	if len(paths) == 0 || paths[0] != want {
+		t.Errorf("first MainConfigPath = %q, want %q", paths[0], want)
 	}
 }
 
-func TestUAPIResolver_DropInDirs_NoOptionalDirs(t *testing.T) {
-	r := &uapiResolver{
-		vendorConfDir:           "",
-		systemConfDir:           "",
-		userConfDir:             nil,
-		supportsRootfulRootless: false,
+func TestUAPIResolver_AuthPrimaryPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	r := NewResolver(UAPI)
+	path, err := r.AuthPrimaryPath()
+	if err != nil {
+		t.Fatalf("AuthPrimaryPath() error: %v", err)
 	}
-	dirs := r.DropInDirs("registries")
-	if len(dirs) != 0 {
-		t.Errorf("DropInDirs() returned %d dirs, want 0", len(dirs))
-	}
-}
-
-func TestUAPIResolver_AppendRootDirs_NotSupported(t *testing.T) {
-	r := &uapiResolver{
-		supportsRootfulRootless: false,
-	}
-	dirs := r.appendRootDirs(nil, "/etc/containers", "registries")
-	if len(dirs) != 0 {
-		t.Errorf("appendRootDirs() returned %d dirs, want 0 when not supported", len(dirs))
+	want := filepath.Join(tmpDir, "containers", "auth.json")
+	if path != want {
+		t.Errorf("AuthPrimaryPath() = %q, want %q", path, want)
 	}
 }

@@ -21,24 +21,22 @@ import (
 	"os"
 	"reflect"
 	"testing"
-
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
 )
 
 func TestMemoryStore_Create_fromInvalidConfig(t *testing.T) {
-	f, err := os.ReadFile("../internal/configuration/testdata/invalid_auths_entry_config.json")
+	f, err := os.ReadFile("../config/testdata/invalid_auths_entry_config.json")
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
 	}
 	_, err = NewMemoryStoreFromDockerConfig(f)
-	if !errors.Is(err, configuration.ErrInvalidConfigFormat) {
-		t.Fatalf("Error: %s is expected", configuration.ErrInvalidConfigFormat)
+	if !errors.Is(err, ErrInvalidAuthConfig) {
+		t.Fatalf("Error: %s is expected", ErrInvalidAuthConfig)
 	}
 }
 
 func TestMemoryStore_Get_validConfig(t *testing.T) {
 	ctx := context.Background()
-	f, err := os.ReadFile("../internal/configuration/testdata/valid_auths_config.json")
+	f, err := os.ReadFile("../config/testdata/valid_auths_config.json")
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
 	}
