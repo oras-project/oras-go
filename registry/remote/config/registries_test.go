@@ -1056,18 +1056,15 @@ location = "mirror.gcr.io"
 }
 
 func TestLoadSystemRegistriesConfigWithStrategy_NotFound(t *testing.T) {
+	// Skip if the system registries.conf exists; this test requires that no
+	// system-level file is present so it can verify the not-found path.
+	if _, err := os.Stat("/etc/containers/registries.conf"); err == nil {
+		t.Skip("skipping: /etc/containers/registries.conf exists on this system")
+	}
+
 	tmpDir := t.TempDir()
-
-	origSysPath := systemRegistriesConfPath
-	origSysDirPath := systemRegistriesConfDirPath
-	defer func() {
-		systemRegistriesConfPath = origSysPath
-		systemRegistriesConfDirPath = origSysDirPath
-	}()
-	systemRegistriesConfPath = filepath.Join(tmpDir, "nonexistent")
-	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
-
 	t.Setenv("HOME", filepath.Join(tmpDir, "nonexistent-home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "nonexistent-xdg"))
 
 	_, err := LoadSystemRegistriesConfigWithStrategy(StrategyContainersImage)
 	if err != ErrRegistriesConfigNotFound {
