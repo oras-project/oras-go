@@ -21,3 +21,7 @@ coverage:
       default:
         target: 80%
         if_ci_failed: error
+
+ignore:
+  - "objects/examples"
+  - "test/functional/testdata"

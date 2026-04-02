@@ -54,6 +54,12 @@ type CopyOptions struct {
 	// reference will be passed to MapRoot, and the mapped descriptor will be
 	// used as the root node for copy.
 	MapRoot func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error)
+	// PolicyCheck is an optional callback invoked before copying begins.
+	// If set, it is called with the source reference string. If it returns
+	// a non-nil error, the copy is aborted. This allows decoupled policy
+	// enforcement (e.g., containers-policy.json) without importing the
+	// policy package into the root oras package.
+	PolicyCheck func(ctx context.Context, srcRef string) error
 }
 
 // WithTargetPlatform configures opts.MapRoot to select the manifest whose
@@ -136,6 +142,14 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 	if dst == nil {
 		return ocispec.Descriptor{}, newCopyError("Copy", CopyErrorOriginDestination, errors.New("nil destination target"))
 	}
+
+	// Run policy check before copy if configured.
+	if opts.PolicyCheck != nil {
+		if err := opts.PolicyCheck(ctx, srcRef); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("policy check failed for %s: %w", srcRef, err)
+		}
+	}
+
 	if dstRef == "" {
 		dstRef = srcRef
 	}

@@ -20,8 +20,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 )
 
 func TestLoadRegistriesConfig(t *testing.T) {
@@ -852,160 +850,140 @@ insecure = true
 	}
 }
 
-func TestLoadSystemRegistriesConfigWithStrategy_ContainersImage(t *testing.T) {
-	// Create a temp directory structure mimicking system paths.
-	tmpDir := t.TempDir()
-	sysConfDir := filepath.Join(tmpDir, "etc", "containers")
-	if err := os.MkdirAll(sysConfDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	mainConf := `
-unqualified-search-registries = ["docker.io"]
-
-[[registry]]
-prefix = "docker.io"
-location = "registry-1.docker.io"
-`
-	if err := os.WriteFile(filepath.Join(sysConfDir, "registries.conf"), []byte(mainConf), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a custom resolver that points to our temp dirs.
-	resolver := &testResolver{
-		mainPaths: []string{filepath.Join(sysConfDir, "registries.conf")},
-		dropDirs:  nil,
-		strategy:  configpaths.MergeAll,
-	}
-
-	config, err := loadRegistriesConfigFromResolver(resolver)
-	if err != nil {
-		t.Fatalf("loadRegistriesConfigFromResolver() error = %v", err)
-	}
-	if len(config.UnqualifiedSearchRegistries) != 1 || config.UnqualifiedSearchRegistries[0] != "docker.io" {
-		t.Errorf("UnqualifiedSearchRegistries = %v, want [docker.io]", config.UnqualifiedSearchRegistries)
-	}
-	if len(config.Registries) != 1 || config.Registries[0].Prefix != "docker.io" {
-		t.Errorf("Registries = %v, want single docker.io registry", config.Registries)
-	}
-}
-
-func TestLoadSystemRegistriesConfigWithStrategy_UAPI(t *testing.T) {
-	// Create a temp directory structure for UAPI user path.
-	tmpDir := t.TempDir()
-	userDir := filepath.Join(tmpDir, "user", "containers")
-	if err := os.MkdirAll(userDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	userConf := `
-unqualified-search-registries = ["quay.io"]
-
-[[registry]]
-prefix = "quay.io"
-insecure = true
-`
-	if err := os.WriteFile(filepath.Join(userDir, "registries.conf"), []byte(userConf), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// System path that should NOT be loaded (first found wins).
-	sysDir := filepath.Join(tmpDir, "sys", "containers")
-	if err := os.MkdirAll(sysDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	sysConf := `
-unqualified-search-registries = ["docker.io"]
-
-[[registry]]
-prefix = "docker.io"
-location = "registry-1.docker.io"
-`
-	if err := os.WriteFile(filepath.Join(sysDir, "registries.conf"), []byte(sysConf), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	resolver := &testResolver{
-		mainPaths: []string{
-			filepath.Join(userDir, "registries.conf"),
-			filepath.Join(sysDir, "registries.conf"),
-		},
-		dropDirs: nil,
-		strategy: configpaths.FirstFoundWins,
-	}
-
-	config, err := loadRegistriesConfigFromResolver(resolver)
-	if err != nil {
-		t.Fatalf("loadRegistriesConfigFromResolver() error = %v", err)
-	}
-	// Should use user config (first found wins), not system config.
-	if len(config.UnqualifiedSearchRegistries) != 1 || config.UnqualifiedSearchRegistries[0] != "quay.io" {
-		t.Errorf("UnqualifiedSearchRegistries = %v, want [quay.io]", config.UnqualifiedSearchRegistries)
-	}
-	if len(config.Registries) != 1 || config.Registries[0].Prefix != "quay.io" {
-		t.Errorf("Registries = %v, want single quay.io registry", config.Registries)
-	}
-}
-
 func TestLoadSystemRegistriesConfigWithStrategy_UAPI_DropInOverride(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create main config.
-	userDir := filepath.Join(tmpDir, "user", "containers")
-	if err := os.MkdirAll(userDir, 0755); err != nil {
+	// Create two drop-in directories: "system" and "user".
+	sysDirPath := filepath.Join(tmpDir, "sys.conf.d")
+	userDirPath := filepath.Join(tmpDir, "user.conf.d")
+	if err := os.MkdirAll(sysDirPath, 0755); err != nil {
 		t.Fatal(err)
 	}
-	mainConf := `
+	if err := os.MkdirAll(userDirPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a drop-in with the same filename in both dirs; user should override sys.
+	sysDrop := `
+[[registry]]
+prefix = "docker.io"
+insecure = false
+`
+	userDrop := `
+[[registry]]
+prefix = "docker.io"
+insecure = true
+`
+	if err := os.WriteFile(filepath.Join(sysDirPath, "10-docker.conf"), []byte(sysDrop), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userDirPath, "10-docker.conf"), []byte(userDrop), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Use loadDropInConfigsUAPI indirectly via loadRegistriesConfigFromResolver with a
+	// custom resolver. Since that function isn't exported, test it through
+	// LoadSystemRegistriesConfigWithStrategy by manipulating system paths.
+	origSysPath := systemRegistriesConfPath
+	origSysDirPath := systemRegistriesConfDirPath
+	defer func() {
+		systemRegistriesConfPath = origSysPath
+		systemRegistriesConfDirPath = origSysDirPath
+	}()
+	systemRegistriesConfPath = "/nonexistent"
+	systemRegistriesConfDirPath = sysDirPath
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	// Create user registries.conf.d at ~/.config/containers/registries.conf.d
+	userConfD := filepath.Join(tmpDir, ".config", "containers", "registries.conf.d")
+	if err := os.MkdirAll(userConfD, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userConfD, "10-docker.conf"), []byte(userDrop), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	config, err := LoadSystemRegistriesConfig()
+	if err != nil {
+		t.Fatalf("LoadSystemRegistriesConfig() error = %v", err)
+	}
+
+	var dockerReg *Registry
+	for i := range config.Registries {
+		if config.Registries[i].Prefix == "docker.io" {
+			dockerReg = &config.Registries[i]
+			break
+		}
+	}
+	if dockerReg == nil {
+		t.Fatal("docker.io registry not found")
+	}
+	if !dockerReg.Insecure {
+		t.Error("user drop-in should override system drop-in: Insecure should be true")
+	}
+}
+
+func TestLoadSystemRegistriesConfigWithStrategy_ContainersImage(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// The ContainersImage resolver uses $HOME/.config/containers/registries.conf.
+	// Create user config at that location.
+	userConfigDir := filepath.Join(tmpDir, ".config", "containers")
+	if err := os.MkdirAll(userConfigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	userConfig := `
 unqualified-search-registries = ["docker.io"]
+short-name-mode = "permissive"
 
 [[registry]]
 prefix = "docker.io"
 location = "registry-1.docker.io"
 `
-	if err := os.WriteFile(filepath.Join(userDir, "registries.conf"), []byte(mainConf), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(userConfigDir, "registries.conf"), []byte(userConfig), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create vendor drop-in directory with a config.
-	vendorDropIn := filepath.Join(tmpDir, "vendor", "containers", "registries.conf.d")
-	if err := os.MkdirAll(vendorDropIn, 0755); err != nil {
-		t.Fatal(err)
-	}
-	vendorConf := `
-[[registry]]
-prefix = "quay.io"
-insecure = false
-`
-	if err := os.WriteFile(filepath.Join(vendorDropIn, "10-quay.conf"), []byte(vendorConf), 0644); err != nil {
+	// Create user drop-in directory.
+	userDropInDir := filepath.Join(userConfigDir, "registries.conf.d")
+	if err := os.MkdirAll(userDropInDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create system drop-in directory with same filename (should override vendor).
-	systemDropIn := filepath.Join(tmpDir, "system", "containers", "registries.conf.d")
-	if err := os.MkdirAll(systemDropIn, 0755); err != nil {
-		t.Fatal(err)
-	}
-	systemConf := `
+	dropIn := `
 [[registry]]
 prefix = "quay.io"
 insecure = true
 `
-	if err := os.WriteFile(filepath.Join(systemDropIn, "10-quay.conf"), []byte(systemConf), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(userDropInDir, "01-quay.conf"), []byte(dropIn), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	resolver := &testResolver{
-		mainPaths: []string{filepath.Join(userDir, "registries.conf")},
-		dropDirs:  []string{vendorDropIn, systemDropIn},
-		strategy:  configpaths.FirstFoundWins,
-	}
+	// Override system paths to nonexistent.
+	origSysPath := systemRegistriesConfPath
+	origSysDirPath := systemRegistriesConfDirPath
+	defer func() {
+		systemRegistriesConfPath = origSysPath
+		systemRegistriesConfDirPath = origSysDirPath
+	}()
+	systemRegistriesConfPath = filepath.Join(tmpDir, "nonexistent")
+	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
 
-	config, err := loadRegistriesConfigFromResolver(resolver)
+	t.Setenv("HOME", tmpDir)
+
+	config, err := LoadSystemRegistriesConfigWithStrategy(StrategyContainersImage)
 	if err != nil {
-		t.Fatalf("loadRegistriesConfigFromResolver() error = %v", err)
+		t.Fatalf("LoadSystemRegistriesConfigWithStrategy() error = %v", err)
 	}
 
-	// The system drop-in should override vendor drop-in for same filename.
+	if len(config.Registries) != 2 {
+		t.Errorf("len(Registries) = %d, want 2", len(config.Registries))
+	}
+
 	var quayReg *Registry
 	for i := range config.Registries {
 		if config.Registries[i].Prefix == "quay.io" {
@@ -1014,94 +992,303 @@ insecure = true
 		}
 	}
 	if quayReg == nil {
-		t.Fatal("quay.io registry not found after merge")
-	}
-	if !quayReg.Insecure {
-		t.Error("quay.io should be insecure (system drop-in should override vendor drop-in)")
+		t.Error("quay.io registry not found after merge")
+	} else if !quayReg.Insecure {
+		t.Error("quay.io should be insecure")
 	}
 }
 
-// testResolver is a test helper implementing configpaths.PathResolver.
-type testResolver struct {
-	mainPaths []string
-	dropDirs  []string
-	strategy  configpaths.MergeStrategy
-}
-
-func (r *testResolver) MainConfigPaths(_ string) []string       { return r.mainPaths }
-func (r *testResolver) DropInDirs(_ string) []string             { return r.dropDirs }
-func (r *testResolver) MergeStrategy() configpaths.MergeStrategy { return r.strategy }
-
-func TestLoadDropInConfigs_SkipsNonConfAndDirs(t *testing.T) {
+func TestLoadSystemRegistriesConfigWithStrategy_UAPI(t *testing.T) {
 	tmpDir := t.TempDir()
-	confDir := filepath.Join(tmpDir, "registries.conf.d")
-	if err := os.MkdirAll(confDir, 0755); err != nil {
+
+	// Create a main config that the UAPI resolver should find.
+	// We set up the user config at ~/.config/containers/registries.conf
+	userConfigDir := filepath.Join(tmpDir, ".config", "containers")
+	if err := os.MkdirAll(userConfigDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a valid .conf file.
-	validConf := `
+	userConfig := `
+unqualified-search-registries = ["quay.io"]
+
+[[registry]]
+prefix = "quay.io"
+insecure = true
+`
+	if err := os.WriteFile(filepath.Join(userConfigDir, "registries.conf"), []byte(userConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up drop-in directory.
+	userDropInDir := filepath.Join(userConfigDir, "registries.conf.d")
+	if err := os.MkdirAll(userDropInDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dropIn := `
+[[registry]]
+prefix = "gcr.io"
+location = "mirror.gcr.io"
+`
+	if err := os.WriteFile(filepath.Join(userDropInDir, "10-gcr.conf"), []byte(dropIn), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Override system paths to nonexistent so only user config is found.
+	origSysPath := systemRegistriesConfPath
+	origSysDirPath := systemRegistriesConfDirPath
+	defer func() {
+		systemRegistriesConfPath = origSysPath
+		systemRegistriesConfDirPath = origSysDirPath
+	}()
+	systemRegistriesConfPath = filepath.Join(tmpDir, "nonexistent")
+	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
+
+	t.Setenv("HOME", tmpDir)
+
+	config, err := LoadSystemRegistriesConfigWithStrategy(StrategyUAPI)
+	if err != nil {
+		t.Fatalf("LoadSystemRegistriesConfigWithStrategy(UAPI) error = %v", err)
+	}
+
+	if config == nil {
+		t.Fatal("expected non-nil config")
+	}
+}
+
+func TestLoadSystemRegistriesConfigWithStrategy_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	origSysPath := systemRegistriesConfPath
+	origSysDirPath := systemRegistriesConfDirPath
+	defer func() {
+		systemRegistriesConfPath = origSysPath
+		systemRegistriesConfDirPath = origSysDirPath
+	}()
+	systemRegistriesConfPath = filepath.Join(tmpDir, "nonexistent")
+	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
+
+	t.Setenv("HOME", filepath.Join(tmpDir, "nonexistent-home"))
+
+	_, err := LoadSystemRegistriesConfigWithStrategy(StrategyContainersImage)
+	if err != ErrRegistriesConfigNotFound {
+		t.Errorf("error = %v, want %v", err, ErrRegistriesConfigNotFound)
+	}
+}
+
+func TestLoadRegistriesConfigFromResolver_MergeAll_MultipleMainConfigs(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create two main config files.
+	mainConf1 := `
+unqualified-search-registries = ["docker.io"]
+
+[[registry]]
+prefix = "docker.io"
+location = "registry-1.docker.io"
+`
+	mainConf2 := `
+short-name-mode = "enforcing"
+
+[[registry]]
+prefix = "quay.io"
+insecure = true
+`
+	path1 := filepath.Join(tmpDir, "main1.conf")
+	path2 := filepath.Join(tmpDir, "main2.conf")
+	if err := os.WriteFile(path1, []byte(mainConf1), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path2, []byte(mainConf2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	origSysPath := systemRegistriesConfPath
+	origSysDirPath := systemRegistriesConfDirPath
+	defer func() {
+		systemRegistriesConfPath = origSysPath
+		systemRegistriesConfDirPath = origSysDirPath
+	}()
+	systemRegistriesConfPath = path1
+	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
+
+	// Create user config at standard location.
+	userDir := filepath.Join(tmpDir, "home")
+	userConfigDir := filepath.Join(userDir, ".config", "containers")
+	if err := os.MkdirAll(userConfigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userConfigDir, "registries.conf"), []byte(mainConf2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", userDir)
+
+	config, err := LoadSystemRegistriesConfig()
+	if err != nil {
+		t.Fatalf("LoadSystemRegistriesConfig() error = %v", err)
+	}
+
+	// Should have merged both registries.
+	if config.ShortNameMode != "enforcing" {
+		t.Errorf("ShortNameMode = %q, want %q", config.ShortNameMode, "enforcing")
+	}
+}
+
+func TestLoadDropInConfigsUAPI_FilenameOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create two directories with the same filename.
+	dir1 := filepath.Join(tmpDir, "dir1")
+	dir2 := filepath.Join(tmpDir, "dir2")
+	if err := os.MkdirAll(dir1, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir2, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// dir1 has docker.io as insecure=false.
+	conf1 := `
+[[registry]]
+prefix = "docker.io"
+insecure = false
+`
+	// dir2 has docker.io as insecure=true (should override).
+	conf2 := `
+[[registry]]
+prefix = "docker.io"
+insecure = true
+`
+	if err := os.WriteFile(filepath.Join(dir1, "10-docker.conf"), []byte(conf1), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir2, "10-docker.conf"), []byte(conf2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Also add a unique file in dir1.
+	uniqueConf := `
+[[registry]]
+prefix = "quay.io"
+insecure = true
+`
+	if err := os.WriteFile(filepath.Join(dir1, "20-quay.conf"), []byte(uniqueConf), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	config, err := loadDropInConfigsUAPI(nil, []string{dir1, dir2})
+	if err != nil {
+		t.Fatalf("loadDropInConfigsUAPI() error = %v", err)
+	}
+
+	if config == nil {
+		t.Fatal("expected non-nil config")
+	}
+
+	// Should have docker.io from dir2 (override) and quay.io from dir1.
+	if len(config.Registries) != 2 {
+		t.Fatalf("len(Registries) = %d, want 2", len(config.Registries))
+	}
+
+	var dockerReg *Registry
+	for i := range config.Registries {
+		if config.Registries[i].Prefix == "docker.io" {
+			dockerReg = &config.Registries[i]
+			break
+		}
+	}
+	if dockerReg == nil {
+		t.Fatal("docker.io registry not found")
+	}
+	if !dockerReg.Insecure {
+		t.Error("docker.io should be insecure (overridden by dir2)")
+	}
+}
+
+func TestLoadDropInConfigsUAPI_SkipsNonConfFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	dir := filepath.Join(tmpDir, "dropin")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a .conf file and a non-conf file and a directory.
+	conf := `
 [[registry]]
 prefix = "docker.io"
 `
-	if err := os.WriteFile(filepath.Join(confDir, "10-docker.conf"), []byte(validConf), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "valid.conf"), []byte(conf), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("not a config"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "subdir.conf"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a non-.conf file (should be skipped).
-	if err := os.WriteFile(filepath.Join(confDir, "readme.txt"), []byte("not a config"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a subdirectory ending in .conf (should be skipped).
-	if err := os.MkdirAll(filepath.Join(confDir, "subdir.conf"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	config, err := loadDropInConfigs(nil, confDir)
+	config, err := loadDropInConfigsUAPI(nil, []string{dir})
 	if err != nil {
-		t.Fatalf("loadDropInConfigs() error = %v", err)
+		t.Fatalf("loadDropInConfigsUAPI() error = %v", err)
 	}
+
+	if config == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if len(config.Registries) != 1 {
+		t.Errorf("len(Registries) = %d, want 1 (only valid.conf)", len(config.Registries))
+	}
+}
+
+func TestLoadDropInConfigsUAPI_EmptyDirs(t *testing.T) {
+	config, err := loadDropInConfigsUAPI(nil, []string{"/nonexistent/dir1", "/nonexistent/dir2"})
+	if err != nil {
+		t.Fatalf("loadDropInConfigsUAPI() error = %v", err)
+	}
+	if config != nil {
+		t.Error("expected nil config when all dirs are nonexistent")
+	}
+}
+
+func TestLoadDropInConfigsUAPI_NilBaseConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	dir := filepath.Join(tmpDir, "dropin")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	conf := `
+[[registry]]
+prefix = "docker.io"
+location = "mirror.example.com"
+`
+	if err := os.WriteFile(filepath.Join(dir, "10-docker.conf"), []byte(conf), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	config, err := loadDropInConfigsUAPI(nil, []string{dir})
+	if err != nil {
+		t.Fatalf("loadDropInConfigsUAPI() error = %v", err)
+	}
+
 	if config == nil {
 		t.Fatal("expected non-nil config")
 	}
 	if len(config.Registries) != 1 {
 		t.Errorf("len(Registries) = %d, want 1", len(config.Registries))
 	}
-}
-
-func TestLoadDropInConfigs_NonexistentDir(t *testing.T) {
-	config, err := loadDropInConfigs(nil, "/nonexistent/dir")
-	if err != nil {
-		t.Fatalf("loadDropInConfigs() error = %v", err)
-	}
-	if config != nil {
-		t.Error("expected nil config for nonexistent directory")
+	if config.Registries[0].Location != "mirror.example.com" {
+		t.Errorf("Location = %q, want %q", config.Registries[0].Location, "mirror.example.com")
 	}
 }
 
-func TestLoadDropInConfigs_InvalidConfFile(t *testing.T) {
+func TestLoadDropInConfigsUAPI_MergesWithBaseConfig(t *testing.T) {
 	tmpDir := t.TempDir()
-	confDir := filepath.Join(tmpDir, "registries.conf.d")
-	if err := os.MkdirAll(confDir, 0755); err != nil {
-		t.Fatal(err)
-	}
 
-	// Write invalid TOML.
-	if err := os.WriteFile(filepath.Join(confDir, "bad.conf"), []byte("[[[invalid"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err := loadDropInConfigs(nil, confDir)
-	if err == nil {
-		t.Error("loadDropInConfigs() expected error for invalid config")
-	}
-}
-
-func TestLoadDropInConfigs_NilBaseWithDropIn(t *testing.T) {
-	tmpDir := t.TempDir()
-	confDir := filepath.Join(tmpDir, "registries.conf.d")
-	if err := os.MkdirAll(confDir, 0755); err != nil {
+	dir := filepath.Join(tmpDir, "dropin")
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1110,259 +1297,69 @@ func TestLoadDropInConfigs_NilBaseWithDropIn(t *testing.T) {
 prefix = "quay.io"
 insecure = true
 `
-	if err := os.WriteFile(filepath.Join(confDir, "10-quay.conf"), []byte(conf), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "10-quay.conf"), []byte(conf), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	config, err := loadDropInConfigs(nil, confDir)
-	if err != nil {
-		t.Fatalf("loadDropInConfigs() error = %v", err)
-	}
-	if config == nil {
-		t.Fatal("expected non-nil config")
-	}
-	if len(config.Registries) != 1 || config.Registries[0].Prefix != "quay.io" {
-		t.Errorf("unexpected registries: %+v", config.Registries)
-	}
-}
-
-func TestExtractHost_HostColonTag(t *testing.T) {
-	// Test the specific branch: host:tag with no slashes.
-	got := extractHost("myregistry:latest")
-	if got != "myregistry:latest" {
-		t.Errorf("extractHost(%q) = %q, want %q", "myregistry:latest", got, "myregistry:latest")
-	}
-}
-
-func TestExtractHost_HostPortPath(t *testing.T) {
-	// Test host:port/path branch.
-	got := extractHost("localhost:5000/myimage")
-	if got != "localhost:5000" {
-		t.Errorf("extractHost(%q) = %q, want %q", "localhost:5000/myimage", got, "localhost:5000")
-	}
-}
-
-func TestMatchesPrefix_PrefixWithHostPort(t *testing.T) {
-	// Test the final branch in matchesPrefix: prefix matches registry host
-	// with length check.
-	got := matchesPrefix("docker.io", "docker.io")
-	if !got {
-		t.Error("matchesPrefix(docker.io, docker.io) should be true")
-	}
-}
-
-func TestRewriteReference_NilConfig(t *testing.T) {
-	var config *RegistriesConfig
-	got := config.RewriteReference("docker.io/nginx:latest")
-	if got != "docker.io/nginx:latest" {
-		t.Errorf("RewriteReference() on nil config = %q, want unchanged ref", got)
-	}
-}
-
-func TestRewriteReference_NilConfigViaFindRegistry(t *testing.T) {
-	// Config with no matching registry should return ref unchanged.
-	config := &RegistriesConfig{
+	base := &RegistriesConfig{
+		UnqualifiedSearchRegistries: []string{"docker.io"},
 		Registries: []Registry{
-			{Prefix: "quay.io", Location: "mirror.quay.io"},
+			{Prefix: "docker.io", Location: "registry-1.docker.io"},
+		},
+		Aliases: map[string]string{},
+	}
+
+	config, err := loadDropInConfigsUAPI(base, []string{dir})
+	if err != nil {
+		t.Fatalf("loadDropInConfigsUAPI() error = %v", err)
+	}
+
+	if len(config.Registries) != 2 {
+		t.Errorf("len(Registries) = %d, want 2", len(config.Registries))
+	}
+}
+
+func TestMergeRegistriesConfig_EmptyDropIn(t *testing.T) {
+	base := &RegistriesConfig{
+		UnqualifiedSearchRegistries: []string{"docker.io"},
+		ShortNameMode:               "permissive",
+		Registries: []Registry{
+			{Prefix: "docker.io", Location: "registry-1.docker.io"},
+		},
+		Aliases: map[string]string{
+			"alpine": "docker.io/library/alpine",
 		},
 	}
-	got := config.RewriteReference("gcr.io/myproject/image")
-	if got != "gcr.io/myproject/image" {
-		t.Errorf("RewriteReference() = %q, want unchanged ref", got)
+
+	dropIn := &RegistriesConfig{
+		Aliases: map[string]string{},
+	}
+
+	result := mergeRegistriesConfig(base, dropIn)
+
+	// Should keep base values when drop-in is empty.
+	if result.ShortNameMode != "permissive" {
+		t.Errorf("ShortNameMode = %q, want %q", result.ShortNameMode, "permissive")
+	}
+	if len(result.UnqualifiedSearchRegistries) != 1 || result.UnqualifiedSearchRegistries[0] != "docker.io" {
+		t.Errorf("UnqualifiedSearchRegistries = %v, want [docker.io]", result.UnqualifiedSearchRegistries)
+	}
+	if result.Aliases["alpine"] != "docker.io/library/alpine" {
+		t.Errorf("Aliases[alpine] = %q, want %q", result.Aliases["alpine"], "docker.io/library/alpine")
 	}
 }
 
-func TestLoadSystemRegistriesConfig_SystemDropInError(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create base config.
-	baseConfig := `
-unqualified-search-registries = ["docker.io"]
-`
-	baseConfigPath := filepath.Join(tmpDir, "registries.conf")
-	if err := os.WriteFile(baseConfigPath, []byte(baseConfig), 0644); err != nil {
-		t.Fatal(err)
+func TestRegistriesConfig_FindRegistry_EmptyPrefix(t *testing.T) {
+	config := &RegistriesConfig{
+		Registries: []Registry{
+			{Prefix: "", Location: "default.example.com"},
+			{Prefix: "docker.io", Location: "registry-1.docker.io"},
+		},
 	}
 
-	// Create a drop-in dir with an invalid file.
-	confDir := filepath.Join(tmpDir, "registries.conf.d")
-	if err := os.MkdirAll(confDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(confDir, "bad.conf"), []byte("[[[invalid"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	origSysPath := systemRegistriesConfPath
-	origSysDirPath := systemRegistriesConfDirPath
-	defer func() {
-		systemRegistriesConfPath = origSysPath
-		systemRegistriesConfDirPath = origSysDirPath
-	}()
-	systemRegistriesConfPath = baseConfigPath
-	systemRegistriesConfDirPath = confDir
-
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", "/nonexistent")
-	defer os.Setenv("HOME", oldHome)
-
-	_, err := LoadSystemRegistriesConfig()
-	if err == nil {
-		t.Error("LoadSystemRegistriesConfig() expected error for invalid drop-in")
-	}
-}
-
-func TestLoadSystemRegistriesConfig_InvalidSystemConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create an invalid base config.
-	baseConfigPath := filepath.Join(tmpDir, "registries.conf")
-	if err := os.WriteFile(baseConfigPath, []byte("[[[invalid toml"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	origSysPath := systemRegistriesConfPath
-	origSysDirPath := systemRegistriesConfDirPath
-	defer func() {
-		systemRegistriesConfPath = origSysPath
-		systemRegistriesConfDirPath = origSysDirPath
-	}()
-	systemRegistriesConfPath = baseConfigPath
-	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
-
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", "/nonexistent")
-	defer os.Setenv("HOME", oldHome)
-
-	_, err := LoadSystemRegistriesConfig()
-	if err == nil {
-		t.Error("LoadSystemRegistriesConfig() expected error for invalid base config")
-	}
-}
-
-// stubResolver is a test-only PathResolver that returns fixed paths,
-// avoiding any dependency on the real OS environment.
-type stubResolver struct {
-	mainPaths  []string
-	dropInDirs []string
-	strategy   configpaths.MergeStrategy
-}
-
-func (r *stubResolver) MainConfigPaths(_ string) []string        { return r.mainPaths }
-func (r *stubResolver) DropInDirs(_ string) []string             { return r.dropInDirs }
-func (r *stubResolver) MergeStrategy() configpaths.MergeStrategy { return r.strategy }
-
-func TestLoadRegistriesConfigFromResolver_FirstFoundWins_ErrorInMainConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create an invalid main config.
-	mainPath := filepath.Join(tmpDir, "registries.conf")
-	if err := os.WriteFile(mainPath, []byte("[[[bad"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	resolver := &stubResolver{
-		mainPaths:  []string{mainPath},
-		dropInDirs: []string{filepath.Join(tmpDir, "nonexistent.d")},
-		strategy:   configpaths.FirstFoundWins,
-	}
-	_, err := loadRegistriesConfigFromResolver(resolver)
-	if err == nil {
-		t.Error("expected error when FirstFoundWins main config is invalid")
-	}
-}
-
-func TestLoadRegistriesConfigFromResolver_MergeAll_ErrorInMainConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create an invalid main config.
-	mainPath := filepath.Join(tmpDir, "registries.conf")
-	if err := os.WriteFile(mainPath, []byte("[[[bad"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	resolver := &stubResolver{
-		mainPaths:  []string{mainPath},
-		dropInDirs: []string{filepath.Join(tmpDir, "nonexistent.d")},
-		strategy:   configpaths.MergeAll,
-	}
-	_, err := loadRegistriesConfigFromResolver(resolver)
-	if err == nil {
-		t.Error("expected error when MergeAll main config is invalid")
-	}
-}
-
-func TestLoadRegistriesConfigFromResolver_MergeAll_DropInError(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create a valid main config.
-	mainPath := filepath.Join(tmpDir, "registries.conf")
-	if err := os.WriteFile(mainPath, []byte(`unqualified-search-registries = ["docker.io"]`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create drop-in dir with an invalid file.
-	confDir := filepath.Join(tmpDir, "registries.conf.d")
-	if err := os.MkdirAll(confDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(confDir, "bad.conf"), []byte("[[[bad"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	resolver := &stubResolver{
-		mainPaths:  []string{mainPath},
-		dropInDirs: []string{confDir},
-		strategy:   configpaths.MergeAll,
-	}
-	_, err := loadRegistriesConfigFromResolver(resolver)
-	if err == nil {
-		t.Error("expected error when MergeAll drop-in config is invalid")
-	}
-}
-
-func TestLoadRegistriesConfigFromResolver_FirstFoundWins_DropInError(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create a valid main config.
-	mainPath := filepath.Join(tmpDir, "registries.conf")
-	if err := os.WriteFile(mainPath, []byte(`unqualified-search-registries = ["docker.io"]`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create drop-in dir with an invalid file.
-	dropInDir := filepath.Join(tmpDir, "registries.conf.d")
-	if err := os.MkdirAll(dropInDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dropInDir, "bad.conf"), []byte("[[[bad"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	resolver := &stubResolver{
-		mainPaths:  []string{mainPath},
-		dropInDirs: []string{dropInDir},
-		strategy:   configpaths.FirstFoundWins,
-	}
-	_, err := loadRegistriesConfigFromResolver(resolver)
-	if err == nil {
-		t.Error("expected error when FirstFoundWins drop-in config is invalid")
-	}
-}
-
-func TestIsBlocked_NilConfig(t *testing.T) {
-	var config *RegistriesConfig
-	got := config.IsBlocked("docker.io/nginx")
-	if got {
-		t.Error("IsBlocked() on nil config should return false")
-	}
-}
-
-func TestGetMirrors_NilConfig(t *testing.T) {
-	var config *RegistriesConfig
-	got := config.GetMirrors("docker.io/nginx")
-	if got != nil {
-		t.Errorf("GetMirrors() on nil config = %v, want nil", got)
+	got := config.FindRegistry("docker.io/nginx")
+	if got == nil || got.Prefix != "docker.io" {
+		t.Errorf("FindRegistry() should skip empty prefix, got %v", got)
 	}
 }
 

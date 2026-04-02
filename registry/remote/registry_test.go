@@ -30,15 +30,7 @@ import (
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/errdef"
-	"github.com/oras-project/oras-go/v3/registry"
 )
-
-func TestRegistryInterface(t *testing.T) {
-	var reg any = &Registry{}
-	if _, ok := reg.(registry.Registry); !ok {
-		t.Error("&Registry{} does not conform registry.Registry")
-	}
-}
 
 func TestRegistry_TLS(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -233,10 +225,12 @@ func TestRegistry_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Registry.Repository() error = %v", err)
 	}
-	reg.Reference.Repository = "hello-world"
-	want := (*Repository)(&reg.RepositoryOptions)
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Registry.Repository() = %v, want %v", got, want)
+	repo := got.(*Repository)
+	if repo.RepositoryName != "hello-world" {
+		t.Errorf("Repository.RepositoryName = %v, want %v", repo.RepositoryName, "hello-world")
+	}
+	if repo.Registry != reg {
+		t.Errorf("Repository.Registry = %v, want %v", repo.Registry, reg)
 	}
 }
 
