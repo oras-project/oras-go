@@ -17,56 +17,65 @@ package models
 
 import "sync"
 
-// lazy provides thread-safe lazy loading with retry on transient errors.
+// lazyCall holds the result of an in-flight load and a channel that is
+// closed when the load completes (successfully or not).
+type lazyCall[T any] struct {
+	done chan struct{}
+	val  T
+	err  error
+}
+
+// lazy provides thread-safe lazy loading with exactly-once semantics on
+// success and retry on transient errors.
+//
 // Unlike sync.Once, failed loads are NOT cached — subsequent calls to get()
 // will retry the load function. Only successful results are cached.
 //
-// The mutex is NOT held during the load() call to avoid blocking concurrent
-// readers during potentially slow I/O (network fetches). This means two
-// concurrent first-time callers may both invoke load(), similar to how
-// sync.Map's LoadOrStore works. This is acceptable because loads are
-// idempotent and the alternative of holding a mutex across I/O is worse.
+// Concurrent calls while a load is in flight block on a channel rather than
+// triggering duplicate loads (singleflight semantics).
 type lazy[T any] struct {
-	mu     sync.Mutex
-	val    T
-	loaded bool
+	mu       sync.Mutex
+	val      T
+	loaded   bool
+	inflight *lazyCall[T]
 }
 
-// get returns the cached value if loaded; otherwise calls load() to produce it.
-// On success, the result is cached for future calls.
-// On error, the result is NOT cached, allowing retry with a different context.
-//
-// Note: load() is called without holding the mutex, so concurrent callers
-// may both call load() on the first miss. The first successful result to
-// acquire the lock is stored; subsequent writers find loaded==true and
-// return the already-stored value.
+// get returns the cached value if loaded; otherwise calls load() exactly once.
+// Concurrent callers block until the in-flight load completes.
+// On success, the result is cached for all future calls.
+// On error, nothing is cached — the next call will retry.
 func (l *lazy[T]) get(load func() (T, error)) (T, error) {
-	// Fast path: already loaded
 	l.mu.Lock()
+	// Fast path: already loaded.
 	if l.loaded {
 		val := l.val
 		l.mu.Unlock()
 		return val, nil
 	}
+	// In-flight: join the existing load and wait.
+	if l.inflight != nil {
+		call := l.inflight
+		l.mu.Unlock()
+		<-call.done
+		return call.val, call.err
+	}
+	// Slow path: this goroutine owns the load.
+	call := &lazyCall[T]{done: make(chan struct{})}
+	l.inflight = call
 	l.mu.Unlock()
 
-	// Slow path: call load without holding the lock
-	val, err := load()
-	if err != nil {
-		var zero T
-		return zero, err
-	}
+	call.val, call.err = load()
 
-	// Store result under lock (another goroutine may have loaded first — that's OK,
-	// we accept the last-writer-wins race for correctness, but we avoid double network I/O
-	// by checking again before overwriting).
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !l.loaded {
-		l.val = val
+	if call.err == nil {
+		l.val = call.val
 		l.loaded = true
 	}
-	return l.val, nil
+	l.inflight = nil
+	l.mu.Unlock()
+
+	close(call.done) // wake all waiters
+	return call.val, call.err
 }
 
 // set explicitly sets the cached value. This is thread-safe.
