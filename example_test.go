@@ -47,7 +47,7 @@ func Example_pullFilesFromRemoteRepository() {
 		panic(err)
 	}
 	// Note: The below code can be omitted if authentication is not required
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
 		CredentialFunc: credentials.StaticCredentialFunc(reg, credentials.Credential{
@@ -82,7 +82,7 @@ func Example_pullImageFromRemoteRepository() {
 		panic(err)
 	}
 	// Note: The below code can be omitted if authentication is not required
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
 		CredentialFunc: credentials.StaticCredentialFunc(reg, credentials.Credential{
@@ -124,10 +124,10 @@ func Example_pullImageUsingDockerCredentials() {
 	if err != nil {
 		panic(err)
 	}
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client:         retry.DefaultClient,
 		Cache:          auth.NewCache(),
-		CredentialFunc: remote.GetCredentialFunc(credStore), // Use the credentials store
+		CredentialFunc: remote.NewCredentialFunc(credStore), // Use the credentials store
 	}
 
 	// 2. Copy from the remote repository to the OCI layout store
@@ -187,7 +187,7 @@ func Example_pushFilesToRemoteRepository() {
 		panic(err)
 	}
 	// Note: The below code can be omitted if authentication is not required
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
 		CredentialFunc: credentials.StaticCredentialFunc(reg, credentials.Credential{
@@ -215,7 +215,7 @@ func Example_attachBlobToRemoteRepository() {
 		panic(err)
 	}
 	// Note: The below code can be omitted if authentication is not required.
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
 		CredentialFunc: credentials.StaticCredentialFunc(registry, credentials.Credential{
