@@ -17,6 +17,7 @@ package configpaths
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -132,5 +133,71 @@ func TestUAPIResolver_XDGConfigHome(t *testing.T) {
 	// The first path (user level) should be under our custom XDG dir.
 	if !strings.HasPrefix(paths[0], customDir) {
 		t.Errorf("first path %q should start with XDG_CONFIG_HOME %q", paths[0], customDir)
+	}
+}
+
+func TestUAPIResolver_UserDir_NilFunc(t *testing.T) {
+	r := &uapiResolver{
+		userConfDir: nil,
+	}
+	got := r.userDir()
+	if got != "" {
+		t.Errorf("userDir() = %q, want empty string", got)
+	}
+}
+
+func TestDefaultXDGConfigHome_WithXDGSet(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	got := defaultXDGConfigHome()
+	want := filepath.Join(tmpDir, "containers")
+	if got != want {
+		t.Errorf("defaultXDGConfigHome() = %q, want %q", got, want)
+	}
+}
+
+func TestDefaultXDGConfigHome_WithoutXDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	got := defaultXDGConfigHome()
+	want := filepath.Join(tmpDir, ".config", "containers")
+	if got != want {
+		t.Errorf("defaultXDGConfigHome() = %q, want %q", got, want)
+	}
+}
+
+func TestUAPIResolver_MainConfigPaths_NoOptionalDirs(t *testing.T) {
+	r := &uapiResolver{
+		vendorConfDir: "",
+		systemConfDir: "",
+		userConfDir:   nil,
+	}
+	paths := r.MainConfigPaths("registries")
+	if len(paths) != 0 {
+		t.Errorf("MainConfigPaths() returned %d paths, want 0", len(paths))
+	}
+}
+
+func TestUAPIResolver_DropInDirs_NoOptionalDirs(t *testing.T) {
+	r := &uapiResolver{
+		vendorConfDir:           "",
+		systemConfDir:           "",
+		userConfDir:             nil,
+		supportsRootfulRootless: false,
+	}
+	dirs := r.DropInDirs("registries")
+	if len(dirs) != 0 {
+		t.Errorf("DropInDirs() returned %d dirs, want 0", len(dirs))
+	}
+}
+
+func TestUAPIResolver_AppendRootDirs_NotSupported(t *testing.T) {
+	r := &uapiResolver{
+		supportsRootfulRootless: false,
+	}
+	dirs := r.appendRootDirs(nil, "/etc/containers", "registries")
+	if len(dirs) != 0 {
+		t.Errorf("appendRootDirs() returned %d dirs, want 0 when not supported", len(dirs))
 	}
 }
