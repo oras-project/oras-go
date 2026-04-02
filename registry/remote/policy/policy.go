@@ -177,6 +177,8 @@ func (p *Policy) Save(path string) error {
 
 // Validate validates the policy configuration.
 func (p *Policy) Validate() error {
+	// Per spec: the global default set of policy requirements is mandatory
+	// and the array must not be empty.
 	if len(p.Default) == 0 {
 		return fmt.Errorf("default policy requirements must not be empty")
 	}
@@ -202,76 +204,76 @@ func (p *Policy) Validate() error {
 	return nil
 }
 
-// isPathPrefix reports whether prefix is a path prefix of s,
-// matching only at "/" boundaries. An empty prefix matches everything.
-func isPathPrefix(s, prefix string) bool {
-	if prefix == "" {
-		return true
-	}
-	if !strings.HasPrefix(s, prefix) {
-		return false
-	}
-	// Exact match or the next character is a path separator
-	return len(s) == len(prefix) || s[len(prefix)] == '/'
-}
-
 // GetRequirementsForImage returns the policy requirements for a given transport and scope.
-// It follows the precedence rules from the containers-policy.json spec:
-//  1. Exact scope match
-//  2. Longest prefix match (at "/" boundary)
-//  3. Wildcard subdomain match (*.example.com matches sub.example.com/...)
-//  4. Transport default (empty scope "")
-//  5. Global default
+// It follows the containers-policy.json precedence rules for the docker transport:
+// exact match > longest-prefix match > wildcard subdomain match > transport default > global default.
+// For non-docker transports, it uses exact match, then transport default, then global default.
 func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) PolicyRequirements {
 	transportScopes, ok := p.Transports[transport]
 	if !ok {
 		return p.Default
 	}
 
-	// 1. Try exact scope match
+	// Try exact scope match first
 	if reqs, ok := transportScopes[scope]; ok {
 		return reqs
 	}
 
-	// 2. Try longest prefix match (at "/" boundary)
-	bestMatch := ""
-	for candidate := range transportScopes {
-		if candidate == "" {
-			continue
+	// For docker transport, try longest-prefix match and wildcard subdomain match
+	if transport == TransportNameDocker {
+		// Try longest-prefix match: the scope key is a prefix of the image
+		// scope at a "/" boundary
+		bestMatch := ""
+		for key := range transportScopes {
+			if key == "" {
+				continue
+			}
+			if strings.HasPrefix(key, "*.") {
+				continue // Skip wildcard entries during prefix matching
+			}
+			if isPathPrefix(key, scope) && len(key) > len(bestMatch) {
+				bestMatch = key
+			}
 		}
-		if strings.HasPrefix(candidate, "*.") {
-			continue // skip wildcards in prefix matching
+		if bestMatch != "" {
+			return transportScopes[bestMatch]
 		}
-		if isPathPrefix(scope, candidate) && len(candidate) > len(bestMatch) {
-			bestMatch = candidate
+
+		// Try wildcard subdomain match: *.example.com matches sub.example.com/repo
+		bestWildcard := ""
+		for key := range transportScopes {
+			if !strings.HasPrefix(key, "*.") {
+				continue
+			}
+			// *.example.com should match sub.example.com (and sub.example.com/repo)
+			suffix := key[1:] // ".example.com"
+			host := scope
+			if idx := strings.Index(scope, "/"); idx != -1 {
+				host = scope[:idx]
+			}
+			if strings.HasSuffix(host, suffix) && len(key) > len(bestWildcard) {
+				bestWildcard = key
+			}
 		}
-	}
-	if bestMatch != "" {
-		return transportScopes[bestMatch]
+		if bestWildcard != "" {
+			return transportScopes[bestWildcard]
+		}
 	}
 
-	// 3. Try wildcard subdomain match (*.example.com matches sub.example.com/...)
-	for candidate, reqs := range transportScopes {
-		if !strings.HasPrefix(candidate, "*.") {
-			continue
-		}
-		// *.example.com should match sub.example.com and sub.example.com/repo
-		suffix := candidate[1:] // ".example.com"
-		// Extract the host part of the scope (before first "/")
-		host := scope
-		if idx := strings.Index(scope, "/"); idx != -1 {
-			host = scope[:idx]
-		}
-		if strings.HasSuffix(host, suffix) {
-			return reqs
-		}
-	}
-
-	// 4. Try transport default (empty scope)
+	// Try transport default (empty scope)
 	if reqs, ok := transportScopes[""]; ok {
 		return reqs
 	}
 
-	// 5. Fall back to global default
+	// Fall back to global default
 	return p.Default
+}
+
+// isPathPrefix reports whether prefix is a prefix of s at a "/" boundary.
+// That is, prefix matches s if s == prefix or s starts with prefix + "/".
+func isPathPrefix(prefix, s string) bool {
+	if s == prefix {
+		return true
+	}
+	return strings.HasPrefix(s, prefix+"/")
 }

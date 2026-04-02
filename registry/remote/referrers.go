@@ -60,8 +60,9 @@ type referrerChange struct {
 }
 
 var (
-	// ErrReferrersCapabilityAlreadySet is returned by SetReferrersCapability()
-	// when the Referrers API capability has been already set.
+	// ErrReferrersCapabilityAlreadySet is returned by ReferrerCapability.SetSupported()
+	// and ReferrerCapability.SetUnsupported() when the capability has already been set
+	// to a conflicting value.
 	ErrReferrersCapabilityAlreadySet = errors.New("referrers capability cannot be changed once set")
 
 	// errNoReferrerUpdate is returned by applyReferrerChanges() when there

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zot-auth
+  labels:
+    app: zot-auth
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zot-auth
+  template:
+    metadata:
+      labels:
+        app: zot-auth
+    spec:
+      containers:
+        - name: zot-auth
+          image: ghcr.io/project-zot/zot-linux-amd64:v2.1.15
+          ports:
+            - containerPort: 5001
+          volumeMounts:
+            - name: config
+              mountPath: /etc/zot/config.json
+              subPath: config.json
+            - name: htpasswd
+              mountPath: /etc/zot/htpasswd
+              subPath: htpasswd
+            - name: data
+              mountPath: /var/lib/registry-auth
+          readinessProbe:
+            tcpSocket:
+              port: 5001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: zot-auth-config
+        - name: htpasswd
+          secret:
+            secretName: zot-auth-htpasswd
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zot-auth
+spec:
+  selector:
+    app: zot-auth
+  ports:
+    - port: 5001
+      targetPort: 5001
+  type: ClusterIP
