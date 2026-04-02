@@ -25,8 +25,8 @@ const (
 	// This is the current containers/image behavior.
 	MergeAll MergeStrategy = iota
 
-	// FirstFoundWins uses the first main config file found (user -> system
-	// -> vendor) but still merges all drop-in directories.
+	// FirstFoundWins uses the first main config file found (user → system
+	// → vendor) but still merges all drop-in directories.
 	// This is the UAPI specification behavior.
 	FirstFoundWins
 )
@@ -57,6 +57,27 @@ type PathResolver interface {
 
 	// MergeStrategy returns how main config files should be combined.
 	MergeStrategy() MergeStrategy
+
+	// AuthPrimaryPath returns the primary read/write path for auth.json.
+	AuthPrimaryPath() (string, error)
+
+	// AuthFallbackPaths returns fallback read-only paths for auth.json.
+	AuthFallbackPaths() []string
+
+	// CertsDirPaths returns base directories for certs.d certificate
+	// discovery.
+	CertsDirPaths() []string
+
+	// RegistriesDDirs returns directories for registries.d signature
+	// storage configuration.
+	RegistriesDDirs() []string
+
+	// PolicyPaths returns candidate paths for policy.json, in order of
+	// preference (first found wins).
+	PolicyPaths() []string
+
+	// DockerConfigPath returns the Docker config.json path.
+	DockerConfigPath() (string, error)
 }
 
 // NewResolver creates a PathResolver for the given strategy.
