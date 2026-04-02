@@ -171,7 +171,16 @@ func (b *Blob) Verify(ctx context.Context) error {
 	if b.fetcher == nil {
 		return &ObjectsError{Op: "verify", Digest: b.descriptor.Digest, Err: ErrNoFetcher}
 	}
-	if _, err := content.FetchAll(ctx, b.fetcher, b.descriptor); err != nil {
+	rc, err := b.fetcher.Fetch(ctx, b.descriptor)
+	if err != nil {
+		return &ObjectsError{Op: "verify", Digest: b.descriptor.Digest, Err: err}
+	}
+	defer rc.Close()
+	vr := content.NewVerifyReader(rc, b.descriptor)
+	if _, err := io.Copy(io.Discard, vr); err != nil {
+		return &ObjectsError{Op: "verify", Digest: b.descriptor.Digest, Err: err}
+	}
+	if err := vr.Verify(); err != nil {
 		return &ObjectsError{Op: "verify", Digest: b.descriptor.Digest, Err: err}
 	}
 	return nil

@@ -180,10 +180,11 @@ func NewRepository(reference string) (*Repository, error) {
 
 // Reference returns the full registry.Reference for this repository.
 func (r *Repository) Reference() registry.Reference {
-	return registry.Reference{
-		Registry:   r.Registry.Reference.Registry,
-		Repository: r.RepositoryName,
+	ref := registry.Reference{Repository: r.RepositoryName}
+	if r.Registry != nil {
+		ref.Registry = r.Registry.Reference.Registry
 	}
+	return ref
 }
 
 // clone makes a copy of the Repository being careful not to copy non-copyable fields (sync.Mutex and syncutil.Pool types)
@@ -448,7 +449,11 @@ func (r *Repository) Mount(ctx context.Context, desc ocispec.Descriptor, fromRep
 	if err := r.checkPolicy(ctx, ""); err != nil {
 		return err
 	}
-	return r.Blobs().(registry.Mounter).Mount(withPolicyChecked(ctx), desc, fromRepo, getContent)
+	mounter, ok := r.Blobs().(registry.Mounter)
+	if !ok {
+		return errors.New("blob store does not support mounting")
+	}
+	return mounter.Mount(withPolicyChecked(ctx), desc, fromRepo, getContent)
 }
 
 // Exists returns true if the described content exists.

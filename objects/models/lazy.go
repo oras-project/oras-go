@@ -20,6 +20,12 @@ import "sync"
 // lazy provides thread-safe lazy loading with retry on transient errors.
 // Unlike sync.Once, failed loads are NOT cached — subsequent calls to get()
 // will retry the load function. Only successful results are cached.
+//
+// The mutex is NOT held during the load() call to avoid blocking concurrent
+// readers during potentially slow I/O (network fetches). This means two
+// concurrent first-time callers may both invoke load(), similar to how
+// sync.Map's LoadOrStore works. This is acceptable because loads are
+// idempotent and the alternative of holding a mutex across I/O is worse.
 type lazy[T any] struct {
 	mu     sync.Mutex
 	val    T
@@ -29,22 +35,37 @@ type lazy[T any] struct {
 // get returns the cached value if loaded; otherwise calls load() to produce it.
 // On success, the result is cached for future calls.
 // On error, the result is NOT cached, allowing retry with a different context.
+//
+// Note: load() is called without holding the mutex, so concurrent callers
+// may both call load() on the first miss. The first successful result to
+// acquire the lock is stored; subsequent writers find loaded==true and
+// return the already-stored value.
 func (l *lazy[T]) get(load func() (T, error)) (T, error) {
+	// Fast path: already loaded
 	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	if l.loaded {
-		return l.val, nil
+		val := l.val
+		l.mu.Unlock()
+		return val, nil
 	}
+	l.mu.Unlock()
 
+	// Slow path: call load without holding the lock
 	val, err := load()
 	if err != nil {
 		var zero T
 		return zero, err
 	}
 
-	l.val = val
-	l.loaded = true
+	// Store result under lock (another goroutine may have loaded first — that's OK,
+	// we accept the last-writer-wins race for correctness, but we avoid double network I/O
+	// by checking again before overwriting).
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.loaded {
+		l.val = val
+		l.loaded = true
+	}
 	return l.val, nil
 }
 

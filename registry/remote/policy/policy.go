@@ -21,11 +21,16 @@ package policy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// ErrNoPolicyFound is returned by GetDefaultPolicyPath when no policy.json
+// file exists at any of the default search locations.
+var ErrNoPolicyFound = errors.New("no policy.json found")
 
 const (
 	// policyConfUserDir is the user-level configuration directory for policy.json
@@ -125,7 +130,7 @@ func GetDefaultPolicyPath() (string, error) {
 		return systemPolicyPath, nil
 	}
 
-	return "", fmt.Errorf("no policy.json found at %s and no system-wide default is available on this platform", userPath)
+	return "", fmt.Errorf("%w: checked %s and no system-wide default is available on this platform", ErrNoPolicyFound, userPath)
 }
 
 // LoadPolicy loads a policy from the specified file path.
