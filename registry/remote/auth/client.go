@@ -99,13 +99,36 @@ type Client struct {
 	// Reference: https://distribution.github.io/distribution/spec/auth/oauth/#getting-a-token
 	ClientID string
 
-	// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant
-	// instead the distribution spec when authenticating using username and
-	// password.
+	// TokenFetcher is an optional custom token fetcher for bearer authentication.
+	// If nil, a default composite token fetcher is used based on the credential
+	// type and legacyMode setting.
+	TokenFetcher TokenFetcher
+
+	// legacyMode controls whether to use the legacy distribution spec
+	// instead of OAuth2 with password grant when authenticating using
+	// username and password.
+	// Default is false (OAuth2 is used).
+	//
+	// When legacyMode is true, the client uses the legacy distribution spec for
+	// authentication. If the registry says it supports bearer authentication,
+	// basic authentication will be performed unless there are no credentials
+	// or a refresh token is provided. This is the approach used in oras-go
+	// v1 and v2.
+	//
+	// When legacyMode is false (default), the client uses OAuth2 with password
+	// grant.  If the registry says it supports bearer authentication, bearer
+	// authentication will be performed.
+	//
 	// References:
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
-	ForceAttemptOAuth2 bool
+	legacyMode bool
+
+	// ForceBasicAuth forces the use of HTTP Basic authentication regardless
+	// of what authentication scheme the registry advertises. When true, if
+	// the registry challenges with Bearer auth, Basic auth is used instead.
+	// This requires the registry to also accept Basic auth credentials.
+	ForceBasicAuth bool
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -148,6 +171,27 @@ func (c *Client) SetUserAgent(userAgent string) {
 		c.Header = http.Header{}
 	}
 	c.Header.Set(headerUserAgent, userAgent)
+}
+
+// SetLegacyMode sets whether to use legacy distribution spec authentication
+// instead of OAuth2 with password grant when authenticating using username
+// and password.
+//
+// When legacy is true, the client uses the legacy distribution spec for
+// authentication. If the registry says it supports bearer authentication,
+// basic authentication will be performed unless there are no credentials
+// or a refresh token is provided. This is the approach used in oras-go
+// v1 and v2.
+//
+// When legacy is false (default), the client uses OAuth2 with password
+// grant.  If the registry says it supports bearer authentication, bearer
+// authentication will be performed.
+//
+// References:
+//   - https://distribution.github.io/distribution/spec/auth/jwt/
+//   - https://distribution.github.io/distribution/spec/auth/oauth/
+func (c *Client) SetLegacyMode(legacy bool) {
+	c.legacyMode = legacy
 }
 
 // Do sends the request to the remote server, attempting to resolve
@@ -197,6 +241,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	// attempt again with credentials for recognized schemes
 	challenge := resp.Header.Get(headerWWWAuthenticate)
 	scheme, params := parseChallenge(challenge)
+	if c.ForceBasicAuth && scheme == SchemeBearer {
+		scheme = SchemeBasic
+	}
 	switch scheme {
 	case SchemeBasic:
 		resp.Body.Close()
@@ -285,10 +332,23 @@ func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service 
 	if err != nil {
 		return "", err
 	}
+
+	// Use custom TokenFetcher if provided
+	if c.TokenFetcher != nil {
+		params := TokenParams{
+			Registry: registry,
+			Realm:    realm,
+			Service:  service,
+			Scopes:   scopes,
+		}
+		return c.TokenFetcher.FetchToken(ctx, params, cred)
+	}
+
+	// Fall back to original implementation
 	if cred.AccessToken != "" {
 		return cred.AccessToken, nil
 	}
-	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && !c.ForceAttemptOAuth2) {
+	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && c.legacyMode) {
 		return c.fetchDistributionToken(ctx, realm, service, scopes, cred.Username, cred.Password)
 	}
 	return c.fetchOAuth2Token(ctx, realm, service, scopes, cred)
