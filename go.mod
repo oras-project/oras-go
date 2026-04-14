@@ -3,7 +3,7 @@ module oras.land/oras-go
 go 1.24.3
 
 require (
-	github.com/containerd/containerd v1.7.30
+	github.com/containerd/containerd v1.7.31
 	github.com/distribution/distribution/v3 v3.0.0
 	github.com/docker/cli v29.3.0+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
