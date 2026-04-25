@@ -13,4 +13,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package registry
+package properties
+
+// Mirror represents a registry mirror endpoint.
+type Mirror struct {
+	// Location is the mirror registry host (e.g., "mirror.gcr.io").
+	Location string
+
+	// Transport contains transport settings for the mirror.
+	Transport Transport
+
+	// PullFromMirror controls when to use this mirror:
+	// "all", "digest-only", "tag-only", or "" (defaults to "all").
+	PullFromMirror string
+}

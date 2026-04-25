@@ -13,4 +13,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package registry
+//go:build freebsd
+
+package configpaths
+
+func newUAPIResolver() *uapiResolver {
+	return &uapiResolver{
+		vendorConfDir:           "/usr/local/share",
+		systemConfDir:           "/usr/local/etc",
+		userConfDir:             defaultXDGConfigHome,
+		supportsRootfulRootless: true,
+	}
+}

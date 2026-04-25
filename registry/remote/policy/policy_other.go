@@ -13,4 +13,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package registry
+//go:build !linux
+
+package policy
+
+// systemPolicyPath is empty on non-Linux platforms since the system-wide
+// /etc/containers/policy.json path is Linux-specific.
+const systemPolicyPath = ""
