@@ -123,14 +123,16 @@ type Repository struct {
 	// Reference: https://github.com/oras-project/oras-go/issues/841
 	ReferrerListPageSize int
 
-	// TagListMaxPages overrides Registry default if set.
+	// TagListMaxPages overrides Registry default if > 0.
 	// Limits the total number of pages fetched during tag listing.
-	// Zero means unlimited (use Registry.TagListMaxPages if set).
+	// If 0, Registry.TagListMaxPages is used. If that is also 0, there is no
+	// limit.
 	TagListMaxPages int
 
-	// ReferrerListMaxPages overrides Registry default if set.
+	// ReferrerListMaxPages overrides Registry default if > 0.
 	// Limits the total number of pages fetched during referrer listing.
-	// Zero means unlimited (use Registry.ReferrerListMaxPages if set).
+	// Zero means to use Registry.ReferrerListMaxPages. Referrer listing is
+	// unlimited only if the effective Registry/default value is also zero.
 	ReferrerListMaxPages int
 
 	// SkipReferrersGC overrides Registry default if set.
