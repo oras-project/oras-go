@@ -83,6 +83,14 @@ type Registry struct {
 	// If zero, the page size is determined by the remote registry.
 	ReferrerListPageSize int
 
+	// TagListMaxPages is the default maximum number of pages to fetch during
+	// tag listing. Zero means unlimited.
+	TagListMaxPages int
+
+	// ReferrerListMaxPages is the default maximum number of pages to fetch
+	// during referrer listing. Zero means unlimited.
+	ReferrerListMaxPages int
+
 	// SkipReferrersGC is the default for repositories.
 	// If false, the old referrers index will be deleted after the new one
 	// is successfully uploaded.
