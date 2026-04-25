@@ -1307,7 +1307,7 @@ func TestRepository_Tags_MaxPages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	repo.TagListMaxPages = 2
 
 	ctx := context.Background()
@@ -1653,7 +1653,7 @@ func TestRepository_Referrers_MaxPages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	repo.ReferrerListMaxPages = 2
 	repo.SetReferrersCapability(true)
 
