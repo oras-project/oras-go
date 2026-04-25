@@ -123,6 +123,31 @@ func TestIngest_emptyContent(t *testing.T) {
 	}
 }
 
+func TestIngest_chmodError_cleansUpTempFile(t *testing.T) {
+	dir := t.TempDir()
+	chmodErr := errors.New("chmod failure")
+	orig := fileChmod
+	fileChmod = func(_ *os.File, _ os.FileMode) error { return chmodErr }
+	defer func() { fileChmod = orig }()
+
+	path, err := Ingest(dir, strings.NewReader("data"))
+	if err == nil {
+		os.Remove(path)
+		t.Fatal("Ingest() expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to ensure permission") {
+		t.Errorf("Ingest() error = %v, want 'failed to ensure permission'", err)
+	}
+
+	// temp file must have been cleaned up
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "oras_credstore_temp_") {
+			t.Errorf("Ingest() left temp file %q after chmod error", e.Name())
+		}
+	}
+}
+
 // errorReader is an io.Reader that always returns an error.
 type errorReader struct {
 	err error
