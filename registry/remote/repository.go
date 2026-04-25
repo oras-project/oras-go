@@ -123,6 +123,16 @@ type Repository struct {
 	// Reference: https://github.com/oras-project/oras-go/issues/841
 	ReferrerListPageSize int
 
+	// TagListMaxPages overrides Registry default if set.
+	// Limits the total number of pages fetched during tag listing.
+	// Zero means unlimited (use Registry.TagListMaxPages if set).
+	TagListMaxPages int
+
+	// ReferrerListMaxPages overrides Registry default if set.
+	// Limits the total number of pages fetched during referrer listing.
+	// Zero means unlimited (use Registry.ReferrerListMaxPages if set).
+	ReferrerListMaxPages int
+
 	// SkipReferrersGC overrides Registry default if set.
 	// Specifies whether to delete the dangling referrers
 	// index when referrers tag schema is utilized.
@@ -195,6 +205,8 @@ func (r *Repository) clone() *Repository {
 		ManifestMediaTypes:   slices.Clone(r.ManifestMediaTypes),
 		TagListPageSize:      r.TagListPageSize,
 		ReferrerListPageSize: r.ReferrerListPageSize,
+		TagListMaxPages:      r.TagListMaxPages,
+		ReferrerListMaxPages: r.ReferrerListMaxPages,
 		SkipReferrersGC:      r.SkipReferrersGC,
 		mirrors:              r.mirrors,
 	}
@@ -261,6 +273,30 @@ func (r *Repository) referrerListPageSize() int {
 	}
 	if r.Registry != nil {
 		return r.Registry.ReferrerListPageSize
+	}
+	return 0
+}
+
+// tagListMaxPages returns the effective maximum number of tag list pages.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) tagListMaxPages() int {
+	if r.TagListMaxPages > 0 {
+		return r.TagListMaxPages
+	}
+	if r.Registry != nil {
+		return r.Registry.TagListMaxPages
+	}
+	return 0
+}
+
+// referrerListMaxPages returns the effective maximum number of referrer list pages.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) referrerListMaxPages() int {
+	if r.ReferrerListMaxPages > 0 {
+		return r.ReferrerListMaxPages
+	}
+	if r.Registry != nil {
+		return r.Registry.ReferrerListMaxPages
 	}
 	return 0
 }
@@ -602,7 +638,11 @@ func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []strin
 	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.plainHTTP(), repoRef)
 	var err error
-	for err == nil {
+	maxPages := r.tagListMaxPages()
+	for page := 0; err == nil; page++ {
+		if maxPages > 0 && page >= maxPages {
+			return fmt.Errorf("tag listing exceeded %d pages: %w", maxPages, errdef.ErrTooManyPages)
+		}
 		url, err = r.tags(ctx, last, fn, url)
 		// clear `last` for subsequent pages
 		last = ""
@@ -723,7 +763,11 @@ func (r *Repository) referrersByAPI(ctx context.Context, desc ocispec.Descriptor
 
 	url := buildReferrersURL(r.plainHTTP(), ref, artifactType)
 	var err error
-	for err == nil {
+	maxPages := r.referrerListMaxPages()
+	for page := 0; err == nil; page++ {
+		if maxPages > 0 && page >= maxPages {
+			return fmt.Errorf("referrer listing exceeded %d pages: %w", maxPages, errdef.ErrTooManyPages)
+		}
 		url, err = r.referrersPageByAPI(ctx, artifactType, fn, url)
 	}
 	if err == errNoLink {
