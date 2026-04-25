@@ -13,4 +13,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package registry
+//go:build darwin
+
+package configpaths
+
+func newUAPIResolver() *uapiResolver {
+	return &uapiResolver{
+		vendorConfDir:           "/usr/share",
+		systemConfDir:           "/etc",
+		userConfDir:             defaultXDGConfigHome,
+		supportsRootfulRootless: true,
+	}
+}

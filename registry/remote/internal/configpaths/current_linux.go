@@ -13,4 +13,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package registry
+//go:build linux
+
+package configpaths
+
+func newCurrentResolver() *currentResolver {
+	return &currentResolver{
+		systemConfDir:  "/etc",
+		userConfRelDir: ".config/containers",
+	}
+}
