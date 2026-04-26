@@ -3225,6 +3225,58 @@ func Test_BlobStore_Push(t *testing.T) {
 	}
 }
 
+func Test_BlobStore_Push_CrossHostRedirect(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	// attacker server: records whether it receives an Authorization header
+	credentialLeaked := false
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			credentialLeaked = true
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer attacker.Close()
+
+	// malicious registry: returns a cross-host Location on POST
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/" {
+			w.Header().Set("Location", attacker.URL+"/v2/test/blobs/uploads/evil-uuid")
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	store := repo.Blobs()
+	ctx := context.Background()
+
+	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
+	if err == nil {
+		t.Error("Blobs.Push() expected error on cross-host Location, got nil")
+	}
+	if credentialLeaked {
+		t.Error("Blobs.Push() forwarded Authorization header to attacker-controlled host")
+	}
+}
+
 func Test_BlobStore_Exists(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
