@@ -1385,3 +1385,148 @@ func TestClient_BuildIndex_ReturnsBuilder(t *testing.T) {
 		t.Fatal("BuildIndex() returned nil")
 	}
 }
+
+// tagListerTarget wraps memory.Store and adds registry.TagLister support.
+type tagListerTarget struct {
+	*memory.Store
+	tags []string
+	err  error
+}
+
+func (t *tagListerTarget) Tags(_ context.Context, _ string, fn func([]string) error) error {
+	if t.err != nil {
+		return t.err
+	}
+	return fn(t.tags)
+}
+
+// referrerTarget wraps memory.Store and adds registry.ReferrerLister support.
+type referrerTarget struct {
+	*memory.Store
+	referrers []ocispec.Descriptor
+	err       error
+}
+
+func (r *referrerTarget) Referrers(_ context.Context, _ ocispec.Descriptor, _ string, fn func([]ocispec.Descriptor) error) error {
+	if r.err != nil {
+		return r.err
+	}
+	return fn(r.referrers)
+}
+
+// predecessorErrorStore wraps memory.Store and returns an error from Predecessors.
+type predecessorErrorStore struct {
+	*memory.Store
+}
+
+func (s *predecessorErrorStore) Predecessors(_ context.Context, _ ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return nil, errors.New("predecessors error")
+}
+
+func TestClient_ListTags_Success(t *testing.T) {
+	ctx := t.Context()
+	store := &tagListerTarget{
+		Store: memory.New(),
+		tags:  []string{"v1.0", "v1.1", "latest"},
+	}
+	client := objects.NewClient(store)
+
+	tags, err := client.ListTags(ctx)
+	if err != nil {
+		t.Fatalf("ListTags() error = %v", err)
+	}
+	if len(tags) != 3 {
+		t.Errorf("ListTags() returned %d tags, want 3", len(tags))
+	}
+}
+
+func TestClient_ListTags_Error(t *testing.T) {
+	ctx := t.Context()
+	wantErr := errors.New("tags unavailable")
+	store := &tagListerTarget{Store: memory.New(), err: wantErr}
+	client := objects.NewClient(store)
+
+	_, err := client.ListTags(ctx)
+	if !errors.Is(err, wantErr) {
+		t.Errorf("ListTags() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestClient_FindReferrers_ViaReferrerLister(t *testing.T) {
+	ctx := t.Context()
+	memStore := memory.New()
+	subjectDesc := pushBlob(t, ctx, memStore, "application/octet-stream", []byte("subject"))
+
+	referrerDesc := ocispec.Descriptor{
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Digest:       digest.FromBytes([]byte("referrer-manifest")),
+		Size:         17,
+		ArtifactType: "application/vnd.test",
+	}
+	store := &referrerTarget{Store: memStore, referrers: []ocispec.Descriptor{referrerDesc}}
+	client := objects.NewClient(store)
+
+	blob, err := client.FetchBlob(ctx, subjectDesc)
+	if err != nil {
+		t.Fatalf("FetchBlob() error = %v", err)
+	}
+
+	manifests, err := client.FindReferrers(ctx, blob, "")
+	if err != nil {
+		t.Fatalf("FindReferrers() error = %v", err)
+	}
+	if len(manifests) != 1 {
+		t.Errorf("FindReferrers() = %d manifests, want 1", len(manifests))
+	}
+}
+
+func TestClient_FindReferrers_ReferrerListerError(t *testing.T) {
+	ctx := t.Context()
+	wantErr := errors.New("referrers unavailable")
+	memStore := memory.New()
+	subjectDesc := pushBlob(t, ctx, memStore, "application/octet-stream", []byte("subject"))
+
+	store := &referrerTarget{Store: memStore, err: wantErr}
+	client := objects.NewClient(store)
+
+	blob, err := client.FetchBlob(ctx, subjectDesc)
+	if err != nil {
+		t.Fatalf("FetchBlob() error = %v", err)
+	}
+
+	_, err = client.FindReferrers(ctx, blob, "")
+	if !errors.Is(err, wantErr) {
+		t.Errorf("FindReferrers() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestClient_FindPredecessors_Error(t *testing.T) {
+	ctx := t.Context()
+	memStore := memory.New()
+	desc := pushBlob(t, ctx, memStore, "application/octet-stream", []byte("data"))
+
+	store := &predecessorErrorStore{Store: memStore}
+	client := objects.NewClient(store)
+
+	blob, err := client.FetchBlob(ctx, desc)
+	if err != nil {
+		t.Fatalf("FetchBlob() error = %v", err)
+	}
+
+	_, err = client.FindPredecessors(ctx, blob)
+	if err == nil {
+		t.Fatal("FindPredecessors() expected error, got nil")
+	}
+}
+
+func TestClient_Delete_NoDeleter(t *testing.T) {
+	ctx := t.Context()
+	store := memory.New()
+	desc := pushBlob(t, ctx, store, "application/octet-stream", []byte("data"))
+	client := objects.NewClient(store)
+
+	err := client.Delete(ctx, desc)
+	if !errors.Is(err, models.ErrNoDeleter) {
+		t.Errorf("Delete() error = %v, want ErrNoDeleter", err)
+	}
+}
