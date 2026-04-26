@@ -162,7 +162,7 @@ func ExampleNewStoreWithFallbacks_configAsPrimaryStoreDockerAsFallback() {
 	if err != nil {
 		panic(err)
 	}
-	fallbackStore, err := credentials.NewStoreFromDocker(credentials.StoreOptions{})
+	fallbackStore, _ := credentials.NewStoreFromDocker(credentials.StoreOptions{})
 	sf := credentials.NewStoreWithFallbacks(primaryStore, fallbackStore)
 
 	ctx := context.Background()

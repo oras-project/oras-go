@@ -47,6 +47,10 @@ test-functional:
 	cd $(CURDIR) && ./test/functional/teardown.sh; \
 	exit $$EXIT_CODE
 
+.PHONY: lint
+lint:
+	GOFLAGS=-mod=mod golangci-lint run
+
 .PHONY: vendor
 vendor:
 	go mod vendor
