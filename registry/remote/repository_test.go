@@ -3264,7 +3264,7 @@ func Test_BlobStore_Push_CrossHostRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	store := repo.Blobs()
 	ctx := context.Background()
 
