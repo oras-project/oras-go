@@ -184,7 +184,7 @@ func TestRegistriesDConfig_GetLookasideURLs_Legacy(t *testing.T) {
 	}
 
 	// Unknown scope falls back to default.
-	readURL, writeURL = cfg.GetLookasideURLs("unknown.example.com")
+	readURL, _ = cfg.GetLookasideURLs("unknown.example.com")
 	if readURL != "https://legacy-sigstore.example.com" {
 		t.Errorf("readURL = %v, want https://legacy-sigstore.example.com", readURL)
 	}
