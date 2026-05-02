@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/containerd/containerd v1.7.31
-	github.com/distribution/distribution/v3 v3.1.0
+	github.com/distribution/distribution/v3 v3.1.1
 	github.com/docker/cli v29.4.1+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/go-connections v0.7.0
@@ -66,7 +66,7 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.18.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.18.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.19.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.43.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.43.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.43.0 // indirect
