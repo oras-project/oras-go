@@ -67,6 +67,39 @@ Tags containing `-alpha`, `-beta`, or `-rc` (e.g., `v2.7.0-rc.1`) are
 automatically marked as pre-release on GitHub. Use the same branch naming
 convention: `release/v2.7.0-rc.1`.
 
+## Testing the workflow locally
+
+Three levels of local validation are available without triggering a real release:
+
+**1. Validate the goreleaser config:**
+```bash
+goreleaser check
+```
+
+**2. Validate workflow structure and job matching (dry run):**
+```bash
+act pull_request \
+  -e .github/act/release-event.json \
+  -W .github/workflows/release.yml \
+  -n
+```
+
+**3. Run the workflow end-to-end with a fake token (Colima + cached actions required):**
+```bash
+act pull_request \
+  -e .github/act/release-event.json \
+  -W .github/workflows/release.yml \
+  -s GITHUB_TOKEN=fake \
+  --pull=false \
+  --action-offline-mode \
+  --container-daemon-socket -
+```
+
+This runs all steps up to and including version extraction (`version=vX.Y.Z` will
+appear in the output). The `git push` step then fails with a permission error —
+that is expected and confirms no tag was pushed. The mock event payload is at
+`.github/act/release-event.json`.
+
 ## Updating the documentation site
 
 After a release, update [oras-www](https://github.com/oras-project/oras-www)
