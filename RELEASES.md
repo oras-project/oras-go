@@ -7,11 +7,19 @@ into `v2` automatically tags the commit and publishes the GitHub Release.
 
 ### 1. Create a release branch
 
+The release branch needs at least one commit so GitHub will allow a PR to be
+opened. Use an empty commit as a lightweight marker:
+
 ```bash
 git fetch upstream
 git checkout -b release/v2.7.0 upstream/v2
+git commit --allow-empty -s -m "chore: prepare release v2.7.0"
 git push origin release/v2.7.0
 ```
+
+The release does not need to contain the changes being released — those are
+already on `v2`. The PR is a trigger: when it merges, the workflow tags
+whatever commit `v2` is at, which includes all prior work on the branch.
 
 ### 2. Open a pull request
 
