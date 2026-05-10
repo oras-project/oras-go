@@ -18,8 +18,9 @@ git push origin release/v2.7.0
 ```
 
 The release does not need to contain the changes being released — those are
-already on `v2`. The PR is a trigger: when it merges, the workflow tags
-whatever commit `v2` is at, which includes all prior work on the branch.
+already on `v2`. The PR is a trigger: when it merges, the workflow tags the
+PR's `merge_commit_sha` (the exact commit that landed on `v2`), which includes
+all prior work on the branch.
 
 ### 2. Open a pull request
 

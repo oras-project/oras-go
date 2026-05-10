@@ -21,7 +21,7 @@ on:
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'release/')
+    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'release/') && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,6 +30,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - name: Set up Go
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
@@ -57,13 +58,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ steps.version.outputs.version }}
+          git tag ${{ steps.version.outputs.version }} ${{ github.event.pull_request.merge_commit_sha }}
           git push origin ${{ steps.version.outputs.version }}
 
       - name: Write release notes from PR body
         env:
           NOTES: ${{ github.event.pull_request.body }}
-        run: echo "$NOTES" > /tmp/release-notes.md
+        run: printf '%s\n' "$NOTES" > /tmp/release-notes.md
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
