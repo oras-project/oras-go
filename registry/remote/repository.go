@@ -1413,9 +1413,10 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	if mediaType != target.MediaType {
 		return nil, fmt.Errorf("%s %q: mismatch response Content-Type %q: expect %q", resp.Request.Method, resp.Request.URL, mediaType, target.MediaType)
 	}
-	if size := resp.ContentLength; size != -1 && size != target.Size {
-		return nil, fmt.Errorf("%s %q: mismatch Content-Length", resp.Request.Method, resp.Request.URL)
-	}
+	// Content-Length is not validated here because some registries (e.g. Harbor)
+	// return different values between HEAD (used by Resolve) and GET responses,
+	// typically due to transparent compression. Integrity is guaranteed by
+	// verifyContentDigest below.
 	if err := verifyContentDigest(resp, target.Digest); err != nil {
 		return nil, err
 	}
