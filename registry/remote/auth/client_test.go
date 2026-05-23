@@ -3977,3 +3977,126 @@ func TestClient_fetchBasicAuth(t *testing.T) {
 		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
 	}
 }
+
+func TestClient_Do_Bearer_CustomTokenFetcher(t *testing.T) {
+	wantToken := "custom_fetcher_token"
+	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
+	var service string
+	scope := "repository:test:pull"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		header := "Bearer " + wantToken
+		if auth := r.Header.Get("Authorization"); auth != header {
+			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", "https://auth.example.com/token", service, scope)
+			w.Header().Set("Www-Authenticate", challenge)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		atomic.AddInt64(&successCount, 1)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	// Custom token fetcher that always returns a fixed token.
+	customFetcher := &mockTokenFetcherForClient{token: wantToken}
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			return credentials.Credential{
+				Username: "user",
+				Password: "pass",
+			}, nil
+		},
+		TokenFetcher: customFetcher,
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount += 2; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
+
+	// Verify the custom fetcher was actually called.
+	if !customFetcher.called {
+		t.Error("custom TokenFetcher was not called")
+	}
+}
+
+func TestClient_Do_Bearer_CustomTokenFetcher_Error(t *testing.T) {
+	var service string
+	scope := "repository:test:pull"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", "https://auth.example.com/token", service, scope)
+		w.Header().Set("Www-Authenticate", challenge)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	fetcherErr := errors.New("custom fetcher error")
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			return credentials.Credential{
+				Username: "user",
+				Password: "pass",
+			}, nil
+		},
+		TokenFetcher: &mockTokenFetcherForClient{err: fetcherErr},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	_, err = client.Do(req)
+	if err == nil {
+		t.Fatal("Client.Do() expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "custom fetcher error") {
+		t.Errorf("Client.Do() error = %v, want error containing %q", err, "custom fetcher error")
+	}
+}
+
+// mockTokenFetcherForClient is a test helper that returns a fixed token and
+// tracks whether it was called.
+type mockTokenFetcherForClient struct {
+	token  string
+	err    error
+	called bool
+}
+
+func (m *mockTokenFetcherForClient) FetchToken(ctx context.Context, params TokenParams, cred credentials.Credential) (string, error) {
+	m.called = true
+	if m.err != nil {
+		return "", m.err
+	}
+	return m.token, nil
+}
