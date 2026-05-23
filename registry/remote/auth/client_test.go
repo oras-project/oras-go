@@ -726,6 +726,7 @@ func TestClient_Do_Bearer_Auth(t *testing.T) {
 			}, nil
 		},
 	}
+	client.SetLegacyMode(true)
 
 	// first request
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -853,6 +854,7 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 		},
 		Cache: NewCache(),
 	}
+	client.SetLegacyMode(true)
 
 	// first request
 	ctx := WithScopes(context.Background(), scopes...)
@@ -995,6 +997,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		}),
 		Cache: NewCache(),
 	}
+	client1.SetLegacyMode(true)
 
 	// set up server 2
 	username2 := "test_user2"
@@ -1065,6 +1068,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		}),
 		Cache: NewCache(),
 	}
+	client2.SetLegacyMode(true)
 
 	ctx := context.Background()
 	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
@@ -1312,7 +1316,6 @@ func TestClient_Do_Bearer_OAuth2_Password(t *testing.T) {
 				Password: password,
 			}, nil
 		},
-		ForceAttemptOAuth2: true,
 	}
 
 	// first request
@@ -1459,8 +1462,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached(t *testing.T) {
 				Password: password,
 			}, nil
 		},
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	// first request
@@ -1622,8 +1624,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 			Username: username1,
 			Password: password1,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 	// set up server 2
 	username2 := "test_user2"
@@ -1712,8 +1713,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 			Username: username2,
 			Password: password2,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	ctx := context.Background()
@@ -2970,8 +2970,7 @@ func TestClient_Do_Scope_Hint_Mismatch(t *testing.T) {
 				Password: password,
 			}, nil
 		},
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	// first request
@@ -3114,8 +3113,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 			Username: username1,
 			Password: password1,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	// set up server 1
@@ -3208,8 +3206,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 			Username: username2,
 			Password: password2,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	ctx := context.Background()
@@ -3350,6 +3347,7 @@ func TestClient_Do_Invalid_Credential_Basic(t *testing.T) {
 			}, nil
 		},
 	}
+	client.SetLegacyMode(true)
 
 	// request should fail
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3435,6 +3433,7 @@ func TestClient_Do_Invalid_Credential_Bearer(t *testing.T) {
 			}, nil
 		},
 	}
+	client.SetLegacyMode(true)
 
 	// request should fail
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3620,6 +3619,7 @@ func TestClient_Do_Scheme_Change(t *testing.T) {
 		},
 		Cache: NewCache(),
 	}
+	client.SetLegacyMode(true)
 
 	// request with bearer auth
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3975,5 +3975,23 @@ func TestClient_fetchBasicAuth(t *testing.T) {
 	_, err := c.fetchBasicAuth(context.Background(), "")
 	if err != ErrBasicCredentialNotFound {
 		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
+	}
+}
+
+func TestClient_SetLegacyMode(t *testing.T) {
+	var client Client
+	// Default should be false.
+	if client.legacyMode {
+		t.Error("default legacyMode should be false")
+	}
+
+	client.SetLegacyMode(true)
+	if !client.legacyMode {
+		t.Error("SetLegacyMode(true) should set legacyMode to true")
+	}
+
+	client.SetLegacyMode(false)
+	if client.legacyMode {
+		t.Error("SetLegacyMode(false) should set legacyMode to false")
 	}
 }
