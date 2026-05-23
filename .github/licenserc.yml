@@ -35,6 +35,7 @@ header:
     - 'go.mod'
     - 'go.sum'
     - '**/testdata/**'
+    - '.github/act/**'
 
   comment: on-failure
 
