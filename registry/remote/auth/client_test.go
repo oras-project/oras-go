@@ -4176,3 +4176,32 @@ func (m *mockTokenFetcherForClient) FetchToken(ctx context.Context, params Token
 	}
 	return m.token, nil
 }
+
+func TestClient_validateRealm(t *testing.T) {
+	const registry = "registry.example.com"
+	tests := []struct {
+		name    string
+		hosts   []string
+		realm   string
+		wantErr bool
+	}{
+		{"empty allowlist accepts any realm", nil, "https://attacker.example.com/token", false},
+		{"empty allowlist accepts empty realm", nil, "", false},
+		{"empty realm is allowed even with allowlist", []string{"auth.example.com"}, "", false},
+		{"same-host realm is always allowed", []string{"auth.example.com"}, "https://registry.example.com/token", false},
+		{"allowlisted host is accepted", []string{"auth.example.com"}, "https://auth.example.com/token", false},
+		{"allowlisted host with port is accepted", []string{"auth.example.com:8443"}, "https://auth.example.com:8443/token", false},
+		{"non-allowlisted host is rejected", []string{"auth.example.com"}, "https://other.example.com/token", true},
+		{"host without matching port is rejected", []string{"auth.example.com:8443"}, "https://auth.example.com/token", true},
+		{"unparseable realm is rejected when allowlist is set", []string{"auth.example.com"}, "://bad-url", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Client{TrustedRealmHosts: tt.hosts}
+			err := c.validateRealm(tt.realm, registry)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateRealm(%q, %q) error = %v, wantErr %v", tt.realm, registry, err, tt.wantErr)
+			}
+		})
+	}
+}
