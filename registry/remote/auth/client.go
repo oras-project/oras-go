@@ -129,6 +129,20 @@ type Client struct {
 	// the registry challenges with Bearer auth, Basic auth is used instead.
 	// This requires the registry to also accept Basic auth credentials.
 	ForceBasicAuth bool
+
+	// TrustedRealmHosts is an optional allowlist of bearer token realm hosts
+	// accepted in addition to the registry's own host. When empty (the
+	// default), any realm host returned by the registry is trusted, which
+	// matches the historical behavior of this client.
+	//
+	// When non-empty, the bearer realm URL's host must match either the
+	// registry host or one of the listed hosts; realms outside this set are
+	// rejected. Hosts must include the port when the realm uses a non-default
+	// port (e.g. "auth.example.com" or "auth.example.com:8443").
+	//
+	// Caution: hosts listed here will receive the user's credentials. Add
+	// only hosts you trust to receive the same credentials as the registry.
+	TrustedRealmHosts []string
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -171,6 +185,28 @@ func (c *Client) SetUserAgent(userAgent string) {
 		c.Header = http.Header{}
 	}
 	c.Header.Set(headerUserAgent, userAgent)
+}
+
+// validateRealm enforces TrustedRealmHosts when configured. An empty
+// allowlist preserves the historical permissive behavior and accepts any
+// realm host returned by the registry.
+func (c *Client) validateRealm(realm, registryHost string) error {
+	if len(c.TrustedRealmHosts) == 0 || realm == "" {
+		return nil
+	}
+	realmURL, err := url.Parse(realm)
+	if err != nil {
+		return fmt.Errorf("failed to parse bearer realm %q: %w", realm, err)
+	}
+	if realmURL.Host == registryHost {
+		return nil
+	}
+	for _, trusted := range c.TrustedRealmHosts {
+		if realmURL.Host == trusted {
+			return nil
+		}
+	}
+	return fmt.Errorf("bearer realm host %q is not in Client.TrustedRealmHosts and is not the registry host %q", realmURL.Host, registryHost)
 }
 
 // SetLegacyMode sets whether to use legacy distribution spec authentication
@@ -290,6 +326,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
+		if err := c.validateRealm(realm, host); err != nil {
+			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
+		}
 		service := params["service"]
 		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
 			return c.fetchBearerToken(ctx, host, realm, service, scopes)
