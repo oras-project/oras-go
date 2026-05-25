@@ -187,16 +187,43 @@ func (c *Client) SetUserAgent(userAgent string) {
 	c.Header.Set(headerUserAgent, userAgent)
 }
 
-// validateRealm enforces TrustedRealmHosts when configured. An empty
-// allowlist preserves the historical permissive behavior and accepts any
-// realm host returned by the registry.
-func (c *Client) validateRealm(realm, registryHost string) error {
-	if len(c.TrustedRealmHosts) == 0 || realm == "" {
+// validateRealm validates the bearer token realm before credentials are sent
+// to it.
+//
+// The realm scheme must be http or https, and an http realm is rejected when
+// the registry was contacted over https (a TLS downgrade of credential
+// traffic). This check always applies.
+//
+// When Client.TrustedRealmHosts is non-empty, the realm host must also match
+// either the registry host or one of the listed hosts. An empty allowlist
+// preserves the historical permissive behavior and accepts any realm host.
+func (c *Client) validateRealm(realm string, registryURL *url.URL) error {
+	if realm == "" {
 		return nil
 	}
 	realmURL, err := url.Parse(realm)
 	if err != nil {
 		return fmt.Errorf("failed to parse bearer realm %q: %w", realm, err)
+	}
+	// scheme must be http or https; http is rejected when the registry was
+	// contacted over https to avoid downgrading credential traffic to plaintext.
+	switch realmURL.Scheme {
+	case "https":
+		// always allowed
+	case "http":
+		if registryURL != nil && registryURL.Scheme == "https" {
+			return fmt.Errorf("bearer realm %q uses http but registry was contacted over https", realm)
+		}
+	default:
+		return fmt.Errorf("bearer realm %q uses unsupported scheme %q", realm, realmURL.Scheme)
+	}
+	// host allowlist is opt-in; an empty list accepts any realm host.
+	if len(c.TrustedRealmHosts) == 0 {
+		return nil
+	}
+	var registryHost string
+	if registryURL != nil {
+		registryHost = registryURL.Host
 	}
 	if realmURL.Host == registryHost {
 		return nil
@@ -326,7 +353,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
-		if err := c.validateRealm(realm, host); err != nil {
+		if err := c.validateRealm(realm, originalReq.URL); err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 		service := params["service"]
