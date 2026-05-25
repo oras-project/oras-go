@@ -3744,7 +3744,7 @@ func TestClient_StaticCredential_basicAuth(t *testing.T) {
 	testPassword := "password"
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3816,7 +3816,7 @@ func TestClient_StaticCredential_withAccessToken(t *testing.T) {
 	defer as.Close()
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3910,7 +3910,7 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 	defer as.Close()
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -4178,29 +4178,36 @@ func (m *mockTokenFetcherForClient) FetchToken(ctx context.Context, params Token
 }
 
 func TestClient_validateRealm(t *testing.T) {
-	const registry = "registry.example.com"
+	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
+	registryHTTP, _ := url.Parse("http://registry.example.com/v2/")
 	tests := []struct {
 		name    string
 		hosts   []string
 		realm   string
+		reg     *url.URL
 		wantErr bool
 	}{
-		{"empty allowlist accepts any realm", nil, "https://attacker.example.com/token", false},
-		{"empty allowlist accepts empty realm", nil, "", false},
-		{"empty realm is allowed even with allowlist", []string{"auth.example.com"}, "", false},
-		{"same-host realm is always allowed", []string{"auth.example.com"}, "https://registry.example.com/token", false},
-		{"allowlisted host is accepted", []string{"auth.example.com"}, "https://auth.example.com/token", false},
-		{"allowlisted host with port is accepted", []string{"auth.example.com:8443"}, "https://auth.example.com:8443/token", false},
-		{"non-allowlisted host is rejected", []string{"auth.example.com"}, "https://other.example.com/token", true},
-		{"host without matching port is rejected", []string{"auth.example.com:8443"}, "https://auth.example.com/token", true},
-		{"unparseable realm is rejected when allowlist is set", []string{"auth.example.com"}, "://bad-url", true},
+		// host allowlist (empty == allow all)
+		{"empty allowlist accepts any realm host", nil, "https://attacker.example.com/token", registryHTTPS, false},
+		{"empty allowlist accepts empty realm", nil, "", registryHTTPS, false},
+		{"empty realm is allowed even with allowlist", []string{"auth.example.com"}, "", registryHTTPS, false},
+		{"same-host realm is always allowed", []string{"auth.example.com"}, "https://registry.example.com/token", registryHTTPS, false},
+		{"allowlisted host is accepted", []string{"auth.example.com"}, "https://auth.example.com/token", registryHTTPS, false},
+		{"allowlisted host with port is accepted", []string{"auth.example.com:8443"}, "https://auth.example.com:8443/token", registryHTTPS, false},
+		{"non-allowlisted host is rejected", []string{"auth.example.com"}, "https://other.example.com/token", registryHTTPS, true},
+		{"host without matching port is rejected", []string{"auth.example.com:8443"}, "https://auth.example.com/token", registryHTTPS, true},
+		{"unparseable realm is rejected", []string{"auth.example.com"}, "://bad-url", registryHTTPS, true},
+		// scheme check (always applies, even with empty allowlist)
+		{"http realm on plain-http registry is allowed", nil, "http://auth.example.com/token", registryHTTP, false},
+		{"http realm on https registry is rejected (TLS downgrade)", nil, "http://auth.example.com/token", registryHTTPS, true},
+		{"unsupported scheme is rejected with empty allowlist", nil, "ftp://auth.example.com/token", registryHTTPS, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Client{TrustedRealmHosts: tt.hosts}
-			err := c.validateRealm(tt.realm, registry)
+			err := c.validateRealm(tt.realm, tt.reg)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("validateRealm(%q, %q) error = %v, wantErr %v", tt.realm, registry, err, tt.wantErr)
+				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.reg, err, tt.wantErr)
 			}
 		})
 	}
