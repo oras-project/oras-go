@@ -130,7 +130,10 @@ func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos 
 	ctx = auth.AppendScopesForHost(ctx, r.Reference.Host(), auth.ScopeRegistryCatalog)
 	url := buildRegistryCatalogURL(r.PlainHTTP, r.Reference)
 	var err error
-	for err == nil {
+	for pages := 0; err == nil; pages++ {
+		if r.MaxPageCount > 0 && pages >= r.MaxPageCount {
+			return fmt.Errorf("%w: %d", errdef.ErrPageCountExceeded, r.MaxPageCount)
+		}
 		url, err = r.repositories(ctx, last, fn, url)
 		// clear `last` for subsequent pages
 		last = ""

@@ -133,6 +133,14 @@ type Repository struct {
 	// If less than or equal to zero, a default (currently 4MiB) is used.
 	MaxMetadataBytes int64
 
+	// MaxPageCount specifies a limit on the number of pages that are fetched
+	// when listing tags, repositories, or referrers via the paginated metadata
+	// APIs.
+	// If less than or equal to zero, no limit is applied and all pages are
+	// fetched. When the limit is exceeded, the listing returns
+	// errdef.ErrPageCountExceeded.
+	MaxPageCount int
+
 	// SkipReferrersGC specifies whether to delete the dangling referrers
 	// index when referrers tag schema is utilized.
 	//  - If false, the old referrers index will be deleted after the new one
@@ -215,6 +223,7 @@ func (r *Repository) clone() *Repository {
 		TagListPageSize:      r.TagListPageSize,
 		ReferrerListPageSize: r.ReferrerListPageSize,
 		MaxMetadataBytes:     r.MaxMetadataBytes,
+		MaxPageCount:         r.MaxPageCount,
 		SkipReferrersGC:      r.SkipReferrersGC,
 		HandleWarning:        r.HandleWarning,
 		Policy:               r.Policy,
@@ -490,7 +499,10 @@ func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []strin
 	ctx = auth.AppendRepositoryScope(ctx, r.Reference, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
 	var err error
-	for err == nil {
+	for pages := 0; err == nil; pages++ {
+		if r.MaxPageCount > 0 && pages >= r.MaxPageCount {
+			return fmt.Errorf("%w: %d", errdef.ErrPageCountExceeded, r.MaxPageCount)
+		}
 		url, err = r.tags(ctx, last, fn, url)
 		// clear `last` for subsequent pages
 		last = ""
@@ -608,7 +620,10 @@ func (r *Repository) referrersByAPI(ctx context.Context, desc ocispec.Descriptor
 
 	url := buildReferrersURL(r.PlainHTTP, ref, artifactType)
 	var err error
-	for err == nil {
+	for pages := 0; err == nil; pages++ {
+		if r.MaxPageCount > 0 && pages >= r.MaxPageCount {
+			return fmt.Errorf("%w: %d", errdef.ErrPageCountExceeded, r.MaxPageCount)
+		}
 		url, err = r.referrersPageByAPI(ctx, artifactType, fn, url)
 	}
 	if err == errNoLink {

@@ -1265,6 +1265,113 @@ func TestRepository_Tags(t *testing.T) {
 	}
 }
 
+func TestRepository_Tags_MaxPageCount(t *testing.T) {
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/test/tags/list" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		// always advertise a next page to simulate an endless response
+		w.Header().Set("Link", fmt.Sprintf(`<%s/v2/test/tags/list>; rel="next"`, ts.URL))
+		result := struct {
+			Tags []string `json:"tags"`
+		}{
+			Tags: []string{"tag"},
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.MaxPageCount = 3
+
+	ctx := context.Background()
+	pages := 0
+	err = repo.Tags(ctx, "", func(got []string) error {
+		pages++
+		return nil
+	})
+	if !errors.Is(err, errdef.ErrPageCountExceeded) {
+		t.Errorf("Repository.Tags() error = %v, want %v", err, errdef.ErrPageCountExceeded)
+	}
+	if pages != repo.MaxPageCount {
+		t.Errorf("Repository.Tags() fetched %d pages, want %d", pages, repo.MaxPageCount)
+	}
+}
+
+func TestRepository_Referrers_MaxPageCount(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	referrer := ocispec.Descriptor{
+		MediaType: spec.MediaTypeArtifactManifest,
+		Size:      1,
+		Digest:    digest.FromString("1"),
+	}
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		// always advertise a next page to simulate an endless response
+		w.Header().Set("Link", fmt.Sprintf(`<%s%s>; rel="next"`, ts.URL, path))
+		result := ocispec.Index{
+			Versioned: specs.Versioned{
+				SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+			},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: []ocispec.Descriptor{referrer},
+		}
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.MaxPageCount = 3
+
+	ctx := context.Background()
+	pages := 0
+	err = repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		pages++
+		return nil
+	})
+	if !errors.Is(err, errdef.ErrPageCountExceeded) {
+		t.Errorf("Repository.Referrers() error = %v, want %v", err, errdef.ErrPageCountExceeded)
+	}
+	if pages != repo.MaxPageCount {
+		t.Errorf("Repository.Referrers() fetched %d pages, want %d", pages, repo.MaxPageCount)
+	}
+}
+
 func TestRepository_Predecessors(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{

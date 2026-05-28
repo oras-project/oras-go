@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -216,6 +217,52 @@ func TestRegistry_Repositories(t *testing.T) {
 	}
 }
 
+func TestRegistry_Repositories_MaxPageCount(t *testing.T) {
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/_catalog" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		// always advertise a next page to simulate an endless response
+		w.Header().Set("Link", fmt.Sprintf(`<%s/v2/_catalog>; rel="next"`, ts.URL))
+		result := struct {
+			Repositories []string `json:"repositories"`
+		}{
+			Repositories: []string{"repo"},
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	reg.PlainHTTP = true
+	reg.MaxPageCount = 3
+
+	ctx := context.Background()
+	pages := 0
+	err = reg.Repositories(ctx, "", func(got []string) error {
+		pages++
+		return nil
+	})
+	if !errors.Is(err, errdef.ErrPageCountExceeded) {
+		t.Errorf("Registry.Repositories() error = %v, want %v", err, errdef.ErrPageCountExceeded)
+	}
+	if pages != reg.MaxPageCount {
+		t.Errorf("Registry.Repositories() fetched %d pages, want %d", pages, reg.MaxPageCount)
+	}
+}
+
 func TestRegistry_Repository(t *testing.T) {
 	reg, err := NewRegistry("localhost:5000")
 	if err != nil {
@@ -227,6 +274,7 @@ func TestRegistry_Repository(t *testing.T) {
 	reg.TagListPageSize = 100
 	reg.ReferrerListPageSize = 10
 	reg.MaxMetadataBytes = 8 * 1024 * 1024
+	reg.MaxPageCount = 5
 
 	ctx := context.Background()
 	got, err := reg.Repository(ctx, "hello-world")

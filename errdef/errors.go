@@ -25,6 +25,7 @@ var (
 	ErrInvalidMediaType   = errors.New("invalid media type")
 	ErrMissingReference   = errors.New("missing reference")
 	ErrNotFound           = errors.New("not found")
+	ErrPageCountExceeded  = errors.New("page count exceeds limit")
 	ErrSizeExceedsLimit   = errors.New("size exceeds limit")
 	ErrUnsupported        = errors.New("unsupported")
 	ErrUnsupportedVersion = errors.New("unsupported version")
