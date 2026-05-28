@@ -3295,6 +3295,63 @@ func TestStore_resolveWritePath_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestStore_resolveWritePath_SymlinkTraversal(t *testing.T) {
+	// GHSA-8xwf-rjm4-xvhv: resolveWritePath used a lexical filepath.Rel check
+	// that passed for names like "out/secret.txt" even when "out" is a symlink
+	// pointing outside workingDir.
+	t.Run("symlink component in workingDir escaping write boundary is blocked", func(t *testing.T) {
+		tempDir := t.TempDir()
+		outside := filepath.Join(tempDir, "outside")
+		if err := os.MkdirAll(outside, 0755); err != nil {
+			t.Fatal(err)
+		}
+		workingDir := filepath.Join(tempDir, "store")
+		if err := os.MkdirAll(workingDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		// "store/out" is a symlink to a directory outside workingDir.
+		if err := os.Symlink(outside, filepath.Join(workingDir, "out")); err != nil {
+			t.Skip("symlinks not available:", err)
+		}
+
+		s, err := New(workingDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+
+		// "out/secret.txt" passes the lexical check but follows the symlink
+		// to outside/secret.txt, escaping workingDir.
+		_, err = s.resolveWritePath("out/secret.txt")
+		if !errors.Is(err, ErrPathTraversalDisallowed) {
+			t.Errorf("resolveWritePath() error = %v, want %v", err, ErrPathTraversalDisallowed)
+		}
+	})
+
+	t.Run("regular subdirectory write within workingDir still works", func(t *testing.T) {
+		tempDir := t.TempDir()
+		workingDir := filepath.Join(tempDir, "store")
+		subDir := filepath.Join(workingDir, "sub")
+		if err := os.MkdirAll(subDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		s, err := New(workingDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+
+		got, err := s.resolveWritePath("sub/file.txt")
+		if err != nil {
+			t.Fatalf("resolveWritePath() unexpected error: %v", err)
+		}
+		if want := filepath.Join(workingDir, "sub/file.txt"); got != want {
+			t.Errorf("resolveWritePath() = %v, want %v", got, want)
+		}
+	})
+}
+
 func TestStore_resolveWritePath_Overwrite(t *testing.T) {
 	t.Run("Target file already exists", func(t *testing.T) {
 		tempDir := t.TempDir()
