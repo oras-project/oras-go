@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -156,6 +157,49 @@ func (c *Client) cache() Cache {
 	return c.Cache
 }
 
+// validateRealm rejects bearer token realm URLs that would have the client
+// forward credentials to obviously unsafe destinations:
+//
+//   - schemes other than http or https,
+//   - http realms when the registry was contacted over https (TLS downgrade),
+//   - hosts that are IP literals in loopback, link-local, private, or
+//     unspecified ranges (e.g. cloud instance metadata services such as
+//     169.254.169.254).
+//
+// Cross-host realms with a public hostname are permitted, because the
+// distribution spec allows a separate token endpoint (e.g. Docker Hub's
+// auth.docker.io). When the registry itself is reached at the same hostname
+// as the realm, the IP-literal check is skipped so loopback and in-cluster
+// deployments continue to work.
+func validateRealm(realm string, registryURL *url.URL) error {
+	if realm == "" {
+		return nil
+	}
+	realmURL, err := url.Parse(realm)
+	if err != nil {
+		return fmt.Errorf("failed to parse bearer realm %q: %w", realm, err)
+	}
+	switch realmURL.Scheme {
+	case "https":
+		// always allowed
+	case "http":
+		if registryURL != nil && registryURL.Scheme == "https" {
+			return fmt.Errorf("bearer realm %q uses http but registry was contacted over https", realm)
+		}
+	default:
+		return fmt.Errorf("bearer realm %q uses unsupported scheme %q", realm, realmURL.Scheme)
+	}
+	if ip := net.ParseIP(realmURL.Hostname()); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+			ip.IsPrivate() || ip.IsUnspecified() {
+			if registryURL == nil || realmURL.Hostname() != registryURL.Hostname() {
+				return fmt.Errorf("bearer realm host %q is a loopback, link-local, private, or unspecified address", realmURL.Hostname())
+			}
+		}
+	}
+	return nil
+}
+
 // SetUserAgent sets the user agent for all out-going requests.
 func (c *Client) SetUserAgent(userAgent string) {
 	if c.Header == nil {
@@ -257,6 +301,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
+		if err := validateRealm(realm, originalReq.URL); err != nil {
+			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
+		}
 		service := params["service"]
 		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
 			return c.fetchBearerToken(ctx, host, realm, service, scopes)

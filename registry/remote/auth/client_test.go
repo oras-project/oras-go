@@ -3743,7 +3743,7 @@ func TestClient_StaticCredential_basicAuth(t *testing.T) {
 	testPassword := "password"
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3815,7 +3815,7 @@ func TestClient_StaticCredential_withAccessToken(t *testing.T) {
 	defer as.Close()
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3909,7 +3909,7 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 	defer as.Close()
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3974,5 +3974,41 @@ func TestClient_fetchBasicAuth(t *testing.T) {
 	_, err := c.fetchBasicAuth(context.Background(), "")
 	if err != ErrBasicCredentialNotFound {
 		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
+	}
+}
+
+func Test_validateRealm(t *testing.T) {
+	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
+	registryHTTP, _ := url.Parse("http://registry.example.com/v2/")
+	registryLoopback, _ := url.Parse("http://127.0.0.1:5000/v2/")
+
+	tests := []struct {
+		name     string
+		realm    string
+		registry *url.URL
+		wantErr  bool
+	}{
+		{"empty realm is allowed", "", registryHTTPS, false},
+		{"https realm is allowed", "https://auth.example.com/token", registryHTTPS, false},
+		{"https cross-host realm is allowed", "https://other.example.com/token", registryHTTPS, false},
+		{"http realm against plain-http registry is allowed", "http://auth.example.com/token", registryHTTP, false},
+		{"http realm against https registry is rejected (TLS downgrade)", "http://auth.example.com/token", registryHTTPS, true},
+		{"non-http scheme is rejected", "file:///etc/passwd", registryHTTPS, true},
+		{"ftp scheme is rejected", "ftp://auth.example.com/token", registryHTTPS, true},
+		{"IMDS IPv4 is rejected", "http://169.254.169.254/latest/meta-data/", registryHTTP, true},
+		{"loopback IPv4 is rejected when registry is on a public host", "http://127.0.0.1:9090/token", registryHTTPS, true},
+		{"loopback IPv6 is rejected when registry is on a public host", "http://[::1]:9090/token", registryHTTPS, true},
+		{"private RFC1918 is rejected when registry is on a public host", "http://10.0.0.5/token", registryHTTP, true},
+		{"unspecified address is rejected", "http://0.0.0.0/token", registryHTTP, true},
+		{"loopback realm is allowed when registry shares the loopback hostname", "http://127.0.0.1:9090/token", registryLoopback, false},
+		{"unparseable realm is rejected", "://bad-url", registryHTTPS, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRealm(tt.realm, tt.registry)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
+			}
+		})
 	}
 }
