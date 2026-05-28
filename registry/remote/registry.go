@@ -83,6 +83,10 @@ type Registry struct {
 	// If zero, the page size is determined by the remote registry.
 	ReferrerListPageSize int
 
+	// RepositoryListMaxPages is the maximum number of pages to fetch during
+	// catalog listing. Zero means unlimited.
+	RepositoryListMaxPages int
+
 	// TagListMaxPages is the default maximum number of pages to fetch during
 	// tag listing. Zero means unlimited.
 	TagListMaxPages int
@@ -183,7 +187,11 @@ func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos 
 	ctx = auth.AppendScopesForHost(ctx, r.Reference.Host(), auth.ScopeRegistryCatalog)
 	url := buildRegistryCatalogURL(r.PlainHTTP, r.Reference)
 	var err error
-	for err == nil {
+	maxPages := r.RepositoryListMaxPages
+	for page := 0; err == nil; page++ {
+		if maxPages > 0 && page >= maxPages {
+			return fmt.Errorf("repository listing exceeded %d pages: %w", maxPages, errdef.ErrTooManyPages)
+		}
 		url, err = r.repositories(ctx, last, fn, url)
 		// clear `last` for subsequent pages
 		last = ""
