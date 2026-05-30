@@ -106,6 +106,12 @@ type Client struct {
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
 	ForceAttemptOAuth2 bool
+
+	// ForceBasicAuth forces the use of HTTP Basic authentication regardless
+	// of what authentication scheme the registry advertises. When true, if
+	// the registry challenges with Bearer auth, Basic auth is used instead.
+	// This requires the registry to also accept Basic auth credentials.
+	ForceBasicAuth bool
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -197,6 +203,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	// attempt again with credentials for recognized schemes
 	challenge := resp.Header.Get(headerWWWAuthenticate)
 	scheme, params := parseChallenge(challenge)
+	if c.ForceBasicAuth && scheme == SchemeBearer {
+		scheme = SchemeBasic
+	}
 	switch scheme {
 	case SchemeBasic:
 		resp.Body.Close()
