@@ -99,6 +99,11 @@ type Client struct {
 	// Reference: https://distribution.github.io/distribution/spec/auth/oauth/#getting-a-token
 	ClientID string
 
+	// TokenFetcher is an optional custom token fetcher for bearer
+	// authentication. If nil, the built-in token-fetching logic is used
+	// (see ForceAttemptOAuth2).
+	TokenFetcher TokenFetcher
+
 	// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant
 	// instead the distribution spec when authenticating using username and
 	// password.
@@ -285,6 +290,19 @@ func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service 
 	if err != nil {
 		return "", err
 	}
+
+	// Use custom TokenFetcher if provided
+	if c.TokenFetcher != nil {
+		params := TokenParams{
+			Registry: registry,
+			Realm:    realm,
+			Service:  service,
+			Scopes:   scopes,
+		}
+		return c.TokenFetcher.FetchToken(ctx, params, cred)
+	}
+
+	// Fall back to original implementation
 	if cred.AccessToken != "" {
 		return cred.AccessToken, nil
 	}
