@@ -31,6 +31,13 @@ type FileStore struct {
 	// If DisablePut is set to true, Put() will return ErrPlaintextPutDisabled.
 	DisablePut bool
 
+	// Hierarchical enables longest-prefix namespace matching when reading
+	// credentials, as used by containers-auth.json (Podman/Buildah). When
+	// false (default), exact hostname matching is used, as in Docker
+	// config.json. It only affects Get; Put and Delete always use the exact
+	// server address as the key.
+	Hierarchical bool
+
 	config ConfigFile
 }
 
@@ -64,7 +71,11 @@ func newFileStore(cfg ConfigFile) *FileStore {
 
 // Get retrieves credentials from the store for the given server address.
 func (fs *FileStore) Get(_ context.Context, serverAddress string) (Credential, error) {
-	authCfg, err := fs.config.GetAuthConfig(serverAddress)
+	getAuthConfig := fs.config.GetAuthConfig
+	if fs.Hierarchical {
+		getAuthConfig = fs.config.GetAuthConfigHierarchical
+	}
+	authCfg, err := getAuthConfig(serverAddress)
 	if err != nil {
 		return EmptyCredential, err
 	}
