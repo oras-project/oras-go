@@ -676,3 +676,55 @@ func TestConfigs_CredentialStore_ContainersAuthOnly(t *testing.T) {
 	}
 }
 
+func TestConfigs_CredentialStore_ContainersAuth_Hierarchical(t *testing.T) {
+	// containers-auth.json store should resolve credentials by longest-prefix
+	// namespace matching, so a lookup for a sub-path resolves to the namespace
+	// entry. base64("namespace:pass") = bmFtZXNwYWNlOnBhc3M=
+	containersCfg := NewConfig()
+	if err := containersCfg.SetAuthConfig("registry.example.com/namespace", AuthConfig{Auth: "bmFtZXNwYWNlOnBhc3M="}); err != nil {
+		t.Fatal(err)
+	}
+
+	configs := &Configs{
+		ContainersAuthConfig: containersCfg,
+	}
+
+	store, err := configs.CredentialStore(credentials.StoreOptions{})
+	if err != nil {
+		t.Fatalf("CredentialStore() error: %v", err)
+	}
+
+	cred, err := store.Get(context.Background(), "registry.example.com/namespace/repo")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if cred.Username != "namespace" || cred.Password != "pass" {
+		t.Errorf("Get(registry.example.com/namespace/repo) = %v, want namespace:pass", cred)
+	}
+}
+
+func TestConfigs_CredentialStore_DockerNotHierarchical(t *testing.T) {
+	// The Docker config store uses exact hostname matching, so a lookup for a
+	// namespaced sub-path must NOT resolve to the namespace entry.
+	dockerCfg := NewConfig()
+	if err := dockerCfg.SetAuthConfig("registry.example.com/namespace", AuthConfig{Auth: "bmFtZXNwYWNlOnBhc3M="}); err != nil {
+		t.Fatal(err)
+	}
+
+	configs := &Configs{
+		DockerConfig: dockerCfg,
+	}
+
+	store, err := configs.CredentialStore(credentials.StoreOptions{})
+	if err != nil {
+		t.Fatalf("CredentialStore() error: %v", err)
+	}
+
+	cred, err := store.Get(context.Background(), "registry.example.com/namespace/repo")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if cred != credentials.EmptyCredential {
+		t.Errorf("Get(registry.example.com/namespace/repo) = %v, want empty (no prefix matching for Docker config)", cred)
+	}
+}

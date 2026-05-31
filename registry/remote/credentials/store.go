@@ -33,8 +33,13 @@ import (
 // credential storage capabilities. This interface is implemented by
 // [config.Config] from the config package.
 type ConfigFile interface {
-	// GetAuthConfig returns the AuthConfig for the given server address.
+	// GetAuthConfig returns the AuthConfig for the given server address using
+	// exact hostname matching (Docker config.json semantics).
 	GetAuthConfig(serverAddress string) (AuthConfig, error)
+	// GetAuthConfigHierarchical returns the AuthConfig for the given server
+	// address using longest-prefix namespace matching (containers-auth.json
+	// semantics).
+	GetAuthConfigHierarchical(serverAddress string) (AuthConfig, error)
 	// PutAuthConfig saves the AuthConfig for the given server address.
 	PutAuthConfig(serverAddress string, authCfg AuthConfig) error
 	// DeleteAuthConfig removes the AuthConfig for the given server address.
@@ -107,6 +112,15 @@ type StoreOptions struct {
 	//   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 	//   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 	IgnoreDefaultNativeStore bool
+
+	// Hierarchical enables longest-prefix namespace matching when reading
+	// credentials from the plaintext config file, as used by
+	// containers-auth.json (Podman/Buildah). When false (default), exact
+	// hostname matching is used, as in Docker config.json.
+	//
+	// This only affects the plaintext file store; credential helpers and
+	// native stores are always keyed by the exact server address.
+	Hierarchical bool
 }
 
 // defaultConfigLoader is set by the config package during init.
@@ -246,6 +260,7 @@ func (ds *DynamicStore) getStore(serverAddress string) Store {
 
 	fs := newFileStore(ds.config)
 	fs.DisablePut = !ds.options.AllowPlaintextPut
+	fs.Hierarchical = ds.options.Hierarchical
 	return fs
 }
 
