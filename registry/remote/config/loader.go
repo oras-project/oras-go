@@ -26,7 +26,6 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
-
 // Configs holds loaded configuration from Docker config.json and
 // system registries.conf. Fields are nil if the corresponding file
 // was not found.
@@ -272,7 +271,11 @@ func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.St
 		stores = append(stores, credentials.NewStoreFromConfig(c.DockerConfig, opts))
 	}
 	if c.ContainersAuthConfig != nil {
-		stores = append(stores, credentials.NewStoreFromConfig(c.ContainersAuthConfig, opts))
+		// containers-auth.json supports hierarchical namespace matching, so
+		// look up credentials by longest-prefix instead of exact hostname.
+		authOpts := opts
+		authOpts.Hierarchical = true
+		stores = append(stores, credentials.NewStoreFromConfig(c.ContainersAuthConfig, authOpts))
 	}
 
 	if len(stores) == 0 {
@@ -283,4 +286,3 @@ func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.St
 	}
 	return credentials.NewStoreWithFallbacks(stores[0], stores[1:]...), nil
 }
-
