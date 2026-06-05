@@ -451,9 +451,11 @@ func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.
 // saveFile saves content matching the descriptor to the given file.
 func (s *Store) saveFile(fp *os.File, expected ocispec.Descriptor, content io.Reader) (err error) {
 	defer func() {
-		closeErr := fp.Close()
-		if err == nil {
-			err = closeErr
+		if syncErr := fp.Sync(); syncErr != nil {
+			err = errors.Join(err, syncErr)
+		}
+		if closeErr := fp.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
 		}
 	}()
 	path := fp.Name()
