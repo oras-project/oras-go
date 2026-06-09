@@ -21,11 +21,18 @@ on:
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'release/') && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'release/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Reject fork-based release PRs
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          echo "::error::Release PR #${{ github.event.pull_request.number }} was opened from a fork (${{ github.event.pull_request.head.repo.full_name }}) — no tag or release was created."
+          echo "Push the release/* branch to ${{ github.repository }} directly (not a fork), then re-open and merge the release PR."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

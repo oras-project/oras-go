@@ -14,8 +14,16 @@ opened. Use an empty commit as a lightweight marker:
 git fetch upstream
 git checkout -b release/v2.7.0 upstream/v2
 git commit --allow-empty -s -m "chore: prepare release v2.7.0"
-git push origin release/v2.7.0
+git push upstream release/v2.7.0
 ```
+
+> **Important:** push the release branch to the upstream repository
+> (`oras-project/oras-go`), **not** a personal fork. The release workflow runs
+> only after merge and its `GITHUB_TOKEN` can only push tags to
+> `oras-project/oras-go`, so a release PR opened from a fork is rejected by the
+> `release-pr-check` workflow and — if merged anyway — produces no tag or
+> release. If your `origin` remote points at a fork, push to `upstream`
+> explicitly as shown above.
 
 The release does not need to contain the changes being released — those are
 already on `v2`. The PR is a trigger: when it merges, the workflow tags the
