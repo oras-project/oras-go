@@ -14,7 +14,7 @@ opened. Use an empty commit as a lightweight marker:
 git fetch upstream
 git checkout -b release/v2.7.0 upstream/v2
 git commit --allow-empty -s -m "chore: prepare release v2.7.0"
-git push upstream release/v2.7.0
+git push origin release/v2.7.0
 ```
 
 > **Important:** push the release branch to the upstream repository
