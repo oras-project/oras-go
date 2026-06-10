@@ -141,9 +141,12 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 
 	path = fp.Name()
 	defer func() {
+		if syncErr := fp.Sync(); syncErr != nil {
+			ingestErr = errors.Join(ingestErr, syncErr)
+		}
 		// close the temp file and check close error
-		if err := fp.Close(); err != nil && ingestErr == nil {
-			ingestErr = fmt.Errorf("failed to close ingest file: %w", err)
+		if err := fp.Close(); err != nil {
+			ingestErr = errors.Join(ingestErr, fmt.Errorf("failed to close ingest file: %w", err))
 		}
 
 		// remove the temp file in case of error
