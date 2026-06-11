@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -233,13 +234,23 @@ func (c *Client) SetUserAgent(userAgent string) {
 // validateRealm validates the bearer token realm before credentials are sent
 // to it.
 //
-// The realm scheme must be http or https, and an http realm is rejected when
-// the registry was contacted over https (a TLS downgrade of credential
-// traffic). This check always applies.
+// The following checks always apply, regardless of Client.TrustedRealmHosts:
+//
+//   - the realm scheme must be http or https,
+//   - an http realm is rejected when the registry was contacted over https
+//     (a TLS downgrade of credential traffic),
+//   - hosts that are IP literals in loopback, link-local, private, or
+//     unspecified ranges are rejected (e.g. cloud instance metadata services
+//     such as 169.254.169.254). The IP-literal check is skipped when the realm
+//     hostname matches the registry hostname, so loopback and in-cluster
+//     deployments continue to work.
 //
 // When Client.TrustedRealmHosts is non-empty, the realm host must also match
 // either the registry host or one of the listed hosts. An empty allowlist
-// preserves the historical permissive behavior and accepts any realm host.
+// preserves the historical permissive behavior and accepts any (otherwise
+// safe) realm host.
+//
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xf85-363p-868w
 func (c *Client) validateRealm(realm string, registryURL *url.URL) error {
 	if realm == "" {
 		return nil
@@ -259,6 +270,20 @@ func (c *Client) validateRealm(realm string, registryURL *url.URL) error {
 		}
 	default:
 		return fmt.Errorf("bearer realm %q uses unsupported scheme %q", realm, realmURL.Scheme)
+	}
+	// Reject realm hosts that are IP literals in loopback, link-local, private,
+	// or unspecified ranges (e.g. the cloud metadata service 169.254.169.254).
+	// This always applies, independent of the TrustedRealmHosts allowlist, to
+	// prevent credential exfiltration via SSRF-style realm redirection. The
+	// check is skipped when the realm shares the registry hostname so loopback
+	// and in-cluster registries keep working.
+	if ip := net.ParseIP(realmURL.Hostname()); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+			ip.IsPrivate() || ip.IsUnspecified() {
+			if registryURL == nil || realmURL.Hostname() != registryURL.Hostname() {
+				return fmt.Errorf("bearer realm host %q is a loopback, link-local, private, or unspecified address", realmURL.Hostname())
+			}
+		}
 	}
 	// host allowlist is opt-in; an empty list accepts any realm host.
 	if len(c.TrustedRealmHosts) == 0 {
