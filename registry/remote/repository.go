@@ -193,10 +193,11 @@ func NewRepository(reference string) (*Repository, error) {
 
 // Reference returns the full registry.Reference for this repository.
 func (r *Repository) Reference() registry.Reference {
-	return registry.Reference{
-		Registry:   r.Registry.Reference.Registry,
-		Repository: r.RepositoryName,
+	ref := registry.Reference{Repository: r.RepositoryName}
+	if r.Registry != nil {
+		ref.Registry = r.Registry.Reference.Registry
 	}
+	return ref
 }
 
 // clone makes a copy of the Repository being careful not to copy non-copyable fields (sync.Mutex and syncutil.Pool types)

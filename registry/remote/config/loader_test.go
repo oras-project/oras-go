@@ -609,18 +609,20 @@ func TestLoadConfigsWithOptions_RegistriesDConfig_DefaultPath(t *testing.T) {
 }
 
 func TestLoadConfigsWithOptions_RegistriesConfig_UAPI_Strategy(t *testing.T) {
+	// Skip if any system-level UAPI registries.conf exists; this test requires
+	// that no system or vendor file is present to verify the not-found path.
+	for _, p := range []string{
+		"/etc/containers/registries.conf",
+		"/usr/share/containers/registries.conf",
+	} {
+		if _, err := os.Stat(p); err == nil {
+			t.Skipf("skipping: %s exists on this system", p)
+		}
+	}
+
 	tmpDir := t.TempDir()
-
-	origSysPath := systemRegistriesConfPath
-	origSysDirPath := systemRegistriesConfDirPath
-	systemRegistriesConfPath = filepath.Join(tmpDir, "nonexistent")
-	systemRegistriesConfDirPath = filepath.Join(tmpDir, "nonexistent.d")
-	defer func() {
-		systemRegistriesConfPath = origSysPath
-		systemRegistriesConfDirPath = origSysDirPath
-	}()
-
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 	t.Setenv("DOCKER_CONFIG", tmpDir)
 
 	configs, err := LoadConfigsWithOptions(LoadConfigsOptions{

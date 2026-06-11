@@ -4180,6 +4180,7 @@ func (m *mockTokenFetcherForClient) FetchToken(ctx context.Context, params Token
 func TestClient_validateRealm(t *testing.T) {
 	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
 	registryHTTP, _ := url.Parse("http://registry.example.com/v2/")
+	registryLoopback, _ := url.Parse("http://127.0.0.1:5000/v2/")
 	tests := []struct {
 		name    string
 		hosts   []string
@@ -4201,6 +4202,14 @@ func TestClient_validateRealm(t *testing.T) {
 		{"http realm on plain-http registry is allowed", nil, "http://auth.example.com/token", registryHTTP, false},
 		{"http realm on https registry is rejected (TLS downgrade)", nil, "http://auth.example.com/token", registryHTTPS, true},
 		{"unsupported scheme is rejected with empty allowlist", nil, "ftp://auth.example.com/token", registryHTTPS, true},
+		// IP-literal guard (always applies, even with empty allowlist)
+		// Reference: GHSA-xf85-363p-868w
+		{"IMDS IPv4 is rejected", nil, "http://169.254.169.254/latest/meta-data/", registryHTTP, true},
+		{"loopback IPv4 is rejected when registry is on a public host", nil, "http://127.0.0.1:9090/token", registryHTTPS, true},
+		{"loopback IPv6 is rejected when registry is on a public host", nil, "http://[::1]:9090/token", registryHTTPS, true},
+		{"private RFC1918 is rejected when registry is on a public host", nil, "http://10.0.0.5/token", registryHTTP, true},
+		{"loopback realm is allowed when registry shares the loopback hostname", nil, "http://127.0.0.1:9090/token", registryLoopback, false},
+		{"public realm host is not subject to the IP-literal guard", nil, "https://auth.example.com/token", registryHTTPS, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
