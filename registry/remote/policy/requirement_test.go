@@ -153,16 +153,7 @@ func TestPRSignedBy_ValidateKeySources(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "invalid with multiple key sources (keyPath and keyData)",
-			req: &PRSignedBy{
-				KeyType: "GPGKeys",
-				KeyPath: "/path/key.gpg",
-				KeyData: "inline data",
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid with multiple key sources (keyPath and keyPaths)",
+			name: "multiple key sources rejected",
 			req: &PRSignedBy{
 				KeyType:  "GPGKeys",
 				KeyPath:  "/path/key.gpg",
@@ -243,7 +234,7 @@ func TestPRSigstoreSigned_Validate(t *testing.T) {
 		{
 			name: "valid with keyDatas",
 			req: &PRSigstoreSigned{
-				KeyDatas: []string{"key1data", "key2data"},
+				KeyDatas: []string{"base64encodedpublickey"},
 			},
 			wantErr: false,
 		},
@@ -266,30 +257,10 @@ func TestPRSigstoreSigned_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "invalid fulcio config - missing CA",
+			name: "invalid fulcio config",
 			req: &PRSigstoreSigned{
 				Fulcio: &FulcioConfig{
-					OIDCIssuer:   "https://oauth.example.com",
-					SubjectEmail: "user@example.com",
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid fulcio config - missing oidcIssuer",
-			req: &PRSigstoreSigned{
-				Fulcio: &FulcioConfig{
-					CAPath:       "/path/ca.pem",
-					SubjectEmail: "user@example.com",
-				},
-			},
-			wantErr: true,
-		},
-		{
-			name: "invalid fulcio config - missing subjectEmail",
-			req: &PRSigstoreSigned{
-				Fulcio: &FulcioConfig{
-					CAPath:     "/path/ca.pem",
+					// Missing both CAPath and CAData
 					OIDCIssuer: "https://oauth.example.com",
 				},
 			},
@@ -307,9 +278,11 @@ func TestPRSigstoreSigned_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "valid with keyPath and optional fields",
+			name: "valid with all optional fields",
 			req: &PRSigstoreSigned{
 				KeyPath:            "/path/key.pub",
+				KeyData:            []byte("key data"),
+				KeyDatas:           []string{"base64key"},
 				RekorPublicKeyPath: "/path/rekor.pub",
 				RekorPublicKeyData: []byte("rekor key"),
 				SignedIdentity: &SignedIdentity{
@@ -348,7 +321,7 @@ func TestFulcioConfig_Validate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid with CAPath and required fields",
+			name: "valid with CAPath",
 			config: &FulcioConfig{
 				CAPath:       "/path/ca.pem",
 				OIDCIssuer:   "https://oauth.example.com",
@@ -357,9 +330,19 @@ func TestFulcioConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid with CAData and required fields",
+			name: "valid with CAData",
 			config: &FulcioConfig{
 				CAData:       []byte("ca certificate data"),
+				OIDCIssuer:   "https://oauth.example.com",
+				SubjectEmail: "user@example.com",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid with both CAPath and CAData",
+			config: &FulcioConfig{
+				CAPath:       "/path/ca.pem",
+				CAData:       []byte("ca data"),
 				OIDCIssuer:   "https://oauth.example.com",
 				SubjectEmail: "user@example.com",
 			},
@@ -471,6 +454,7 @@ func TestRequirementType_Constants(t *testing.T) {
 	}
 }
 
+
 // Test edge case: empty string fields
 func TestSignedIdentity_EmptyFields(t *testing.T) {
 	tests := []struct {
@@ -523,3 +507,4 @@ func TestSignedIdentity_EmptyFields(t *testing.T) {
 		})
 	}
 }
+

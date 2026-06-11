@@ -260,3 +260,17 @@ func TestReadAll_InvalidDescriptorSize(t *testing.T) {
 		t.Errorf("ReadAll() error = %v, want %v", err, ErrInvalidDescriptorSize)
 	}
 }
+
+func TestReadAll_OversizedDescriptor(t *testing.T) {
+	content := []byte("example content")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(content),
+		Size:      4611686018427387904, // 2^62, triggers makeslice panic without the cap
+	}
+	r := bytes.NewReader(content)
+	_, err := ReadAll(r, desc)
+	if err == nil || !errors.Is(err, ErrInvalidDescriptorSize) {
+		t.Errorf("ReadAll() error = %v, want %v", err, ErrInvalidDescriptorSize)
+	}
+}

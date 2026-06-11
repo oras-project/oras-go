@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -99,13 +100,50 @@ type Client struct {
 	// Reference: https://distribution.github.io/distribution/spec/auth/oauth/#getting-a-token
 	ClientID string
 
-	// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant
-	// instead the distribution spec when authenticating using username and
-	// password.
+	// TokenFetcher is an optional custom token fetcher for bearer authentication.
+	// If nil, a default composite token fetcher is used based on the credential
+	// type and legacyMode setting.
+	TokenFetcher TokenFetcher
+
+	// legacyMode controls whether to use the legacy distribution spec
+	// instead of OAuth2 with password grant when authenticating using
+	// username and password.
+	// Default is false (OAuth2 is used).
+	//
+	// When legacyMode is true, the client uses the legacy distribution spec for
+	// authentication. If the registry says it supports bearer authentication,
+	// basic authentication will be performed unless there are no credentials
+	// or a refresh token is provided. This is the approach used in oras-go
+	// v1 and v2.
+	//
+	// When legacyMode is false (default), the client uses OAuth2 with password
+	// grant.  If the registry says it supports bearer authentication, bearer
+	// authentication will be performed.
+	//
 	// References:
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
-	ForceAttemptOAuth2 bool
+	legacyMode bool
+
+	// ForceBasicAuth forces the use of HTTP Basic authentication regardless
+	// of what authentication scheme the registry advertises. When true, if
+	// the registry challenges with Bearer auth, Basic auth is used instead.
+	// This requires the registry to also accept Basic auth credentials.
+	ForceBasicAuth bool
+
+	// TrustedRealmHosts is an optional allowlist of bearer token realm hosts
+	// accepted in addition to the registry's own host. When empty (the
+	// default), any realm host returned by the registry is trusted, which
+	// matches the historical behavior of this client.
+	//
+	// When non-empty, the bearer realm URL's host must match either the
+	// registry host or one of the listed hosts; realms outside this set are
+	// rejected. Hosts must include the port when the realm uses a non-default
+	// port (e.g. "auth.example.com" or "auth.example.com:8443").
+	//
+	// Caution: hosts listed here will receive the user's credentials. Add
+	// only hosts you trust to receive the same credentials as the registry.
+	TrustedRealmHosts []string
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -122,7 +160,50 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 	for key, values := range c.Header {
 		req.Header[key] = append(req.Header[key], values...)
 	}
-	return c.client().Do(req)
+	// Drop the Authorization header when a redirect crosses an HTTP origin
+	// (scheme, host, or port). The standard library only strips sensitive
+	// headers when the hostname changes, so a redirect to a different port on
+	// the same host would otherwise forward credentials to an unintended
+	// endpoint. Any caller-provided CheckRedirect is preserved.
+	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+	client := c.client()
+	clientCopy := *client
+	checkRedirect := client.CheckRedirect
+	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && !sameHTTPOrigin(via[len(via)-1].URL, req.URL) {
+			req.Header.Del(headerAuthorization)
+		}
+		if checkRedirect != nil {
+			return checkRedirect(req, via)
+		}
+		return nil
+	}
+	return clientCopy.Do(req)
+}
+
+// sameHTTPOrigin reports whether a and b share the same HTTP origin, i.e. the
+// same scheme and host. Default ports are normalized so that, for example,
+// "example.com" and "example.com:443" compare equal over https.
+func sameHTTPOrigin(a, b *url.URL) bool {
+	if !strings.EqualFold(a.Scheme, b.Scheme) {
+		return false
+	}
+	return canonicalHost(a) == canonicalHost(b)
+}
+
+// canonicalHost returns the lower-cased host of u with the default port for its
+// scheme applied when no explicit port is present.
+func canonicalHost(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		switch strings.ToLower(u.Scheme) {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return strings.ToLower(u.Hostname()) + ":" + port
 }
 
 // credential resolves the credential for the given registry.
@@ -150,6 +231,100 @@ func (c *Client) SetUserAgent(userAgent string) {
 	c.Header.Set(headerUserAgent, userAgent)
 }
 
+// validateRealm validates the bearer token realm before credentials are sent
+// to it.
+//
+// The following checks always apply, regardless of Client.TrustedRealmHosts:
+//
+//   - the realm scheme must be http or https,
+//   - an http realm is rejected when the registry was contacted over https
+//     (a TLS downgrade of credential traffic),
+//   - hosts that are IP literals in loopback, link-local, private, or
+//     unspecified ranges are rejected (e.g. cloud instance metadata services
+//     such as 169.254.169.254). The IP-literal check is skipped when the realm
+//     hostname matches the registry hostname, so loopback and in-cluster
+//     deployments continue to work.
+//
+// When Client.TrustedRealmHosts is non-empty, the realm host must also match
+// either the registry host or one of the listed hosts. An empty allowlist
+// preserves the historical permissive behavior and accepts any (otherwise
+// safe) realm host.
+//
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xf85-363p-868w
+func (c *Client) validateRealm(realm string, registryURL *url.URL) error {
+	if realm == "" {
+		return nil
+	}
+	realmURL, err := url.Parse(realm)
+	if err != nil {
+		return fmt.Errorf("failed to parse bearer realm %q: %w", realm, err)
+	}
+	// scheme must be http or https; http is rejected when the registry was
+	// contacted over https to avoid downgrading credential traffic to plaintext.
+	switch realmURL.Scheme {
+	case "https":
+		// always allowed
+	case "http":
+		if registryURL != nil && registryURL.Scheme == "https" {
+			return fmt.Errorf("bearer realm %q uses http but registry was contacted over https", realm)
+		}
+	default:
+		return fmt.Errorf("bearer realm %q uses unsupported scheme %q", realm, realmURL.Scheme)
+	}
+	// Reject realm hosts that are IP literals in loopback, link-local, private,
+	// or unspecified ranges (e.g. the cloud metadata service 169.254.169.254).
+	// This always applies, independent of the TrustedRealmHosts allowlist, to
+	// prevent credential exfiltration via SSRF-style realm redirection. The
+	// check is skipped when the realm shares the registry hostname so loopback
+	// and in-cluster registries keep working.
+	if ip := net.ParseIP(realmURL.Hostname()); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+			ip.IsPrivate() || ip.IsUnspecified() {
+			if registryURL == nil || realmURL.Hostname() != registryURL.Hostname() {
+				return fmt.Errorf("bearer realm host %q is a loopback, link-local, private, or unspecified address", realmURL.Hostname())
+			}
+		}
+	}
+	// host allowlist is opt-in; an empty list accepts any realm host.
+	if len(c.TrustedRealmHosts) == 0 {
+		return nil
+	}
+	var registryHost string
+	if registryURL != nil {
+		registryHost = registryURL.Host
+	}
+	if realmURL.Host == registryHost {
+		return nil
+	}
+	for _, trusted := range c.TrustedRealmHosts {
+		if realmURL.Host == trusted {
+			return nil
+		}
+	}
+	return fmt.Errorf("bearer realm host %q is not in Client.TrustedRealmHosts and is not the registry host %q", realmURL.Host, registryHost)
+}
+
+// SetLegacyMode sets whether to use legacy distribution spec authentication
+// instead of OAuth2 with password grant when authenticating using username
+// and password.
+//
+// When legacy is true, the client uses the legacy distribution spec for
+// authentication. If the registry says it supports bearer authentication,
+// basic authentication will be performed unless there are no credentials
+// or a refresh token is provided. This is the approach used in oras-go
+// v1 and v2.
+//
+// When legacy is false (default), the client uses OAuth2 with password
+// grant.  If the registry says it supports bearer authentication, bearer
+// authentication will be performed.
+//
+// References:
+//   - https://distribution.github.io/distribution/spec/auth/jwt/
+//   - https://distribution.github.io/distribution/spec/auth/oauth/
+func (c *Client) SetLegacyMode(legacy bool) {
+	c.legacyMode = legacy
+}
+
 // Do sends the request to the remote server, attempting to resolve
 // authentication if 'Authorization' header is not set.
 //
@@ -168,6 +343,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	var attemptedKey string
 	cache := c.cache()
 	host := originalReq.Host
+	if host == "" {
+		host = originalReq.URL.Host
+	}
 	scheme, err := cache.GetScheme(ctx, host)
 	if err == nil {
 		switch scheme {
@@ -193,10 +371,20 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		return resp, nil
 	}
+	// If the challenge came from a different origin than originally requested
+	// (e.g. the request was redirected to another host or port), do not resolve
+	// or send the registry credentials to that origin.
+	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+	if resp.Request != nil && !sameHTTPOrigin(originalReq.URL, resp.Request.URL) {
+		return resp, nil
+	}
 
 	// attempt again with credentials for recognized schemes
 	challenge := resp.Header.Get(headerWWWAuthenticate)
 	scheme, params := parseChallenge(challenge)
+	if c.ForceBasicAuth && scheme == SchemeBearer {
+		scheme = SchemeBasic
+	}
 	switch scheme {
 	case SchemeBasic:
 		resp.Body.Close()
@@ -243,6 +431,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
+		if err := c.validateRealm(realm, originalReq.URL); err != nil {
+			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
+		}
 		service := params["service"]
 		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
 			return c.fetchBearerToken(ctx, host, realm, service, scopes)
@@ -285,10 +476,23 @@ func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service 
 	if err != nil {
 		return "", err
 	}
+
+	// Use custom TokenFetcher if provided
+	if c.TokenFetcher != nil {
+		params := TokenParams{
+			Registry: registry,
+			Realm:    realm,
+			Service:  service,
+			Scopes:   scopes,
+		}
+		return c.TokenFetcher.FetchToken(ctx, params, cred)
+	}
+
+	// Fall back to original implementation
 	if cred.AccessToken != "" {
 		return cred.AccessToken, nil
 	}
-	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && !c.ForceAttemptOAuth2) {
+	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && c.legacyMode) {
 		return c.fetchDistributionToken(ctx, realm, service, scopes, cred.Username, cred.Password)
 	}
 	return c.fetchOAuth2Token(ctx, realm, service, scopes, cred)

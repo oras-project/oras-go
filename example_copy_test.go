@@ -449,7 +449,7 @@ func Example_extendedCopyArtifactAndReferrersToRepository() {
 		panic(err)
 	}
 	// Note: The below code can be omitted if authentication is not required.
-	repo.Client = &auth.Client{
+	repo.Registry.Client = &auth.Client{
 		Client: retry.DefaultClient,
 		Cache:  auth.NewCache(),
 		CredentialFunc: credentials.StaticCredentialFunc(registry, credentials.Credential{
