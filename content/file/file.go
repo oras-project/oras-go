@@ -629,7 +629,7 @@ func (s *Store) resolveWritePath(name string) (string, error) {
 		// symlinks. A symlink component under workingDir (e.g. "out" -> "/outside")
 		// passes the lexical check yet directs writes outside workingDir.
 		// Re-check after resolving symlinks in the parent path to close that gap.
-		// (GHSA-8xwf-rjm4-xvhv)
+		// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-8xwf-rjm4-xvhv
 		if err := checkSymlinkEscape(base, target); err != nil {
 			return "", err
 		}
