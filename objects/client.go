@@ -181,11 +181,7 @@ func (c *Client) addToCache(content models.Content) models.Content {
 // NewBlob creates a new Blob from raw bytes.
 // The blob is configured with the client's target for push/fetch operations.
 func (c *Client) NewBlob(mediaType string, data []byte) *models.Blob {
-	blob := models.NewBlobFromBytes(mediaType, data, models.WithStorage(c.target, c.target))
-	if cached, ok := c.addToCache(blob).(*models.Blob); ok {
-		return cached
-	}
-	return blob
+	return c.addToCache(models.NewBlobFromBytes(mediaType, data, models.WithStorage(c.target, c.target))).(*models.Blob)
 }
 
 // FetchBlob fetches a blob by descriptor.
@@ -198,11 +194,7 @@ func (c *Client) FetchBlob(ctx context.Context, desc ocispec.Descriptor) (*model
 	}
 
 	// Create blob (content is lazily loaded)
-	blob := models.NewBlob(desc, c.target, c.target)
-	if cached, ok := c.addToCache(blob).(*models.Blob); ok {
-		return cached, nil
-	}
-	return blob, nil
+	return c.addToCache(models.NewBlob(desc, c.target, c.target)).(*models.Blob), nil
 }
 
 // FetchManifest fetches a manifest by descriptor.
@@ -232,31 +224,19 @@ func (c *Client) FetchManifest(ctx context.Context, desc ocispec.Descriptor) (mo
 // fetchArtifact returns an artifact model for the given descriptor.
 // Content is loaded lazily; call Load() to populate manifest fields.
 func (c *Client) fetchArtifact(ctx context.Context, desc ocispec.Descriptor) (*models.Artifact, error) {
-	artifact := models.NewArtifact(desc, c.target, c.target, c)
-	if cached, ok := c.addToCache(artifact).(*models.Artifact); ok {
-		return cached, nil
-	}
-	return artifact, nil
+	return c.addToCache(models.NewArtifact(desc, c.target, c.target, c)).(*models.Artifact), nil
 }
 
 // fetchImage returns an image model for the given descriptor.
 // Content is loaded lazily; call Load() to populate manifest fields.
 func (c *Client) fetchImage(ctx context.Context, desc ocispec.Descriptor) (*models.Image, error) {
-	image := models.NewImage(desc, c.target, c.target, c)
-	if cached, ok := c.addToCache(image).(*models.Image); ok {
-		return cached, nil
-	}
-	return image, nil
+	return c.addToCache(models.NewImage(desc, c.target, c.target, c)).(*models.Image), nil
 }
 
 // fetchIndex returns an index model for the given descriptor.
 // Content is loaded lazily; call Load() to populate manifest fields.
 func (c *Client) fetchIndex(ctx context.Context, desc ocispec.Descriptor) (*models.Index, error) {
-	index := models.NewIndex(desc, c.target, c.target, c)
-	if cached, ok := c.addToCache(index).(*models.Index); ok {
-		return cached, nil
-	}
-	return index, nil
+	return c.addToCache(models.NewIndex(desc, c.target, c.target, c)).(*models.Index), nil
 }
 
 // fetchManifestByInspection fetches a manifest and inspects its content to determine type.
@@ -275,28 +255,13 @@ func (c *Client) fetchManifestByInspection(ctx context.Context, desc ocispec.Des
 		return nil, err
 	}
 
-	// Check for artifact manifest (has "artifactType" field)
-	if _, ok := raw["artifactType"]; ok {
-		artifact, err := models.NewArtifactFromManifestBytes(desc, c.target, c.target, c, manifestBytes)
-		if err != nil {
-			return nil, err
-		}
-		if cached, ok := c.addToCache(artifact).(*models.Artifact); ok {
-			return cached, nil
-		}
-		return artifact, nil
-	}
-
 	// Check for index (has "manifests" array)
 	if _, ok := raw["manifests"]; ok {
 		index, err := models.NewIndexFromManifestBytes(desc, c.target, c.target, c, manifestBytes)
 		if err != nil {
 			return nil, err
 		}
-		if cached, ok := c.addToCache(index).(*models.Index); ok {
-			return cached, nil
-		}
-		return index, nil
+		return c.addToCache(index).(*models.Index), nil
 	}
 
 	// Check for image manifest (has "config" object)
@@ -305,10 +270,16 @@ func (c *Client) fetchManifestByInspection(ctx context.Context, desc ocispec.Des
 		if err != nil {
 			return nil, err
 		}
-		if cached, ok := c.addToCache(image).(*models.Image); ok {
-			return cached, nil
+		return c.addToCache(image).(*models.Image), nil
+	}
+
+	// Check for artifact manifest (has "artifactType" but no "config" or "manifests")
+	if _, ok := raw["artifactType"]; ok {
+		artifact, err := models.NewArtifactFromManifestBytes(desc, c.target, c.target, c, manifestBytes)
+		if err != nil {
+			return nil, err
 		}
-		return image, nil
+		return c.addToCache(artifact).(*models.Artifact), nil
 	}
 
 	return nil, errors.New("unknown manifest type")
