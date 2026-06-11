@@ -159,7 +159,50 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 	for key, values := range c.Header {
 		req.Header[key] = append(req.Header[key], values...)
 	}
-	return c.client().Do(req)
+	// Drop the Authorization header when a redirect crosses an HTTP origin
+	// (scheme, host, or port). The standard library only strips sensitive
+	// headers when the hostname changes, so a redirect to a different port on
+	// the same host would otherwise forward credentials to an unintended
+	// endpoint. Any caller-provided CheckRedirect is preserved.
+	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+	client := c.client()
+	clientCopy := *client
+	checkRedirect := client.CheckRedirect
+	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && !sameHTTPOrigin(via[len(via)-1].URL, req.URL) {
+			req.Header.Del(headerAuthorization)
+		}
+		if checkRedirect != nil {
+			return checkRedirect(req, via)
+		}
+		return nil
+	}
+	return clientCopy.Do(req)
+}
+
+// sameHTTPOrigin reports whether a and b share the same HTTP origin, i.e. the
+// same scheme and host. Default ports are normalized so that, for example,
+// "example.com" and "example.com:443" compare equal over https.
+func sameHTTPOrigin(a, b *url.URL) bool {
+	if !strings.EqualFold(a.Scheme, b.Scheme) {
+		return false
+	}
+	return canonicalHost(a) == canonicalHost(b)
+}
+
+// canonicalHost returns the lower-cased host of u with the default port for its
+// scheme applied when no explicit port is present.
+func canonicalHost(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		switch strings.ToLower(u.Scheme) {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return strings.ToLower(u.Hostname()) + ":" + port
 }
 
 // credential resolves the credential for the given registry.
@@ -275,6 +318,9 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	var attemptedKey string
 	cache := c.cache()
 	host := originalReq.Host
+	if host == "" {
+		host = originalReq.URL.Host
+	}
 	scheme, err := cache.GetScheme(ctx, host)
 	if err == nil {
 		switch scheme {
@@ -298,6 +344,13 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
+		return resp, nil
+	}
+	// If the challenge came from a different origin than originally requested
+	// (e.g. the request was redirected to another host or port), do not resolve
+	// or send the registry credentials to that origin.
+	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+	if resp.Request != nil && !sameHTTPOrigin(originalReq.URL, resp.Request.URL) {
 		return resp, nil
 	}
 
