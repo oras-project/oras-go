@@ -88,7 +88,7 @@ func buildRepositoryBlobUploadURL(plainHTTP bool, ref registry.Reference) string
 	return buildRepositoryBaseURL(plainHTTP, ref) + "/blobs/uploads/"
 }
 
-// buildRepositoryBlobMountURLbuilds the URL for cross-repository mounting.
+// buildRepositoryBlobMountURL builds the URL for cross-repository mounting.
 // Format: <scheme>://<registry>/v2/<repository>/blobs/uploads/?mount=<digest>&from=<other_repository>
 // Reference: https://distribution.github.io/distribution/spec/api/#blob
 func buildRepositoryBlobMountURL(plainHTTP bool, ref registry.Reference, d digest.Digest, fromRepo string) string {

@@ -205,6 +205,17 @@ func Test_mapHostname(t *testing.T) {
 	}
 }
 
+func TestGetCredentialFunc_NilStore(t *testing.T) {
+	fn := GetCredentialFunc(nil)
+	got, err := fn(context.Background(), "localhost:5000")
+	if err != nil {
+		t.Fatalf("GetCredentialFunc(nil) returned error: %v", err)
+	}
+	if got != credentials.EmptyCredential {
+		t.Errorf("GetCredentialFunc(nil) = %v, want EmptyCredential", got)
+	}
+}
+
 func TestCredential(t *testing.T) {
 	// create a test store
 	s := &testStore{}
