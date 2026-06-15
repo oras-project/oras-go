@@ -1064,7 +1064,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	refDigest, err := ref.Digest()
+	refDigest, err := ref.GetDigest()
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -1101,7 +1101,7 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	refDigest, err := ref.Digest()
+	refDigest, err := ref.GetDigest()
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -1692,7 +1692,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 
 	// 3. Validate Client Reference
 	var refDigest digest.Digest
-	if d, err := ref.Digest(); err == nil {
+	if d, err := ref.GetDigest(); err == nil {
 		refDigest = d
 	}
 

@@ -34,7 +34,7 @@ func ExampleParseReference_digest() {
 	fmt.Println("Registry:", ref.Registry)
 	fmt.Println("Repository:", ref.Repository)
 
-	digest, err := ref.Digest()
+	digest, err := ref.GetDigest()
 	if err != nil {
 		panic(err)
 	}
