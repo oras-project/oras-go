@@ -685,6 +685,24 @@ func ExampleRepository_Tag() {
 	// Succeed
 }
 
+func ExampleRepository_Untag() {
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+
+	tag := "latest"
+	err = repo.Untag(ctx, tag)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Succeed")
+
+	// Output:
+	// Succeed
+}
+
 // ExampleRegistry_Repositories gives example snippets for listing respositories in a HTTPS registry with pagination.
 func ExampleRegistry_Repositories() {
 	reg, err := remote.NewRegistry(host)
