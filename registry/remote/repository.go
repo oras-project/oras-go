@@ -414,6 +414,49 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 	return r.Manifests().Tag(withPolicyChecked(ctx), desc, reference)
 }
 
+// Untag removes the association between the given tag and the manifest it
+// currently points to. The underlying content is NOT deleted.
+//
+// Tag deletion is an optional capability per the OCI Distribution Spec
+// and is not supported by all registries.
+//
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-manifests
+func (r *Repository) Untag(ctx context.Context, reference string) error {
+	if reference == "" {
+		return errdef.ErrMissingReference
+	}
+	if err := r.checkPolicy(ctx, reference); err != nil {
+		return err
+	}
+	ref, err := r.ParseReference(reference)
+	if err != nil {
+		return err
+	}
+	if err := ref.ValidateReferenceAsTag(); err != nil {
+		return err
+	}
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionDelete)
+	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := r.do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusAccepted, http.StatusNoContent:
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("%s: %w", ref.GetReference(), errdef.ErrNotFound)
+	default:
+		return errutil.ParseErrorResponse(resp)
+	}
+}
+
 // PushReference pushes the manifest with a reference tag.
 func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
 	if err := r.checkPolicy(ctx, reference); err != nil {

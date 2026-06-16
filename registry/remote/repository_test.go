@@ -1006,6 +1006,66 @@ func TestRepository_Tag(t *testing.T) {
 	}
 }
 
+func TestRepository_Untag(t *testing.T) {
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	ref := "foobar"
+	refNotFound := "ghost"
+
+	var untagged bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+ref:
+			untagged = true
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refNotFound:
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	ctx := context.Background()
+
+	err = repo.Untag(ctx, "")
+	if !errors.Is(err, errdef.ErrMissingReference) {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, errdef.ErrMissingReference)
+	}
+
+	err = repo.Untag(ctx, indexDesc.Digest.String())
+	if !errors.Is(err, errdef.ErrInvalidReference) {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, errdef.ErrInvalidReference)
+	}
+
+	err = repo.Untag(ctx, refNotFound)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	err = repo.Untag(ctx, ref)
+	if err != nil {
+		t.Fatalf("Repository.Untag() error = %v", err)
+	}
+	if !untagged {
+		t.Errorf("Repository.Untag() did not send DELETE request")
+	}
+}
+
 func TestRepository_PushReference(t *testing.T) {
 	index := []byte(`{"manifests":[]}`)
 	indexDesc := ocispec.Descriptor{
