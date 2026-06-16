@@ -434,7 +434,7 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 // Tag deletion is an optional capability per the OCI Distribution Spec
 // and is not supported by all registries.
 //
-// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-manifests
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-tags
 func (r *Repository) Untag(ctx context.Context, reference string) error {
 	if reference == "" {
 		return errdef.ErrMissingReference
