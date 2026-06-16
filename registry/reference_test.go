@@ -38,6 +38,7 @@ func TestParseReferenceGoodies(t *testing.T) {
 			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Digest:     ValidDigest,
 			},
 		},
 		{
@@ -46,6 +47,8 @@ func TestParseReferenceGoodies(t *testing.T) {
 			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Tag:        "v2",
+				Digest:     ValidDigest,
 			},
 		},
 		{
@@ -54,6 +57,7 @@ func TestParseReferenceGoodies(t *testing.T) {
 			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Digest:     ValidDigest,
 			},
 		},
 		{
@@ -62,6 +66,7 @@ func TestParseReferenceGoodies(t *testing.T) {
 			wantTemplate: Reference{
 				Repository: "hello-world",
 				Reference:  "v1",
+				Tag:        "v1",
 			},
 		},
 		{
@@ -351,6 +356,224 @@ func TestReference_String(t *testing.T) {
 	}
 }
 
+func TestParseReference_FormB_TagAndDigest(t *testing.T) {
+	// Test Form B: repository:tag@digest
+	// Validates that both tag and digest are captured correctly
+	tests := []struct {
+		name         string
+		artifact     string
+		wantRegistry string
+		wantRepo     string
+		wantTag      string
+		wantDigest   string
+		wantRef      string
+	}{
+		{
+			name:         "tag with digest",
+			artifact:     fmt.Sprintf("localhost/hello-world:v2@%s", ValidDigest),
+			wantRegistry: "localhost",
+			wantRepo:     "hello-world",
+			wantTag:      "v2",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+		{
+			name:         "tag with digest - different tag",
+			artifact:     fmt.Sprintf("registry.example.com/myapp:1.0.0@%s", ValidDigest),
+			wantRegistry: "registry.example.com",
+			wantRepo:     "myapp",
+			wantTag:      "1.0.0",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+		{
+			name:         "tag with digest - complex tag",
+			artifact:     fmt.Sprintf("localhost:5000/org/repo:v1.2.3-alpha@%s", ValidDigest),
+			wantRegistry: "localhost:5000",
+			wantRepo:     "org/repo",
+			wantTag:      "v1.2.3-alpha",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+		{
+			name:         "empty tag with digest",
+			artifact:     fmt.Sprintf("localhost/hello-world:@%s", ValidDigest),
+			wantRegistry: "localhost",
+			wantRepo:     "hello-world",
+			wantTag:      "",
+			wantDigest:   ValidDigest,
+			wantRef:      ValidDigest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseReference(tt.artifact)
+			if err != nil {
+				t.Fatalf("ParseReference() unexpected error: %v", err)
+			}
+
+			// Validate Registry
+			if got.Registry != tt.wantRegistry {
+				t.Errorf("Registry = %q, want %q", got.Registry, tt.wantRegistry)
+			}
+
+			// Validate Repository
+			if got.Repository != tt.wantRepo {
+				t.Errorf("Repository = %q, want %q", got.Repository, tt.wantRepo)
+			}
+
+			// Validate Tag field
+			if got.Tag != tt.wantTag {
+				t.Errorf("Tag = %q, want %q", got.Tag, tt.wantTag)
+			}
+
+			// Validate Digest field
+			if got.Digest != tt.wantDigest {
+				t.Errorf("Digest = %q, want %q", got.Digest, tt.wantDigest)
+			}
+
+			// Validate Reference field (should be digest for Form B)
+			if got.Reference != tt.wantRef {
+				t.Errorf("Reference = %q, want %q", got.Reference, tt.wantRef)
+			}
+
+			// Validate GetReference() method
+			if got.GetReference() != tt.wantRef {
+				t.Errorf("GetReference() = %q, want %q", got.GetReference(), tt.wantRef)
+			}
+		})
+	}
+}
+
+func TestReference_GetReference(t *testing.T) {
+	tests := []struct {
+		name      string
+		reference Reference
+		want      string
+	}{
+		{
+			name: "Form A: digest only",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+				Digest:     ValidDigest,
+			},
+			want: ValidDigest,
+		},
+		{
+			name: "Form B: tag with digest",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  ValidDigest,
+				Tag:        "v1",
+				Digest:     ValidDigest,
+			},
+			want: ValidDigest,
+		},
+		{
+			name: "Form C: tag only",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "v1.0.0",
+				Tag:        "v1.0.0",
+			},
+			want: "v1.0.0",
+		},
+		{
+			name: "Form D: no reference",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			want: "",
+		},
+		{
+			name: "empty Digest returns Reference field",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "latest",
+				Digest:     "",
+			},
+			want: "latest",
+		},
+		{
+			name: "Digest takes precedence over Reference",
+			reference: Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+				Reference:  "some-tag",
+				Digest:     ValidDigest,
+			},
+			want: ValidDigest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.reference.GetReference(); got != tt.want {
+				t.Errorf("Reference.GetReference() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReference_GetReference_ParsedReferences(t *testing.T) {
+	// Test GetReference with references created via ParseReference
+	tests := []struct {
+		name     string
+		artifact string
+		want     string
+	}{
+		{
+			name:     "Form A: digest reference",
+			artifact: fmt.Sprintf("localhost/hello-world@%s", ValidDigest),
+			want:     ValidDigest,
+		},
+		{
+			name:     "Form B: tag with digest",
+			artifact: fmt.Sprintf("localhost/hello-world:v2@%s", ValidDigest),
+			want:     ValidDigest,
+		},
+		{
+			name:     "Form C: tag reference",
+			artifact: "localhost/hello-world:v1",
+			want:     "v1",
+		},
+		{
+			name:     "Form D: no reference",
+			artifact: "localhost/hello-world",
+			want:     "",
+		},
+		{
+			name:     "complex tag",
+			artifact: "registry.example.com/org/repo:v1.2.3-alpha.1_build.123",
+			want:     "v1.2.3-alpha.1_build.123",
+		},
+		{
+			name:     "nested repository with digest",
+			artifact: fmt.Sprintf("localhost:5000/org/team/project@%s", ValidDigest),
+			want:     ValidDigest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ref, err := ParseReference(tt.artifact)
+			if err != nil {
+				t.Fatalf("ParseReference() unexpected error: %v", err)
+			}
+			if got := ref.GetReference(); got != tt.want {
+				t.Errorf("Reference.GetReference() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseReferenceWithSchemes(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -366,6 +589,7 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "localhost",
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Digest:     ValidDigest,
 			},
 			wantErr: false,
 		},
@@ -376,6 +600,7 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 				Reference:  "v1",
+				Tag:        "v1",
 			},
 			wantErr: false,
 		},
@@ -386,6 +611,8 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Tag:        "v2",
+				Digest:     ValidDigest,
 			},
 			wantErr: false,
 		},
@@ -405,6 +632,7 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "[::1]:5000",
 				Repository: "hello-world",
 				Reference:  "latest",
+				Tag:        "latest",
 			},
 			wantErr: false,
 		},
@@ -415,6 +643,7 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "ghcr.io",
 				Repository: "oras-project/oras-go",
 				Reference:  "v3.0.0",
+				Tag:        "v3.0.0",
 			},
 			wantErr: false,
 		},
@@ -427,6 +656,7 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "localhost",
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Digest:     ValidDigest,
 			},
 			wantErr: false,
 		},
@@ -437,6 +667,7 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "registry.example.com:8080",
 				Repository: "hello-world",
 				Reference:  "v1",
+				Tag:        "v1",
 			},
 			wantErr: false,
 		},
@@ -449,6 +680,7 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "localhost",
 				Repository: "hello-world",
 				Reference:  ValidDigest,
+				Digest:     ValidDigest,
 			},
 			wantErr: false,
 		},
@@ -459,6 +691,7 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 				Reference:  "v1",
+				Tag:        "v1",
 			},
 			wantErr: false,
 		},
@@ -471,6 +704,7 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				Registry:   "localhost",
 				Repository: "hello-world",
 				Reference:  "v1",
+				Tag:        "v1",
 			},
 			wantErr: false,
 		},

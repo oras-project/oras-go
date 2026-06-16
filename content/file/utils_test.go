@@ -376,6 +376,61 @@ func Test_extractTarDirectory_HardLink(t *testing.T) {
 			t.Error("extractTarDirectory() error = nil, wantErr = true")
 		}
 	})
+
+	t.Run("hard link with relative linkname must not escape extract dir via process CWD", func(t *testing.T) {
+		// GHSA-fxhp-mv3v-67qp: a tarball TypeLink entry with a relative Linkname
+		// was passed verbatim to os.Link, which resolves relative paths against the
+		// process CWD rather than the link file's directory. An attacker-controlled
+		// registry could use this to hardlink a CWD file into the extract tree.
+		cwdDir := t.TempDir()
+		sentinelPath := filepath.Join(cwdDir, "sentinel.txt")
+		if err := os.WriteFile(sentinelPath, []byte("secret"), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		origDir, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chdir(cwdDir); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chdir(origDir) //nolint:errcheck
+
+		extractDir := t.TempDir()
+		dirName := "base"
+		dirPath := filepath.Join(extractDir, dirName)
+		buf := make([]byte, 1024)
+
+		// The relative Linkname "sentinel.txt" would resolve against the process
+		// CWD (cwdDir) via link(2) if not explicitly resolved first.
+		tarData := createTar(t, []tarEntry{
+			{name: "base/", mode: os.ModeDir | 0777},
+			{name: "base/evil_link", linkname: "sentinel.txt", mode: 0666, isHardLink: true},
+		})
+
+		err = extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), buf, false)
+		if err != nil {
+			// Expected: target resolves to <extractDir>/base/sentinel.txt which
+			// doesn't exist, so os.Link returns an error. No escape occurred.
+			return
+		}
+
+		// If extraction succeeded, verify the hardlink does not share an inode
+		// with the CWD sentinel file (i.e., it did not escape the extract dir).
+		evilLinkPath := filepath.Join(dirPath, "evil_link")
+		evilInfo, statErr := os.Lstat(evilLinkPath)
+		if statErr != nil {
+			return // link was not created; no escape
+		}
+		sentinelInfo, statErr := os.Lstat(sentinelPath)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if os.SameFile(evilInfo, sentinelInfo) {
+			t.Error("hardlink escaped extract dir: evil_link shares inode with CWD sentinel file")
+		}
+	})
 }
 
 type tarEntry struct {
