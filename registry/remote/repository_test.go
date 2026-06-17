@@ -3729,7 +3729,7 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 
 			var err error
 			var d digest.Digest
-			if d, err = reference.Digest(); err != nil {
+			if d, err = reference.GetDigest(); err != nil {
 				t.Errorf(
 					"[Blob.%v] %v; got digest from a tag reference unexpectedly",
 					method, testName,
@@ -7344,6 +7344,7 @@ func TestRepository_ParseReference(t *testing.T) {
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 				Reference:  "foobar",
+				Tag:        "foobar",
 			},
 			wantErr: nil,
 		},
@@ -7360,6 +7361,7 @@ func TestRepository_ParseReference(t *testing.T) {
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+				Digest:     "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 			wantErr: nil,
 		},
@@ -7376,6 +7378,8 @@ func TestRepository_ParseReference(t *testing.T) {
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+				Tag:        "foobar",
+				Digest:     "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 			wantErr: nil,
 		},

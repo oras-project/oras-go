@@ -100,7 +100,7 @@ func (r *PRSignedBy) Validate() error {
 		return fmt.Errorf("keyType is required")
 	}
 
-	// Exactly one of keyPath, keyData, or keyPaths must be specified
+	// Per spec: exactly one of keyPath, keyPaths, and keyData must be present.
 	count := 0
 	if r.KeyPath != "" {
 		count++
@@ -111,8 +111,11 @@ func (r *PRSignedBy) Validate() error {
 	if len(r.KeyPaths) > 0 {
 		count++
 	}
-	if count != 1 {
+	if count == 0 {
 		return fmt.Errorf("exactly one of keyPath, keyData, or keyPaths must be specified")
+	}
+	if count > 1 {
+		return fmt.Errorf("exactly one of keyPath, keyData, or keyPaths must be specified, but multiple were provided")
 	}
 
 	return validateSignedIdentity(r.SignedIdentity)
@@ -177,7 +180,7 @@ type PRSigstoreSigned struct {
 	KeyPath string `json:"keyPath,omitempty"`
 	// KeyData is inline public key data
 	KeyData []byte `json:"keyData,omitempty"`
-	// KeyDatas is a list of inline public key data
+	// KeyDatas is a list of base64-encoded public key data
 	KeyDatas []string `json:"keyDatas,omitempty"`
 	// Fulcio specifies Fulcio certificate verification
 	Fulcio *FulcioConfig `json:"fulcio,omitempty"`
@@ -230,11 +233,12 @@ func (fc *FulcioConfig) Validate() error {
 		return fmt.Errorf("either caPath or caData must be specified")
 	}
 
+	// Per spec: when fulcio is present, both oidcIssuer and subjectEmail are mandatory
 	if fc.OIDCIssuer == "" {
-		return fmt.Errorf("oidcIssuer is required for fulcio configuration")
+		return fmt.Errorf("oidcIssuer is required when fulcio is configured")
 	}
 	if fc.SubjectEmail == "" {
-		return fmt.Errorf("subjectEmail is required for fulcio configuration")
+		return fmt.Errorf("subjectEmail is required when fulcio is configured")
 	}
 
 	return nil
