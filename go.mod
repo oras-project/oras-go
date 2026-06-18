@@ -8,8 +8,8 @@ require (
 	github.com/docker/cli v29.5.3+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/go-connections v0.7.0
-	github.com/moby/moby/api v1.55.0-rc.1
-	github.com/moby/moby/v2 v2.0.0-beta.17
+	github.com/moby/moby/api v1.55.0
+	github.com/moby/moby/v2 v2.0.0-beta.18
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/phayes/freeport v0.0.0-20220201140144-74d24b5ae9f5
