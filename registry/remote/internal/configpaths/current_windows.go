@@ -18,8 +18,11 @@ limitations under the License.
 package configpaths
 
 func newCurrentResolver() *currentResolver {
+	// The current containers/image implementation does not define
+	// system-wide paths on Windows. Only user-level paths are used.
 	return &currentResolver{
-		systemConfDir:  "",
-		userConfRelDir: ".config/containers",
+		systemConfDir:      "",
+		userConfRelDir:     ".config/containers",
+		authUsesXDGRuntime: false,
 	}
 }

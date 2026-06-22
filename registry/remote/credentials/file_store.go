@@ -20,8 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
 )
 
 // FileStore implements a credentials store using the docker configuration file
@@ -33,7 +31,14 @@ type FileStore struct {
 	// If DisablePut is set to true, Put() will return ErrPlaintextPutDisabled.
 	DisablePut bool
 
-	config *configuration.Config
+	// Hierarchical enables longest-prefix namespace matching when reading
+	// credentials, as used by containers-auth.json (Podman/Buildah). When
+	// false (default), exact hostname matching is used, as in Docker
+	// config.json. It only affects Get; Put and Delete always use the exact
+	// server address as the key.
+	Hierarchical bool
+
+	config ConfigFile
 }
 
 var (
@@ -49,7 +54,10 @@ var (
 //
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewFileStore(configPath string) (*FileStore, error) {
-	cfg, err := configuration.Load(configPath)
+	if defaultConfigLoader == nil {
+		return nil, ErrNoConfigLoader
+	}
+	cfg, err := defaultConfigLoader(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -57,13 +65,17 @@ func NewFileStore(configPath string) (*FileStore, error) {
 }
 
 // newFileStore creates a file credentials store based on the given config instance.
-func newFileStore(cfg *configuration.Config) *FileStore {
+func newFileStore(cfg ConfigFile) *FileStore {
 	return &FileStore{config: cfg}
 }
 
 // Get retrieves credentials from the store for the given server address.
 func (fs *FileStore) Get(_ context.Context, serverAddress string) (Credential, error) {
-	authCfg, err := fs.config.GetAuthConfig(serverAddress)
+	getAuthConfig := fs.config.GetAuthConfig
+	if fs.Hierarchical {
+		getAuthConfig = fs.config.GetAuthConfigHierarchical
+	}
+	authCfg, err := getAuthConfig(serverAddress)
 	if err != nil {
 		return EmptyCredential, err
 	}
@@ -80,7 +92,7 @@ func (fs *FileStore) Put(_ context.Context, serverAddress string, cred Credentia
 		return err
 	}
 
-	authCfg := configuration.NewAuthConfig(
+	authCfg := NewAuthConfig(
 		cred.Username,
 		cred.Password,
 		cred.RefreshToken,
