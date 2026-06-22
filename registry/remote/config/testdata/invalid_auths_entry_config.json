@@ -1,0 +1,11 @@
+{
+    "auths": {
+        "registry1.example.com": {
+            "auth": "username:password"
+        },
+        "registry2.example.com": "whatever",
+        "registry3.example.com": {
+            "identitytoken": 123
+        }
+    }
+}

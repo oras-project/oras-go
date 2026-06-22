@@ -1,0 +1,28 @@
+{
+    "auths": {
+        "registry1.example.com": {
+            "auth": "dXNlcm5hbWU6cGFzc3dvcmQ="
+        },
+        "registry2.example.com": {
+            "identitytoken": "identity_token"
+        },
+        "registry3.example.com": {
+            "registrytoken": "registry_token"
+        },
+        "registry4.example.com": {
+            "auth": "dXNlcm5hbWU6cGFzc3dvcmQ=",
+            "identitytoken": "identity_token",
+            "registrytoken": "registry_token"
+        },
+        "registry5.example.com": {},
+        "registry6.example.com": {
+            "username": "username",
+            "password": "password"
+        },
+        "registry7.example.com": {
+            "auth": "dXNlcm5hbWU6cGFzc3dvcmQ=",
+            "username": "foo",
+            "password": "bar"
+        }
+    }
+}

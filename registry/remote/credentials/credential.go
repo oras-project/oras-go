@@ -18,8 +18,6 @@ package credentials
 import (
 	"context"
 	"fmt"
-
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
 )
 
 // Credential contains authentication credentials used to access remote
@@ -77,8 +75,8 @@ func StaticCredentialFunc(registry string, cred Credential) CredentialFunc {
 	}
 }
 
-// NewCredential creates a Credential based on authCfg.
-func NewCredential(ac configuration.AuthConfig) (Credential, error) {
+// NewCredential creates a Credential from an AuthConfig.
+func NewCredential(ac AuthConfig) (Credential, error) {
 	cred := Credential{
 		Username:     ac.Username,
 		Password:     ac.Password,
@@ -90,7 +88,7 @@ func NewCredential(ac configuration.AuthConfig) (Credential, error) {
 		// override username and password
 		cred.Username, cred.Password, err = ac.DecodeAuth()
 		if err != nil {
-			return EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", configuration.ErrInvalidConfigFormat, err)
+			return EmptyCredential, fmt.Errorf("failed to decode auth field: %w: %v", ErrInvalidAuthConfig, err)
 		}
 	}
 	return cred, nil

@@ -1,0 +1,16 @@
+{
+    "auths": {
+        "registry.example.com": {
+            "auth": "cmVnaXN0cnk6cGFzcw=="
+        },
+        "registry.example.com/namespace": {
+            "auth": "bmFtZXNwYWNlOnBhc3M="
+        },
+        "registry.example.com/namespace/repo": {
+            "auth": "cmVwbzpwYXNz"
+        },
+        "other.example.com": {
+            "auth": "b3RoZXI6cGFzcw=="
+        }
+    }
+}
