@@ -277,6 +277,114 @@ func TestWithPolicyEnforcement_Manifests(t *testing.T) {
 	}
 }
 
+func TestWithPolicyEnforcement_PolicyDenied_AllOperations(t *testing.T) {
+	// Create a policy that rejects everything so every wrapped operation
+	// short-circuits on the policy check before reaching the base repository.
+	pol := &policy.Policy{
+		Default: []policy.PolicyRequirement{
+			&policy.Reject{},
+		},
+		Transports: make(map[policy.TransportName]policy.TransportScopes),
+	}
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("NewEvaluator() error = %v", err)
+	}
+
+	baseRepo := &mockRepository{}
+	middleware := WithPolicyEnforcement(evaluator, policy.TransportNameDocker, "test/repo")
+	wrapped := middleware(baseRepo)
+
+	ctx := context.Background()
+	desc := ocispec.Descriptor{Digest: "sha256:test"}
+
+	// Repository-level operations.
+	if _, err := wrapped.Fetch(ctx, desc); err == nil {
+		t.Error("Fetch() should return error when policy denies access")
+	}
+	if err := wrapped.Push(ctx, desc, strings.NewReader("content")); err == nil {
+		t.Error("Push() should return error when policy denies access")
+	}
+	if _, err := wrapped.Resolve(ctx, "latest"); err == nil {
+		t.Error("Resolve() should return error when policy denies access")
+	}
+	if err := wrapped.Tag(ctx, desc, "latest"); err == nil {
+		t.Error("Tag() should return error when policy denies access")
+	}
+	if _, _, err := wrapped.FetchReference(ctx, "latest"); err == nil {
+		t.Error("FetchReference() should return error when policy denies access")
+	}
+	if err := wrapped.PushReference(ctx, desc, strings.NewReader("content"), "latest"); err == nil {
+		t.Error("PushReference() should return error when policy denies access")
+	}
+
+	// Blob store operations.
+	blobs := wrapped.Blobs()
+	if _, err := blobs.Fetch(ctx, desc); err == nil {
+		t.Error("Blobs().Fetch() should return error when policy denies access")
+	}
+	if err := blobs.Push(ctx, desc, strings.NewReader("content")); err == nil {
+		t.Error("Blobs().Push() should return error when policy denies access")
+	}
+	if _, _, err := blobs.FetchReference(ctx, "sha256:test"); err == nil {
+		t.Error("Blobs().FetchReference() should return error when policy denies access")
+	}
+
+	// Manifest store operations.
+	manifests := wrapped.Manifests()
+	if _, err := manifests.Fetch(ctx, desc); err == nil {
+		t.Error("Manifests().Fetch() should return error when policy denies access")
+	}
+	if err := manifests.Push(ctx, desc, strings.NewReader("content")); err == nil {
+		t.Error("Manifests().Push() should return error when policy denies access")
+	}
+	if _, _, err := manifests.FetchReference(ctx, "latest"); err == nil {
+		t.Error("Manifests().FetchReference() should return error when policy denies access")
+	}
+	if err := manifests.PushReference(ctx, desc, strings.NewReader("content"), "latest"); err == nil {
+		t.Error("Manifests().PushReference() should return error when policy denies access")
+	}
+	if err := manifests.Tag(ctx, desc, "latest"); err == nil {
+		t.Error("Manifests().Tag() should return error when policy denies access")
+	}
+}
+
+func TestWithPolicyEnforcement_EvaluatorError(t *testing.T) {
+	// A policy that registers an empty requirement set for the configured
+	// transport/scope. GetRequirementsForImage returns no requirements, which
+	// IsImageAllowed surfaces as an error, exercising the evaluator-error
+	// branch of checkPolicy.
+	pol := &policy.Policy{
+		Default: []policy.PolicyRequirement{
+			&policy.InsecureAcceptAnything{},
+		},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				"test/repo": {},
+			},
+		},
+	}
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("NewEvaluator() error = %v", err)
+	}
+
+	baseRepo := &mockRepository{}
+	middleware := WithPolicyEnforcement(evaluator, policy.TransportNameDocker, "test/repo")
+	wrapped := middleware(baseRepo)
+
+	ctx := context.Background()
+	desc := ocispec.Descriptor{Digest: "sha256:test"}
+
+	_, err = wrapped.Fetch(ctx, desc)
+	if err == nil {
+		t.Fatal("Fetch() should return error when the evaluator fails")
+	}
+	if !strings.Contains(err.Error(), "policy check failed") {
+		t.Errorf("error should wrap the evaluator failure, got: %v", err)
+	}
+}
+
 // orderTrackingRepository tracks the order of middleware execution.
 type orderTrackingRepository struct {
 	registry.Repository
