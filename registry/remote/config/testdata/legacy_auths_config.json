@@ -1,0 +1,25 @@
+{
+    "auths": {
+        "registry1.example.com": {
+            "auth": "dXNlcm5hbWUxOnBhc3N3b3JkMQ=="
+        },
+        "http://registry2.example.com": {
+            "auth": "dXNlcm5hbWUyOnBhc3N3b3JkMg=="
+        },
+        "https://registry3.example.com": {
+            "auth": "dXNlcm5hbWUzOnBhc3N3b3JkMw=="
+        },
+        "http://registry4.example.com/": {
+            "auth": "dXNlcm5hbWU0OnBhc3N3b3JkNA=="
+        },
+        "https://registry5.example.com/": {
+            "auth": "dXNlcm5hbWU1OnBhc3N3b3JkNQ=="
+        },
+        "https://registry6.example.com/path/": {
+            "auth": "dXNlcm5hbWU2OnBhc3N3b3JkNg=="
+        },
+        "https://registry1.example.com/": {
+            "auth": "Zm9vOmJhcg=="
+        }
+    }
+}

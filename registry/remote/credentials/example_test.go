@@ -162,7 +162,7 @@ func ExampleNewStoreWithFallbacks_configAsPrimaryStoreDockerAsFallback() {
 	if err != nil {
 		panic(err)
 	}
-	fallbackStore, err := credentials.NewStoreFromDocker(credentials.StoreOptions{})
+	fallbackStore, _ := credentials.NewStoreFromDocker(credentials.StoreOptions{})
 	sf := credentials.NewStoreWithFallbacks(primaryStore, fallbackStore)
 
 	ctx := context.Background()
@@ -230,7 +230,7 @@ func ExampleCredential() {
 	}
 
 	client := auth.DefaultClient
-	client.CredentialFunc = remote.GetCredentialFunc(store)
+	client.CredentialFunc = remote.NewCredentialFunc(store)
 
 	request, err := http.NewRequest(http.MethodGet, "localhost:5000", nil)
 	if err != nil {

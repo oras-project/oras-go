@@ -37,6 +37,20 @@ check-encoding:
 fix-encoding:
 	find . -not -path "./vendor/*" -name "*.go" -type f -exec sed -i -e "s/\r//g" {} +
 
+.PHONY: test-functional
+test-functional:
+	./test/functional/setup.sh
+	set -a && . /tmp/oras-functional-env && set +a && \
+	cd test/functional && \
+	go test -race -v -tags functional . -timeout 300s; \
+	EXIT_CODE=$$?; \
+	cd $(CURDIR) && ./test/functional/teardown.sh; \
+	exit $$EXIT_CODE
+
+.PHONY: lint
+lint:
+	GOFLAGS=-mod=mod golangci-lint run
+
 .PHONY: vendor
 vendor:
 	go mod vendor
