@@ -47,6 +47,44 @@ type TokenFetcher interface {
 	FetchToken(ctx context.Context, params TokenParams, cred credentials.Credential) (string, error)
 }
 
+// sendRequest adds the custom headers to the request and sends it using the
+// given client. If client is nil, http.DefaultClient is used.
+func sendRequest(client *http.Client, header http.Header, req *http.Request) (*http.Response, error) {
+	for key, values := range header {
+		req.Header[key] = append(req.Header[key], values...)
+	}
+	if client == nil {
+		client = http.DefaultClient
+	}
+	return client.Do(req)
+}
+
+// decodeTokenResponse decodes a token endpoint response body and returns the
+// access token.
+//
+// As specified in https://distribution.github.io/distribution/spec/auth/token/
+// section "Token Response Fields", the token is carried in either the `token`
+// or `access_token` field; if both are present they are identical. OAuth2
+// responses use `access_token` (see
+// https://distribution.github.io/distribution/spec/auth/oauth/).
+func decodeTokenResponse(resp *http.Response) (string, error) {
+	var result struct {
+		Token       string `json:"token"`
+		AccessToken string `json:"access_token"`
+	}
+	lr := io.LimitReader(resp.Body, maxResponseBytes)
+	if err := json.NewDecoder(lr).Decode(&result); err != nil {
+		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	if result.AccessToken != "" {
+		return result.AccessToken, nil
+	}
+	if result.Token != "" {
+		return result.Token, nil
+	}
+	return "", fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
+}
+
 // DistributionTokenFetcher implements distribution spec token endpoint (GET).
 // This fetches tokens using the legacy distribution specification.
 //
@@ -80,7 +118,7 @@ func (f *DistributionTokenFetcher) FetchToken(ctx context.Context, params TokenP
 	}
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := f.send(req)
+	resp, err := sendRequest(f.Client, f.Header, req)
 	if err != nil {
 		return "", err
 	}
@@ -88,37 +126,7 @@ func (f *DistributionTokenFetcher) FetchToken(ctx context.Context, params TokenP
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
 	}
-
-	// As specified in https://distribution.github.io/distribution/spec/auth/token/ section
-	// "Token Response Fields", the token is either in `token` or
-	// `access_token`. If both present, they are identical.
-	var result struct {
-		Token       string `json:"token"`
-		AccessToken string `json:"access_token"`
-	}
-	lr := io.LimitReader(resp.Body, maxResponseBytes)
-	if err := json.NewDecoder(lr).Decode(&result); err != nil {
-		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
-	}
-	if result.AccessToken != "" {
-		return result.AccessToken, nil
-	}
-	if result.Token != "" {
-		return result.Token, nil
-	}
-	return "", fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
-}
-
-// send adds custom headers and sends the request.
-func (f *DistributionTokenFetcher) send(req *http.Request) (*http.Response, error) {
-	for key, values := range f.Header {
-		req.Header[key] = append(req.Header[key], values...)
-	}
-	client := f.Client
-	if client == nil {
-		client = http.DefaultClient
-	}
-	return client.Do(req)
+	return decodeTokenResponse(resp)
 }
 
 // OAuth2TokenFetcher implements OAuth2 password/refresh_token grants (POST).
@@ -166,7 +174,7 @@ func (f *OAuth2TokenFetcher) FetchToken(ctx context.Context, params TokenParams,
 	}
 	req.Header.Set(headerContentType, "application/x-www-form-urlencoded")
 
-	resp, err := f.send(req)
+	resp, err := sendRequest(f.Client, f.Header, req)
 	if err != nil {
 		return "", err
 	}
@@ -174,30 +182,7 @@ func (f *OAuth2TokenFetcher) FetchToken(ctx context.Context, params TokenParams,
 	if resp.StatusCode != http.StatusOK {
 		return "", errutil.ParseErrorResponse(resp)
 	}
-
-	var result struct {
-		AccessToken string `json:"access_token"`
-	}
-	lr := io.LimitReader(resp.Body, maxResponseBytes)
-	if err := json.NewDecoder(lr).Decode(&result); err != nil {
-		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
-	}
-	if result.AccessToken != "" {
-		return result.AccessToken, nil
-	}
-	return "", fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
-}
-
-// send adds custom headers and sends the request.
-func (f *OAuth2TokenFetcher) send(req *http.Request) (*http.Response, error) {
-	for key, values := range f.Header {
-		req.Header[key] = append(req.Header[key], values...)
-	}
-	client := f.Client
-	if client == nil {
-		client = http.DefaultClient
-	}
-	return client.Do(req)
+	return decodeTokenResponse(resp)
 }
 
 // CompositeTokenFetcher selects strategy based on credential type and legacy mode.
