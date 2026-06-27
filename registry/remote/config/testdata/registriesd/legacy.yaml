@@ -1,0 +1,6 @@
+default-docker:
+  sigstore: https://legacy-sigstore.example.com
+docker:
+  legacy.example.com:
+    sigstore: https://legacy-sigstore.example.com/legacy
+    sigstore-staging: https://legacy-staging.example.com/legacy
