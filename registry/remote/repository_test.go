@@ -3823,6 +3823,9 @@ func TestManifestStoreInterface(t *testing.T) {
 	if _, ok := ms.(interfaces.ReferenceParser); !ok {
 		t.Error("&manifestStore{} does not conform interfaces.ReferenceParser")
 	}
+	if _, ok := ms.(content.Untagger); !ok {
+		t.Error("&manifestStore{} does not conform content.Untagger")
+	}
 }
 
 func TestRepositoryMounterInterface(t *testing.T) {

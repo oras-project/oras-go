@@ -43,8 +43,8 @@ import (
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
-	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
 const (
@@ -442,33 +442,15 @@ func (r *Repository) Untag(ctx context.Context, reference string) error {
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return err
 	}
-	ref, err := r.ParseReference(reference)
-	if err != nil {
-		return err
-	}
-	if err := ref.ValidateReferenceAsTag(); err != nil {
-		return err
-	}
-	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionDelete)
-	url := buildRepositoryManifestURL(r.PlainHTTP, ref)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := r.do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
 
-	switch resp.StatusCode {
-	case http.StatusOK, http.StatusAccepted, http.StatusNoContent:
-		return nil
-	case http.StatusNotFound:
-		return fmt.Errorf("%s: %w", ref.GetReference(), errdef.ErrNotFound)
-	default:
-		return errutil.ParseErrorResponse(resp)
+	manifests := r.Manifests()
+	untagger, ok := manifests.(content.Untagger)
+
+	if !ok {
+		return fmt.Errorf("ManifestStore %T does not implement content.Untagger interface", manifests)
 	}
+
+	return untagger.Untag(withPolicyChecked(ctx), reference)
 }
 
 // PushReference pushes the manifest with a reference tag.
@@ -1476,6 +1458,40 @@ func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, refere
 	defer rc.Close()
 
 	return s.push(ctx, desc, rc, ref.Reference)
+}
+
+// Untag removes the association between the given tag and the manifest it currently points to.
+func (s *manifestStore) Untag(ctx context.Context, reference string) error {
+	if err := s.repo.checkPolicy(ctx, reference); err != nil {
+		return err
+	}
+	ref, err := s.ParseReference(reference)
+	if err != nil {
+		return err
+	}
+	if err := ref.ValidateReferenceAsTag(); err != nil {
+		return err
+	}
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionDelete)
+	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := s.repo.do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusAccepted, http.StatusNoContent:
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("%s: %w", ref.GetReference(), errdef.ErrNotFound)
+	default:
+		return errutil.ParseErrorResponse(resp)
+	}
 }
 
 // PushReference pushes the manifest with a reference tag.
