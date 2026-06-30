@@ -429,7 +429,7 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 }
 
 // Untag removes the association between the given tag and the manifest it
-// currently points to. The underlying content is NOT deleted.
+// currently points to.
 //
 // Tag deletion is an optional capability per the OCI Distribution Spec
 // and is not supported by all registries.
