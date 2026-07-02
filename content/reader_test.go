@@ -262,15 +262,42 @@ func TestReadAll_InvalidDescriptorSize(t *testing.T) {
 }
 
 func TestReadAll_OversizedDescriptor(t *testing.T) {
+	// Regression test for GHSA-f36w-mj3v-6jqv: a crafted descriptor can declare
+	// an enormous Size (here 2^62). ReadAll must not pre-allocate that size,
+	// which would panic make() with "makeslice: len out of range". Instead it
+	// reads the actual content and, because the content is shorter than the
+	// declared size, fails verification with io.ErrUnexpectedEOF rather than
+	// panicking.
 	content := []byte("example content")
 	desc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
 		Digest:    digest.FromBytes(content),
-		Size:      4611686018427387904, // 2^62, triggers makeslice panic without the cap
+		Size:      4611686018427387904, // 2^62
 	}
 	r := bytes.NewReader(content)
 	_, err := ReadAll(r, desc)
-	if err == nil || !errors.Is(err, ErrInvalidDescriptorSize) {
-		t.Errorf("ReadAll() error = %v, want %v", err, ErrInvalidDescriptorSize)
+	if err == nil || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("ReadAll() error = %v, want %v", err, io.ErrUnexpectedEOF)
+	}
+}
+
+func TestReadAll_LargeContent(t *testing.T) {
+	// Content larger than maxInitialBufferSize must still be read in full.
+	// Regression test: the previous 32 MiB cap in ReadAll rejected legitimate
+	// large blobs (e.g. plugin or chart layers) with ErrInvalidDescriptorSize,
+	// breaking OCI pulls into the in-memory store.
+	size := maxInitialBufferSize + 1024*1024 // 33 MiB, exceeds the initial buffer cap
+	content := make([]byte, size)
+	for i := range content {
+		content[i] = byte(i % 251)
+	}
+	desc := NewDescriptorFromBytes("test", content)
+	r := bytes.NewReader(content)
+	got, err := ReadAll(r, desc)
+	if err != nil {
+		t.Fatal("ReadAll() error = ", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Error("ReadAll() returned content that does not match the input")
 	}
 }
