@@ -22,6 +22,10 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   # update go dependencies for v2 branch
   - package-ecosystem: "gomod"
