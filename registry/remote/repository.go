@@ -429,10 +429,14 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 }
 
 // Untag removes the association between the given tag and the manifest it
-// currently points to.
+// currently points to. Only tags are accepted; to delete a manifest by
+// digest, use Delete.
 //
-// Tag deletion is an optional capability per the OCI Distribution Spec
-// and is not supported by all registries.
+// Tag deletion is an optional, loosely specified capability. Some registries
+// do not support it (returning 400 or 405, surfaced here as an error), and
+// some delete the underlying manifest — and thus every tag pointing to it —
+// rather than only the given tag. This differs from the local content/oci
+// store's Untag, which never deletes the underlying content.
 //
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-tags
 func (r *Repository) Untag(ctx context.Context, reference string) error {
