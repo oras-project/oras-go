@@ -175,6 +175,15 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		}
 		filePath := filepath.Join(dirPath, filePathRel)
 
+		// resolveRelToBase only performs lexical and per-component Lstat checks,
+		// which a chain of previously-extracted symlinks can bypass. Re-verify
+		// containment with symlinks fully resolved before mutating the
+		// filesystem, matching the check on the pushFile path.
+		// (GHSA-m37j-52j7-pjw7)
+		if err := checkSymlinkEscape(dirPath, filePath); err != nil {
+			return err
+		}
+
 		// Create content
 		switch header.Typeflag {
 		case tar.TypeReg:
@@ -279,8 +288,67 @@ func ensureLinkPath(baseAbs, baseRel, link, target string) (string, error) {
 	return target, nil
 }
 
+// checkSymlinkEscape returns ErrPathTraversalDisallowed if resolving symlinks
+// in target's ancestor directories causes it to escape base. target may not
+// yet exist, so symlinks are resolved on its deepest existing ancestor.
+func checkSymlinkEscape(base, target string) error {
+	realBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // base doesn't exist yet; no symlinks to follow
+		}
+		return err
+	}
+	realTarget, err := realPathForWrite(target)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(realBase, realTarget)
+	if err != nil {
+		return ErrPathTraversalDisallowed
+	}
+	rel = filepath.ToSlash(rel)
+	if strings.HasPrefix(rel, "../") || rel == ".." {
+		return ErrPathTraversalDisallowed
+	}
+	return nil
+}
+
+// realPathForWrite resolves symlinks in the deepest existing ancestor of path
+// and returns the resulting absolute path. Non-existent path components are
+// appended verbatim, matching the semantics of a file about to be created.
+func realPathForWrite(path string) (string, error) {
+	dir := filepath.Dir(path)
+	suffix := filepath.Base(path)
+	for {
+		real, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			return filepath.Join(real, suffix), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return path, nil // reached filesystem root
+		}
+		suffix = filepath.Join(filepath.Base(dir), suffix)
+		dir = parent
+	}
+}
+
 // writeFile writes content to the file specified by the `path` parameter.
 func writeFile(path string, r io.Reader, perm os.FileMode, buf []byte) (err error) {
+	// os.OpenFile follows a terminal symlink, so a regular-file entry whose
+	// path was already created as a symlink by an earlier archive entry would
+	// be written through that link, landing outside the extraction root
+	// (GHSA-m37j-52j7-pjw7). Remove any such symlink first so the content is
+	// written to a regular file at path itself.
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err

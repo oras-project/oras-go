@@ -625,6 +625,14 @@ func (s *Store) resolveWritePath(name string) (string, error) {
 		if strings.HasPrefix(rel, "../") || rel == ".." {
 			return "", ErrPathTraversalDisallowed
 		}
+		// The lexical check above prevents "../" escapes but does not resolve
+		// symlinks. A symlink component under workingDir (e.g. "out" -> "/outside")
+		// passes the lexical check yet directs writes outside workingDir.
+		// Re-check after resolving symlinks in the parent path to close that gap.
+		// (GHSA-8xwf-rjm4-xvhv)
+		if err := checkSymlinkEscape(base, target); err != nil {
+			return "", err
+		}
 	}
 	if s.DisableOverwrite {
 		if _, err := os.Stat(path); err == nil {
