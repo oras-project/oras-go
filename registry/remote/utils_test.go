@@ -46,10 +46,34 @@ func Test_parseLink(t *testing.T) {
 			want:   "https://localhost:5000/v2/hello-world/tags/list?last=latest&n=1",
 		},
 		{
-			name:   "other domain",
+			name:   "same origin, absolute URL",
 			url:    "https://localhost:5000/v2/_catalog",
-			header: `<https://localhost:5001/v2/_catalog?last=alpine&n=1>; rel="next"`,
-			want:   "https://localhost:5001/v2/_catalog?last=alpine&n=1",
+			header: `<https://localhost:5000/v2/_catalog?last=alpine&n=1>; rel="next"`,
+			want:   "https://localhost:5000/v2/_catalog?last=alpine&n=1",
+		},
+		{
+			name:    "cross-origin, different host",
+			url:     "https://localhost:5000/v2/_catalog",
+			header:  `<https://localhost:5001/v2/_catalog?last=alpine&n=1>; rel="next"`,
+			wantErr: true,
+		},
+		{
+			name:    "cross-origin, metadata endpoint (SSRF)",
+			url:     "https://registry.example.com/v2/_catalog",
+			header:  `<http://169.254.169.254/latest/meta-data/>; rel="next"`,
+			wantErr: true,
+		},
+		{
+			name:    "cross-origin, scheme downgrade",
+			url:     "https://localhost:5000/v2/_catalog",
+			header:  `<http://localhost:5000/v2/_catalog?last=alpine&n=1>; rel="next"`,
+			wantErr: true,
+		},
+		{
+			name:    "cross-origin, different port",
+			url:     "https://localhost:5000/v2/_catalog",
+			header:  `<https://localhost:6000/v2/_catalog?last=alpine&n=1>; rel="next"`,
+			wantErr: true,
 		},
 		{
 			name:    "invalid header, missing <",
