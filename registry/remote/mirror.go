@@ -22,6 +22,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/registry"
 )
 
 // PullFromMirror constants control when a mirror should be used.
@@ -74,6 +75,26 @@ func isDigestReference(reference string) bool {
 	return false
 }
 
+// mirrorReference reduces a possibly fully-qualified reference to a form that
+// resolves against a mirror whose registry (and possibly repository) differ
+// from the primary's. A mirror Repository validates that a fully-qualified
+// reference matches its own base, so the primary's "registry/repo:tag" would be
+// rejected as a host mismatch. Stripping it to a bare tag (or "@digest") lets
+// the mirror combine it with its own base. Inputs that are already bare are
+// returned unchanged.
+func mirrorReference(reference string) string {
+	// Digest form: keep the leading "@" so the mirror treats it as a digest.
+	if i := strings.IndexByte(reference, '@'); i != -1 {
+		return reference[i:]
+	}
+	// Fully-qualified tag reference: keep only the tag component.
+	if ref, err := registry.ParseReference(reference); err == nil && ref.Reference != "" {
+		return ref.Reference
+	}
+	// Already a bare tag (or unparseable): use as-is.
+	return reference
+}
+
 // isMirrorFallbackError reports whether the error should trigger a fallback
 // to the next mirror or the primary registry. Context cancellation and
 // deadline exceeded errors are not retryable.
@@ -93,11 +114,12 @@ func withMirrorFallbackResolve(
 	reference string,
 	resolve func(ctx context.Context, repo *Repository, reference string) (ocispec.Descriptor, error),
 ) (ocispec.Descriptor, error) {
+	mirrorRef := mirrorReference(reference)
 	for i := range mirrors {
 		if !mirrors[i].shouldUseForReference(reference) {
 			continue
 		}
-		desc, err := resolve(ctx, mirrors[i].Repository, reference)
+		desc, err := resolve(ctx, mirrors[i].Repository, mirrorRef)
 		if err == nil {
 			return desc, nil
 		}
@@ -142,11 +164,12 @@ func withMirrorFallbackFetchReference(
 	reference string,
 	fetch func(ctx context.Context, repo *Repository, reference string) (ocispec.Descriptor, io.ReadCloser, error),
 ) (ocispec.Descriptor, io.ReadCloser, error) {
+	mirrorRef := mirrorReference(reference)
 	for i := range mirrors {
 		if !mirrors[i].shouldUseForReference(reference) {
 			continue
 		}
-		desc, rc, err := fetch(ctx, mirrors[i].Repository, reference)
+		desc, rc, err := fetch(ctx, mirrors[i].Repository, mirrorRef)
 		if err == nil {
 			return desc, rc, nil
 		}

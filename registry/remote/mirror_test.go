@@ -149,6 +149,76 @@ func repoFromServer(t *testing.T, server *httptest.Server) *Repository {
 	}
 }
 
+func Test_mirrorReference(t *testing.T) {
+	dig := "sha256:" + strings.Repeat("a", 64)
+	tests := []struct {
+		name      string
+		reference string
+		want      string
+	}{
+		{"fully-qualified tag", "primary.example.com/library/app:v1", "v1"},
+		{"fully-qualified digest", "primary.example.com/library/app@" + dig, "@" + dig},
+		{"host:port with tag", "localhost:5001/charts/app:0.1.0", "0.1.0"},
+		{"bare tag", "v1", "v1"},
+		{"bare digest with @", "@" + dig, "@" + dig},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mirrorReference(tt.reference); got != tt.want {
+				t.Errorf("mirrorReference(%q) = %q, want %q", tt.reference, got, tt.want)
+			}
+		})
+	}
+}
+
+// A fully-qualified reference carries the primary's registry host. A mirror
+// Repository rejects a reference that does not match its own base, so the
+// fallback must reduce it to a bare tag/digest before handing it to the mirror.
+func Test_withMirrorFallbackFetchReference_retargetsFullyQualifiedRef(t *testing.T) {
+	var gotMirrorRef string
+	want := ocispec.Descriptor{Digest: "sha256:abc", Size: 3}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorAll}}
+
+	desc, rc, err := withMirrorFallbackFetchReference(context.Background(), mirrors, &Repository{},
+		"primary.example.com/library/app:v1",
+		func(_ context.Context, _ *Repository, ref string) (ocispec.Descriptor, io.ReadCloser, error) {
+			gotMirrorRef = ref
+			return want, io.NopCloser(strings.NewReader("abc")), nil
+		})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer rc.Close()
+	if desc.Digest != want.Digest {
+		t.Errorf("got desc %v, want %v", desc, want)
+	}
+	if gotMirrorRef != "v1" {
+		t.Errorf("mirror received ref %q, want bare tag %q", gotMirrorRef, "v1")
+	}
+}
+
+func Test_withMirrorFallbackResolve_retargetsFullyQualifiedRef(t *testing.T) {
+	var gotMirrorRef string
+	want := ocispec.Descriptor{Digest: "sha256:abc", Size: 3}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorAll}}
+
+	desc, err := withMirrorFallbackResolve(context.Background(), mirrors, &Repository{},
+		"primary.example.com/library/app:v1",
+		func(_ context.Context, _ *Repository, ref string) (ocispec.Descriptor, error) {
+			gotMirrorRef = ref
+			return want, nil
+		})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if desc.Digest != want.Digest {
+		t.Errorf("got desc %v, want %v", desc, want)
+	}
+	if gotMirrorRef != "v1" {
+		t.Errorf("mirror received ref %q, want bare tag %q", gotMirrorRef, "v1")
+	}
+}
+
 func Test_withMirrorFallbackResolve_mirrorSucceeds(t *testing.T) {
 	manifest := ocispec.Manifest{}
 	manifestJSON, _ := json.Marshal(manifest)
