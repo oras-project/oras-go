@@ -1015,6 +1015,7 @@ func TestRepository_Untag(t *testing.T) {
 	}
 	ref := "foobar"
 	refNotFound := "ghost"
+	refError := "boom"
 
 	var untagged bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1024,6 +1025,8 @@ func TestRepository_Untag(t *testing.T) {
 			w.WriteHeader(http.StatusAccepted)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refNotFound:
 			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refError:
+			w.WriteHeader(http.StatusInternalServerError)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusForbidden)
@@ -1057,12 +1060,24 @@ func TestRepository_Untag(t *testing.T) {
 		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, errdef.ErrNotFound)
 	}
 
+	err = repo.Untag(ctx, refError)
+	if err == nil {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, true)
+	}
+
 	err = repo.Untag(ctx, ref)
 	if err != nil {
 		t.Fatalf("Repository.Untag() error = %v", err)
 	}
 	if !untagged {
 		t.Errorf("Repository.Untag() did not send DELETE request")
+	}
+
+	// closing the server makes the underlying request fail
+	ts.Close()
+	err = repo.Untag(ctx, ref)
+	if err == nil {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, true)
 	}
 }
 
