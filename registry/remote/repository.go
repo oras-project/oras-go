@@ -440,9 +440,6 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 //
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-tags
 func (r *Repository) Untag(ctx context.Context, reference string) error {
-	if reference == "" {
-		return errdef.ErrMissingReference
-	}
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return err
 	}
