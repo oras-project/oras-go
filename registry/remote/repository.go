@@ -127,6 +127,18 @@ type Repository struct {
 	// Reference: https://github.com/oras-project/oras-go/issues/841
 	ReferrerListPageSize int
 
+	// TagListMaxPages limits the total number of pages fetched during tag
+	// listing, bounding server-driven pagination so a malicious or misbehaving
+	// registry cannot force unbounded requests.
+	// If zero, tag listing is unlimited.
+	TagListMaxPages int
+
+	// ReferrerListMaxPages limits the total number of pages fetched during
+	// referrer listing, bounding server-driven pagination so a malicious or
+	// misbehaving registry cannot force unbounded requests.
+	// If zero, referrer listing is unlimited.
+	ReferrerListMaxPages int
+
 	// MaxMetadataBytes specifies a limit on how many response bytes are allowed
 	// in the server's response to the metadata APIs, such as catalog list, tag
 	// list, and referrers list.
@@ -214,6 +226,8 @@ func (r *Repository) clone() *Repository {
 		ManifestMediaTypes:   slices.Clone(r.ManifestMediaTypes),
 		TagListPageSize:      r.TagListPageSize,
 		ReferrerListPageSize: r.ReferrerListPageSize,
+		TagListMaxPages:      r.TagListMaxPages,
+		ReferrerListMaxPages: r.ReferrerListMaxPages,
 		MaxMetadataBytes:     r.MaxMetadataBytes,
 		SkipReferrersGC:      r.SkipReferrersGC,
 		HandleWarning:        r.HandleWarning,
@@ -490,7 +504,10 @@ func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []strin
 	ctx = auth.AppendRepositoryScope(ctx, r.Reference, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
 	var err error
-	for err == nil {
+	for page := 0; err == nil; page++ {
+		if r.TagListMaxPages > 0 && page >= r.TagListMaxPages {
+			return fmt.Errorf("tag listing exceeded %d pages: %w", r.TagListMaxPages, errdef.ErrTooManyPages)
+		}
 		url, err = r.tags(ctx, last, fn, url)
 		// clear `last` for subsequent pages
 		last = ""
@@ -608,7 +625,10 @@ func (r *Repository) referrersByAPI(ctx context.Context, desc ocispec.Descriptor
 
 	url := buildReferrersURL(r.PlainHTTP, ref, artifactType)
 	var err error
-	for err == nil {
+	for page := 0; err == nil; page++ {
+		if r.ReferrerListMaxPages > 0 && page >= r.ReferrerListMaxPages {
+			return fmt.Errorf("referrer listing exceeded %d pages: %w", r.ReferrerListMaxPages, errdef.ErrTooManyPages)
+		}
 		url, err = r.referrersPageByAPI(ctx, artifactType, fn, url)
 	}
 	if err == errNoLink {
@@ -1064,7 +1084,7 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	refDigest, err := ref.Digest()
+	refDigest, err := ref.GetDigest()
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -1101,7 +1121,7 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	refDigest, err := ref.Digest()
+	refDigest, err := ref.GetDigest()
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -1217,9 +1237,10 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	if mediaType != target.MediaType {
 		return nil, fmt.Errorf("%s %q: mismatch response Content-Type %q: expect %q", resp.Request.Method, resp.Request.URL, mediaType, target.MediaType)
 	}
-	if size := resp.ContentLength; size != -1 && size != target.Size {
-		return nil, fmt.Errorf("%s %q: mismatch Content-Length", resp.Request.Method, resp.Request.URL)
-	}
+	// Content-Length is not validated here because some registries (e.g. Harbor)
+	// return different values between HEAD (used by Resolve) and GET responses,
+	// typically due to transparent compression. Integrity is guaranteed by
+	// verifyContentDigest below.
 	if err := verifyContentDigest(resp, target.Digest); err != nil {
 		return nil, err
 	}
@@ -1692,7 +1713,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 
 	// 3. Validate Client Reference
 	var refDigest digest.Digest
-	if d, err := ref.Digest(); err == nil {
+	if d, err := ref.GetDigest(); err == nil {
 		refDigest = d
 	}
 

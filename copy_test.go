@@ -2635,3 +2635,98 @@ type badMounter struct {
 func (bm *badMounter) Mount(_ context.Context, _ ocispec.Descriptor, _ string, _ func() (io.ReadCloser, error)) error {
 	return errMount
 }
+
+func TestCopy_PolicyCheck(t *testing.T) {
+	src := memory.New()
+	ctx := context.Background()
+
+	// Push config, layer, and manifest to source
+	configContent := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(configContent),
+		Size:      int64(len(configContent)),
+	}
+	if err := src.Push(ctx, configDesc, bytes.NewReader(configContent)); err != nil {
+		t.Fatal(err)
+	}
+
+	layerContent := []byte("test layer")
+	layerDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(layerContent),
+		Size:      int64(len(layerContent)),
+	}
+	if err := src.Push(ctx, layerDesc, bytes.NewReader(layerContent)); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{layerDesc},
+	}
+	manifestJSON, _ := json.Marshal(manifest)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+	if err := src.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.Tag(ctx, manifestDesc, "latest"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test: PolicyCheck rejects the copy
+	t.Run("rejected", func(t *testing.T) {
+		dst := memory.New()
+		policyErr := errors.New("image not allowed by policy")
+		opts := oras.CopyOptions{
+			PolicyCheck: func(ctx context.Context, srcRef string) error {
+				return policyErr
+			},
+		}
+
+		_, err := oras.Copy(ctx, src, "latest", dst, "latest", opts)
+		if err == nil {
+			t.Fatal("Copy() should fail when PolicyCheck rejects")
+		}
+		if !errors.Is(err, policyErr) {
+			t.Errorf("error should wrap policy error, got: %v", err)
+		}
+	})
+
+	// Test: PolicyCheck allows the copy
+	t.Run("allowed", func(t *testing.T) {
+		dst := memory.New()
+		var policyChecked bool
+		opts := oras.CopyOptions{
+			PolicyCheck: func(ctx context.Context, srcRef string) error {
+				policyChecked = true
+				if srcRef != "latest" {
+					t.Errorf("PolicyCheck got srcRef=%q, want %q", srcRef, "latest")
+				}
+				return nil
+			},
+		}
+
+		_, err := oras.Copy(ctx, src, "latest", dst, "latest", opts)
+		if err != nil {
+			t.Fatalf("Copy() error = %v", err)
+		}
+		if !policyChecked {
+			t.Error("PolicyCheck was not called")
+		}
+	})
+
+	// Test: no PolicyCheck (default)
+	t.Run("no policy", func(t *testing.T) {
+		dst := memory.New()
+		_, err := oras.Copy(ctx, src, "latest", dst, "latest", oras.CopyOptions{})
+		if err != nil {
+			t.Fatalf("Copy() error = %v", err)
+		}
+	})
+}

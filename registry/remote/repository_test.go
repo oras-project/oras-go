@@ -1265,6 +1265,58 @@ func TestRepository_Tags(t *testing.T) {
 	}
 }
 
+func TestRepository_Tags_MaxPages(t *testing.T) {
+	tagSet := [][]string{
+		{"the", "quick", "brown", "fox"},
+		{"jumps", "over", "the", "lazy"},
+		{"dog"},
+	}
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/test/tags/list" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		var tags []string
+		switch q.Get("test") {
+		case "foo":
+			tags = tagSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s/v2/test/tags/list?test=bar>; rel="next"`, ts.URL))
+		case "bar":
+			tags = tagSet[2]
+		default:
+			tags = tagSet[0]
+			w.Header().Set("Link", `</v2/test/tags/list?test=foo>; rel="next"`)
+		}
+		result := struct {
+			Tags []string `json:"tags"`
+		}{Tags: tags}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.TagListMaxPages = 2
+
+	ctx := context.Background()
+	err = repo.Tags(ctx, "", func(got []string) error { return nil })
+	if !errors.Is(err, errdef.ErrTooManyPages) {
+		t.Errorf("Repository.Tags() error = %v, want %v", err, errdef.ErrTooManyPages)
+	}
+}
+
 func TestRepository_Predecessors(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
@@ -1547,6 +1599,68 @@ func TestRepository_Referrers(t *testing.T) {
 	}
 	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	}
+}
+
+func TestRepository_Referrers_MaxPages(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	referrerSet := [][]ocispec.Descriptor{
+		{{MediaType: spec.MediaTypeArtifactManifest, Size: 1, Digest: digest.FromString("1"), ArtifactType: "application/vnd.test"}},
+		{{MediaType: spec.MediaTypeArtifactManifest, Size: 2, Digest: digest.FromString("2"), ArtifactType: "application/vnd.test"}},
+		{{MediaType: spec.MediaTypeArtifactManifest, Size: 3, Digest: digest.FromString("3"), ArtifactType: "application/vnd.test"}},
+	}
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		if r.Method != http.MethodGet || r.URL.Path != path {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		var referrers []ocispec.Descriptor
+		switch q.Get("test") {
+		case "foo":
+			referrers = referrerSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s%s?test=bar>; rel="next"`, ts.URL, path))
+		case "bar":
+			referrers = referrerSet[2]
+		default:
+			referrers = referrerSet[0]
+			w.Header().Set("Link", fmt.Sprintf(`<%s?test=foo>; rel="next"`, path))
+		}
+		result := ocispec.Index{
+			Versioned: specs.Versioned{SchemaVersion: 2},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: referrers,
+		}
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.PlainHTTP = true
+	repo.ReferrerListMaxPages = 2
+	repo.SetReferrersCapability(true)
+
+	ctx := context.Background()
+	err = repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error { return nil })
+	if !errors.Is(err, errdef.ErrTooManyPages) {
+		t.Errorf("Repository.Referrers() error = %v, want %v", err, errdef.ErrTooManyPages)
 	}
 }
 
@@ -3615,7 +3729,7 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 
 			var err error
 			var d digest.Digest
-			if d, err = reference.Digest(); err != nil {
+			if d, err = reference.GetDigest(); err != nil {
 				t.Errorf(
 					"[Blob.%v] %v; got digest from a tag reference unexpectedly",
 					method, testName,
@@ -3816,7 +3930,10 @@ func Test_ManifestStore_Fetch(t *testing.T) {
 		}
 	})
 
-	t.Run("fail with mismatching Content-Length", func(t *testing.T) {
+	// Content-Length mismatches are tolerated for manifests because some
+	// registries (e.g. Harbor) return different values between HEAD (Resolve)
+	// and GET responses. Integrity is guaranteed by the digest check instead.
+	t.Run("succeed with mismatching Content-Length", func(t *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodGet {
 				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -3832,7 +3949,7 @@ func Test_ManifestStore_Fetch(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", manifestDesc.MediaType)
 				w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
-				if _, err := w.Write([]byte("random")); err != nil {
+				if _, err := w.Write(manifest); err != nil {
 					t.Errorf("failed to write %q: %v", r.URL, err)
 				}
 			default:
@@ -3853,10 +3970,15 @@ func Test_ManifestStore_Fetch(t *testing.T) {
 		store := repo.Manifests()
 		ctx := context.Background()
 
-		_, err = store.Fetch(ctx, manifestDesc)
-		if err == nil {
-			t.Error("Manifests.Fetch() error = nil, wantErr = true")
+		// Use a descriptor with a wrong Size to simulate a HEAD/GET Content-Length
+		// divergence as seen with Harbor when copying to a differently-named repo.
+		wrongSizeDesc := manifestDesc
+		wrongSizeDesc.Size = manifestDesc.Size + 100
+		rc, err := store.Fetch(ctx, wrongSizeDesc)
+		if err != nil {
+			t.Fatalf("Manifests.Fetch() error = %v, want nil (Content-Length mismatch should be tolerated)", err)
 		}
+		rc.Close()
 	})
 
 	t.Run("fail with mismatching digest", func(t *testing.T) {
@@ -7230,6 +7352,7 @@ func TestRepository_ParseReference(t *testing.T) {
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 				Reference:  "foobar",
+				Tag:        "foobar",
 			},
 			wantErr: nil,
 		},
@@ -7246,6 +7369,7 @@ func TestRepository_ParseReference(t *testing.T) {
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+				Digest:     "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 			wantErr: nil,
 		},
@@ -7262,6 +7386,8 @@ func TestRepository_ParseReference(t *testing.T) {
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+				Tag:        "foobar",
+				Digest:     "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 			wantErr: nil,
 		},
