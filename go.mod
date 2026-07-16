@@ -5,7 +5,7 @@ go 1.25.9
 require (
 	github.com/containerd/containerd v1.7.34
 	github.com/distribution/distribution/v3 v3.1.1
-	github.com/docker/cli v29.6.1+incompatible
+	github.com/docker/cli v29.6.2+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
 	github.com/docker/go-connections v0.7.0
 	github.com/moby/moby/api v1.55.0
