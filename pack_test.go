@@ -523,6 +523,27 @@ func Test_Pack_ImageV1_1_RC2_InvalidDateTimeFormat(t *testing.T) {
 	}
 }
 
+func Test_Pack_ImageV1_1_RC2_InvalidConfigDigest(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	// a config descriptor with a valid media type but an empty (invalid) digest,
+	// as produced when the caller forgets to push the config blob and populate
+	// the descriptor. See https://github.com/oras-project/oras-go/issues/1236
+	configDesc := ocispec.Descriptor{
+		MediaType:   "application/vnd.test.config",
+		Annotations: map[string]string{"foo": "bar"},
+	}
+	opts := PackOptions{
+		PackImageManifest: true,
+		ConfigDescriptor:  &configDesc,
+	}
+	_, err := Pack(ctx, s, "", nil, opts)
+	if wantErr := errdef.ErrInvalidDigest; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.Pack() error = %v, wantErr = %v", err, wantErr)
+	}
+}
+
 func Test_PackManifest_ImageV1_0(t *testing.T) {
 	s := memory.New()
 
@@ -782,6 +803,26 @@ func Test_PackManifest_ImageV1_0_InvalidMediaType(t *testing.T) {
 	}
 	_, err = PackManifest(ctx, s, PackManifestVersion1_0, artifactType, opts)
 	if wantErr := errdef.ErrInvalidMediaType; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
+	}
+}
+
+func Test_PackManifest_ImageV1_0_InvalidConfigDigest(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	// a config descriptor with a valid media type but an empty (invalid) digest,
+	// as produced when the caller forgets to push the config blob and populate
+	// the descriptor. See https://github.com/oras-project/oras-go/issues/1236
+	configDesc := ocispec.Descriptor{
+		MediaType:   "application/vnd.test.config",
+		Annotations: map[string]string{"foo": "bar"},
+	}
+	opts := PackManifestOptions{
+		ConfigDescriptor: &configDesc,
+	}
+	_, err := PackManifest(ctx, s, PackManifestVersion1_0, "", opts)
+	if wantErr := errdef.ErrInvalidDigest; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
 }
@@ -1061,6 +1102,26 @@ func Test_PackManifest_ImageV1_1_InvalidMediaType(t *testing.T) {
 	}
 	_, err = PackManifest(ctx, s, PackManifestVersion1_1, artifactType, opts)
 	if wantErr := errdef.ErrInvalidMediaType; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
+	}
+}
+
+func Test_PackManifest_ImageV1_1_InvalidConfigDigest(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	// a config descriptor with a valid media type but an empty (invalid) digest,
+	// as produced when the caller forgets to push the config blob and populate
+	// the descriptor. See https://github.com/oras-project/oras-go/issues/1236
+	configDesc := ocispec.Descriptor{
+		MediaType:   "application/vnd.test.config",
+		Annotations: map[string]string{"foo": "bar"},
+	}
+	opts := PackManifestOptions{
+		ConfigDescriptor: &configDesc,
+	}
+	_, err := PackManifest(ctx, s, PackManifestVersion1_1, "application/vnd.test", opts)
+	if wantErr := errdef.ErrInvalidDigest; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
 }

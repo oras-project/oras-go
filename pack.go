@@ -101,6 +101,12 @@ type PackManifestOptions struct {
 
 	// ConfigDescriptor is a pointer to the descriptor of the config blob.
 	// If not nil, ConfigAnnotations will be ignored.
+	//
+	// When set, the caller is responsible for pushing the referenced config
+	// blob to the target and for populating the descriptor's Digest and Size.
+	// PackManifest uses the descriptor as-is and does NOT push the config blob.
+	// The descriptor's Digest MUST be valid, otherwise PackManifest returns an
+	// error wrapping [errdef.ErrInvalidDigest].
 	ConfigDescriptor *ocispec.Descriptor
 
 	// ConfigAnnotations is the annotation map of the config descriptor.
@@ -225,8 +231,8 @@ func packManifestV1_0(ctx context.Context, pusher content.Pusher, artifactType s
 	// prepare config
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
-		if err := validateMediaType(opts.ConfigDescriptor.MediaType); err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("invalid config mediaType format: %w", err)
+		if err := validateConfigDescriptor(*opts.ConfigDescriptor); err != nil {
+			return ocispec.Descriptor{}, err
 		}
 		configDesc = *opts.ConfigDescriptor
 	} else {
@@ -272,6 +278,9 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 	// prepare config
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
+		if err := validateConfigDescriptor(*opts.ConfigDescriptor); err != nil {
+			return ocispec.Descriptor{}, err
+		}
 		configDesc = *opts.ConfigDescriptor
 	} else {
 		var err error
@@ -318,8 +327,8 @@ func packManifestV1_1(ctx context.Context, pusher content.Pusher, artifactType s
 	var emptyBlobExists bool
 	var configDesc ocispec.Descriptor
 	if opts.ConfigDescriptor != nil {
-		if err := validateMediaType(opts.ConfigDescriptor.MediaType); err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("invalid config mediaType format: %w", err)
+		if err := validateConfigDescriptor(*opts.ConfigDescriptor); err != nil {
+			return ocispec.Descriptor{}, err
 		}
 		configDesc = *opts.ConfigDescriptor
 	} else {
@@ -443,6 +452,22 @@ func ensureAnnotationCreated(annotations map[string]string, annotationCreatedKey
 func validateMediaType(mediaType string) error {
 	if !mediaTypeRegexp.MatchString(mediaType) {
 		return fmt.Errorf("%s: %w", mediaType, errdef.ErrInvalidMediaType)
+	}
+	return nil
+}
+
+// validateConfigDescriptor validates a caller-supplied config descriptor.
+// When a config descriptor is provided to Pack or PackManifest, the caller is
+// responsible for pushing the config blob and populating the descriptor's
+// Digest and Size. Validating the descriptor here prevents silently producing
+// a manifest that references a non-existent config blob (e.g. an empty digest),
+// which some registries accept while dropping the descriptor's annotations.
+func validateConfigDescriptor(config ocispec.Descriptor) error {
+	if err := validateMediaType(config.MediaType); err != nil {
+		return fmt.Errorf("invalid config mediaType format: %w", err)
+	}
+	if err := config.Digest.Validate(); err != nil {
+		return fmt.Errorf("invalid config descriptor digest %q: %w", config.Digest, errdef.ErrInvalidDigest)
 	}
 	return nil
 }
