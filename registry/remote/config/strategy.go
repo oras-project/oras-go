@@ -15,17 +15,23 @@ limitations under the License.
 
 package config
 
-// Strategy selects the configuration file path resolution approach.
+// Strategy specifies the configuration file resolution strategy.
 type Strategy int
 
 const (
-	// StrategyContainersImage uses the current containers/image two-tier path
-	// resolution (system + user). This is the default.
+	// StrategyContainersImage uses the current containers/image path
+	// resolution with two tiers (system + user) and merge-all semantics.
+	// This is the default.
 	StrategyContainersImage Strategy = iota
 
-	// StrategyUAPI uses the Podman 6 UAPI-based three-tier path resolution
-	// (vendor + system + user) with rootful/rootless drop-in directories.
-	// EXPERIMENTAL: behavior may change as the upstream UAPI specification evolves.
+	// StrategyUAPI uses the Podman 6 UAPI-based path resolution with
+	// three tiers (vendor + system + user), first-found-wins for main
+	// config files, and rootful/rootless drop-in directories.
+	//
+	// EXPERIMENTAL: This strategy is based on the Podman 6 design proposal
+	// and the UAPI configuration files specification. The behavior may
+	// change as the upstream specification evolves.
+	//
 	// Reference: https://uapi-group.org/specifications/specs/configuration_files_specification/
 	StrategyUAPI
 )
