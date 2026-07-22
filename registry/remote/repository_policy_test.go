@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
@@ -209,6 +210,12 @@ func TestRepository_Tag_PolicyCheck(t *testing.T) {
 	assertPolicyDenied(t, err, "Tag")
 }
 
+func TestRepository_Untag_PolicyCheck(t *testing.T) {
+	repo := newRejectPolicyRepo(t)
+	err := repo.Untag(context.Background(), "latest")
+	assertPolicyDenied(t, err, "Untag")
+}
+
 func TestRepository_PushReference_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
 	err := repo.PushReference(context.Background(), testDesc, strings.NewReader("test"), "latest")
@@ -263,6 +270,12 @@ func TestRepository_ManifestStore_Resolve_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
 	_, err := repo.Manifests().Resolve(context.Background(), "latest")
 	assertPolicyDenied(t, err, "Manifests().Resolve")
+}
+
+func TestRepository_ManifestStore_Untag_PolicyCheck(t *testing.T) {
+	repo := newRejectPolicyRepo(t)
+	err := repo.Manifests().(content.Untagger).Untag(context.Background(), "latest")
+	assertPolicyDenied(t, err, "Manifests().Untag")
 }
 
 func TestRepository_BlobStore_Fetch_PolicyCheck(t *testing.T) {
