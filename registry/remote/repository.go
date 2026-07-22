@@ -40,11 +40,13 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/httputil"
 	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/spec"
+	"github.com/oras-project/oras-go/v3/internal/syncutil"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 const (
@@ -155,9 +157,11 @@ type Repository struct {
 
 	// NOTE: Must keep fields in sync with clone().
 
-	// referrersCapability tracks if the repository supports Referrers API.
-	// Lazily initialized via atomic CAS on first access; safe for concurrent use.
-	referrersCapability atomic.Pointer[ReferrerCapability]
+	// referrersState indicates whether the repository supports the Referrers
+	// API. It stores a properties.ReferrersAPI value.
+	// default: properties.ReferrersAPIUnknown
+	// Must be accessed atomically.
+	referrersState int32
 
 	// referrersPingLock locks the pingReferrers() method and allows only
 	// one go-routine to send the request.
@@ -165,8 +169,7 @@ type Repository struct {
 
 	// referrersMergePool provides a way to manage concurrent updates to a
 	// referrers index tagged by referrers tag schema.
-	// Lazily initialized via atomic CAS on first access; safe for concurrent use.
-	referrersMergePool atomic.Pointer[ReferrerMergePool]
+	referrersMergePool syncutil.Pool[syncutil.Merge[referrerChange]]
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -341,37 +344,26 @@ func (r *Repository) skipReferrersGC() bool {
 //   - When the capability is not set, the Referrers() function will automatically
 //     determine which API to use.
 func (r *Repository) SetReferrersCapability(capable bool) {
-	cap := r.getReferrersCapability()
+	state := properties.ReferrersAPIUnsupported
 	if capable {
-		cap.TrySetSupported()
-	} else {
-		cap.TrySetUnsupported()
+		state = properties.ReferrersAPISupported
 	}
+	// first value set wins; a conflicting later set is silently ignored.
+	atomic.CompareAndSwapInt32(&r.referrersState, int32(properties.ReferrersAPIUnknown), int32(state))
 }
 
-// getReferrersCapability returns the referrers capability, initializing it if needed.
-// Safe for concurrent use: uses atomic CAS to ensure only one instance is created.
-func (r *Repository) getReferrersCapability() *ReferrerCapability {
-	if cap := r.referrersCapability.Load(); cap != nil {
-		return cap
-	}
-	r.referrersCapability.CompareAndSwap(nil, NewReferrerCapability())
-	return r.referrersCapability.Load()
+// ReferrersCapability reports the repository's current Referrers API
+// capability. The value is either what was configured via
+// SetReferrersCapability / registry properties, or the result of
+// auto-detection performed during a Referrers call. It returns
+// properties.ReferrersAPIUnknown when the capability has not been determined.
+func (r *Repository) ReferrersCapability() properties.ReferrersAPI {
+	return r.loadReferrersState()
 }
 
 // loadReferrersState atomically loads r.referrersState.
-func (r *Repository) loadReferrersState() referrersState {
-	return r.getReferrersCapability().State()
-}
-
-// getReferrersMergePool returns the referrers merge pool, initializing it if needed.
-// Safe for concurrent use: uses atomic CAS to ensure only one instance is created.
-func (r *Repository) getReferrersMergePool() *ReferrerMergePool {
-	if pool := r.referrersMergePool.Load(); pool != nil {
-		return pool
-	}
-	r.referrersMergePool.CompareAndSwap(nil, NewReferrerMergePool())
-	return r.referrersMergePool.Load()
+func (r *Repository) loadReferrersState() properties.ReferrersAPI {
+	return properties.ReferrersAPI(atomic.LoadInt32(&r.referrersState))
 }
 
 // do sends an HTTP request and returns an HTTP response using the HTTP client
@@ -728,14 +720,14 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 		return err
 	}
 	state := r.loadReferrersState()
-	if state == referrersStateUnsupported {
+	if state == properties.ReferrersAPIUnsupported {
 		// The repository is known to not support Referrers API, fallback to
 		// referrers tag schema.
 		return r.referrersByTagSchema(ctx, desc, artifactType, fn)
 	}
 
 	err := r.referrersByAPI(ctx, desc, artifactType, fn)
-	if state == referrersStateSupported {
+	if state == properties.ReferrersAPISupported {
 		// The repository is known to support Referrers API, no fallback.
 		return err
 	}
@@ -898,9 +890,9 @@ func (r *Repository) referrersFromIndex(ctx context.Context, referrersTag string
 // pingReferrers returns true if the Referrers API is available for r.
 func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 	switch r.loadReferrersState() {
-	case referrersStateSupported:
+	case properties.ReferrersAPISupported:
 		return true, nil
-	case referrersStateUnsupported:
+	case properties.ReferrersAPIUnsupported:
 		return false, nil
 	}
 
@@ -910,9 +902,9 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 	defer r.referrersPingLock.Unlock()
 
 	switch r.loadReferrersState() {
-	case referrersStateSupported:
+	case properties.ReferrersAPISupported:
 		return true, nil
-	case referrersStateUnsupported:
+	case properties.ReferrersAPIUnsupported:
 		return false, nil
 	}
 
@@ -1460,7 +1452,7 @@ func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) e
 func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.Descriptor) error {
 	switch target.MediaType {
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		if state := s.repo.loadReferrersState(); state == properties.ReferrersAPISupported {
 			// referrers API is available, no client-side indexing needed
 			return s.repo.delete(ctx, target, true)
 		}
@@ -1704,7 +1696,7 @@ func (s *manifestStore) checkOCISubjectHeader(resp *http.Response) {
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
 	switch expected.MediaType {
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		if state := s.repo.loadReferrersState(); state == properties.ReferrersAPISupported {
 			// referrers API is available, no client-side indexing needed
 			return s.push(ctx, expected, r, reference)
 		}
@@ -1720,7 +1712,7 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 			return err
 		}
 		// check referrers API availability again after push
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		if state := s.repo.loadReferrersState(); state == properties.ReferrersAPISupported {
 			// the subject has been processed the registry, no client-side
 			// indexing needed
 			return nil
@@ -1856,7 +1848,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		return nil
 	}
 
-	merge, done := s.repo.getReferrersMergePool().Get(referrersTag)
+	merge, done := s.repo.referrersMergePool.Get(referrersTag)
 	defer done()
 	return merge.Do(change, prepare, update)
 }

@@ -64,6 +64,19 @@ type Registry struct {
 	// value defaults to auto-detection on first use. This is an ORAS-specific
 	// field and may be ignored by other tools that parse registries.conf.
 	ReferrersAPI string `toml:"referrers-api"`
+	// RepositoryListPageSize sets the default page size for the catalog
+	// (repository list) API. Zero lets the registry decide. This is an
+	// ORAS-specific field and may be ignored by other tools that parse
+	// registries.conf.
+	RepositoryListPageSize int `toml:"repository-list-page-size"`
+	// TagListPageSize sets the default page size for the tag list API. Zero
+	// lets the registry decide. This is an ORAS-specific field and may be
+	// ignored by other tools that parse registries.conf.
+	TagListPageSize int `toml:"tag-list-page-size"`
+	// ReferrerListPageSize sets the default page size for the Referrers API.
+	// Zero lets the registry decide. This is an ORAS-specific field and may be
+	// ignored by other tools that parse registries.conf.
+	ReferrerListPageSize int `toml:"referrer-list-page-size"`
 }
 
 // Mirror represents a registry mirror configuration.

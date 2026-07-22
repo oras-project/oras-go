@@ -260,10 +260,13 @@ func NewRegistryWithProperties(props *properties.Registry, builder *ClientBuilde
 
 	// Create registry
 	reg := &Registry{
-		Client:    client,
-		Reference: registry.Reference{Registry: props.Reference.Registry},
-		PlainHTTP: props.Transport.PlainHTTP,
-		Policy:    builder.PolicyEvaluator,
+		Client:                 client,
+		Reference:              registry.Reference{Registry: props.Reference.Registry},
+		PlainHTTP:              props.Transport.PlainHTTP,
+		Policy:                 builder.PolicyEvaluator,
+		RepositoryListPageSize: props.Attributes.RepositoryListPageSize,
+		TagListPageSize:        props.Attributes.TagListPageSize,
+		ReferrerListPageSize:   props.Attributes.ReferrerListPageSize,
 	}
 
 	if builder.Logger != nil {
@@ -291,10 +294,13 @@ func NewRepositoryWithProperties(props *properties.Registry, builder *ClientBuil
 
 	// Create registry
 	reg := &Registry{
-		Client:    client,
-		Reference: registry.Reference{Registry: props.Reference.Registry},
-		PlainHTTP: props.Transport.PlainHTTP,
-		Policy:    builder.PolicyEvaluator,
+		Client:                 client,
+		Reference:              registry.Reference{Registry: props.Reference.Registry},
+		PlainHTTP:              props.Transport.PlainHTTP,
+		Policy:                 builder.PolicyEvaluator,
+		RepositoryListPageSize: props.Attributes.RepositoryListPageSize,
+		TagListPageSize:        props.Attributes.TagListPageSize,
+		ReferrerListPageSize:   props.Attributes.ReferrerListPageSize,
 	}
 
 	if builder.Logger != nil {
@@ -307,13 +313,9 @@ func NewRepositoryWithProperties(props *properties.Registry, builder *ClientBuil
 		RepositoryName: props.Reference.Repository,
 	}
 
-	// Set Referrers API capability if specified
-	switch props.Attributes.ReferrersAPI {
-	case properties.ReferrersAPISupported:
-		repo.SetReferrersCapability(true)
-	case properties.ReferrersAPIUnsupported:
-		repo.SetReferrersCapability(false)
-	}
+	// Seed the Referrers API capability from properties.
+	// ReferrersAPIUnknown (the zero value) leaves auto-detection enabled.
+	repo.referrersState = int32(props.Attributes.ReferrersAPI)
 
 	// Build mirror repositories
 	mirrors, err := buildMirrorRepositories(props, builder)

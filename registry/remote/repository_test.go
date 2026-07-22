@@ -44,6 +44,7 @@ import (
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -1529,8 +1530,8 @@ func TestRepository_Referrers(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.ReferrerListPageSize = 2
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	index := 0
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
@@ -1546,8 +1547,8 @@ func TestRepository_Referrers(t *testing.T) {
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test force attempt Referrers
@@ -1559,8 +1560,8 @@ func TestRepository_Referrers(t *testing.T) {
 	repo.Registry.PlainHTTP = true
 	repo.ReferrerListPageSize = 2
 	repo.SetReferrersCapability(true)
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 	index = 0
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
@@ -1576,8 +1577,8 @@ func TestRepository_Referrers(t *testing.T) {
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test force attempt tag schema
@@ -1589,16 +1590,16 @@ func TestRepository_Referrers(t *testing.T) {
 	repo.Registry.PlainHTTP = true
 	repo.ReferrerListPageSize = 2
 	repo.SetReferrersCapability(false)
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -1740,8 +1741,8 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		if !reflect.DeepEqual(got, referrers) {
@@ -1751,8 +1752,8 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test force attempt Referrers
@@ -1763,16 +1764,16 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.SetReferrersCapability(true)
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err == nil {
 		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test force attempt tag schema
@@ -1783,8 +1784,8 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.SetReferrersCapability(false)
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		if !reflect.DeepEqual(got, referrers) {
@@ -1794,8 +1795,8 @@ func TestRepository_Referrers_TagSchemaFallback(t *testing.T) {
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -1834,16 +1835,16 @@ func TestRepository_Referrers_TagSchemaFallback_NotFound(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test force attempt tag schema
@@ -1854,16 +1855,16 @@ func TestRepository_Referrers_TagSchemaFallback_NotFound(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.SetReferrersCapability(false)
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -1906,16 +1907,16 @@ func TestRepository_Referrers_TagSchemaFallback_ContentType(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v", err)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -1952,16 +1953,16 @@ func TestRepository_Referrers_TagSchemaFallback_BadDigest(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err == nil {
 		t.Errorf("Repository.Referrers() error = nil, wantErr %v", true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -1999,16 +2000,16 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err == nil {
 		t.Errorf("Repository.Referrers() error = nil, wantErr %v", true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 
 	// test force attempt Referrers
@@ -2019,16 +2020,16 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.SetReferrersCapability(true)
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err == nil {
 		t.Errorf("Repository.Referrers() error = nil, wantErr %v", true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test force attempt tag schema
@@ -2039,16 +2040,16 @@ func TestRepository_Referrers_BadRequest(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.SetReferrersCapability(false)
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err == nil {
 		t.Errorf("Repository.Referrers() error = nil, wantErr %v", true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -2086,16 +2087,16 @@ func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err == nil {
 		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 
 	// test force attempt Referrers
@@ -2106,16 +2107,16 @@ func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.SetReferrersCapability(true)
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err == nil {
 		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test force attempt tag schema
@@ -2126,16 +2127,16 @@ func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.SetReferrersCapability(false)
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, nil)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -4220,8 +4221,8 @@ func Test_ManifestStore_Push_ReferrersAPIAvailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, artifactDesc, bytes.NewReader(artifactJSON))
 	if err != nil {
@@ -4230,8 +4231,8 @@ func Test_ManifestStore_Push_ReferrersAPIAvailable(t *testing.T) {
 	if !bytes.Equal(gotManifest, artifactJSON) {
 		t.Errorf("Manifests.Push() = %v, want %v", string(gotManifest), string(artifactJSON))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test pushing image manifest with subject
@@ -4240,8 +4241,8 @@ func Test_ManifestStore_Push_ReferrersAPIAvailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON))
 	if err != nil {
@@ -4250,8 +4251,8 @@ func Test_ManifestStore_Push_ReferrersAPIAvailable(t *testing.T) {
 	if !bytes.Equal(gotManifest, manifestJSON) {
 		t.Errorf("Manifests.Push() = %v, want %v", string(gotManifest), string(manifestJSON))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test pushing image index with subject
@@ -4262,8 +4263,8 @@ func Test_ManifestStore_Push_ReferrersAPIAvailable(t *testing.T) {
 	if !bytes.Equal(gotManifest, indexJSON) {
 		t.Errorf("Manifests.Push() = %v, want %v", string(gotManifest), string(indexJSON))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 }
 
@@ -4349,8 +4350,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, artifactDesc, bytes.NewReader(artifactJSON))
 	if err != nil {
@@ -4362,8 +4363,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test pushing artifact with subject when an old empty referrer list exists,
@@ -4430,8 +4431,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, artifactDesc, bytes.NewReader(artifactJSON))
 	if err != nil {
@@ -4446,8 +4447,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	if !indexDeleted {
 		t.Errorf("indexDeleted = %v, want %v", indexDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test pushing image manifest with subject, referrer list should be updated
@@ -4531,8 +4532,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON))
 	if err != nil {
@@ -4547,8 +4548,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	if !indexDeleted {
 		t.Errorf("indexDeleted = %v, want %v", indexDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test pushing image manifest with subject again, referrers list should not be changed
@@ -4585,8 +4586,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON))
 	if err != nil {
@@ -4599,8 +4600,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	if !bytes.Equal(gotReferrerIndex, indexJSON_2) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_2))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// push image index with subject, referrer list should be updated
@@ -4683,8 +4684,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, indexManifestDesc, bytes.NewReader(indexManifestJSON))
 	if err != nil {
@@ -4699,8 +4700,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 	if !indexDeleted {
 		t.Errorf("indexDeleted = %v, want %v", indexDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -4789,8 +4790,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 	repo.Registry.PlainHTTP = true
 	repo.SkipReferrersGC = true
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON))
 	if err != nil {
@@ -4802,8 +4803,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 	if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test pushing image manifest with subject when an old empty referrer list exists,
@@ -4865,8 +4866,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 	repo.Registry.PlainHTTP = true
 	repo.SkipReferrersGC = true
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON))
 	if err != nil {
@@ -4878,8 +4879,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 	if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// push image index with subject, referrer list should be updated, the old
@@ -4959,8 +4960,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 	repo.Registry.PlainHTTP = true
 	repo.SkipReferrersGC = true
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.Push(ctx, indexManifestDesc, bytes.NewReader(indexManifestJSON))
 	if err != nil {
@@ -4972,8 +4973,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 	if !bytes.Equal(gotReferrerIndex, indexJSON_2) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_2))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -5205,8 +5206,8 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 	store := repo.Manifests()
 	ctx := context.Background()
 	// test deleting artifact with subject
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = store.Delete(ctx, artifactDesc)
 	if err != nil {
@@ -5217,8 +5218,8 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 	}
 
 	// test deleting manifest with subject
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 	err = store.Delete(ctx, manifestDesc)
 	if err != nil {
@@ -5229,8 +5230,8 @@ func Test_ManifestStore_Delete_ReferrersAPIAvailable(t *testing.T) {
 	}
 
 	// test deleting index with subject
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 	err = store.Delete(ctx, indexDesc)
 	if err != nil {
@@ -5395,8 +5396,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	store := repo.Manifests()
 	ctx := context.Background()
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = store.Delete(ctx, artifactDesc)
 	if err != nil {
@@ -5411,8 +5412,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	if !indexDeleted {
 		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test deleting manifest with subject, referrers list should be updated
@@ -5472,8 +5473,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	repo.Registry.PlainHTTP = true
 	store = repo.Manifests()
 	ctx = context.Background()
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = store.Delete(ctx, manifestDesc)
 	if err != nil {
@@ -5485,8 +5486,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	if !indexDeleted {
 		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test deleting index with a subject, referrers list should be updated
@@ -5534,8 +5535,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	repo.Registry.PlainHTTP = true
 	store = repo.Manifests()
 	ctx = context.Background()
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = store.Delete(ctx, indexManifestDesc)
 	if err != nil {
@@ -5547,8 +5548,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 	if !indexDeleted {
 		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -5675,8 +5676,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_SkipReferrersGC(t *testin
 	store := repo.Manifests()
 	ctx := context.Background()
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = store.Delete(ctx, manifestDesc)
 	if err != nil {
@@ -5688,8 +5689,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_SkipReferrersGC(t *testin
 	if !bytes.Equal(gotReferrerIndex, indexJSON_2) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_2))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test deleting index with a subject, referrers list should be updated,
@@ -5747,8 +5748,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_SkipReferrersGC(t *testin
 	store = repo.Manifests()
 	ctx = context.Background()
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = store.Delete(ctx, indexManifestDesc)
 	if err != nil {
@@ -5760,8 +5761,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_SkipReferrersGC(t *testin
 	if !bytes.Equal(gotReferrerIndex, indexJSON_3) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_3))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -5820,8 +5821,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 	repo.Registry.PlainHTTP = true
 	store := repo.Manifests()
 	ctx := context.Background()
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = store.Delete(ctx, artifactDesc)
 	if err != nil {
@@ -5830,8 +5831,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 	if !manifestDeleted {
 		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test inconsistent state: empty referrers list
@@ -5883,8 +5884,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 	repo.Registry.PlainHTTP = true
 	store = repo.Manifests()
 	ctx = context.Background()
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = store.Delete(ctx, artifactDesc)
 	if err != nil {
@@ -5893,8 +5894,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 	if !manifestDeleted {
 		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test inconsistent state: current referrer is not in referrers list
@@ -5948,8 +5949,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 	repo.Registry.PlainHTTP = true
 	store = repo.Manifests()
 	ctx = context.Background()
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = store.Delete(ctx, artifactDesc)
 	if err != nil {
@@ -5958,8 +5959,8 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_InconsistentIndex(t *test
 	if !manifestDeleted {
 		t.Errorf("Manifests.Delete() = %v, want %v", manifestDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -6506,8 +6507,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.PushReference(ctx, artifactDesc, bytes.NewReader(artifactJSON), artifactRef)
 	if err != nil {
@@ -6516,8 +6517,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable(t *testing.T) {
 	if !bytes.Equal(gotManifest, artifactJSON) {
 		t.Errorf("Manifests.Push() = %v, want %v", string(gotManifest), string(artifactJSON))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test pushing image manifest with subject
@@ -6526,8 +6527,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.PushReference(ctx, manifestDesc, bytes.NewReader(manifestJSON), manifestRef)
 	if err != nil {
@@ -6536,8 +6537,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable(t *testing.T) {
 	if !bytes.Equal(gotManifest, manifestJSON) {
 		t.Errorf("Manifests.Push() = %v, want %v", string(gotManifest), string(manifestJSON))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test pushing image index with subject
@@ -6548,8 +6549,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIAvailable(t *testing.T) {
 	if !bytes.Equal(gotManifest, indexJSON) {
 		t.Errorf("Manifests.Push() = %v, want %v", string(gotManifest), string(indexJSON))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 }
 
@@ -6636,8 +6637,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.PushReference(ctx, artifactDesc, bytes.NewReader(artifactJSON), artifactRef)
 	if err != nil {
@@ -6649,8 +6650,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test pushing image manifest with subject, referrers list should be updated
@@ -6736,8 +6737,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.PushReference(ctx, manifestDesc, bytes.NewReader(manifestJSON), manifestRef)
 	if err != nil {
@@ -6752,8 +6753,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	if !manifestDeleted {
 		t.Errorf("manifestDeleted = %v, want %v", manifestDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// test pushing image manifest with subject again, referrers list should not be changed
@@ -6790,8 +6791,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.PushReference(ctx, manifestDesc, bytes.NewReader(manifestJSON), manifestRef)
 	if err != nil {
@@ -6804,8 +6805,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	if !bytes.Equal(gotReferrerIndex, indexJSON_2) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_2))
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 
 	// push image index with subject, referrer list should be updated
@@ -6889,8 +6890,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	err = repo.PushReference(ctx, indexManifestDesc, bytes.NewReader(indexManifestJSON), indexManifestRef)
 	if err != nil {
@@ -6905,8 +6906,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 	if !manifestDeleted {
 		t.Errorf("manifestDeleted = %v, want %v", manifestDeleted, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -7593,20 +7594,20 @@ func TestRepository_SetReferrersCapability(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	// initial state
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 
 	// first set
 	repo.SetReferrersCapability(true)
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// conflicting second set is silently ignored; state should be unchanged
 	repo.SetReferrersCapability(false)
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v (conflicting set should be ignored)", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v (conflicting set should be ignored)", state, properties.ReferrersAPISupported)
 	}
 }
 
@@ -7733,8 +7734,8 @@ func TestRepository_pingReferrers(t *testing.T) {
 		repo.Registry.PlainHTTP = true
 
 		// 1st call
-		if state := repo.loadReferrersState(); state != referrersStateUnknown {
-			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+		if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 		}
 		got, err := repo.pingReferrers(ctx)
 		if err != nil {
@@ -7743,16 +7744,16 @@ func TestRepository_pingReferrers(t *testing.T) {
 		if got != true {
 			t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
 		}
-		if state := repo.loadReferrersState(); state != referrersStateSupported {
-			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+		if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 		}
 		if count != 1 {
 			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 		}
 
 		// 2nd call
-		if state := repo.loadReferrersState(); state != referrersStateSupported {
-			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+		if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 		}
 		got, err = repo.pingReferrers(ctx)
 		if err != nil {
@@ -7761,8 +7762,8 @@ func TestRepository_pingReferrers(t *testing.T) {
 		if got != true {
 			t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
 		}
-		if state := repo.loadReferrersState(); state != referrersStateSupported {
-			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+		if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 		}
 		if count != 1 {
 			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
@@ -7796,8 +7797,8 @@ func TestRepository_pingReferrers(t *testing.T) {
 		repo.Registry.PlainHTTP = true
 
 		// 1st call
-		if state := repo.loadReferrersState(); state != referrersStateUnknown {
-			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+		if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 		}
 		got, err := repo.pingReferrers(ctx)
 		if err != nil {
@@ -7806,16 +7807,16 @@ func TestRepository_pingReferrers(t *testing.T) {
 		if got != false {
 			t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
 		}
-		if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+		if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 		}
 		if count != 1 {
 			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 		}
 
 		// 2nd call
-		if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+		if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 		}
 		got, err = repo.pingReferrers(ctx)
 		if err != nil {
@@ -7824,8 +7825,8 @@ func TestRepository_pingReferrers(t *testing.T) {
 		if got != false {
 			t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
 		}
-		if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+		if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 		}
 		if count != 1 {
 			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
@@ -7895,14 +7896,14 @@ func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	if _, err = repo.pingReferrers(ctx); err == nil {
 		t.Fatalf("Repository.pingReferrers() error = %v, wantErr %v", err, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 
 	// test referrers state supported
@@ -7912,8 +7913,8 @@ func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.SetReferrersCapability(true)
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 	got, err := repo.pingReferrers(ctx)
 	if err != nil {
@@ -7922,8 +7923,8 @@ func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
 	if got != true {
 		t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 
 	// test referrers state unsupported
@@ -7933,8 +7934,8 @@ func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
 	}
 	repo.Registry.PlainHTTP = true
 	repo.SetReferrersCapability(false)
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 	got, err = repo.pingReferrers(ctx)
 	if err != nil {
@@ -7943,8 +7944,8 @@ func TestRepository_pingReferrers_RepositoryNotFound(t *testing.T) {
 	if got != false {
 		t.Errorf("Repository.pingReferrers() = %v, want %v", got, false)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateUnsupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnsupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
 	}
 }
 
@@ -7979,8 +7980,8 @@ func TestRepository_pingReferrers_Concurrent(t *testing.T) {
 	concurrency := 64
 	eg, egCtx := errgroup.WithContext(ctx)
 
-	if state := repo.loadReferrersState(); state != referrersStateUnknown {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateUnknown)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	for range concurrency {
 		eg.Go(func() func() error {
@@ -8003,8 +8004,8 @@ func TestRepository_pingReferrers_Concurrent(t *testing.T) {
 	if got := atomic.LoadInt32(&count); got != 1 {
 		t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
 	}
-	if state := repo.loadReferrersState(); state != referrersStateSupported {
-		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, referrersStateSupported)
+	if state := repo.loadReferrersState(); state != properties.ReferrersAPISupported {
+		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPISupported)
 	}
 }
 

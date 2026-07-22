@@ -614,7 +614,7 @@ func TestNewRepositoryWithProperties_ReferrersAPISupported(t *testing.T) {
 
 	// Conflicting set is silently ignored; capability should remain supported.
 	repo.SetReferrersCapability(false)
-	if !repo.getReferrersCapability().IsSupported() {
+	if repo.loadReferrersState() != properties.ReferrersAPISupported {
 		t.Error("conflicting SetReferrersCapability(false) should be ignored when already set to supported")
 	}
 }
@@ -637,7 +637,7 @@ func TestNewRepositoryWithProperties_ReferrersAPIUnsupported(t *testing.T) {
 
 	// Conflicting set is silently ignored; capability should remain unsupported.
 	repo.SetReferrersCapability(true)
-	if !repo.getReferrersCapability().IsUnsupported() {
+	if repo.loadReferrersState() != properties.ReferrersAPIUnsupported {
 		t.Error("conflicting SetReferrersCapability(true) should be ignored when already set to unsupported")
 	}
 }

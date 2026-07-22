@@ -86,6 +86,10 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 			props.Attributes.ReferrersAPI = properties.ReferrersAPIUnsupported
 		}
 
+		props.Attributes.RepositoryListPageSize = origReg.RepositoryListPageSize
+		props.Attributes.TagListPageSize = origReg.TagListPageSize
+		props.Attributes.ReferrerListPageSize = origReg.ReferrerListPageSize
+
 		// Step 6: Populate mirrors.
 		if len(origReg.Mirrors) > 0 {
 			props.Mirrors = make([]properties.Mirror, len(origReg.Mirrors))
