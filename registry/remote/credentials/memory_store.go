@@ -19,9 +19,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
-
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/configuration"
 )
 
 // memoryStore is a store that keeps credentials in memory.
@@ -34,21 +33,21 @@ func NewMemoryStore() Store {
 	return &memoryStore{}
 }
 
-// NewMemoryStoreFromDockerConfig creates a new in-memory credentials store from the given configuration.
+// NewMemoryStoreFromDockerConfig creates a new in-memory credentials store from the given config.
 //
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewMemoryStoreFromDockerConfig(c []byte) (Store, error) {
 	cfg := struct {
-		Auths map[string]configuration.AuthConfig `json:"auths"`
+		Auths map[string]AuthConfig `json:"auths"`
 	}{}
 	if err := json.Unmarshal(c, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal auth field: %w: %v", configuration.ErrInvalidConfigFormat, err)
+		return nil, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidAuthConfig, err)
 	}
 
 	s := &memoryStore{}
 	for addr, auth := range cfg.Auths {
 		// Normalize the auth key to hostname.
-		hostname := configuration.ToHostname(addr)
+		hostname := toHostname(addr)
 		cred, err := NewCredential(auth)
 		if err != nil {
 			return nil, err
@@ -56,6 +55,15 @@ func NewMemoryStoreFromDockerConfig(c []byte) (Store, error) {
 		_, _ = s.store.LoadOrStore(hostname, cred)
 	}
 	return s, nil
+}
+
+// toHostname normalizes a server address to just its hostname, removing
+// the scheme and the path parts.
+func toHostname(addr string) string {
+	addr = strings.TrimPrefix(addr, "http://")
+	addr = strings.TrimPrefix(addr, "https://")
+	addr, _, _ = strings.Cut(addr, "/")
+	return addr
 }
 
 // Get retrieves credentials from the store for the given server address.

@@ -105,7 +105,7 @@ func TestScopeRepository(t *testing.T) {
 	}
 }
 
-func TestWithScopeHints(t *testing.T) {
+func TestAppendRepositoryScope(t *testing.T) {
 	ctx := context.Background()
 	ref1, err := registry.ParseReference("registry.example.com/foo")
 	if err != nil {
@@ -126,10 +126,10 @@ func TestWithScopeHints(t *testing.T) {
 	ctx = AppendRepositoryScope(ctx, ref1, ActionPull)
 	ctx = AppendRepositoryScope(ctx, ref2, ActionPush)
 	if got := GetScopesForHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want1)
+		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want1)
 	}
 	if got := GetScopesForHost(ctx, ref2.Host()); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want2)
+		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want2)
 	}
 
 	// with duplicated scopes
@@ -152,20 +152,20 @@ func TestWithScopeHints(t *testing.T) {
 	ctx = AppendRepositoryScope(ctx, ref1, scopes1...)
 	ctx = AppendRepositoryScope(ctx, ref2, scopes2...)
 	if got := GetScopesForHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want1)
+		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want1)
 	}
 	if got := GetScopesForHost(ctx, ref2.Host()); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want2)
+		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want2)
 	}
 
 	// append empty scopes
 	ctx = AppendRepositoryScope(ctx, ref1)
 	ctx = AppendRepositoryScope(ctx, ref2)
 	if got := GetScopesForHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want1)
+		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want1)
 	}
 	if got := GetScopesForHost(ctx, ref2.Host()); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesPerRegistry(WithScopeHints()) = %v, want %v", got, want2)
+		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want2)
 	}
 }
 

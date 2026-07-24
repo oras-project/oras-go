@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,15 +31,7 @@ import (
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/errdef"
-	"github.com/oras-project/oras-go/v3/registry"
 )
-
-func TestRegistryInterface(t *testing.T) {
-	var reg any = &Registry{}
-	if _, ok := reg.(registry.Registry); !ok {
-		t.Error("&Registry{} does not conform registry.Registry")
-	}
-}
 
 func TestRegistry_TLS(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +209,58 @@ func TestRegistry_Repositories(t *testing.T) {
 	}
 }
 
+func TestRegistry_Repositories_MaxPages(t *testing.T) {
+	repoSet := [][]string{
+		{"the", "quick", "brown", "fox"},
+		{"jumps", "over", "the", "lazy"},
+		{"dog"},
+	}
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/_catalog" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		q := r.URL.Query()
+		var repos []string
+		switch q.Get("test") {
+		case "foo":
+			repos = repoSet[1]
+			w.Header().Set("Link", fmt.Sprintf(`<%s/v2/_catalog?test=bar>; rel="next"`, ts.URL))
+		case "bar":
+			repos = repoSet[2]
+		default:
+			repos = repoSet[0]
+			w.Header().Set("Link", `</v2/_catalog?test=foo>; rel="next"`)
+		}
+		result := struct {
+			Repositories []string `json:"repositories"`
+		}{Repositories: repos}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	reg.PlainHTTP = true
+	reg.RepositoryListMaxPages = 2
+
+	ctx := context.Background()
+	err = reg.Repositories(ctx, "", func(got []string) error { return nil })
+	if !errors.Is(err, errdef.ErrTooManyPages) {
+		t.Errorf("Registry.Repositories() error = %v, want %v", err, errdef.ErrTooManyPages)
+	}
+}
+
 func TestRegistry_Repository(t *testing.T) {
 	reg, err := NewRegistry("localhost:5000")
 	if err != nil {
@@ -233,10 +278,12 @@ func TestRegistry_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Registry.Repository() error = %v", err)
 	}
-	reg.Reference.Repository = "hello-world"
-	want := (*Repository)(&reg.RepositoryOptions)
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Registry.Repository() = %v, want %v", got, want)
+	repo := got.(*Repository)
+	if repo.RepositoryName != "hello-world" {
+		t.Errorf("Repository.RepositoryName = %v, want %v", repo.RepositoryName, "hello-world")
+	}
+	if repo.Registry != reg {
+		t.Errorf("Repository.Registry = %v, want %v", repo.Registry, reg)
 	}
 }
 

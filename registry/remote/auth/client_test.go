@@ -726,6 +726,7 @@ func TestClient_Do_Bearer_Auth(t *testing.T) {
 			}, nil
 		},
 	}
+	client.SetLegacyMode(true)
 
 	// first request
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -853,6 +854,7 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 		},
 		Cache: NewCache(),
 	}
+	client.SetLegacyMode(true)
 
 	// first request
 	ctx := WithScopes(context.Background(), scopes...)
@@ -995,6 +997,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		}),
 		Cache: NewCache(),
 	}
+	client1.SetLegacyMode(true)
 
 	// set up server 2
 	username2 := "test_user2"
@@ -1065,6 +1068,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		}),
 		Cache: NewCache(),
 	}
+	client2.SetLegacyMode(true)
 
 	ctx := context.Background()
 	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
@@ -1312,7 +1316,6 @@ func TestClient_Do_Bearer_OAuth2_Password(t *testing.T) {
 				Password: password,
 			}, nil
 		},
-		ForceAttemptOAuth2: true,
 	}
 
 	// first request
@@ -1459,8 +1462,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached(t *testing.T) {
 				Password: password,
 			}, nil
 		},
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	// first request
@@ -1622,8 +1624,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 			Username: username1,
 			Password: password1,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 	// set up server 2
 	username2 := "test_user2"
@@ -1712,8 +1713,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 			Username: username2,
 			Password: password2,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	ctx := context.Background()
@@ -2970,8 +2970,7 @@ func TestClient_Do_Scope_Hint_Mismatch(t *testing.T) {
 				Password: password,
 			}, nil
 		},
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	// first request
@@ -3114,8 +3113,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 			Username: username1,
 			Password: password1,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	// set up server 1
@@ -3208,8 +3206,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 			Username: username2,
 			Password: password2,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	ctx := context.Background()
@@ -3350,6 +3347,7 @@ func TestClient_Do_Invalid_Credential_Basic(t *testing.T) {
 			}, nil
 		},
 	}
+	client.SetLegacyMode(true)
 
 	// request should fail
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3435,6 +3433,7 @@ func TestClient_Do_Invalid_Credential_Bearer(t *testing.T) {
 			}, nil
 		},
 	}
+	client.SetLegacyMode(true)
 
 	// request should fail
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3620,6 +3619,7 @@ func TestClient_Do_Scheme_Change(t *testing.T) {
 		},
 		Cache: NewCache(),
 	}
+	client.SetLegacyMode(true)
 
 	// request with bearer auth
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3744,7 +3744,7 @@ func TestClient_StaticCredential_basicAuth(t *testing.T) {
 	testPassword := "password"
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3816,7 +3816,7 @@ func TestClient_StaticCredential_withAccessToken(t *testing.T) {
 	defer as.Close()
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3910,7 +3910,7 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 	defer as.Close()
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3975,5 +3975,496 @@ func TestClient_fetchBasicAuth(t *testing.T) {
 	_, err := c.fetchBasicAuth(context.Background(), "")
 	if err != ErrBasicCredentialNotFound {
 		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
+	}
+}
+
+func TestClient_Do_ForceBasicAuth_OverridesBearer(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
+
+	// Server challenges with Bearer but accepts Basic.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+		authHeader := r.Header.Get("Authorization")
+		expectedBasic := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+		if authHeader == expectedBasic {
+			atomic.AddInt64(&successCount, 1)
+			return
+		}
+		// Challenge with Bearer to test ForceBasicAuth override.
+		w.Header().Set("Www-Authenticate", `Bearer realm="https://auth.example.com/token",service="test"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	client := &Client{
+		ForceBasicAuth: true,
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			if reg != uri.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
+			}
+			return credentials.Credential{
+				Username: username,
+				Password: password,
+			}, nil
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount += 2; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
+}
+
+func TestClient_Do_Bearer_CustomTokenFetcher(t *testing.T) {
+	wantToken := "custom_fetcher_token"
+	var requestCount, wantRequestCount int64
+	var successCount, wantSuccessCount int64
+	var service string
+	scope := "repository:test:pull"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&requestCount, 1)
+		if r.Method != http.MethodGet || r.URL.Path != "/" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		header := "Bearer " + wantToken
+		if auth := r.Header.Get("Authorization"); auth != header {
+			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", "https://auth.example.com/token", service, scope)
+			w.Header().Set("Www-Authenticate", challenge)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		atomic.AddInt64(&successCount, 1)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	// Custom token fetcher that always returns a fixed token.
+	customFetcher := &mockTokenFetcherForClient{token: wantToken}
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			return credentials.Credential{
+				Username: "user",
+				Password: "pass",
+			}, nil
+		},
+		TokenFetcher: customFetcher,
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if wantRequestCount += 2; requestCount != wantRequestCount {
+		t.Errorf("unexpected number of requests: %d, want %d", requestCount, wantRequestCount)
+	}
+	if wantSuccessCount++; successCount != wantSuccessCount {
+		t.Errorf("unexpected number of successful requests: %d, want %d", successCount, wantSuccessCount)
+	}
+
+	// Verify the custom fetcher was actually called.
+	if !customFetcher.called {
+		t.Error("custom TokenFetcher was not called")
+	}
+}
+
+func TestClient_Do_Bearer_CustomTokenFetcher_Error(t *testing.T) {
+	var service string
+	scope := "repository:test:pull"
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", "https://auth.example.com/token", service, scope)
+		w.Header().Set("Www-Authenticate", challenge)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	fetcherErr := errors.New("custom fetcher error")
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			return credentials.Credential{
+				Username: "user",
+				Password: "pass",
+			}, nil
+		},
+		TokenFetcher: &mockTokenFetcherForClient{err: fetcherErr},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	_, err = client.Do(req)
+	if err == nil {
+		t.Fatal("Client.Do() expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "custom fetcher error") {
+		t.Errorf("Client.Do() error = %v, want error containing %q", err, "custom fetcher error")
+	}
+}
+
+func TestClient_SetLegacyMode(t *testing.T) {
+	var client Client
+	// Default should be false.
+	if client.legacyMode {
+		t.Error("default legacyMode should be false")
+	}
+
+	client.SetLegacyMode(true)
+	if !client.legacyMode {
+		t.Error("SetLegacyMode(true) should set legacyMode to true")
+	}
+
+	client.SetLegacyMode(false)
+	if client.legacyMode {
+		t.Error("SetLegacyMode(false) should set legacyMode to false")
+	}
+}
+
+// mockTokenFetcherForClient is a test helper that returns a fixed token and
+// tracks whether it was called.
+type mockTokenFetcherForClient struct {
+	token  string
+	err    error
+	called bool
+}
+
+func (m *mockTokenFetcherForClient) FetchToken(ctx context.Context, params TokenParams, cred credentials.Credential) (string, error) {
+	m.called = true
+	if m.err != nil {
+		return "", m.err
+	}
+	return m.token, nil
+}
+
+func TestClient_validateRealm(t *testing.T) {
+	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
+	registryHTTP, _ := url.Parse("http://registry.example.com/v2/")
+	registryLoopback, _ := url.Parse("http://127.0.0.1:5000/v2/")
+	tests := []struct {
+		name    string
+		hosts   []string
+		realm   string
+		reg     *url.URL
+		wantErr bool
+	}{
+		// host allowlist (empty == allow all)
+		{"empty allowlist accepts any realm host", nil, "https://attacker.example.com/token", registryHTTPS, false},
+		{"empty allowlist accepts empty realm", nil, "", registryHTTPS, false},
+		{"empty realm is allowed even with allowlist", []string{"auth.example.com"}, "", registryHTTPS, false},
+		{"same-host realm is always allowed", []string{"auth.example.com"}, "https://registry.example.com/token", registryHTTPS, false},
+		{"allowlisted host is accepted", []string{"auth.example.com"}, "https://auth.example.com/token", registryHTTPS, false},
+		{"allowlisted host with port is accepted", []string{"auth.example.com:8443"}, "https://auth.example.com:8443/token", registryHTTPS, false},
+		{"non-allowlisted host is rejected", []string{"auth.example.com"}, "https://other.example.com/token", registryHTTPS, true},
+		{"host without matching port is rejected", []string{"auth.example.com:8443"}, "https://auth.example.com/token", registryHTTPS, true},
+		{"unparseable realm is rejected", []string{"auth.example.com"}, "://bad-url", registryHTTPS, true},
+		// scheme check (always applies, even with empty allowlist)
+		{"http realm on plain-http registry is allowed", nil, "http://auth.example.com/token", registryHTTP, false},
+		{"http realm on https registry is rejected (TLS downgrade)", nil, "http://auth.example.com/token", registryHTTPS, true},
+		{"unsupported scheme is rejected with empty allowlist", nil, "ftp://auth.example.com/token", registryHTTPS, true},
+		// IP-literal guard (always applies, even with empty allowlist)
+		// Reference: GHSA-xf85-363p-868w
+		{"IMDS IPv4 is rejected", nil, "http://169.254.169.254/latest/meta-data/", registryHTTP, true},
+		{"loopback IPv4 is rejected when registry is on a public host", nil, "http://127.0.0.1:9090/token", registryHTTPS, true},
+		{"loopback IPv6 is rejected when registry is on a public host", nil, "http://[::1]:9090/token", registryHTTPS, true},
+		{"private RFC1918 is rejected when registry is on a public host", nil, "http://10.0.0.5/token", registryHTTP, true},
+		{"loopback realm is allowed when registry shares the loopback hostname", nil, "http://127.0.0.1:9090/token", registryLoopback, false},
+		{"public realm host is not subject to the IP-literal guard", nil, "https://auth.example.com/token", registryHTTPS, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Client{TrustedRealmHosts: tt.hosts}
+			err := c.validateRealm(tt.realm, tt.reg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.reg, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestClient_Do_Basic_Auth_RedirectAfterAuth verifies that the Authorization
+// header is not forwarded when an authenticated request is redirected to a
+// different HTTP origin (here, a different port on the same host).
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+func TestClient_Do_Basic_Auth_RedirectAfterAuth(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	var sinkGotAuth atomic.Bool
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			sinkGotAuth.Store(true)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer sink.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != wantAuth {
+			w.Header().Set("Www-Authenticate", `Basic realm="origin"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// authenticated: redirect to a different origin (different port)
+		http.Redirect(w, r, sink.URL+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	originURL, err := url.Parse(origin.URL)
+	if err != nil {
+		t.Fatalf("invalid origin server: %v", err)
+	}
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			if reg != originURL.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, originURL.Host)
+			}
+			return credentials.Credential{Username: username, Password: password}, nil
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if sinkGotAuth.Load() {
+		t.Error("Authorization header was forwarded to a redirect target on a different origin")
+	}
+}
+
+// TestClient_Do_Basic_Auth_RedirectBeforeAuth verifies that credentials are not
+// resolved or sent when the 401 challenge originates from a different HTTP
+// origin reached through a pre-authentication redirect.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+func TestClient_Do_Basic_Auth_RedirectBeforeAuth(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+
+	var sinkGotAuth atomic.Bool
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			sinkGotAuth.Store(true)
+		}
+		w.Header().Set("Www-Authenticate", `Basic realm="sink"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer sink.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// redirect to a different origin before any authentication happens
+		http.Redirect(w, r, sink.URL+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	originURL, err := url.Parse(origin.URL)
+	if err != nil {
+		t.Fatalf("invalid origin server: %v", err)
+	}
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			if reg != originURL.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, originURL.Host)
+			}
+			return credentials.Credential{Username: username, Password: password}, nil
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusUnauthorized)
+	}
+	if sinkGotAuth.Load() {
+		t.Error("credential was forwarded to a sink reached through a pre-auth redirect")
+	}
+}
+
+// TestClient_Do_Basic_Auth_SameOriginRedirect verifies that credentials are
+// still forwarded across a same-origin redirect (e.g. a path-only redirect),
+// guarding against an over-broad fix.
+func TestClient_Do_Basic_Auth_SameOriginRedirect(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	var targetAuthOK atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/redirect":
+			http.Redirect(w, r, "/target", http.StatusTemporaryRedirect)
+		case "/target":
+			if r.Header.Get("Authorization") != wantAuth {
+				w.Header().Set("Www-Authenticate", `Basic realm="target"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			targetAuthOK.Store(true)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	tsURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test server: %v", err)
+	}
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			if reg != tsURL.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, tsURL.Host)
+			}
+			return credentials.Credential{Username: username, Password: password}, nil
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/redirect", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if !targetAuthOK.Load() {
+		t.Error("credential was not forwarded across a same-origin redirect")
+	}
+}
+
+// TestClient_send_PreservesCheckRedirect verifies that a caller-provided
+// CheckRedirect callback on the underlying HTTP client is still invoked.
+func TestClient_send_PreservesCheckRedirect(t *testing.T) {
+	var called atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/a":
+			http.Redirect(w, r, "/b", http.StatusTemporaryRedirect)
+		case "/b":
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	client := &Client{
+		Client: &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				called.Store(true)
+				return nil
+			},
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/a", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if !called.Load() {
+		t.Error("caller-provided CheckRedirect was not invoked")
+	}
+}
+
+func Test_sameHTTPOrigin(t *testing.T) {
+	tests := []struct {
+		name string
+		a    string
+		b    string
+		want bool
+	}{
+		{"identical", "http://example.com:5000", "http://example.com:5000", true},
+		{"different port", "http://example.com:5000", "http://example.com:6000", false},
+		{"default https port normalized", "https://example.com", "https://example.com:443", true},
+		{"default http port normalized", "http://example.com", "http://example.com:80", true},
+		{"scheme mismatch", "http://example.com", "https://example.com", false},
+		{"case-insensitive host", "https://Example.COM", "https://example.com", true},
+		{"different host", "https://example.com", "https://evil.com", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, err := url.Parse(tt.a)
+			if err != nil {
+				t.Fatalf("failed to parse %q: %v", tt.a, err)
+			}
+			b, err := url.Parse(tt.b)
+			if err != nil {
+				t.Fatalf("failed to parse %q: %v", tt.b, err)
+			}
+			if got := sameHTTPOrigin(a, b); got != tt.want {
+				t.Errorf("sameHTTPOrigin(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
 	}
 }

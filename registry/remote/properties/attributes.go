@@ -53,4 +53,19 @@ type Attributes struct {
 	// will use Basic auth instead. This requires the registry to also
 	// accept Basic auth credentials.
 	ForceBasicAuth bool
+
+	// RepositoryListPageSize sets the default page size for the catalog
+	// (repository list) API. Zero lets the registry decide.
+	RepositoryListPageSize int
+
+	// TagListPageSize sets the default page size for the tag list API.
+	// Zero lets the registry decide.
+	TagListPageSize int
+
+	// ReferrerListPageSize sets the default page size for the Referrers API.
+	// Zero lets the registry decide.
+	//
+	// NOTE: Referrers API pagination is not defined in the distribution spec,
+	// so not all registries honor this.
+	ReferrerListPageSize int
 }
