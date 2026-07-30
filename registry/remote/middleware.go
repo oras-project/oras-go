@@ -43,31 +43,42 @@ func Compose(middlewares ...RepositoryMiddleware) RepositoryMiddleware {
 // WithPolicyEnforcement creates a middleware that adds policy checks to all operations.
 // The transport and scope parameters are used for constructing image references
 // for policy evaluation.
+//
+// If evaluator is nil, a no-op middleware is returned that leaves the repository
+// unchanged, so callers pay no per-operation cost when policy enforcement is
+// disabled.
 func WithPolicyEnforcement(evaluator *policy.Evaluator, transport policy.TransportName, scope string) RepositoryMiddleware {
+	if evaluator == nil {
+		return func(repo registry.Repository) registry.Repository {
+			return repo
+		}
+	}
 	return func(repo registry.Repository) registry.Repository {
 		return &policyEnforcingRepository{
-			Repository: repo,
-			evaluator:  evaluator,
-			transport:  transport,
-			scope:      scope,
+			repo:      repo,
+			evaluator: evaluator,
+			transport: transport,
+			scope:     scope,
 		}
 	}
 }
 
 // policyEnforcingRepository wraps a Repository and enforces policy on all operations.
+//
+// The wrapped repository is held in a named field rather than embedded so that
+// every method of registry.Repository must be implemented explicitly. If a new
+// method is added to the interface, this type fails to compile until the method
+// is handled here, ensuring no operation silently bypasses policy enforcement.
 type policyEnforcingRepository struct {
-	registry.Repository
+	repo      registry.Repository
 	evaluator *policy.Evaluator
 	transport policy.TransportName
 	scope     string
 }
 
 // checkPolicy validates access against the configured policy.
+// The evaluator is guaranteed non-nil by WithPolicyEnforcement.
 func (r *policyEnforcingRepository) checkPolicy(ctx context.Context, reference string) error {
-	if r.evaluator == nil {
-		return nil
-	}
-
 	imageRef := policy.ImageReference{
 		Transport: r.transport,
 		Scope:     r.scope,
@@ -89,7 +100,7 @@ func (r *policyEnforcingRepository) Fetch(ctx context.Context, target ocispec.De
 	if err := r.checkPolicy(ctx, target.Digest.String()); err != nil {
 		return nil, err
 	}
-	return r.Repository.Fetch(ctx, target)
+	return r.repo.Fetch(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor, with policy enforcement.
@@ -97,7 +108,17 @@ func (r *policyEnforcingRepository) Push(ctx context.Context, expected ocispec.D
 	if err := r.checkPolicy(ctx, expected.Digest.String()); err != nil {
 		return err
 	}
-	return r.Repository.Push(ctx, expected, content)
+	return r.repo.Push(ctx, expected, content)
+}
+
+// Exists returns true if the described content exists.
+func (r *policyEnforcingRepository) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	return r.repo.Exists(ctx, target)
+}
+
+// Delete removes the content identified by the descriptor.
+func (r *policyEnforcingRepository) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	return r.repo.Delete(ctx, target)
 }
 
 // Resolve resolves a reference to a manifest descriptor with policy enforcement.
@@ -105,7 +126,7 @@ func (r *policyEnforcingRepository) Resolve(ctx context.Context, reference strin
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	return r.Repository.Resolve(ctx, reference)
+	return r.repo.Resolve(ctx, reference)
 }
 
 // Tag tags a manifest descriptor with a reference string with policy enforcement.
@@ -113,7 +134,7 @@ func (r *policyEnforcingRepository) Tag(ctx context.Context, desc ocispec.Descri
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return err
 	}
-	return r.Repository.Tag(ctx, desc, reference)
+	return r.repo.Tag(ctx, desc, reference)
 }
 
 // FetchReference fetches the manifest identified by the reference with policy enforcement.
@@ -121,7 +142,7 @@ func (r *policyEnforcingRepository) FetchReference(ctx context.Context, referenc
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	return r.Repository.FetchReference(ctx, reference)
+	return r.repo.FetchReference(ctx, reference)
 }
 
 // PushReference pushes the manifest with a reference tag with policy enforcement.
@@ -129,29 +150,42 @@ func (r *policyEnforcingRepository) PushReference(ctx context.Context, expected 
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return err
 	}
-	return r.Repository.PushReference(ctx, expected, content, reference)
+	return r.repo.PushReference(ctx, expected, content, reference)
+}
+
+// Referrers lists the descriptors that refer to the given descriptor.
+func (r *policyEnforcingRepository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
+	return r.repo.Referrers(ctx, desc, artifactType, fn)
+}
+
+// Tags lists the tags available in the repository.
+func (r *policyEnforcingRepository) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
+	return r.repo.Tags(ctx, last, fn)
 }
 
 // Blobs returns a policy-enforcing blob store.
 func (r *policyEnforcingRepository) Blobs() registry.BlobStore {
 	return &policyEnforcingBlobStore{
-		BlobStore: r.Repository.Blobs(),
-		repo:      r,
+		blobs: r.repo.Blobs(),
+		repo:  r,
 	}
 }
 
 // Manifests returns a policy-enforcing manifest store.
 func (r *policyEnforcingRepository) Manifests() registry.ManifestStore {
 	return &policyEnforcingManifestStore{
-		ManifestStore: r.Repository.Manifests(),
-		repo:          r,
+		manifests: r.repo.Manifests(),
+		repo:      r,
 	}
 }
 
 // policyEnforcingBlobStore wraps a BlobStore with policy enforcement.
+//
+// As with policyEnforcingRepository, the wrapped store is a named field so that
+// every registry.BlobStore method must be implemented explicitly.
 type policyEnforcingBlobStore struct {
-	registry.BlobStore
-	repo *policyEnforcingRepository
+	blobs registry.BlobStore
+	repo  *policyEnforcingRepository
 }
 
 // Fetch fetches the content with policy enforcement.
@@ -159,7 +193,7 @@ func (s *policyEnforcingBlobStore) Fetch(ctx context.Context, target ocispec.Des
 	if err := s.repo.checkPolicy(ctx, target.Digest.String()); err != nil {
 		return nil, err
 	}
-	return s.BlobStore.Fetch(ctx, target)
+	return s.blobs.Fetch(ctx, target)
 }
 
 // Push pushes the content with policy enforcement.
@@ -167,7 +201,22 @@ func (s *policyEnforcingBlobStore) Push(ctx context.Context, expected ocispec.De
 	if err := s.repo.checkPolicy(ctx, expected.Digest.String()); err != nil {
 		return err
 	}
-	return s.BlobStore.Push(ctx, expected, content)
+	return s.blobs.Push(ctx, expected, content)
+}
+
+// Exists returns true if the described content exists.
+func (s *policyEnforcingBlobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	return s.blobs.Exists(ctx, target)
+}
+
+// Delete removes the content identified by the descriptor.
+func (s *policyEnforcingBlobStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	return s.blobs.Delete(ctx, target)
+}
+
+// Resolve resolves a reference to a descriptor.
+func (s *policyEnforcingBlobStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
+	return s.blobs.Resolve(ctx, reference)
 }
 
 // FetchReference fetches the blob identified by the reference with policy enforcement.
@@ -175,13 +224,16 @@ func (s *policyEnforcingBlobStore) FetchReference(ctx context.Context, reference
 	if err := s.repo.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	return s.BlobStore.FetchReference(ctx, reference)
+	return s.blobs.FetchReference(ctx, reference)
 }
 
 // policyEnforcingManifestStore wraps a ManifestStore with policy enforcement.
+//
+// As with policyEnforcingRepository, the wrapped store is a named field so that
+// every registry.ManifestStore method must be implemented explicitly.
 type policyEnforcingManifestStore struct {
-	registry.ManifestStore
-	repo *policyEnforcingRepository
+	manifests registry.ManifestStore
+	repo      *policyEnforcingRepository
 }
 
 // Fetch fetches the content with policy enforcement.
@@ -189,7 +241,7 @@ func (s *policyEnforcingManifestStore) Fetch(ctx context.Context, target ocispec
 	if err := s.repo.checkPolicy(ctx, target.Digest.String()); err != nil {
 		return nil, err
 	}
-	return s.ManifestStore.Fetch(ctx, target)
+	return s.manifests.Fetch(ctx, target)
 }
 
 // Push pushes the content with policy enforcement.
@@ -197,7 +249,22 @@ func (s *policyEnforcingManifestStore) Push(ctx context.Context, expected ocispe
 	if err := s.repo.checkPolicy(ctx, expected.Digest.String()); err != nil {
 		return err
 	}
-	return s.ManifestStore.Push(ctx, expected, content)
+	return s.manifests.Push(ctx, expected, content)
+}
+
+// Exists returns true if the described content exists.
+func (s *policyEnforcingManifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	return s.manifests.Exists(ctx, target)
+}
+
+// Delete removes the content identified by the descriptor.
+func (s *policyEnforcingManifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
+	return s.manifests.Delete(ctx, target)
+}
+
+// Resolve resolves a reference to a descriptor.
+func (s *policyEnforcingManifestStore) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
+	return s.manifests.Resolve(ctx, reference)
 }
 
 // FetchReference fetches the manifest identified by the reference with policy enforcement.
@@ -205,7 +272,7 @@ func (s *policyEnforcingManifestStore) FetchReference(ctx context.Context, refer
 	if err := s.repo.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	return s.ManifestStore.FetchReference(ctx, reference)
+	return s.manifests.FetchReference(ctx, reference)
 }
 
 // PushReference pushes the manifest with a reference tag with policy enforcement.
@@ -213,7 +280,7 @@ func (s *policyEnforcingManifestStore) PushReference(ctx context.Context, expect
 	if err := s.repo.checkPolicy(ctx, reference); err != nil {
 		return err
 	}
-	return s.ManifestStore.PushReference(ctx, expected, content, reference)
+	return s.manifests.PushReference(ctx, expected, content, reference)
 }
 
 // Tag tags a manifest descriptor with a reference string with policy enforcement.
@@ -221,5 +288,12 @@ func (s *policyEnforcingManifestStore) Tag(ctx context.Context, desc ocispec.Des
 	if err := s.repo.checkPolicy(ctx, reference); err != nil {
 		return err
 	}
-	return s.ManifestStore.Tag(ctx, desc, reference)
+	return s.manifests.Tag(ctx, desc, reference)
 }
+
+// Ensure the wrappers satisfy the registry interfaces they enforce policy on.
+var (
+	_ registry.Repository    = (*policyEnforcingRepository)(nil)
+	_ registry.BlobStore     = (*policyEnforcingBlobStore)(nil)
+	_ registry.ManifestStore = (*policyEnforcingManifestStore)(nil)
+)
