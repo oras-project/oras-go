@@ -63,12 +63,13 @@ func WithPolicyEnforcement(evaluator *policy.Evaluator, transport policy.Transpo
 	}
 }
 
-// policyEnforcingRepository wraps a Repository and enforces policy on all operations.
+// policyEnforcingRepository wraps a Repository and makes an explicit policy
+// decision for every operation.
 //
 // The wrapped repository is held in a named field rather than embedded so that
 // every method of registry.Repository must be implemented explicitly. If a new
 // method is added to the interface, this type fails to compile until the method
-// is handled here, ensuring no operation silently bypasses policy enforcement.
+// is handled here, ensuring policy behavior is considered for every operation.
 type policyEnforcingRepository struct {
 	repo      registry.Repository
 	evaluator *policy.Evaluator
@@ -111,12 +112,15 @@ func (r *policyEnforcingRepository) Push(ctx context.Context, expected ocispec.D
 	return r.repo.Push(ctx, expected, content)
 }
 
-// Exists returns true if the described content exists.
+// Exists returns true if the described content exists with policy enforcement.
 func (r *policyEnforcingRepository) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	if err := r.checkPolicy(ctx, target.Digest.String()); err != nil {
+		return false, err
+	}
 	return r.repo.Exists(ctx, target)
 }
 
-// Delete removes the content identified by the descriptor.
+// Delete removes content without a policy check so denied content remains removable.
 func (r *policyEnforcingRepository) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	return r.repo.Delete(ctx, target)
 }
@@ -153,12 +157,12 @@ func (r *policyEnforcingRepository) PushReference(ctx context.Context, expected 
 	return r.repo.PushReference(ctx, expected, content, reference)
 }
 
-// Referrers lists the descriptors that refer to the given descriptor.
+// Referrers bypasses policy checks so policy verification can discover attestations.
 func (r *policyEnforcingRepository) Referrers(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
 	return r.repo.Referrers(ctx, desc, artifactType, fn)
 }
 
-// Tags lists the tags available in the repository.
+// Tags bypasses policy checks because it returns names rather than image content.
 func (r *policyEnforcingRepository) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
 	return r.repo.Tags(ctx, last, fn)
 }
@@ -182,7 +186,7 @@ func (r *policyEnforcingRepository) Manifests() registry.ManifestStore {
 // policyEnforcingBlobStore wraps a BlobStore with policy enforcement.
 //
 // As with policyEnforcingRepository, the wrapped store is a named field so that
-// every registry.BlobStore method must be implemented explicitly.
+// every registry.BlobStore method must make an explicit policy decision.
 type policyEnforcingBlobStore struct {
 	blobs registry.BlobStore
 	repo  *policyEnforcingRepository
@@ -204,12 +208,15 @@ func (s *policyEnforcingBlobStore) Push(ctx context.Context, expected ocispec.De
 	return s.blobs.Push(ctx, expected, content)
 }
 
-// Exists returns true if the described content exists.
+// Exists returns true if the described content exists with policy enforcement.
 func (s *policyEnforcingBlobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	if err := s.repo.checkPolicy(ctx, target.Digest.String()); err != nil {
+		return false, err
+	}
 	return s.blobs.Exists(ctx, target)
 }
 
-// Delete removes the content identified by the descriptor.
+// Delete removes content without a policy check so denied content remains removable.
 func (s *policyEnforcingBlobStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	return s.blobs.Delete(ctx, target)
 }
@@ -230,7 +237,7 @@ func (s *policyEnforcingBlobStore) FetchReference(ctx context.Context, reference
 // policyEnforcingManifestStore wraps a ManifestStore with policy enforcement.
 //
 // As with policyEnforcingRepository, the wrapped store is a named field so that
-// every registry.ManifestStore method must be implemented explicitly.
+// every registry.ManifestStore method must make an explicit policy decision.
 type policyEnforcingManifestStore struct {
 	manifests registry.ManifestStore
 	repo      *policyEnforcingRepository
@@ -252,12 +259,15 @@ func (s *policyEnforcingManifestStore) Push(ctx context.Context, expected ocispe
 	return s.manifests.Push(ctx, expected, content)
 }
 
-// Exists returns true if the described content exists.
+// Exists returns true if the described content exists with policy enforcement.
 func (s *policyEnforcingManifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	if err := s.repo.checkPolicy(ctx, target.Digest.String()); err != nil {
+		return false, err
+	}
 	return s.manifests.Exists(ctx, target)
 }
 
-// Delete removes the content identified by the descriptor.
+// Delete removes content without a policy check so denied content remains removable.
 func (s *policyEnforcingManifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	return s.manifests.Delete(ctx, target)
 }
