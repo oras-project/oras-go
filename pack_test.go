@@ -786,6 +786,57 @@ func Test_PackManifest_ImageV1_0_InvalidMediaType(t *testing.T) {
 	}
 }
 
+func Test_Pack_InvalidConfigDescriptorDigest(t *testing.T) {
+	tests := []struct {
+		name   string
+		digest digest.Digest
+		pack   func(context.Context, content.Pusher, *ocispec.Descriptor) error
+	}{
+		{
+			name: "manifest v1.0 empty digest",
+			pack: func(ctx context.Context, pusher content.Pusher, config *ocispec.Descriptor) error {
+				_, err := PackManifest(ctx, pusher, PackManifestVersion1_0, "application/vnd.test", PackManifestOptions{
+					ConfigDescriptor: config,
+				})
+				return err
+			},
+		},
+		{
+			name:   "manifest v1.1 invalid digest",
+			digest: digest.Digest("invalid"),
+			pack: func(ctx context.Context, pusher content.Pusher, config *ocispec.Descriptor) error {
+				_, err := PackManifest(ctx, pusher, PackManifestVersion1_1, "application/vnd.test", PackManifestOptions{
+					ConfigDescriptor: config,
+				})
+				return err
+			},
+		},
+		{
+			name: "deprecated pack empty digest",
+			pack: func(ctx context.Context, pusher content.Pusher, config *ocispec.Descriptor) error {
+				_, err := Pack(ctx, pusher, "application/vnd.test", nil, PackOptions{
+					PackImageManifest: true,
+					ConfigDescriptor:  config,
+				})
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := &ocispec.Descriptor{
+				MediaType: "application/vnd.test.config",
+				Digest:    test.digest,
+			}
+			err := test.pack(context.Background(), memory.New(), config)
+			if !errors.Is(err, errdef.ErrInvalidDigest) {
+				t.Errorf("Pack() error = %v, wantErr = %v", err, errdef.ErrInvalidDigest)
+			}
+		})
+	}
+}
+
 func Test_PackManifest_ImageV1_0_InvalidDateTimeFormat(t *testing.T) {
 	s := memory.New()
 
