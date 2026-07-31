@@ -302,6 +302,9 @@ func TestWithPolicyEnforcement_PolicyDenied_AllOperations(t *testing.T) {
 	if _, err := wrapped.Fetch(ctx, desc); err == nil {
 		t.Error("Fetch() should return error when policy denies access")
 	}
+	if _, err := wrapped.Exists(ctx, desc); err == nil {
+		t.Error("Exists() should return error when policy denies access")
+	}
 	if err := wrapped.Push(ctx, desc, strings.NewReader("content")); err == nil {
 		t.Error("Push() should return error when policy denies access")
 	}
@@ -323,6 +326,9 @@ func TestWithPolicyEnforcement_PolicyDenied_AllOperations(t *testing.T) {
 	if _, err := blobs.Fetch(ctx, desc); err == nil {
 		t.Error("Blobs().Fetch() should return error when policy denies access")
 	}
+	if _, err := blobs.Exists(ctx, desc); err == nil {
+		t.Error("Blobs().Exists() should return error when policy denies access")
+	}
 	if err := blobs.Push(ctx, desc, strings.NewReader("content")); err == nil {
 		t.Error("Blobs().Push() should return error when policy denies access")
 	}
@@ -335,6 +341,9 @@ func TestWithPolicyEnforcement_PolicyDenied_AllOperations(t *testing.T) {
 	if _, err := manifests.Fetch(ctx, desc); err == nil {
 		t.Error("Manifests().Fetch() should return error when policy denies access")
 	}
+	if _, err := manifests.Exists(ctx, desc); err == nil {
+		t.Error("Manifests().Exists() should return error when policy denies access")
+	}
 	if err := manifests.Push(ctx, desc, strings.NewReader("content")); err == nil {
 		t.Error("Manifests().Push() should return error when policy denies access")
 	}
@@ -346,6 +355,48 @@ func TestWithPolicyEnforcement_PolicyDenied_AllOperations(t *testing.T) {
 	}
 	if err := manifests.Tag(ctx, desc, "latest"); err == nil {
 		t.Error("Manifests().Tag() should return error when policy denies access")
+	}
+}
+
+func TestWithPolicyEnforcement_PolicyDenied_CarveOuts(t *testing.T) {
+	pol := &policy.Policy{
+		Default: []policy.PolicyRequirement{
+			&policy.Reject{},
+		},
+		Transports: make(map[policy.TransportName]policy.TransportScopes),
+	}
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("NewEvaluator() error = %v", err)
+	}
+
+	desc := ocispec.Descriptor{Digest: "sha256:test"}
+	baseRepo := &mockRepository{
+		referrersResult: []ocispec.Descriptor{desc},
+		tagsResult:      []string{"latest"},
+	}
+	middleware := WithPolicyEnforcement(evaluator, policy.TransportNameDocker, "test/repo")
+	wrapped := middleware(baseRepo)
+	ctx := context.Background()
+
+	if err := wrapped.Delete(ctx, desc); err != nil {
+		t.Errorf("Delete() error = %v, want nil", err)
+	}
+	if err := wrapped.Tags(ctx, "", func(tags []string) error {
+		if len(tags) != 1 || tags[0] != "latest" {
+			t.Errorf("Tags() = %v, want [latest]", tags)
+		}
+		return nil
+	}); err != nil {
+		t.Errorf("Tags() error = %v, want nil", err)
+	}
+	if err := wrapped.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
+		if len(referrers) != 1 || referrers[0].Digest != desc.Digest {
+			t.Errorf("Referrers() = %v, want [%v]", referrers, desc)
+		}
+		return nil
+	}); err != nil {
+		t.Errorf("Referrers() error = %v, want nil", err)
 	}
 }
 
