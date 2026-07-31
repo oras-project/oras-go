@@ -44,11 +44,12 @@ jobs:
           BRANCH: ${{ github.head_ref }}
         run: |
           VERSION="${BRANCH#release/}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Validate semantic version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           if ! [[ "$VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
             echo "Error: '$VERSION' does not follow semantic versioning"
             echo "Expected: vX.Y.Z or vX.Y.Z-(alpha|beta|rc).N"
@@ -56,11 +57,14 @@ jobs:
           fi
 
       - name: Create and push tag
+        env:
+          MERGE_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ steps.version.outputs.version }} ${{ github.event.pull_request.merge_commit_sha }}
-          git push origin ${{ steps.version.outputs.version }}
+          git tag "$VERSION" "$MERGE_COMMIT"
+          git push origin "$VERSION"
 
       - name: Write release notes from PR body
         env:
