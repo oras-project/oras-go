@@ -29,6 +29,8 @@ import (
 // sensitiveHeaders is the set of headers whose values are scrubbed from logs.
 var sensitiveHeaders = []string{
 	"Authorization",
+	"Cookie",
+	"Proxy-Authorization",
 	"Set-Cookie",
 }
 
@@ -73,10 +75,15 @@ func NewLoggingTransport(inner http.RoundTripper, logger *slog.Logger) *LoggingT
 // RoundTrip implements http.RoundTripper, logging the request and response.
 func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	id := requestCounter.Add(1) - 1
+	loggedURL := *req.URL
+	loggedURL.RawQuery = ""
+	loggedURL.ForceQuery = false
+	loggedURL.Fragment = ""
+	loggedURL.RawFragment = ""
 
 	t.logger.Debug(req.Method,
 		"id", id,
-		"url", req.URL,
+		"url", loggedURL.Redacted(),
 		"header", formatHeaders(req.Header),
 	)
 
@@ -99,7 +106,7 @@ func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 }
 
 // formatHeaders returns a human-readable representation of the headers with
-// sensitive values (Authorization, Set-Cookie) replaced by "*****".
+// sensitive values replaced by "*****".
 func formatHeaders(header http.Header) string {
 	if len(header) == 0 {
 		return "   Empty header"
