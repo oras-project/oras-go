@@ -16,6 +16,7 @@ limitations under the License.
 package remote
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
 	"net/http"
@@ -41,14 +42,21 @@ func TestNewLoggingTransport_Defaults(t *testing.T) {
 
 func TestLoggingTransport_RoundTrip(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("token"); got != "query-secret" {
+			t.Errorf("query token = %q, want query-secret", got)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer srv.Close()
 
-	lt := NewLoggingTransport(http.DefaultTransport, slog.Default())
-	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	lt := NewLoggingTransport(http.DefaultTransport, logger)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"?token=query-secret", nil)
+	req.Header.Set("Cookie", "session=cookie-secret")
+	req.Header.Set("Proxy-Authorization", "Bearer proxy-secret")
 	resp, err := lt.RoundTrip(req)
 	if err != nil {
 		t.Fatalf("RoundTrip() error = %v", err)
@@ -62,6 +70,11 @@ func TestLoggingTransport_RoundTrip(t *testing.T) {
 	}
 	if string(body) != `{"status":"ok"}` {
 		t.Errorf("body = %q, want %q", body, `{"status":"ok"}`)
+	}
+	for _, secret := range []string{"query-secret", "cookie-secret", "proxy-secret"} {
+		if strings.Contains(logs.String(), secret) {
+			t.Errorf("logs contain sensitive value %q", secret)
+		}
 	}
 }
 
