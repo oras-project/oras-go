@@ -45,6 +45,12 @@ type Registry struct {
 	// If zero, the page size is determined by the remote registry.
 	// Reference: https://distribution.github.io/distribution/spec/api/#catalog
 	RepositoryListPageSize int
+
+	// RepositoryListMaxPages limits the total number of pages fetched during
+	// repository listing, bounding server-driven pagination so a malicious or
+	// misbehaving registry cannot force unbounded requests.
+	// If zero, repository listing is unlimited.
+	RepositoryListMaxPages int
 }
 
 // NewRegistry creates a client to the remote registry with the specified domain
@@ -130,7 +136,10 @@ func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos 
 	ctx = auth.AppendScopesForHost(ctx, r.Reference.Host(), auth.ScopeRegistryCatalog)
 	url := buildRegistryCatalogURL(r.PlainHTTP, r.Reference)
 	var err error
-	for err == nil {
+	for page := 0; err == nil; page++ {
+		if r.RepositoryListMaxPages > 0 && page >= r.RepositoryListMaxPages {
+			return fmt.Errorf("repository listing exceeded %d pages: %w", r.RepositoryListMaxPages, errdef.ErrTooManyPages)
+		}
 		url, err = r.repositories(ctx, last, fn, url)
 		// clear `last` for subsequent pages
 		last = ""

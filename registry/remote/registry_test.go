@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -213,6 +214,54 @@ func TestRegistry_Repositories(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatalf("Registry.Repositories() error = %v", err)
+	}
+}
+
+func TestRegistry_Repositories_MaxPages(t *testing.T) {
+	requestCount := 0
+	var ts *httptest.Server
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/_catalog" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if requestCount < 3 {
+			w.Header().Set("Link", fmt.Sprintf(`<%s/v2/_catalog>; rel="next"`, ts.URL))
+		}
+		if err := json.NewEncoder(w).Encode(struct {
+			Repositories []string `json:"repositories"`
+		}{Repositories: []string{"test"}}); err != nil {
+			t.Errorf("failed to write response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	reg.PlainHTTP = true
+	reg.RepositoryListMaxPages = 2
+
+	callbackCount := 0
+	err = reg.Repositories(context.Background(), "", func(repos []string) error {
+		callbackCount++
+		return nil
+	})
+	if !errors.Is(err, errdef.ErrTooManyPages) {
+		t.Errorf("Registry.Repositories() error = %v, want %v", err, errdef.ErrTooManyPages)
+	}
+	if requestCount != reg.RepositoryListMaxPages {
+		t.Errorf("Registry.Repositories() request count = %d, want %d", requestCount, reg.RepositoryListMaxPages)
+	}
+	if callbackCount != reg.RepositoryListMaxPages {
+		t.Errorf("Registry.Repositories() callback count = %d, want %d", callbackCount, reg.RepositoryListMaxPages)
 	}
 }
 
