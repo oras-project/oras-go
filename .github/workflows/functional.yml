@@ -41,7 +41,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  functional:
+  k8sfunctional:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -57,8 +57,38 @@ jobs:
         # suite's buildKubeConfig() reads. TestMain deploys zot into the
         # cluster from test/functional/testdata/k8s.
         uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
-      - name: Run functional tests
+      - name: Run k8sfunctional tests
         working-directory: test/functional
         # The suite is behind the k8sfunctional build tag; without it go test
         # compiles and runs nothing.
         run: go test -tags k8sfunctional -v -timeout 25m ./...
+
+  functional:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # BLOCKED: the functional-tagged suite (config/mirror/policy/signature)
+    # depends on the config (#1225), signature (#1279), and ClientBuilder
+    # packages, which are not yet on main. This job cannot pass until those
+    # land; it documents the intended end-state CI. Its TestMain deploys a
+    # primary + mirror registry via setup.sh (not the k8s-manifest path) and
+    # reads the endpoints from FUNCTIONAL_TEST_REGISTRY / _MIRROR.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          check-latest: true
+      - name: Create kind cluster
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+      - name: Deploy registries and run functional tests
+        working-directory: test/functional
+        # setup.sh backgrounds the port-forwards, so deploy and test share one
+        # step to keep them alive. Endpoints follow setup.sh's port defaults.
+        env:
+          FUNCTIONAL_TEST_REGISTRY: localhost:5000
+          FUNCTIONAL_TEST_MIRROR: localhost:5001
+        run: |
+          ./setup.sh
+          go test -tags functional -v -timeout 25m ./...
