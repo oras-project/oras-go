@@ -15,12 +15,11 @@ registry/
 │
 └── remote/
     ├── registry.go       # Remote Registry (catalog, ping, repository lookup)
-    ├── repository.go     # Remote Repository implementation (~64 KB)
+    ├── repository.go     # Remote Repository impl + referrers capability state machine
     ├── builder.go        # ClientBuilder: factory for auth.Client + Repository
     ├── middleware.go      # RepositoryMiddleware, WithPolicyEnforcement, Compose
     ├── mirror.go         # Mirror fallback logic (PullFromMirrorAll/DigestOnly/TagOnly)
     ├── referrers.go      # Referrers API implementation
-    ├── referrers_state.go # Atomic referrer capability state machine
     ├── auth.go           # Login/Logout helpers
     ├── warning.go        # RFC 7234 warning header handling
     ├── logging_transport.go # slog-based HTTP debug transport
@@ -50,6 +49,8 @@ registry/
     ├── config/
     │   ├── loader.go     # LoadConfigs / LoadConfigsWithOptions from system paths
     │   ├── config.go     # Docker config.json parser
+    │   ├── authconfig.go # Docker auth entry parsing (base64 auth, credHelpers)
+    │   ├── strategy.go   # Config path resolution strategy (env / default paths)
     │   ├── registries.go # registries.conf / registries.d YAML parser
     │   ├── registriesd.go # registries.d directory support
     │   ├── certsd.go     # /etc/containers/certs.d certificate discovery
@@ -427,16 +428,15 @@ graph BT
 
 ## 9. Referrers API State Machine
 
-The `remote.Repository` tracks whether the target registry supports the OCI Referrers API (introduced in Distribution Spec v1.1). This avoids re-probing on every call.
+The `remote.Repository` tracks whether the target registry supports the OCI Referrers API (introduced in Distribution Spec v1.1). This avoids re-probing on every call. The state is not a separate file — it lives on the `Repository` struct in `repository.go` as an `int32` field (`referrersState`) updated with `sync/atomic` and guarded by `referrersPingLock`, backed by the `properties.ReferrersAPIUnknown / Supported / Unsupported` constants, and is set exactly once (via `pingReferrers()` or an explicit `SetReferrersCapability(bool)` call). Once set to Supported or Unsupported it does not transition again — `SetReferrersCapability` is a no-op after the capability is known.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Unknown : initial state
-    Unknown --> Supported : 200 from GET /referrers/
-    Unknown --> Unsupported : 404 / fallback to tag schema
-    Supported --> Supported : subsequent Referrers() calls
-    Unsupported --> Unsupported : use tag schema (_oras.index.*)
-    Supported --> Unknown : SetReferrersCapability(reset)
+    [*] --> Unknown : initial state (ReferrersAPIUnknown)
+    Unknown --> Supported : 200 from GET /referrers/ (or SetReferrersCapability(true))
+    Unknown --> Unsupported : 404 / fallback to tag schema (or SetReferrersCapability(false))
+    Supported --> Supported : subsequent Referrers() calls (state latched)
+    Unsupported --> Unsupported : use tag schema (_oras.index.*) (state latched)
 ```
 
 ---
@@ -465,15 +465,23 @@ stateDiagram-v2
 - `LookasideStore` supports `file://` URIs, enabling signature tests without an HTTP server.
 
 ### Functional Tests (`test/functional/`)
-The functional test suite (`//go:build functional`) requires a live registry (default: `localhost:5000`):
+The functional test suite is a separate module (its own `go.mod`) gated by `//go:build functional`. By default `TestMain` deploys two `zot` registries (plain and auth-enabled) into a Kubernetes cluster and port-forwards to them (see `main_test.go`, `infra/`, and `deploy/`). To run against pre-existing registries instead, set `ORAS_FUNCTIONAL_SKIP_DEPLOY=1` together with `ORAS_FUNCTIONAL_REGISTRY` and `ORAS_FUNCTIONAL_AUTH_REGISTRY`.
 
 | Test file | Coverage |
 |---|---|
 | `registry_test.go` | Ping, catalog, tag listing |
-| `repository_test.go` | Push, pull, delete, resolve, referrers |
-| `objects_functional_test.go` | `objects` package ORM API |
+| `push_pull_test.go` | Push and pull of blobs and manifests |
+| `copy_test.go` | `oras.Copy` / graph copy end-to-end |
+| `delete_test.go` | Blob and manifest deletion |
+| `tag_test.go` | Tagging and tag resolution |
+| `referrers_test.go` | Referrers API + tag-schema fallback |
+| `auth_test.go` | `auth.Client` / credential stores against the auth registry |
+| `mirror_test.go` | Mirror fallback (`all` / `digest-only` / `tag-only`) |
+| `policy_test.go` | `WithPolicyEnforcement` middleware |
 | `signature_test.go` | GPG sign/verify pipeline via `LookasideStore` |
 | `config_test.go` | `LoadConfigsWithOptions` + full policy pipeline |
+
+(`main_test.go`, `helpers_test.go`, and `functional_test.go` provide the shared harness.)
 
 Run with:
 ```bash
