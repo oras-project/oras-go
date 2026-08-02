@@ -407,3 +407,177 @@ func Test_withMirrorFallbackExists_mirrorSucceeds(t *testing.T) {
 		t.Error("expected exists to return true")
 	}
 }
+
+func Test_withMirrorFallbackFetch_mirrorFails_fallsToPrimary(t *testing.T) {
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorAll}}
+	target := ocispec.Descriptor{Digest: "sha256:abc"}
+
+	rc, err := withMirrorFallbackFetch(context.Background(), mirrors, primary, target,
+		func(_ context.Context, repo *Repository, _ ocispec.Descriptor) (io.ReadCloser, error) {
+			if repo == primary {
+				return io.NopCloser(strings.NewReader("primary")), nil
+			}
+			return nil, fmt.Errorf("mirror unavailable")
+		})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	defer rc.Close()
+	got, _ := io.ReadAll(rc)
+	if string(got) != "primary" {
+		t.Errorf("expected content from primary, got %q", got)
+	}
+}
+
+func Test_withMirrorFallbackFetch_contextCanceled_noFallback(t *testing.T) {
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorAll}}
+
+	_, err := withMirrorFallbackFetch(context.Background(), mirrors, primary, ocispec.Descriptor{Digest: "sha256:abc"},
+		func(_ context.Context, repo *Repository, _ ocispec.Descriptor) (io.ReadCloser, error) {
+			if repo == primary {
+				t.Fatal("primary should not be called after non-retryable error")
+			}
+			return nil, context.Canceled
+		})
+	if err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func Test_withMirrorFallbackFetch_tagOnlyMirror_skipsDigest(t *testing.T) {
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorTagOnly}}
+	target := ocispec.Descriptor{Digest: "sha256:abc"}
+
+	rc, err := withMirrorFallbackFetch(context.Background(), mirrors, primary, target,
+		func(_ context.Context, repo *Repository, _ ocispec.Descriptor) (io.ReadCloser, error) {
+			if repo != primary {
+				t.Fatal("tag-only mirror should be skipped for a digest target")
+			}
+			return io.NopCloser(strings.NewReader("primary")), nil
+		})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	defer rc.Close()
+	got, _ := io.ReadAll(rc)
+	if string(got) != "primary" {
+		t.Errorf("expected content from primary, got %q", got)
+	}
+}
+
+func Test_withMirrorFallbackFetchReference_mirrorFails_fallsToPrimary(t *testing.T) {
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorAll}}
+	want := ocispec.Descriptor{Digest: "sha256:abc", Size: 3}
+
+	desc, rc, err := withMirrorFallbackFetchReference(context.Background(), mirrors, primary, "latest",
+		func(_ context.Context, repo *Repository, _ string) (ocispec.Descriptor, io.ReadCloser, error) {
+			if repo == primary {
+				return want, io.NopCloser(strings.NewReader("abc")), nil
+			}
+			return ocispec.Descriptor{}, nil, fmt.Errorf("mirror unavailable")
+		})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	defer rc.Close()
+	if desc.Digest != want.Digest {
+		t.Errorf("expected digest %s, got %s", want.Digest, desc.Digest)
+	}
+}
+
+func Test_withMirrorFallbackFetchReference_contextCanceled_noFallback(t *testing.T) {
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorAll}}
+
+	_, _, err := withMirrorFallbackFetchReference(context.Background(), mirrors, primary, "latest",
+		func(_ context.Context, repo *Repository, _ string) (ocispec.Descriptor, io.ReadCloser, error) {
+			if repo == primary {
+				t.Fatal("primary should not be called after non-retryable error")
+			}
+			return ocispec.Descriptor{}, nil, context.Canceled
+		})
+	if err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func Test_withMirrorFallbackFetchReference_digestOnlyMirror_skipsTag(t *testing.T) {
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorDigestOnly}}
+	want := ocispec.Descriptor{Digest: "sha256:abc", Size: 3}
+
+	desc, rc, err := withMirrorFallbackFetchReference(context.Background(), mirrors, primary, "latest",
+		func(_ context.Context, repo *Repository, _ string) (ocispec.Descriptor, io.ReadCloser, error) {
+			if repo != primary {
+				t.Fatal("digest-only mirror should be skipped for a tag reference")
+			}
+			return want, io.NopCloser(strings.NewReader("abc")), nil
+		})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	defer rc.Close()
+	if desc.Digest != want.Digest {
+		t.Errorf("expected digest %s, got %s", want.Digest, desc.Digest)
+	}
+}
+
+func Test_withMirrorFallbackExists_mirrorFails_fallsToPrimary(t *testing.T) {
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorAll}}
+	target := ocispec.Descriptor{Digest: "sha256:abc"}
+
+	ok, err := withMirrorFallbackExists(context.Background(), mirrors, primary, target,
+		func(_ context.Context, repo *Repository, _ ocispec.Descriptor) (bool, error) {
+			if repo == primary {
+				return true, nil
+			}
+			return false, fmt.Errorf("mirror unavailable")
+		})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !ok {
+		t.Error("expected exists to return true from primary")
+	}
+}
+
+func Test_withMirrorFallbackExists_contextCanceled_noFallback(t *testing.T) {
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorAll}}
+
+	_, err := withMirrorFallbackExists(context.Background(), mirrors, primary, ocispec.Descriptor{Digest: "sha256:abc"},
+		func(_ context.Context, repo *Repository, _ ocispec.Descriptor) (bool, error) {
+			if repo == primary {
+				t.Fatal("primary should not be called after non-retryable error")
+			}
+			return false, context.Canceled
+		})
+	if err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func Test_withMirrorFallbackExists_tagOnlyMirror_skipsDigest(t *testing.T) {
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: &Repository{}, pullFromMirror: PullFromMirrorTagOnly}}
+	target := ocispec.Descriptor{Digest: "sha256:abc"}
+
+	ok, err := withMirrorFallbackExists(context.Background(), mirrors, primary, target,
+		func(_ context.Context, repo *Repository, _ ocispec.Descriptor) (bool, error) {
+			if repo != primary {
+				t.Fatal("tag-only mirror should be skipped for a digest target")
+			}
+			return true, nil
+		})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !ok {
+		t.Error("expected exists to return true from primary")
+	}
+}
