@@ -581,3 +581,129 @@ func Test_withMirrorFallbackExists_tagOnlyMirror_skipsDigest(t *testing.T) {
 		t.Error("expected exists to return true from primary")
 	}
 }
+
+func Test_Repository_Fetch_usesMirror(t *testing.T) {
+	content := []byte("mirror blob")
+	contentDigest := digest.FromBytes(content)
+
+	mirrorServer := newTestServer(t, content, contentDigest)
+	defer mirrorServer.Close()
+
+	primaryServer := newFailServer(t)
+	defer primaryServer.Close()
+
+	primary := repoFromServer(t, primaryServer)
+	primary.mirrors = []mirrorRepository{
+		{Repository: repoFromServer(t, mirrorServer), pullFromMirror: PullFromMirrorAll},
+	}
+
+	target := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    contentDigest,
+		Size:      int64(len(content)),
+	}
+
+	rc, err := primary.Fetch(context.Background(), target)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	defer rc.Close()
+	got, _ := io.ReadAll(rc)
+	if string(got) != string(content) {
+		t.Errorf("expected %q, got %q", content, got)
+	}
+}
+
+func Test_Repository_Exists_usesMirror(t *testing.T) {
+	content := []byte("exists via mirror")
+	contentDigest := digest.FromBytes(content)
+
+	mirrorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Docker-Content-Digest", contentDigest.String())
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mirrorServer.Close()
+
+	primaryServer := newFailServer(t)
+	defer primaryServer.Close()
+
+	primary := repoFromServer(t, primaryServer)
+	primary.mirrors = []mirrorRepository{
+		{Repository: repoFromServer(t, mirrorServer), pullFromMirror: PullFromMirrorAll},
+	}
+
+	target := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    contentDigest,
+		Size:      int64(len(content)),
+	}
+
+	ok, err := primary.Exists(context.Background(), target)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !ok {
+		t.Error("expected exists to return true from mirror")
+	}
+}
+
+func Test_Repository_Resolve_usesMirror(t *testing.T) {
+	manifest := ocispec.Manifest{}
+	manifestJSON, _ := json.Marshal(manifest)
+	manifestDigest := digest.FromBytes(manifestJSON)
+
+	mirrorServer := newTestServer(t, manifestJSON, manifestDigest)
+	defer mirrorServer.Close()
+
+	primaryServer := newFailServer(t)
+	defer primaryServer.Close()
+
+	primary := repoFromServer(t, primaryServer)
+	primary.mirrors = []mirrorRepository{
+		{Repository: repoFromServer(t, mirrorServer), pullFromMirror: PullFromMirrorAll},
+	}
+
+	desc, err := primary.Resolve(context.Background(), "latest")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if desc.Digest != manifestDigest {
+		t.Errorf("expected digest %s, got %s", manifestDigest, desc.Digest)
+	}
+}
+
+func Test_Repository_FetchReference_usesMirror(t *testing.T) {
+	manifest := ocispec.Manifest{}
+	manifestJSON, _ := json.Marshal(manifest)
+	manifestDigest := digest.FromBytes(manifestJSON)
+
+	mirrorServer := newTestServer(t, manifestJSON, manifestDigest)
+	defer mirrorServer.Close()
+
+	primaryServer := newFailServer(t)
+	defer primaryServer.Close()
+
+	primary := repoFromServer(t, primaryServer)
+	primary.mirrors = []mirrorRepository{
+		{Repository: repoFromServer(t, mirrorServer), pullFromMirror: PullFromMirrorAll},
+	}
+
+	desc, rc, err := primary.FetchReference(context.Background(), "latest")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	defer rc.Close()
+	if desc.Digest != manifestDigest {
+		t.Errorf("expected digest %s, got %s", manifestDigest, desc.Digest)
+	}
+	got, _ := io.ReadAll(rc)
+	if string(got) != string(manifestJSON) {
+		t.Errorf("expected manifest body %q, got %q", manifestJSON, got)
+	}
+}
