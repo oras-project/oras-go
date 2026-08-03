@@ -33,7 +33,7 @@ import (
 
 // tarDirectory walks the directory specified by path, and tar those files with a new
 // path prefix.
-func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeTimes bool, buf []byte) (err error) {
+func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, modTime *time.Time, buf []byte) (err error) {
 	tw := tar.NewWriter(w)
 	defer func() {
 		closeErr := tw.Close()
@@ -80,10 +80,12 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, removeT
 		header.Uname = ""
 		header.Gname = ""
 
-		if removeTimes {
-			header.ModTime = time.Time{}
-			header.AccessTime = time.Time{}
-			header.ChangeTime = time.Time{}
+		if modTime != nil {
+			if header.ModTime.After(*modTime) {
+				header.ModTime = *modTime
+			}
+			header.AccessTime = header.ModTime
+			header.ChangeTime = header.ModTime
 		}
 
 		// Write file

@@ -21,9 +21,11 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func Test_tarDirectory(t *testing.T) {
@@ -61,7 +63,7 @@ func Test_tarDirectory(t *testing.T) {
 			}
 		}()
 
-		err := tarDirectory(context.Background(), tmpdir, "prefix", gw, false, nil)
+		err := tarDirectory(context.Background(), tmpdir, "prefix", gw, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +88,7 @@ func Test_tarDirectory(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err := tarDirectory(ctx, tmpdir, "prefix", gw, false, nil)
+		err := tarDirectory(ctx, tmpdir, "prefix", gw, nil, nil)
 		if err == nil {
 			t.Fatal("expected context cancellation error, got nil")
 		}
@@ -474,4 +476,118 @@ func createTar(t *testing.T, entries []tarEntry) []byte {
 		t.Fatalf("failed to close tar writer: %v", err)
 	}
 	return buf.Bytes()
+}
+
+func modTimeTestDir(t *testing.T, fileModTime time.Time) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(path, []byte("test content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, fileModTime, fileModTime); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// modTimeHeaders tars root and returns the headers of the resulting tarball.
+func modTimeHeaders(t *testing.T, root string, modTime *time.Time) []*tar.Header {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := tarDirectory(context.Background(), root, "prefix", &buf, modTime, nil); err != nil {
+		t.Fatalf("tarDirectory() error = %v", err)
+	}
+	var headers []*tar.Header
+	tr := tar.NewReader(&buf)
+	for {
+		header, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("failed to read tar: %v", err)
+		}
+		headers = append(headers, header)
+	}
+	return headers
+}
+
+// modTimeFind returns the header with the given name.
+func modTimeFind(t *testing.T, headers []*tar.Header, name string) *tar.Header {
+	t.Helper()
+	for _, header := range headers {
+		if header.Name == name {
+			return header
+		}
+	}
+	t.Fatalf("header %q not found", name)
+	return nil
+}
+
+func Test_tarDirectory_modTime(t *testing.T) {
+	clamp := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	older := time.Date(2019, 6, 15, 12, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+
+	t.Run("nil modTime keeps the original time", func(t *testing.T) {
+		headers := modTimeHeaders(t, modTimeTestDir(t, newer), nil)
+		header := modTimeFind(t, headers, "prefix/file.txt")
+		if !header.ModTime.Equal(newer) {
+			t.Errorf("ModTime = %v, want %v", header.ModTime, newer)
+		}
+	})
+
+	t.Run("entry newer than modTime is clamped down", func(t *testing.T) {
+		headers := modTimeHeaders(t, modTimeTestDir(t, newer), &clamp)
+		for _, header := range headers {
+			if !header.ModTime.Equal(clamp) {
+				t.Errorf("%s: ModTime = %v, want %v", header.Name, header.ModTime, clamp)
+			}
+		}
+	})
+
+	t.Run("entry older than modTime is left unchanged", func(t *testing.T) {
+		headers := modTimeHeaders(t, modTimeTestDir(t, older), &clamp)
+		header := modTimeFind(t, headers, "prefix/file.txt")
+		if !header.ModTime.Equal(older) {
+			t.Errorf("ModTime = %v, want %v", header.ModTime, older)
+		}
+	})
+
+	// The zero time is how TarReproducible is expressed, and tar stores
+	// timestamps as seconds since the Unix epoch, so every entry is written
+	// out as 0.
+	t.Run("zero modTime clamps every entry to the epoch", func(t *testing.T) {
+		zero := time.Time{}
+		headers := modTimeHeaders(t, modTimeTestDir(t, newer), &zero)
+		if len(headers) == 0 {
+			t.Fatal("no headers produced")
+		}
+		for _, header := range headers {
+			if header.ModTime.Unix() != 0 {
+				t.Errorf("%s: ModTime = %v, want the Unix epoch", header.Name, header.ModTime)
+			}
+		}
+	})
+}
+
+// Test_tarDirectory_modTime_reproducible verifies that identical content whose
+// timestamps differ produces byte-identical tarballs once clamped.
+func Test_tarDirectory_modTime_reproducible(t *testing.T) {
+	clamp := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	dir1 := modTimeTestDir(t, time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC))
+	dir2 := modTimeTestDir(t, time.Date(2026, 9, 1, 8, 30, 0, 0, time.UTC))
+
+	tarDir := func(root string) []byte {
+		var buf bytes.Buffer
+		if err := tarDirectory(context.Background(), root, "prefix", &buf, &clamp, nil); err != nil {
+			t.Fatalf("tarDirectory() error = %v", err)
+		}
+		return buf.Bytes()
+	}
+
+	if !bytes.Equal(tarDir(dir1), tarDir(dir2)) {
+		t.Error("tarballs of identical content with different timestamps are not byte-identical")
+	}
 }

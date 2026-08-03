@@ -30,6 +30,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -3501,4 +3502,36 @@ func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descript
 		}
 	}
 	return true
+}
+
+func TestStore_tarModTime(t *testing.T) {
+	clamp := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	zero := time.Time{}
+
+	tests := []struct {
+		name            string
+		tarReproducible bool
+		tarModTime      *time.Time
+		want            *time.Time
+	}{
+		{"neither set keeps the times on disk", false, nil, nil},
+		{"TarReproducible clamps to the zero time", true, nil, &zero},
+		{"TarModTime clamps to the given time", false, &clamp, &clamp},
+		{"TarModTime takes precedence over TarReproducible", true, &clamp, &clamp},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Store{
+				TarReproducible: tt.tarReproducible,
+				TarModTime:      tt.tarModTime,
+			}
+			got := s.tarModTime()
+			if (got == nil) != (tt.want == nil) {
+				t.Fatalf("tarModTime() = %v, want %v", got, tt.want)
+			}
+			if got != nil && !got.Equal(*tt.want) {
+				t.Errorf("tarModTime() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
