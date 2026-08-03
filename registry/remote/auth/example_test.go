@@ -84,7 +84,7 @@ func TestMain(m *testing.M) {
 	defer as.Close()
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -134,7 +134,6 @@ func TestMain(m *testing.M) {
 	clientConfigTargetURL = fmt.Sprintf("%s/clientConfig", host)
 	accessTokenTargetURL = fmt.Sprintf("%s/accessToken", host)
 	refreshTokenTargetURL = fmt.Sprintf("%s/refreshToken", host)
-	http.DefaultClient = ts.Client()
 
 	os.Exit(m.Run())
 }
