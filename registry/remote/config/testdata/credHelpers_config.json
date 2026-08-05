@@ -1,0 +1,15 @@
+{
+    "auths": {
+        "registry1.example.com": {
+            "auth": "dXNlcm5hbWU6cGFzc3dvcmQ="
+        },
+        "registry3.example.com": {
+            "auth": "Zm9vOmJhcg=="
+        }
+    },
+    "credHelpers": {
+        "registry1.example.com": "registry1-helper",
+        "registry2.example.com": "registry2-helper",
+        "registry3.example.com": ""
+    }
+}

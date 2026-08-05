@@ -24,13 +24,18 @@ import (
 
 func newUAPIResolver() *uapiResolver {
 	return &uapiResolver{
-		vendorConfDir:           "",
-		systemConfDir:           windowsProgramData(),
+		// Windows has no vendor (/usr/share) equivalent.
+		vendorConfDir: "",
+		// %ProgramData% replaces /etc on Windows.
+		systemConfDir: windowsProgramData(),
+		// %APPDATA% replaces $XDG_CONFIG_HOME on Windows.
 		userConfDir:             windowsAppData,
 		supportsRootfulRootless: false,
 	}
 }
 
+// windowsProgramData returns the ProgramData directory, which serves as
+// the system-wide config directory on Windows.
 func windowsProgramData() string {
 	if pd := os.Getenv("ProgramData"); pd != "" {
 		return pd
@@ -38,9 +43,12 @@ func windowsProgramData() string {
 	return ""
 }
 
+// windowsAppData returns %APPDATA%/containers as the user config
+// directory on Windows.
 func windowsAppData() string {
 	if appdata := os.Getenv("APPDATA"); appdata != "" {
 		return filepath.Join(appdata, containersConfigDir)
 	}
+	// Fall back to $HOME/.config/containers
 	return defaultXDGConfigHome()
 }

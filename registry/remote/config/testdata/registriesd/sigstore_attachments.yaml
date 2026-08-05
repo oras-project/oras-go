@@ -1,0 +1,3 @@
+docker:
+  sigstore.example.com:
+    use-sigstore-attachments: true
