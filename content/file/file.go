@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -80,6 +81,16 @@ type Store struct {
 	// When specified, some metadata such as change time
 	// will be removed from the files in the tarballs. Default value: false.
 	TarReproducible bool
+	// TarModTime, when not nil, sets the upper bound for the timestamps in the
+	// tarballs generated for the added directories. Any entry with a
+	// modification time later than TarModTime is clamped down to TarModTime,
+	// while entries older than it are left unchanged. Access and change times
+	// are set to the same clamped value.
+	// This allows callers to implement SOURCE_DATE_EPOCH style reproducible
+	// builds. Reference: https://reproducible-builds.org/specs/source-date-epoch/
+	// TarModTime takes precedence over TarReproducible when both are set.
+	// Default value: nil.
+	TarModTime *time.Time
 	// AllowPathTraversalOnWrite controls if path traversal is allowed
 	// when writing files. When specified, writing files
 	// outside the working directory will be allowed. Default value: false.
@@ -508,6 +519,19 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 	return nil
 }
 
+// returns upper bound for the timestamps in the tarballs generated for the added directories.
+func (s *Store) tarModTime() *time.Time {
+	if s.TarModTime != nil {
+		return s.TarModTime
+	}
+
+	// to ensure reproducible builds when TarModTime is not set, use zero time
+	if s.TarReproducible {
+		return &time.Time{}
+	}
+	return nil
+}
+
 // descriptorFromDir generates descriptor from the given directory.
 func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir string) (desc ocispec.Descriptor, err error) {
 	// make a temp file to store the gzip
@@ -536,7 +560,7 @@ func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir stri
 	tw := io.MultiWriter(gzw, tarDigester.Hash())
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := tarDirectory(ctx, dir, name, tw, s.TarReproducible, *buf); err != nil {
+	if err := tarDirectory(ctx, dir, name, tw, s.tarModTime(), *buf); err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to tar %s: %w", dir, err)
 	}
 

@@ -3744,7 +3744,7 @@ func TestClient_StaticCredential_basicAuth(t *testing.T) {
 	testPassword := "password"
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3816,7 +3816,7 @@ func TestClient_StaticCredential_withAccessToken(t *testing.T) {
 	defer as.Close()
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3910,7 +3910,7 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 	defer as.Close()
 
 	// create a test server
-	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusNotFound)
@@ -3975,5 +3975,288 @@ func TestClient_fetchBasicAuth(t *testing.T) {
 	_, err := c.fetchBasicAuth(context.Background(), "")
 	if err != ErrBasicCredentialNotFound {
 		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
+	}
+}
+
+// TestClient_Do_Basic_Auth_RedirectAfterAuth verifies that the Authorization
+// header is not forwarded when an authenticated request is redirected to a
+// different HTTP origin (here, a different port on the same host).
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+func TestClient_Do_Basic_Auth_RedirectAfterAuth(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	var sinkGotAuth atomic.Bool
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			sinkGotAuth.Store(true)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer sink.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != wantAuth {
+			w.Header().Set("Www-Authenticate", `Basic realm="origin"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// authenticated: redirect to a different origin (different port)
+		http.Redirect(w, r, sink.URL+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	originURL, err := url.Parse(origin.URL)
+	if err != nil {
+		t.Fatalf("invalid origin server: %v", err)
+	}
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			if reg != originURL.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, originURL.Host)
+			}
+			return credentials.Credential{Username: username, Password: password}, nil
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if sinkGotAuth.Load() {
+		t.Error("Authorization header was forwarded to a redirect target on a different origin")
+	}
+}
+
+// TestClient_Do_Basic_Auth_RedirectBeforeAuth verifies that credentials are not
+// resolved or sent when the 401 challenge originates from a different HTTP
+// origin reached through a pre-authentication redirect.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+func TestClient_Do_Basic_Auth_RedirectBeforeAuth(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+
+	var sinkGotAuth atomic.Bool
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			sinkGotAuth.Store(true)
+		}
+		w.Header().Set("Www-Authenticate", `Basic realm="sink"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer sink.Close()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// redirect to a different origin before any authentication happens
+		http.Redirect(w, r, sink.URL+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	originURL, err := url.Parse(origin.URL)
+	if err != nil {
+		t.Fatalf("invalid origin server: %v", err)
+	}
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			if reg != originURL.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, originURL.Host)
+			}
+			return credentials.Credential{Username: username, Password: password}, nil
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, origin.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusUnauthorized)
+	}
+	if sinkGotAuth.Load() {
+		t.Error("credential was forwarded to a sink reached through a pre-auth redirect")
+	}
+}
+
+// TestClient_Do_Basic_Auth_SameOriginRedirect verifies that credentials are
+// still forwarded across a same-origin redirect (e.g. a path-only redirect),
+// guarding against an over-broad fix.
+func TestClient_Do_Basic_Auth_SameOriginRedirect(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	var targetAuthOK atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/redirect":
+			http.Redirect(w, r, "/target", http.StatusTemporaryRedirect)
+		case "/target":
+			if r.Header.Get("Authorization") != wantAuth {
+				w.Header().Set("Www-Authenticate", `Basic realm="target"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			targetAuthOK.Store(true)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	tsURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test server: %v", err)
+	}
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+			if reg != tsURL.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, tsURL.Host)
+			}
+			return credentials.Credential{Username: username, Password: password}, nil
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/redirect", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if !targetAuthOK.Load() {
+		t.Error("credential was not forwarded across a same-origin redirect")
+	}
+}
+
+// TestClient_send_PreservesCheckRedirect verifies that a caller-provided
+// CheckRedirect callback on the underlying HTTP client is still invoked.
+func TestClient_send_PreservesCheckRedirect(t *testing.T) {
+	var called atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/a":
+			http.Redirect(w, r, "/b", http.StatusTemporaryRedirect)
+		case "/b":
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	client := &Client{
+		Client: &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				called.Store(true)
+				return nil
+			},
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/a", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if !called.Load() {
+		t.Error("caller-provided CheckRedirect was not invoked")
+	}
+}
+
+func Test_sameHTTPOrigin(t *testing.T) {
+	tests := []struct {
+		name string
+		a    string
+		b    string
+		want bool
+	}{
+		{"identical", "http://example.com:5000", "http://example.com:5000", true},
+		{"different port", "http://example.com:5000", "http://example.com:6000", false},
+		{"default https port normalized", "https://example.com", "https://example.com:443", true},
+		{"default http port normalized", "http://example.com", "http://example.com:80", true},
+		{"scheme mismatch", "http://example.com", "https://example.com", false},
+		{"case-insensitive host", "https://Example.COM", "https://example.com", true},
+		{"different host", "https://example.com", "https://evil.com", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, err := url.Parse(tt.a)
+			if err != nil {
+				t.Fatalf("failed to parse %q: %v", tt.a, err)
+			}
+			b, err := url.Parse(tt.b)
+			if err != nil {
+				t.Fatalf("failed to parse %q: %v", tt.b, err)
+			}
+			if got := sameHTTPOrigin(a, b); got != tt.want {
+				t.Errorf("sameHTTPOrigin(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_validateRealm(t *testing.T) {
+	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
+	registryHTTP, _ := url.Parse("http://registry.example.com/v2/")
+	registryLoopback, _ := url.Parse("http://127.0.0.1:5000/v2/")
+
+	tests := []struct {
+		name     string
+		realm    string
+		registry *url.URL
+		wantErr  bool
+	}{
+		{"empty realm is allowed", "", registryHTTPS, false},
+		{"https realm is allowed", "https://auth.example.com/token", registryHTTPS, false},
+		{"https cross-host realm is allowed", "https://other.example.com/token", registryHTTPS, false},
+		{"http realm against plain-http registry is allowed", "http://auth.example.com/token", registryHTTP, false},
+		{"http realm against https registry is rejected (TLS downgrade)", "http://auth.example.com/token", registryHTTPS, true},
+		{"non-http scheme is rejected", "file:///etc/passwd", registryHTTPS, true},
+		{"ftp scheme is rejected", "ftp://auth.example.com/token", registryHTTPS, true},
+		{"IMDS IPv4 is rejected", "http://169.254.169.254/latest/meta-data/", registryHTTP, true},
+		{"loopback IPv4 is rejected when registry is on a public host", "http://127.0.0.1:9090/token", registryHTTPS, true},
+		{"loopback IPv6 is rejected when registry is on a public host", "http://[::1]:9090/token", registryHTTPS, true},
+		{"private RFC1918 is rejected when registry is on a public host", "http://10.0.0.5/token", registryHTTP, true},
+		{"unspecified address is rejected", "http://0.0.0.0/token", registryHTTP, true},
+		{"loopback realm is allowed when registry shares the loopback hostname", "http://127.0.0.1:9090/token", registryLoopback, false},
+		{"unparseable realm is rejected", "://bad-url", registryHTTPS, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRealm(tt.realm, tt.registry)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
+			}
+		})
 	}
 }
