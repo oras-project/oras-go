@@ -774,9 +774,9 @@ func Example_handleWarning() {
 	if err != nil {
 		panic(err)
 	}
-	// 1. specify HandleWarning
-	repo.HandleWarning = func(warning remote.Warning) {
-		fmt.Printf("Warning from %s: %s\n", repo.Reference.Repository, warning.Text)
+	// 1. specify HandleWarning on the Registry
+	repo.Registry.HandleWarning = func(warning remote.Warning) {
+		fmt.Printf("Warning from %s: %s\n", repo.RepositoryName, warning.Text)
 	}
 
 	ctx := context.Background()

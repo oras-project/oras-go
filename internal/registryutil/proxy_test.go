@@ -82,7 +82,7 @@ func TestProxy_FetchReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 
 	s := registryutil.NewProxy(repo, cas.NewMemory())
 	ctx := context.Background()

@@ -18,8 +18,10 @@ package remote
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
@@ -63,6 +65,21 @@ type WarningValue struct {
 type Warning struct {
 	// WarningValue is the value of the warning header.
 	WarningValue
+}
+
+// NewWarningLogger returns a HandleWarning function that logs each unique
+// warning from the given registry exactly once at slog.LevelWarn. Duplicate
+// warnings (same WarningValue) are silently dropped, which prevents the same
+// deprecation notice from flooding the log during operations that issue many
+// HTTP requests (e.g. parallel blob fetches). The returned function is safe
+// for concurrent use.
+func NewWarningLogger(registry string, logger *slog.Logger) func(Warning) {
+	var seen sync.Map
+	return func(w Warning) {
+		if _, loaded := seen.LoadOrStore(w.WarningValue, struct{}{}); !loaded {
+			logger.Warn(w.Text, "registry", registry)
+		}
+	}
 }
 
 // parseWarningHeader parses the warning header into WarningValue.
