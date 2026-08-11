@@ -139,9 +139,12 @@ func repoFromServer(t *testing.T, server *httptest.Server) *Repository {
 	// Extract host from server URL (strip http://)
 	host := strings.TrimPrefix(server.URL, "http://")
 	return &Repository{
-		Client:    server.Client(),
-		Reference: registry.Reference{Registry: host, Repository: "test/repo"},
-		PlainHTTP: true,
+		Registry: &Registry{
+			Client:    server.Client(),
+			Reference: registry.Reference{Registry: host},
+			PlainHTTP: true,
+		},
+		RepositoryName: "test/repo",
 	}
 }
 
@@ -312,7 +315,7 @@ func Test_withMirrorFallbackResolve_contextCanceled_noFallback(t *testing.T) {
 
 	mirrors := []mirrorRepository{
 		{
-			Repository:     &Repository{PlainHTTP: true},
+			Repository:     &Repository{Registry: &Registry{PlainHTTP: true}},
 			pullFromMirror: PullFromMirrorAll,
 		},
 	}
