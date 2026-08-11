@@ -303,6 +303,176 @@ func TestSignaturePath(t *testing.T) {
 	}
 }
 
+func TestLookasideStore_SetHTTPClient(t *testing.T) {
+	var used bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		used = true
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	store := NewLookasideStore(ts.URL, ts.URL)
+	client := &http.Client{}
+	store.SetHTTPClient(client)
+	if store.client != client {
+		t.Fatal("SetHTTPClient() did not set the client")
+	}
+
+	if _, err := store.GetSignatures(context.Background(), "repo", digest.FromString("test")); err != nil {
+		t.Fatalf("GetSignatures() error: %v", err)
+	}
+	if !used {
+		t.Error("custom client was not used")
+	}
+}
+
+func TestLookasideStore_GetSignatures_EmptySignatureFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	ref := "registry.example.com/namespace/repo"
+	dgst := digest.FromString("test content")
+
+	sigDir := filepath.Join(tmpDir, ref+"@"+string(dgst.Algorithm())+"="+dgst.Hex())
+	if err := os.MkdirAll(sigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// An empty signature file terminates enumeration.
+	if err := os.WriteFile(filepath.Join(sigDir, "signature-1"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewLookasideStore("file://"+tmpDir, "file://"+tmpDir)
+	sigs, err := store.GetSignatures(context.Background(), ref, dgst)
+	if err != nil {
+		t.Fatalf("GetSignatures() error: %v", err)
+	}
+	if len(sigs) != 0 {
+		t.Errorf("GetSignatures() returned %d signatures, want 0", len(sigs))
+	}
+}
+
+func TestLookasideStore_GetSignatures_UnsupportedScheme(t *testing.T) {
+	store := NewLookasideStore("ftp://example.com/sigs", "")
+	_, err := store.GetSignatures(context.Background(), "repo", digest.FromString("test"))
+	if err == nil {
+		t.Fatal("GetSignatures() should return error for unsupported scheme")
+	}
+}
+
+func TestLookasideStore_PutSignature_ProbeError(t *testing.T) {
+	store := NewLookasideStore("", "ftp://example.com/sigs")
+	err := store.PutSignature(context.Background(), "repo", digest.FromString("test"), []byte("sig"))
+	if err == nil {
+		t.Fatal("PutSignature() should return error when probing fails")
+	}
+}
+
+func TestLookasideStore_FetchAndStore_InvalidURL(t *testing.T) {
+	store := NewLookasideStore("", "")
+	ctx := context.Background()
+	badURL := "http://example.com/\x7f"
+
+	if _, err := store.fetch(ctx, badURL); err == nil {
+		t.Error("fetch() should return error for invalid URL")
+	}
+	if err := store.store(ctx, badURL, []byte("sig")); err == nil {
+		t.Error("store() should return error for invalid URL")
+	}
+}
+
+func TestLookasideStore_Store_UnsupportedScheme(t *testing.T) {
+	store := NewLookasideStore("", "")
+	if err := store.store(context.Background(), "ftp://example.com/sig", []byte("sig")); err == nil {
+		t.Fatal("store() should return error for unsupported scheme")
+	}
+}
+
+func TestLookasideStore_FetchFile_ReadError(t *testing.T) {
+	store := NewLookasideStore("", "")
+	// Reading a directory is an error that is not "not found".
+	_, err := store.fetchFile(t.TempDir())
+	if err == nil {
+		t.Fatal("fetchFile() should return error when path is a directory")
+	}
+	if isNotFound(err) {
+		t.Error("fetchFile() error should not be a not-found error")
+	}
+}
+
+func TestLookasideStore_StoreFile_MkdirError(t *testing.T) {
+	tmpDir := t.TempDir()
+	// A regular file cannot be a parent directory.
+	blocker := filepath.Join(tmpDir, "blocker")
+	if err := os.WriteFile(blocker, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewLookasideStore("", "")
+	if err := store.storeFile(filepath.Join(blocker, "sub", "signature-1"), []byte("sig")); err == nil {
+		t.Fatal("storeFile() should return error when parent cannot be created")
+	}
+}
+
+func TestLookasideStore_HTTPBackend_RequestError(t *testing.T) {
+	store := NewLookasideStore("http://example.com", "http://example.com")
+
+	// A nil context makes request construction fail.
+	//nolint:staticcheck // deliberately passing a nil context to exercise the error path
+	if _, err := store.fetchHTTP(nil, "http://example.com/signature-1"); err == nil {
+		t.Error("fetchHTTP() should return error for nil context")
+	}
+	//nolint:staticcheck // deliberately passing a nil context to exercise the error path
+	if err := store.storeHTTP(nil, "http://example.com/signature-1", []byte("sig")); err == nil {
+		t.Error("storeHTTP() should return error for nil context")
+	}
+}
+
+func TestLookasideStore_HTTPBackend_ConnectionError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := ts.URL
+	ts.Close() // no listener from here on
+
+	store := NewLookasideStore(url, url)
+	ctx := context.Background()
+
+	if _, err := store.fetchHTTP(ctx, url+"/signature-1"); err == nil {
+		t.Error("fetchHTTP() should return error when the server is unreachable")
+	}
+	if err := store.storeHTTP(ctx, url+"/signature-1", []byte("sig")); err == nil {
+		t.Error("storeHTTP() should return error when the server is unreachable")
+	}
+}
+
+func TestLookasideStore_HTTPBackend_PutSignature_ServerError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	store := NewLookasideStore(ts.URL, ts.URL)
+	err := store.PutSignature(context.Background(), "repo", digest.FromString("test"), []byte("sig"))
+	if err == nil {
+		t.Fatal("PutSignature() should return error for a failed PUT")
+	}
+}
+
+func TestErrNotFound_Error(t *testing.T) {
+	err := &errNotFound{err: fmt.Errorf("missing signature")}
+	if err.Error() != "missing signature" {
+		t.Errorf("Error() = %v, want missing signature", err.Error())
+	}
+	if !isNotFound(err) {
+		t.Error("isNotFound() = false, want true")
+	}
+	if isNotFound(fmt.Errorf("other")) {
+		t.Error("isNotFound() = true for unrelated error, want false")
+	}
+}
+
 // readBody reads the full request body.
 func readBody(r *http.Request) ([]byte, error) {
 	defer r.Body.Close()

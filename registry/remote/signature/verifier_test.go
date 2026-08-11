@@ -16,12 +16,18 @@ limitations under the License.
 package signature
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
@@ -304,6 +310,16 @@ func TestParseImageDigest(t *testing.T) {
 			ref:  "registry.example.com/repo:latest@" + realDigest.String(),
 			want: realDigest.String(),
 		},
+		{
+			name:    "Malformed digest",
+			ref:     "registry.example.com/repo@sha256:notahexdigest",
+			wantErr: true,
+		},
+		{
+			name:    "Unknown digest algorithm",
+			ref:     "registry.example.com/repo@bogus:abc123",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -318,6 +334,253 @@ func TestParseImageDigest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewSignedByVerifierFromConfig(t *testing.T) {
+	cfg := &config.RegistriesDConfig{
+		Docker: map[string]config.RegistriesDDockerConfig{
+			"registry.example.com": {
+				Lookaside: "https://sigstore.example.com/sigs",
+			},
+		},
+	}
+
+	verifier := NewSignedByVerifierFromConfig(cfg, "registry.example.com/repo")
+	if verifier == nil {
+		t.Fatal("NewSignedByVerifierFromConfig() returned nil")
+	}
+	if verifier.store == nil {
+		t.Error("NewSignedByVerifierFromConfig() verifier has no store")
+	}
+}
+
+func TestNewSignedByVerifierFromConfig_NoMatch(t *testing.T) {
+	cfg := &config.RegistriesDConfig{
+		Docker: map[string]config.RegistriesDDockerConfig{},
+	}
+
+	if verifier := NewSignedByVerifierFromConfig(cfg, "unknown.example.com"); verifier != nil {
+		t.Fatal("NewSignedByVerifierFromConfig() should return nil for no match")
+	}
+}
+
+func TestDefaultSignedByVerifier_Verify_KeyRingError(t *testing.T) {
+	verifier := NewSignedByVerifier(newMockStore())
+	req := &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: filepath.Join(t.TempDir(), "missing.gpg"),
+	}
+	image := policy.ImageReference{
+		Transport: "docker",
+		Scope:     "registry.example.com/repo",
+		Reference: "registry.example.com/repo@" + digest.FromString("test").String(),
+	}
+
+	if _, err := verifier.Verify(context.Background(), req, image); err == nil {
+		t.Fatal("Verify() should return error for an unreadable keyring")
+	}
+}
+
+func TestDefaultSignedByVerifier_Verify_StoreError(t *testing.T) {
+	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	keyFile := filepath.Join(t.TempDir(), "test.gpg")
+	createKeyFile(t, entity, keyFile)
+
+	verifier := NewSignedByVerifier(&errSignatureStore{err: errors.New("store unavailable")})
+	req := &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: keyFile,
+	}
+	image := policy.ImageReference{
+		Transport: "docker",
+		Scope:     "registry.example.com/repo",
+		Reference: "registry.example.com/repo@" + digest.FromString("test").String(),
+	}
+
+	if _, err := verifier.Verify(context.Background(), req, image); err == nil {
+		t.Fatal("Verify() should return error when the store fails")
+	}
+}
+
+func TestDefaultSignedByVerifier_Verify_UnparseablePayload(t *testing.T) {
+	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+
+	imgDigest := digest.FromString("test image content")
+	scope := "registry.example.com/repo"
+	signedData, err := CreateOpenPGPSignature([]byte("not json"), entity)
+	if err != nil {
+		t.Fatalf("CreateOpenPGPSignature() error: %v", err)
+	}
+
+	store := newMockStore()
+	store.addSignature(scope, imgDigest, signedData)
+
+	keyFile := filepath.Join(t.TempDir(), "test.gpg")
+	createKeyFile(t, entity, keyFile)
+
+	verifier := NewSignedByVerifier(store)
+	result, err := verifier.Verify(context.Background(), &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: keyFile,
+	}, policy.ImageReference{
+		Transport: "docker",
+		Scope:     scope,
+		Reference: scope + "@" + imgDigest.String(),
+	})
+	if err != nil {
+		t.Fatalf("Verify() error: %v", err)
+	}
+	if result {
+		t.Error("Verify() = true, want false (payload is not a signing payload)")
+	}
+}
+
+func TestDefaultSignedByVerifier_Verify_InvalidPayload(t *testing.T) {
+	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+
+	imgDigest := digest.FromString("test image content")
+	scope := "registry.example.com/repo"
+
+	// A well-formed JSON payload that fails Validate() (wrong critical type).
+	payload := NewSimpleSigningPayload(imgDigest, scope+":latest")
+	payload.Critical.Type = "bogus type"
+	payloadBytes, _ := payload.Marshal()
+	signedData, _ := CreateOpenPGPSignature(payloadBytes, entity)
+
+	store := newMockStore()
+	store.addSignature(scope, imgDigest, signedData)
+
+	keyFile := filepath.Join(t.TempDir(), "test.gpg")
+	createKeyFile(t, entity, keyFile)
+
+	verifier := NewSignedByVerifier(store)
+	result, err := verifier.Verify(context.Background(), &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: keyFile,
+	}, policy.ImageReference{
+		Transport: "docker",
+		Scope:     scope,
+		Reference: scope + "@" + imgDigest.String(),
+	})
+	if err != nil {
+		t.Fatalf("Verify() error: %v", err)
+	}
+	if result {
+		t.Error("Verify() = true, want false (invalid payload)")
+	}
+}
+
+func TestDefaultSignedByVerifier_Verify_IdentityMatchError(t *testing.T) {
+	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+
+	imgDigest := digest.FromString("test image content")
+	scope := "registry.example.com/repo"
+
+	payload := NewSimpleSigningPayload(imgDigest, scope+":latest")
+	payloadBytes, _ := payload.Marshal()
+	signedData, _ := CreateOpenPGPSignature(payloadBytes, entity)
+
+	store := newMockStore()
+	store.addSignature(scope, imgDigest, signedData)
+
+	keyFile := filepath.Join(t.TempDir(), "test.gpg")
+	createKeyFile(t, entity, keyFile)
+
+	verifier := NewSignedByVerifier(store)
+	result, err := verifier.Verify(context.Background(), &policy.PRSignedBy{
+		KeyType:        "GPGKeys",
+		KeyPath:        keyFile,
+		SignedIdentity: &policy.SignedIdentity{Type: "unknownType"},
+	}, policy.ImageReference{
+		Transport: "docker",
+		Scope:     scope,
+		Reference: scope + "@" + imgDigest.String(),
+	})
+	if err != nil {
+		t.Fatalf("Verify() error: %v", err)
+	}
+	if result {
+		t.Error("Verify() = true, want false (identity matching failed)")
+	}
+}
+
+func TestDefaultSignedByVerifier_LoadKeyRing_KeyData(t *testing.T) {
+	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+
+	var buf bytes.Buffer
+	if err := entity.SerializePrivate(&buf, nil); err != nil {
+		t.Fatalf("SerializePrivate() error: %v", err)
+	}
+
+	verifier := NewSignedByVerifier(newMockStore())
+
+	t.Run("base64", func(t *testing.T) {
+		req := &policy.PRSignedBy{
+			KeyType: "GPGKeys",
+			KeyData: base64.StdEncoding.EncodeToString(buf.Bytes()),
+		}
+		keyring, err := verifier.loadKeyRing(req)
+		if err != nil {
+			t.Fatalf("loadKeyRing() error: %v", err)
+		}
+		if len(keyring.entities) != 1 {
+			t.Errorf("loadKeyRing() loaded %d entities, want 1", len(keyring.entities))
+		}
+	})
+
+	t.Run("raw armored", func(t *testing.T) {
+		var armored bytes.Buffer
+		w, err := armor.Encode(&armored, openpgp.PublicKeyType, nil)
+		if err != nil {
+			t.Fatalf("armor.Encode() error: %v", err)
+		}
+		if err := entity.Serialize(w); err != nil {
+			t.Fatalf("Serialize() error: %v", err)
+		}
+		w.Close()
+
+		req := &policy.PRSignedBy{
+			KeyType: "GPGKeys",
+			KeyData: armored.String(),
+		}
+		keyring, err := verifier.loadKeyRing(req)
+		if err != nil {
+			t.Fatalf("loadKeyRing() error: %v", err)
+		}
+		if len(keyring.entities) != 1 {
+			t.Errorf("loadKeyRing() loaded %d entities, want 1", len(keyring.entities))
+		}
+	})
+
+	t.Run("key paths", func(t *testing.T) {
+		keyFile := filepath.Join(t.TempDir(), "extra.gpg")
+		createKeyFile(t, entity, keyFile)
+
+		req := &policy.PRSignedBy{
+			KeyType:  "GPGKeys",
+			KeyPaths: []string{keyFile},
+		}
+		keyring, err := verifier.loadKeyRing(req)
+		if err != nil {
+			t.Fatalf("loadKeyRing() error: %v", err)
+		}
+		if len(keyring.entities) != 1 {
+			t.Errorf("loadKeyRing() loaded %d entities, want 1", len(keyring.entities))
+		}
+	})
+}
+
+// errSignatureStore is a SignatureStore whose operations always fail.
+type errSignatureStore struct {
+	err error
+}
+
+func (s *errSignatureStore) GetSignatures(ctx context.Context, ref string, dgst digest.Digest) ([][]byte, error) {
+	return nil, s.err
+}
+
+func (s *errSignatureStore) PutSignature(ctx context.Context, ref string, dgst digest.Digest, sig []byte) error {
+	return s.err
 }
 
 // createKeyFile serializes a GPG entity to a file and returns the path.

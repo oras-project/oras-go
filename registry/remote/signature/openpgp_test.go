@@ -16,6 +16,7 @@ limitations under the License.
 package signature
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -119,6 +120,96 @@ func TestCreateOpenPGPSignature_NilSigner(t *testing.T) {
 	_, err := CreateOpenPGPSignature([]byte("payload"), nil)
 	if err == nil {
 		t.Fatal("CreateOpenPGPSignature() should return error for nil signer")
+	}
+}
+
+func TestCreateOpenPGPSignature_NoPrivateKey(t *testing.T) {
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
+	// Serializing and re-reading the public key yields an entity that cannot sign.
+	var buf bytes.Buffer
+	if err := entity.Serialize(&buf); err != nil {
+		t.Fatalf("Serialize() error: %v", err)
+	}
+	el, err := openpgp.ReadKeyRing(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("ReadKeyRing() error: %v", err)
+	}
+
+	if _, err := CreateOpenPGPSignature([]byte("payload"), el[0]); err == nil {
+		t.Fatal("CreateOpenPGPSignature() should return error for an entity without a private key")
+	}
+}
+
+func TestVerifyOpenPGPSignature_TamperedMessage(t *testing.T) {
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
+
+	payload := []byte(`{"critical":{"type":"atomic container signature","image":{"docker-manifest-digest":"sha256:abc"},"identity":{"docker-reference":"ref"}}}`)
+	signedData, err := CreateOpenPGPSignature(payload, entity)
+	if err != nil {
+		t.Fatalf("CreateOpenPGPSignature() error: %v", err)
+	}
+
+	// Flip a byte inside the signed payload so the signature no longer matches.
+	idx := bytes.Index(signedData, []byte("docker-reference"))
+	if idx < 0 {
+		t.Fatal("could not locate payload within the signed message")
+	}
+	tampered := make([]byte, len(signedData))
+	copy(tampered, signedData)
+	tampered[idx] ^= 0xff
+
+	keyring := &KeyRing{entities: openpgp.EntityList{entity}}
+	_, err = VerifyOpenPGPSignature(tampered, keyring)
+	if err == nil {
+		t.Fatal("VerifyOpenPGPSignature() should return error for a tampered message")
+	}
+	if !errors.Is(err, ErrSignatureVerification) {
+		t.Errorf("error should wrap ErrSignatureVerification, got: %v", err)
+	}
+}
+
+func TestVerifyOpenPGPSignature_TruncatedMessage(t *testing.T) {
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
+
+	payload := []byte(`{"critical":{"type":"atomic container signature","image":{"docker-manifest-digest":"sha256:abc"},"identity":{"docker-reference":"ref"}}}`)
+	signedData, err := CreateOpenPGPSignature(payload, entity)
+	if err != nil {
+		t.Fatalf("CreateOpenPGPSignature() error: %v", err)
+	}
+
+	keyring := &KeyRing{entities: openpgp.EntityList{entity}}
+	if _, err := VerifyOpenPGPSignature(signedData[:len(signedData)/2], keyring); err == nil {
+		t.Fatal("VerifyOpenPGPSignature() should return error for a truncated message")
+	}
+}
+
+func TestVerifyOpenPGPSignature_NonPayloadContent(t *testing.T) {
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
+
+	signedData, err := CreateOpenPGPSignature([]byte("not a simple signing payload"), entity)
+	if err != nil {
+		t.Fatalf("CreateOpenPGPSignature() error: %v", err)
+	}
+
+	keyring := &KeyRing{entities: openpgp.EntityList{entity}}
+	_, err = VerifyOpenPGPSignature(signedData, keyring)
+	if err == nil {
+		t.Fatal("VerifyOpenPGPSignature() should return error for a non-payload message")
+	}
+	if !errors.Is(err, ErrInvalidSigningPayload) {
+		t.Errorf("error should wrap ErrInvalidSigningPayload, got: %v", err)
 	}
 }
 

@@ -23,10 +23,10 @@ import (
 
 func TestMatchSignedIdentity_Default(t *testing.T) {
 	tests := []struct {
-		name             string
-		imageRef         string
-		signedDockerRef  string
-		want             bool
+		name            string
+		imageRef        string
+		signedDockerRef string
+		want            bool
 	}{
 		{
 			name:            "Exact match",
@@ -71,10 +71,10 @@ func TestMatchSignedIdentity_MatchExact(t *testing.T) {
 	si := &policy.SignedIdentity{Type: policy.IdentityMatchExact}
 
 	tests := []struct {
-		name             string
-		imageRef         string
-		signedDockerRef  string
-		want             bool
+		name            string
+		imageRef        string
+		signedDockerRef string
+		want            bool
 	}{
 		{
 			name:            "Exact match",
@@ -107,10 +107,10 @@ func TestMatchSignedIdentity_MatchRepository(t *testing.T) {
 	si := &policy.SignedIdentity{Type: policy.IdentityMatchRepository}
 
 	tests := []struct {
-		name             string
-		imageRef         string
-		signedDockerRef  string
-		want             bool
+		name            string
+		imageRef        string
+		signedDockerRef string
+		want            bool
 	}{
 		{
 			name:            "Same repo different tag",
@@ -152,9 +152,9 @@ func TestMatchSignedIdentity_ExactReference(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		signedDockerRef  string
-		want             bool
+		name            string
+		signedDockerRef string
+		want            bool
 	}{
 		{
 			name:            "Matches configured reference",
@@ -188,9 +188,9 @@ func TestMatchSignedIdentity_ExactRepository(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		signedDockerRef  string
-		want             bool
+		name            string
+		signedDockerRef string
+		want            bool
 	}{
 		{
 			name:            "Matches configured repository",
@@ -225,10 +225,10 @@ func TestMatchSignedIdentity_Remap(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		imageRef         string
-		signedDockerRef  string
-		want             bool
+		name            string
+		imageRef        string
+		signedDockerRef string
+		want            bool
 	}{
 		{
 			name:            "Remapped match",
@@ -271,6 +271,53 @@ func TestMatchSignedIdentity_UnknownType(t *testing.T) {
 	}
 }
 
+func TestMatchSignedIdentity_RepoDigestOrExact(t *testing.T) {
+	si := &policy.SignedIdentity{Type: policy.IdentityMatchRepoDigestOrExact}
+	tests := []struct {
+		name      string
+		imageRef  string
+		signedRef string
+		want      bool
+	}{
+		{
+			name:      "exact match",
+			imageRef:  "registry.example.com/repo:latest",
+			signedRef: "registry.example.com/repo:latest",
+			want:      true,
+		},
+		{
+			name:      "same repository by digest",
+			imageRef:  "registry.example.com/repo@sha256:abc",
+			signedRef: "registry.example.com/repo:latest",
+			want:      true,
+		},
+		{
+			name:      "different repository by digest",
+			imageRef:  "registry.example.com/other@sha256:abc",
+			signedRef: "registry.example.com/repo:latest",
+			want:      false,
+		},
+		{
+			name:      "different tag without digest",
+			imageRef:  "registry.example.com/repo:latest",
+			signedRef: "registry.example.com/repo:v1",
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := MatchSignedIdentity(si, tt.imageRef, tt.signedRef)
+			if err != nil {
+				t.Fatalf("MatchSignedIdentity() error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("MatchSignedIdentity() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRepositoryOf(t *testing.T) {
 	tests := []struct {
 		ref  string
@@ -280,6 +327,9 @@ func TestRepositoryOf(t *testing.T) {
 		{"registry.example.com/repo@sha256:abc", "registry.example.com/repo"},
 		{"registry.example.com/repo", "registry.example.com/repo"},
 		{"registry.example.com/ns/repo:tag", "registry.example.com/ns/repo"},
+		{"myimage:tag", "myimage"},
+		{"localhost:5000/repo", "localhost:5000/repo"},
+		{"localhost:5000/repo:tag", "localhost:5000/repo"},
 	}
 
 	for _, tt := range tests {

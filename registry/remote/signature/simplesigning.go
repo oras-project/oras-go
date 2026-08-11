@@ -33,9 +33,9 @@ type SimpleSigningPayload struct {
 
 // SimpleSigningCritical contains the required fields of a simple signing payload.
 type SimpleSigningCritical struct {
-	Type     string                   `json:"type"`
-	Image    SimpleSigningImage       `json:"image"`
-	Identity SimpleSigningIdentity    `json:"identity"`
+	Type     string                `json:"type"`
+	Image    SimpleSigningImage    `json:"image"`
+	Identity SimpleSigningIdentity `json:"identity"`
 }
 
 // SimpleSigningImage identifies the image being signed.
