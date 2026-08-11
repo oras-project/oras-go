@@ -45,7 +45,7 @@ func newRepo(t *testing.T, name string) *remote.Repository {
 	if err != nil {
 		t.Fatalf("Failed to create repository %s: %v", ref, err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	return repo
 }
 
@@ -57,8 +57,8 @@ func newAuthRepo(t *testing.T, name, username, password string) *remote.Reposito
 	if err != nil {
 		t.Fatalf("Failed to create auth repository %s: %v", ref, err)
 	}
-	repo.PlainHTTP = true
-	repo.Client = &auth.Client{
+	repo.Registry.PlainHTTP = true
+	repo.Registry.Client = &auth.Client{
 		CredentialFunc: credentials.StaticCredentialFunc(authRegistryEndpoint, credentials.Credential{
 			Username: username,
 			Password: password,
@@ -195,8 +195,8 @@ func newCredHelperRepo(t *testing.T, name string, store credentials.Store) *remo
 	if err != nil {
 		t.Fatalf("Failed to create credential-helper repository %s: %v", ref, err)
 	}
-	repo.PlainHTTP = true
-	repo.Client = &auth.Client{
+	repo.Registry.PlainHTTP = true
+	repo.Registry.Client = &auth.Client{
 		CredentialFunc: store.Get,
 	}
 	return repo
