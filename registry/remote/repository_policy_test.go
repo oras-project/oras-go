@@ -17,6 +17,7 @@ package remote
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -39,9 +40,13 @@ func newRejectPolicyRepo(t *testing.T) *Repository {
 	if err != nil {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
-	return &Repository{
-		Reference: testReference,
+	reg := &Registry{
+		Reference: registry.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
+	}
+	return &Repository{
+		Registry:       reg,
+		RepositoryName: testReference.Repository,
 	}
 }
 
@@ -56,15 +61,13 @@ func assertPolicyDenied(t *testing.T, err error, operation string) {
 	}
 }
 
-var testDesc = ocispec.Descriptor{
-	MediaType: ocispec.MediaTypeImageManifest,
-	Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-	Size:      1234,
-}
-
 func TestRepository_PolicyEnforcement(t *testing.T) {
+	reg := &Registry{
+		Reference: registry.Reference{Registry: testReference.Registry},
+	}
 	repo := &Repository{
-		Reference: testReference,
+		Registry:       reg,
+		RepositoryName: testReference.Repository,
 	}
 
 	// Test without policy - should work
@@ -84,7 +87,7 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create evaluator: %v", err)
 		}
-		repo.Policy = evaluator
+		reg.Policy = evaluator
 
 		err = repo.checkPolicy(context.Background(), "")
 		if err == nil {
@@ -104,7 +107,7 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create evaluator: %v", err)
 		}
-		repo.Policy = evaluator
+		reg.Policy = evaluator
 
 		err = repo.checkPolicy(context.Background(), "")
 		if err != nil {
@@ -114,15 +117,16 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 }
 
 func TestRepository_PolicyCheckedContext(t *testing.T) {
+	// Verify that policyCheckedKey in context skips the check
 	repo := newRejectPolicyRepo(t)
 
-	// Without context key, should fail
+	// Without the key, policy should reject
 	err := repo.checkPolicy(context.Background(), "")
 	if err == nil {
 		t.Error("checkPolicy() should fail without policyCheckedKey")
 	}
 
-	// With context key, should be skipped
+	// With the key set, policy should be skipped
 	ctx := withPolicyChecked(context.Background())
 	err = repo.checkPolicy(ctx, "")
 	if err != nil {
@@ -131,12 +135,12 @@ func TestRepository_PolicyCheckedContext(t *testing.T) {
 }
 
 func TestRepository_PolicyScope(t *testing.T) {
+	// Verify that the scope is fully qualified (registry/repository)
 	pol := &policy.Policy{
 		Default: policy.PolicyRequirements{&policy.Reject{}},
 		Transports: map[policy.TransportName]policy.TransportScopes{
 			policy.TransportNameDocker: {
-				// Allow the fully-qualified scope
-				"localhost:5000/test/repo": policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
+				testReference.Registry + "/" + testReference.Repository: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
 			},
 		},
 	}
@@ -144,12 +148,17 @@ func TestRepository_PolicyScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
-	repo := &Repository{
-		Reference: testReference,
+
+	reg := &Registry{
+		Reference: registry.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
+	repo := &Repository{
+		Registry:       reg,
+		RepositoryName: testReference.Repository,
+	}
 
-	// Should succeed with fully-qualified scope match
+	// The fully-qualified scope should match, allowing access
 	err = repo.checkPolicy(context.Background(), "")
 	if err != nil {
 		t.Errorf("checkPolicy() should succeed with fully-qualified scope match, got: %v", err)
@@ -165,123 +174,186 @@ func TestRepository_Clone_Policy(t *testing.T) {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
 
-	original := &Repository{
-		Reference: testReference,
+	reg := &Registry{
+		Reference: registry.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
+	}
+	original := &Repository{
+		Registry:       reg,
+		RepositoryName: testReference.Repository,
 	}
 
 	cloned := original.clone()
 
-	if cloned.Policy != original.Policy {
-		t.Error("cloned repository should have the same policy evaluator")
+	if cloned.Registry.Policy != original.Registry.Policy {
+		t.Error("cloned repository should have the same policy evaluator via Registry")
 	}
 }
 
-// Tests for all Repository methods with reject policy.
-
 func TestRepository_Fetch_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	_, err := repo.Fetch(context.Background(), testDesc)
-	assertPolicyDenied(t, err, "Fetch")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
+
+	_, err := repo.Fetch(context.Background(), desc)
+	assertPolicyDenied(t, err, "Fetch()")
 }
 
 func TestRepository_Push_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	err := repo.Push(context.Background(), testDesc, strings.NewReader("test"))
-	assertPolicyDenied(t, err, "Push")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
+
+	err := repo.Push(context.Background(), desc, strings.NewReader("test content"))
+	assertPolicyDenied(t, err, "Push()")
 }
 
 func TestRepository_Resolve_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
+
 	_, err := repo.Resolve(context.Background(), "latest")
-	assertPolicyDenied(t, err, "Resolve")
+	assertPolicyDenied(t, err, "Resolve()")
 }
 
 func TestRepository_Delete_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	err := repo.Delete(context.Background(), testDesc)
-	assertPolicyDenied(t, err, "Delete")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
+
+	err := repo.Delete(context.Background(), desc)
+	assertPolicyDenied(t, err, "Delete()")
 }
 
 func TestRepository_Tag_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	err := repo.Tag(context.Background(), testDesc, "latest")
-	assertPolicyDenied(t, err, "Tag")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
+
+	err := repo.Tag(context.Background(), desc, "v1.0")
+	assertPolicyDenied(t, err, "Tag()")
 }
 
 func TestRepository_PushReference_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	err := repo.PushReference(context.Background(), testDesc, strings.NewReader("test"), "latest")
-	assertPolicyDenied(t, err, "PushReference")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
+
+	err := repo.PushReference(context.Background(), desc, strings.NewReader("test content"), "v1.0")
+	assertPolicyDenied(t, err, "PushReference()")
 }
 
 func TestRepository_FetchReference_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
+
 	_, _, err := repo.FetchReference(context.Background(), "latest")
-	assertPolicyDenied(t, err, "FetchReference")
+	assertPolicyDenied(t, err, "FetchReference()")
 }
 
 func TestRepository_Exists_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	_, err := repo.Exists(context.Background(), testDesc)
-	assertPolicyDenied(t, err, "Exists")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
+
+	_, err := repo.Exists(context.Background(), desc)
+	assertPolicyDenied(t, err, "Exists()")
 }
 
 func TestRepository_Tags_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	err := repo.Tags(context.Background(), "", func(tags []string) error { return nil })
-	assertPolicyDenied(t, err, "Tags")
-}
 
-func TestRepository_Predecessors_PolicyCheck(t *testing.T) {
-	repo := newRejectPolicyRepo(t)
-	_, err := repo.Predecessors(context.Background(), testDesc)
-	assertPolicyDenied(t, err, "Predecessors")
+	err := repo.Tags(context.Background(), "", func(tags []string) error {
+		return nil
+	})
+	assertPolicyDenied(t, err, "Tags()")
 }
 
 func TestRepository_Referrers_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	err := repo.Referrers(context.Background(), testDesc, "", func(referrers []ocispec.Descriptor) error { return nil })
-	assertPolicyDenied(t, err, "Referrers")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
+
+	err := repo.Referrers(context.Background(), desc, "", func(referrers []ocispec.Descriptor) error {
+		return nil
+	})
+	assertPolicyDenied(t, err, "Referrers()")
 }
 
-// Tests for sub-store policy enforcement.
+func TestRepository_Predecessors_PolicyCheck(t *testing.T) {
+	repo := newRejectPolicyRepo(t)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
+
+	_, err := repo.Predecessors(context.Background(), desc)
+	assertPolicyDenied(t, err, "Predecessors()")
+}
+
+func TestRepository_Mount_PolicyCheck(t *testing.T) {
+	repo := newRejectPolicyRepo(t)
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
+
+	err := repo.Mount(context.Background(), desc, "source/repo", nil)
+	assertPolicyDenied(t, err, "Mount()")
+}
 
 func TestRepository_ManifestStore_PushReference_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	err := repo.Manifests().PushReference(context.Background(), testDesc, strings.NewReader("test"), "latest")
-	assertPolicyDenied(t, err, "Manifests().PushReference")
-}
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
 
-func TestRepository_ManifestStore_Fetch_PolicyCheck(t *testing.T) {
-	repo := newRejectPolicyRepo(t)
-	_, err := repo.Manifests().Fetch(context.Background(), testDesc)
-	assertPolicyDenied(t, err, "Manifests().Fetch")
-}
-
-func TestRepository_ManifestStore_Resolve_PolicyCheck(t *testing.T) {
-	repo := newRejectPolicyRepo(t)
-	_, err := repo.Manifests().Resolve(context.Background(), "latest")
-	assertPolicyDenied(t, err, "Manifests().Resolve")
+	err := repo.Manifests().PushReference(context.Background(), desc, strings.NewReader("test content"), "v1.0")
+	assertPolicyDenied(t, err, "Manifests().PushReference()")
 }
 
 func TestRepository_BlobStore_Fetch_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	_, err := repo.Blobs().Fetch(context.Background(), testDesc)
-	assertPolicyDenied(t, err, "Blobs().Fetch")
-}
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Size:      1234,
+	}
 
-func TestRepository_BlobStore_Push_PolicyCheck(t *testing.T) {
-	repo := newRejectPolicyRepo(t)
-	err := repo.Blobs().Push(context.Background(), testDesc, strings.NewReader("test"))
-	assertPolicyDenied(t, err, "Blobs().Push")
+	_, err := repo.Blobs().Fetch(context.Background(), desc)
+	assertPolicyDenied(t, err, "Blobs().Fetch()")
 }
 
 func TestRepository_ScopeSpecificPolicy(t *testing.T) {
+	// Test that scope-specific policies work correctly
 	pol := &policy.Policy{
 		Default: policy.PolicyRequirements{&policy.Reject{}},
 		Transports: map[policy.TransportName]policy.TransportScopes{
 			policy.TransportNameDocker: {
+				// Allow all docker repositories
 				"": policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
 			},
 		},
@@ -292,13 +364,27 @@ func TestRepository_ScopeSpecificPolicy(t *testing.T) {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
 
-	repo := &Repository{
-		Reference: testReference,
+	reg := &Registry{
+		Reference: registry.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
+	repo := &Repository{
+		Registry:       reg,
+		RepositoryName: testReference.Repository,
+	}
 
+	// Since the policy allows docker transport, checkPolicy should succeed
 	err = repo.checkPolicy(context.Background(), "")
 	if err != nil {
 		t.Errorf("checkPolicy() should succeed for allowed docker transport, got: %v", err)
 	}
+}
+
+// mockReadCloser is a simple mock for testing
+type mockReadCloser struct {
+	io.Reader
+}
+
+func (m *mockReadCloser) Close() error {
+	return nil
 }

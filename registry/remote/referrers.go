@@ -29,20 +29,6 @@ import (
 // for pinging Referrers API.
 const zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
-// referrersState represents the state of Referrers API.
-type referrersState = int32
-
-const (
-	// referrersStateUnknown represents an unknown state of Referrers API.
-	referrersStateUnknown referrersState = iota
-	// referrersStateSupported represents that the repository is known to
-	// support Referrers API.
-	referrersStateSupported
-	// referrersStateUnsupported represents that the repository is known to
-	// not support Referrers API.
-	referrersStateUnsupported
-)
-
 // referrerOperation represents an operation on a referrer.
 type referrerOperation = int32
 
@@ -60,8 +46,9 @@ type referrerChange struct {
 }
 
 var (
-	// ErrReferrersCapabilityAlreadySet is returned by SetReferrersCapability()
-	// when the Referrers API capability has been already set.
+	// ErrReferrersCapabilityAlreadySet is reserved to signal that the referrers
+	// capability of a repository has already been set to a conflicting value.
+	// The capability is fixed once set; the first value wins.
 	ErrReferrersCapabilityAlreadySet = errors.New("referrers capability cannot be changed once set")
 
 	// errNoReferrerUpdate is returned by applyReferrerChanges() when there

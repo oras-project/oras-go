@@ -16,8 +16,12 @@ limitations under the License.
 package remote
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -154,5 +158,87 @@ func Test_parseWarningHeader(t *testing.T) {
 				t.Errorf("parseWarningHeader() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func makeTestLogger(buf *bytes.Buffer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+}
+
+func warn(text string) Warning {
+	return Warning{WarningValue: WarningValue{Code: 299, Agent: "-", Text: text}}
+}
+
+func TestNewWarningLogger_LogsOnce(t *testing.T) {
+	var buf bytes.Buffer
+	fn := NewWarningLogger("registry.example.com", makeTestLogger(&buf))
+
+	fn(warn("deprecated API"))
+	fn(warn("deprecated API")) // duplicate — must be suppressed
+
+	if got := strings.Count(buf.String(), "deprecated API"); got != 1 {
+		t.Errorf("expected 1 log line, got %d", got)
+	}
+}
+
+func TestNewWarningLogger_DifferentWarningsAllLogged(t *testing.T) {
+	var buf bytes.Buffer
+	fn := NewWarningLogger("registry.example.com", makeTestLogger(&buf))
+
+	fn(warn("first warning"))
+	fn(warn("second warning"))
+
+	out := buf.String()
+	if !strings.Contains(out, "first warning") {
+		t.Error("expected first warning to be logged")
+	}
+	if !strings.Contains(out, "second warning") {
+		t.Error("expected second warning to be logged")
+	}
+}
+
+func TestNewWarningLogger_IncludesRegistry(t *testing.T) {
+	var buf bytes.Buffer
+	fn := NewWarningLogger("myregistry.example.com", makeTestLogger(&buf))
+
+	fn(warn("some notice"))
+
+	if !strings.Contains(buf.String(), "myregistry.example.com") {
+		t.Error("expected registry name in log output")
+	}
+}
+
+func TestNewWarningLogger_IndependentInstances(t *testing.T) {
+	// Two loggers for the same registry must deduplicate independently —
+	// each has its own seen map, so both log the warning once.
+	var buf bytes.Buffer
+	logger := makeTestLogger(&buf)
+	fn1 := NewWarningLogger("registry.example.com", logger)
+	fn2 := NewWarningLogger("registry.example.com", logger)
+
+	fn1(warn("shared warning"))
+	fn2(warn("shared warning"))
+
+	if got := strings.Count(buf.String(), "shared warning"); got != 2 {
+		t.Errorf("expected 2 log lines (one per instance), got %d", got)
+	}
+}
+
+func TestNewWarningLogger_Concurrent(t *testing.T) {
+	var buf bytes.Buffer
+	fn := NewWarningLogger("registry.example.com", makeTestLogger(&buf))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fn(warn("concurrent warning"))
+		}()
+	}
+	wg.Wait()
+
+	if got := strings.Count(buf.String(), "concurrent warning"); got != 1 {
+		t.Errorf("expected exactly 1 log line despite concurrent calls, got %d", got)
 	}
 }
