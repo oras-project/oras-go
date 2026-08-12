@@ -33,26 +33,9 @@ var ErrClientTypeUnsupported = errors.New("client type not supported")
 // a client local to the function and will not modify the original client of
 // the registry.
 func Login(ctx context.Context, store credentials.Store, reg *Registry, cred credentials.Credential) error {
-	// create a clone of the original registry for login purpose. Use the
-	// repository clone helper so the embedded repository's mutex and pool are
-	// not copied.
-	repoClone := (*Repository)(&reg.RepositoryOptions).clone()
-	regClone := Registry{
-		RepositoryListPageSize: reg.RepositoryListPageSize,
-		RepositoryListMaxPages: reg.RepositoryListMaxPages,
-	}
-	regClone.Client = repoClone.Client
-	regClone.Reference = repoClone.Reference
-	regClone.PlainHTTP = repoClone.PlainHTTP
-	regClone.ManifestMediaTypes = repoClone.ManifestMediaTypes
-	regClone.TagListPageSize = repoClone.TagListPageSize
-	regClone.ReferrerListPageSize = repoClone.ReferrerListPageSize
-	regClone.TagListMaxPages = repoClone.TagListMaxPages
-	regClone.ReferrerListMaxPages = repoClone.ReferrerListMaxPages
-	regClone.MaxMetadataBytes = repoClone.MaxMetadataBytes
-	regClone.SkipReferrersGC = repoClone.SkipReferrersGC
-	regClone.HandleWarning = repoClone.HandleWarning
-	regClone.Policy = repoClone.Policy
+	// Registry only contains copyable configuration. Make a local copy so
+	// authentication changes do not modify the caller's registry.
+	regClone := *reg
 	// we use the original client if applicable, otherwise use a default client
 	var authClient auth.Client
 	if reg.Client == nil {
