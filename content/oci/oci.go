@@ -81,11 +81,19 @@ type Store struct {
 }
 
 // New creates a new OCI store with context.Background().
+//
+// If `index.json` is present but empty, which is what a write interrupted by a
+// full file system leaves behind, it is reinitialized rather than reported as
+// an error. The blobs of the store are kept, but the tags recorded in the lost
+// index are not recoverable, and the blobs they referenced become unreferenced
+// and are removed by the next call to GC.
 func New(root string) (*Store, error) {
 	return NewWithContext(context.Background(), root)
 }
 
 // NewWithContext creates a new OCI store.
+//
+// See New for the handling of an empty `index.json`.
 func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
@@ -362,24 +370,53 @@ func (s *Store) ensureOCILayoutFile() error {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to open OCI layout file: %w", err)
 		}
-
-		layout := ocispec.ImageLayout{
-			Version: ocispec.ImageLayoutVersion,
-		}
-		layoutJSON, err := json.Marshal(layout)
-		if err != nil {
-			return fmt.Errorf("failed to marshal OCI layout file: %w", err)
-		}
-		return os.WriteFile(layoutFilePath, layoutJSON, 0666)
+		return writeOCILayoutFile(layoutFilePath)
 	}
 	defer layoutFile.Close()
 
-	var layout ocispec.ImageLayout
-	err = json.NewDecoder(layoutFile).Decode(&layout)
+	// An empty file is what an interrupted write leaves behind. It carries no
+	// information, and it describes the same state as a missing file, so it is
+	// treated in the same way and rewritten, rather than failing the store for
+	// as long as it is there.
+	empty, err := isEmptyFile(layoutFile)
 	if err != nil {
+		return fmt.Errorf("failed to stat OCI layout file: %w", err)
+	}
+	if empty {
+		// the file is closed before it is replaced, since on Windows a file
+		// cannot be renamed over while it is open.
+		if err := layoutFile.Close(); err != nil {
+			return fmt.Errorf("failed to close OCI layout file: %w", err)
+		}
+		return writeOCILayoutFile(layoutFilePath)
+	}
+
+	var layout ocispec.ImageLayout
+	if err := json.NewDecoder(layoutFile).Decode(&layout); err != nil {
 		return fmt.Errorf("failed to decode OCI layout file: %w", err)
 	}
 	return validateOCILayout(&layout)
+}
+
+// writeOCILayoutFile writes the `oci-layout` file at the given path.
+func writeOCILayoutFile(layoutFilePath string) error {
+	layout := ocispec.ImageLayout{
+		Version: ocispec.ImageLayoutVersion,
+	}
+	layoutJSON, err := json.Marshal(layout)
+	if err != nil {
+		return fmt.Errorf("failed to marshal OCI layout file: %w", err)
+	}
+	return writeFileAtomic(layoutFilePath, layoutJSON)
+}
+
+// isEmptyFile reports whether the open file is zero-length.
+func isEmptyFile(file *os.File) (bool, error) {
+	fi, err := file.Stat()
+	if err != nil {
+		return false, err
+	}
+	return fi.Size() == 0, nil
 }
 
 // loadIndexFile reads index.json from the file system.
@@ -392,16 +429,25 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 		}
 
 		// write index.json if it does not exist
-		s.index = &ocispec.Index{
-			Versioned: specs.Versioned{
-				SchemaVersion: 2, // historical value
-			},
-			MediaType: ocispec.MediaTypeImageIndex,
-			Manifests: []ocispec.Descriptor{},
-		}
-		return s.writeIndexFile()
+		return s.resetIndexFile()
 	}
 	defer indexFile.Close()
+
+	// An empty file is what an interrupted write leaves behind. It is not a
+	// valid index, and it describes the same state as a missing index file, so
+	// it is treated in the same way and rewritten.
+	empty, err := isEmptyFile(indexFile)
+	if err != nil {
+		return fmt.Errorf("failed to stat index file: %w", err)
+	}
+	if empty {
+		// the file is closed before it is replaced, since on Windows a file
+		// cannot be renamed over while it is open.
+		if err := indexFile.Close(); err != nil {
+			return fmt.Errorf("failed to close index file: %w", err)
+		}
+		return s.resetIndexFile()
+	}
 
 	var index ocispec.Index
 	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
@@ -409,6 +455,19 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 	}
 	s.index = &index
 	return loadIndex(ctx, s.index, s.storage, s.tagResolver, s.graph)
+}
+
+// resetIndexFile sets the index to an empty index and writes it to the file
+// system, replacing the `index.json` file if it is already present.
+func (s *Store) resetIndexFile() error {
+	s.index = &ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value
+		},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: []ocispec.Descriptor{},
+	}
+	return s.writeIndexFile()
 }
 
 // SaveIndex writes the `index.json` file to the file system.
@@ -463,7 +522,7 @@ func (s *Store) writeIndexFile() error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal index file: %w", err)
 	}
-	return os.WriteFile(s.indexPath, indexJSON, 0666)
+	return writeFileAtomic(s.indexPath, indexJSON)
 }
 
 // GC removes garbage from Store. Unsaved index will be lost. To prevent unexpected
