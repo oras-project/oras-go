@@ -150,6 +150,13 @@ type Repository struct {
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-manifests
 	SkipReferrersGC bool
 
+	// mirrors is an ordered list of mirror repositories to try before the
+	// primary registry for read operations. When empty, all reads go directly
+	// to the primary. Mirrors are populated from a [properties.Registry] when a
+	// Repository is constructed via the ClientBuilder; a Repository created
+	// directly has no mirrors.
+	mirrors []mirrorRepository
+
 	// NOTE: Must keep fields in sync with clone().
 
 	// referrersState indicates whether the repository supports the Referrers
@@ -209,6 +216,7 @@ func (r *Repository) clone() *Repository {
 		TagListMaxPages:      r.TagListMaxPages,
 		ReferrerListMaxPages: r.ReferrerListMaxPages,
 		SkipReferrersGC:      r.SkipReferrersGC,
+		mirrors:              r.mirrors,
 	}
 }
 
@@ -438,11 +446,18 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 }
 
 // Fetch fetches the content identified by the descriptor.
+// If mirrors are configured, they are tried in order before the primary.
 func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
 	if err := r.checkPolicy(ctx, ""); err != nil {
 		return nil, err
 	}
 	ctx = withPolicyChecked(ctx)
+	if len(r.mirrors) > 0 {
+		return withMirrorFallbackFetch(ctx, r.mirrors, r, target,
+			func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (io.ReadCloser, error) {
+				return repo.blobStore(t).Fetch(ctx, t)
+			})
+	}
 	return r.blobStore(target).Fetch(ctx, target)
 }
 
@@ -475,11 +490,18 @@ func (r *Repository) Mount(ctx context.Context, desc ocispec.Descriptor, fromRep
 }
 
 // Exists returns true if the described content exists.
+// If mirrors are configured, they are tried in order before the primary.
 func (r *Repository) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
 	if err := r.checkPolicy(ctx, ""); err != nil {
 		return false, err
 	}
 	ctx = withPolicyChecked(ctx)
+	if len(r.mirrors) > 0 {
+		return withMirrorFallbackExists(ctx, r.mirrors, r, target,
+			func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (bool, error) {
+				return repo.blobStore(t).Exists(ctx, t)
+			})
+	}
 	return r.blobStore(target).Exists(ctx, target)
 }
 
@@ -503,12 +525,19 @@ func (r *Repository) Manifests() registry.ManifestStore {
 }
 
 // Resolve resolves a reference to a manifest descriptor.
+// If mirrors are configured, they are tried in order before the primary.
 // See also `ManifestMediaTypes`.
 func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 	ctx = withPolicyChecked(ctx)
+	if len(r.mirrors) > 0 {
+		return withMirrorFallbackResolve(ctx, r.mirrors, r, reference,
+			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, error) {
+				return repo.Manifests().Resolve(ctx, ref)
+			})
+	}
 	return r.Manifests().Resolve(ctx, reference)
 }
 
@@ -530,11 +559,18 @@ func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descrip
 
 // FetchReference fetches the manifest identified by the reference.
 // The reference can be a tag or digest.
+// If mirrors are configured, they are tried in order before the primary.
 func (r *Repository) FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error) {
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 	ctx = withPolicyChecked(ctx)
+	if len(r.mirrors) > 0 {
+		return withMirrorFallbackFetchReference(ctx, r.mirrors, r, reference,
+			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, io.ReadCloser, error) {
+				return repo.Manifests().FetchReference(ctx, ref)
+			})
+	}
 	return r.Manifests().FetchReference(ctx, reference)
 }
 
