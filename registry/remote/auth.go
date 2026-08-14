@@ -33,7 +33,8 @@ var ErrClientTypeUnsupported = errors.New("client type not supported")
 // a client local to the function and will not modify the original client of
 // the registry.
 func Login(ctx context.Context, store credentials.Store, reg *Registry, cred credentials.Credential) error {
-	// create a clone of the original registry for login purpose
+	// Registry only contains copyable configuration. Make a local copy so
+	// authentication changes do not modify the caller's registry.
 	regClone := *reg
 	// we use the original client if applicable, otherwise use a default client
 	var authClient auth.Client
