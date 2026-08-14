@@ -155,12 +155,14 @@ func (s *Storage) ingest(expected ocispec.Descriptor, content io.Reader) (path s
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
 	if err := ioutil.CopyBuffer(fp, content, *buf, expected); err != nil {
-		return "", fmt.Errorf("failed to ingest: %w", err)
+		ingestErr = fmt.Errorf("failed to ingest: %w", err)
+		return
 	}
 
 	// change to readonly
 	if err := os.Chmod(path, 0444); err != nil {
-		return "", fmt.Errorf("failed to make readonly: %w", err)
+		ingestErr = fmt.Errorf("failed to make readonly: %w", err)
+		return
 	}
 
 	return

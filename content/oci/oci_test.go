@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -33,6 +34,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -3185,5 +3187,143 @@ func TestStore_TrailingBytesInMetadataFile(t *testing.T) {
 
 	if _, err := New(tempDir); err != nil {
 		t.Fatal("New() error =", err)
+	}
+}
+
+// TestStore_GC_Leftovers ensures that the temporary files of writes that were
+// interrupted are reclaimed by GC, since nothing else removes them, and that
+// the files GC does not own -- including the temporary files of a write that
+// may still be in progress -- are left alone.
+func TestStore_GC_Leftovers(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	ingestRoot := s.storage.ingestRoot
+	if err := os.MkdirAll(ingestRoot, 0777); err != nil {
+		t.Fatal("error calling MkdirAll(), error =", err)
+	}
+	write := func(path string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte("whatever"), 0666); err != nil {
+			t.Fatal("error calling WriteFile(), error =", err)
+		}
+	}
+	// residue of writes interrupted long enough ago that no process can still
+	// be working on them
+	stale := []string{
+		filepath.Join(ingestRoot, digest.FromString("whatever").Encoded()+"_1525580788"),
+		filepath.Join(ingestRoot, "not-an-ingest-file"),
+		filepath.Join(tempDir, ocispec.ImageIndexFile+"_"+rand.Text()),
+		filepath.Join(tempDir, ocispec.ImageLayoutFile+"_"+rand.Text()),
+	}
+	for _, path := range stale {
+		write(path)
+		old := time.Now().Add(-2 * leftoverExpiry)
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal("error calling Chtimes(), error =", err)
+		}
+	}
+	// files that must survive: temporary files recent enough to belong to a
+	// write in progress, and files that only share the prefix of one
+	keep := []string{
+		filepath.Join(ingestRoot, digest.FromString("in progress").Encoded()+"_1525580789"),
+		filepath.Join(tempDir, ocispec.ImageIndexFile+"_"+rand.Text()),
+		filepath.Join(tempDir, ocispec.ImageIndexFile+"_backup"),
+		filepath.Join(tempDir, ocispec.ImageIndexFile+"_"+strings.ToLower(rand.Text())),
+	}
+	for _, path := range keep {
+		write(path)
+	}
+	keep = append(keep,
+		filepath.Join(tempDir, ocispec.ImageIndexFile),
+		filepath.Join(tempDir, ocispec.ImageLayoutFile))
+
+	if err := s.GC(ctx); err != nil {
+		t.Fatal("Store.GC() error =", err)
+	}
+
+	for _, path := range stale {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s still exists after GC(), error = %v", path, err)
+		}
+	}
+	for _, path := range keep {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("error calling Stat() on %s, error = %v", path, err)
+		}
+	}
+}
+
+func Test_olderThan(t *testing.T) {
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "file")
+	if err := os.WriteFile(path, []byte("whatever"), 0666); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	entry := func() fs.DirEntry {
+		t.Helper()
+		entries, err := os.ReadDir(tempDir)
+		if err != nil {
+			t.Fatal("error calling ReadDir(), error =", err)
+		}
+		return entries[0]
+	}
+
+	// a file just written belongs to a write that may still be in progress
+	if olderThan(time.Hour)(entry()) {
+		t.Error("olderThan() = true for a file just written, want false")
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal("error calling Chtimes(), error =", err)
+	}
+	if !olderThan(time.Hour)(entry()) {
+		t.Error("olderThan() = false for an untouched file, want true")
+	}
+}
+
+func Test_removeFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	notADir := filepath.Join(tempDir, "file")
+	if err := os.WriteFile(notADir, []byte("whatever"), 0666); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+	subDir := filepath.Join(tempDir, "dir")
+	if err := os.Mkdir(subDir, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+
+	all := func(fs.DirEntry) bool { return true }
+	named := func(want string) func(fs.DirEntry) bool {
+		return func(entry fs.DirEntry) bool { return entry.Name() == want }
+	}
+
+	// a directory that does not exist holds no leftovers
+	if err := removeFiles(filepath.Join(tempDir, "missing"), all); err != nil {
+		t.Error("removeFiles() error =", err)
+	}
+	// a path that is not a directory cannot be listed
+	if err := removeFiles(notADir, all); err == nil {
+		t.Error("removeFiles() error = nil, wantErr = true")
+	}
+	// directories and unmatched files are left alone
+	if err := removeFiles(tempDir, named("dir")); err != nil {
+		t.Fatal("removeFiles() error =", err)
+	}
+	for _, path := range []string{notADir, subDir} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("error calling Stat() on %s, error = %v", path, err)
+		}
+	}
+	// matched files are removed
+	if err := removeFiles(tempDir, named("file")); err != nil {
+		t.Fatal("removeFiles() error =", err)
+	}
+	if _, err := os.Stat(notADir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Stat() error = %v, want %v", err, os.ErrNotExist)
 	}
 }
