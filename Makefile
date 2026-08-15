@@ -37,6 +37,10 @@ check-encoding:
 fix-encoding:
 	find . -not -path "./vendor/*" -name "*.go" -type f -exec sed -i -e "s/\r//g" {} +
 
+.PHONY: lint
+lint:
+	GOFLAGS=-mod=mod golangci-lint run
+
 .PHONY: vendor
 vendor:
 	go mod vendor
