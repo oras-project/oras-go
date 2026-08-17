@@ -105,9 +105,10 @@ func ExampleGenericPolicy() {
 	}
 	defer resp.Body.Close()
 
-    fmt.Println("attempts:", attempts)
+	fmt.Println("attempts:", attempts)
 	fmt.Println(resp.StatusCode)
 	// Output:
+	// attempts: 2
 	// 200
 }
 
