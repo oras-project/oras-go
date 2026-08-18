@@ -16,7 +16,9 @@ limitations under the License.
 package signature
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/registry/remote/config"
@@ -44,12 +47,33 @@ type LookasideStore struct {
 	client   *http.Client
 }
 
+const (
+	// maxSignatures bounds the signature index scan. The enumeration is driven
+	// by the store's own responses, so without a ceiling a server that never
+	// answers "not found" keeps the loop running and the accumulated slice
+	// growing without limit.
+	maxSignatures = 32
+
+	// maxSignatureBytes bounds a single signature body. A simple signing
+	// payload plus its OpenPGP envelope is on the order of a kilobyte.
+	maxSignatureBytes = 4 << 20 // 4 MiB
+
+	// lookasideTimeout bounds a single lookaside HTTP request.
+	lookasideTimeout = 30 * time.Second
+)
+
+// ErrTooManySignatures is returned when a lookaside store offers more
+// signatures for one image than will be read.
+var ErrTooManySignatures = fmt.Errorf("lookaside store returned more than %d signatures", maxSignatures)
+
 // NewLookasideStore creates a LookasideStore with explicit read and write URLs.
 func NewLookasideStore(readURL, writeURL string) *LookasideStore {
 	return &LookasideStore{
 		readURL:  strings.TrimRight(readURL, "/"),
 		writeURL: strings.TrimRight(writeURL, "/"),
-		client:   http.DefaultClient,
+		// Not http.DefaultClient: it has no timeout, and these requests go to
+		// a host named by configuration.
+		client: &http.Client{Timeout: lookasideTimeout},
 	}
 }
 
@@ -79,24 +103,26 @@ func (s *LookasideStore) GetSignatures(ctx context.Context, ref string, dgst dig
 	basePath := signaturePath(s.readURL, ref, dgst)
 	var signatures [][]byte
 
-	for i := 1; ; i++ {
+	for i := 1; i <= maxSignatures; i++ {
 		sigURL := fmt.Sprintf("%s/signature-%d", basePath, i)
 
 		data, err := s.fetch(ctx, sigURL)
 		if err != nil {
 			// Not found means no more signatures.
 			if isNotFound(err) {
-				break
+				return signatures, nil
 			}
 			return nil, fmt.Errorf("failed to fetch signature %d for %s@%s: %w", i, ref, dgst, err)
 		}
 		if len(data) == 0 {
-			break
+			return signatures, nil
 		}
 		signatures = append(signatures, data)
 	}
 
-	return signatures, nil
+	// Reached the ceiling without the store saying it was done. Fail loudly
+	// rather than silently verifying against an arbitrary prefix.
+	return nil, fmt.Errorf("%w for %s@%s", ErrTooManySignatures, ref, dgst)
 }
 
 // PutSignature stores a signature for the given image reference and digest.
@@ -110,7 +136,7 @@ func (s *LookasideStore) PutSignature(ctx context.Context, ref string, dgst dige
 
 	// Find the next available index.
 	index := 1
-	for ; ; index++ {
+	for ; index <= maxSignatures; index++ {
 		sigURL := fmt.Sprintf("%s/signature-%d", basePath, index)
 		_, err := s.fetch(ctx, sigURL)
 		if err != nil {
@@ -120,18 +146,23 @@ func (s *LookasideStore) PutSignature(ctx context.Context, ref string, dgst dige
 			return fmt.Errorf("failed to probe signature index %d: %w", index, err)
 		}
 	}
+	if index > maxSignatures {
+		return fmt.Errorf("%w for %s@%s", ErrTooManySignatures, ref, dgst)
+	}
 
 	sigURL := fmt.Sprintf("%s/signature-%d", basePath, index)
 	return s.store(ctx, sigURL, sig)
 }
 
 // signaturePath computes the signature base path for an image reference and digest.
-// Format: {baseURL}/{namespace}@{algo}={hash}
+// Format: {baseURL}/{ref}@{algo}={hash}
+//
+// ref is the full image scope including the registry host, e.g.
+// "registry.example.com/namespace/repo". That matches the layout
+// containers/image writes, which derives the path from the reference's full
+// name — the host is part of the path, not stripped from it.
 func signaturePath(baseURL, ref string, dgst digest.Digest) string {
-	// Extract the namespace part (everything after the registry host).
-	// For "registry.example.com/namespace/repo", we want "namespace/repo".
-	namespace := ref
-	return fmt.Sprintf("%s/%s@%s=%s", baseURL, namespace, dgst.Algorithm(), dgst.Hex())
+	return fmt.Sprintf("%s/%s@%s=%s", baseURL, ref, dgst.Algorithm(), dgst.Hex())
 }
 
 // fetch retrieves content from the given URL.
@@ -170,12 +201,26 @@ func (s *LookasideStore) store(ctx context.Context, rawURL string, data []byte) 
 
 // fetchFile reads a file from the filesystem.
 func (s *LookasideStore) fetchFile(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, &errNotFound{err: err}
 		}
 		return nil, err
+	}
+	defer f.Close()
+	return readLimited(f, path)
+}
+
+// readLimited reads at most maxSignatureBytes from r, reporting an error rather
+// than truncating if the source has more to give.
+func readLimited(r io.Reader, source string) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxSignatureBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxSignatureBytes {
+		return nil, fmt.Errorf("signature at %s exceeds the %d byte limit", source, maxSignatureBytes)
 	}
 	return data, nil
 }
@@ -209,12 +254,12 @@ func (s *LookasideStore) fetchHTTP(ctx context.Context, rawURL string) ([]byte, 
 		return nil, fmt.Errorf("unexpected HTTP status %d for %s", resp.StatusCode, rawURL)
 	}
 
-	return io.ReadAll(resp.Body)
+	return readLimited(resp.Body, rawURL)
 }
 
 // storeHTTP stores content via HTTP PUT.
 func (s *LookasideStore) storeHTTP(ctx context.Context, rawURL string, data []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, strings.NewReader(string(data)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -241,8 +286,12 @@ func (e *errNotFound) Error() string {
 	return e.err.Error()
 }
 
+func (e *errNotFound) Unwrap() error {
+	return e.err
+}
+
 // isNotFound returns true if the error indicates a not-found condition.
 func isNotFound(err error) bool {
-	_, ok := err.(*errNotFound)
-	return ok
+	var nf *errNotFound
+	return errors.As(err, &nf)
 }
