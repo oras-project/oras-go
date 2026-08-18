@@ -16,6 +16,7 @@ limitations under the License.
 package credentials
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -477,9 +478,19 @@ func Test_DynamicStore_noAuthConfigured(t *testing.T) {
 		t.Fatal("DynamicStore.Put() error =", err)
 	}
 
-	// Put() should set the detected store back to config
-	if got := ds.config.CredentialsStore(); got != ds.detectedCredsStore {
-		t.Errorf("ds.config.CredentialsStore() = %v, want %v", got, ds.detectedCredsStore)
+	// Put() must not write the detected store back to the config file. The
+	// detected value governs this store's own behaviour only; persisting it
+	// would edit a file shared with the Docker CLI and change its behaviour
+	// too, as a side effect of saving one credential.
+	if got := ds.config.CredentialsStore(); got != "" {
+		t.Errorf("ds.config.CredentialsStore() = %v, want empty (Put must not persist the detected store)", got)
+	}
+	configAfter, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read config file: %v", err)
+	}
+	if bytes.Contains(configAfter, []byte("credsStore")) {
+		t.Errorf("config file gained a credsStore entry after Put: %s", configAfter)
 	}
 
 	// test get
