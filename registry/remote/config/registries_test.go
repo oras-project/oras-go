@@ -170,10 +170,6 @@ location = "mirror.example.com"
 			name: "config with oras-specific attributes",
 			content: `
 [[registry]]
-prefix = "basic-auth.example.com"
-force-basic-auth = true
-
-[[registry]]
 prefix = "referrers-supported.example.com"
 referrers-api = "supported"
 
@@ -183,10 +179,6 @@ referrers-api = "unsupported"
 `,
 			want: &RegistriesConfig{
 				Registries: []Registry{
-					{
-						Prefix:         "basic-auth.example.com",
-						ForceBasicAuth: true,
-					},
 					{
 						Prefix:       "referrers-supported.example.com",
 						ReferrersAPI: "supported",

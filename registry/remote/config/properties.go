@@ -75,10 +75,6 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 			props.Transport.Insecure = true
 		}
 
-		if origReg.ForceBasicAuth {
-			props.Attributes.ForceBasicAuth = true
-		}
-
 		switch origReg.ReferrersAPI {
 		case "supported":
 			props.Attributes.ReferrersAPI = properties.ReferrersAPISupported
