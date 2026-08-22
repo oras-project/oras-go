@@ -1227,7 +1227,7 @@ func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
 		return false, err
 	}
-	_, err := s.Resolve(ctx, target.Digest.String())
+	_, err := s.Resolve(withPolicyChecked(ctx), target.Digest.String())
 	if err == nil {
 		return true, nil
 	}
@@ -1431,7 +1431,7 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
 		return false, err
 	}
-	_, err := s.Resolve(ctx, target.Digest.String())
+	_, err := s.Resolve(withPolicyChecked(ctx), target.Digest.String())
 	if err == nil {
 		return true, nil
 	}
