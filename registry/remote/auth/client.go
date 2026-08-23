@@ -128,13 +128,24 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 	for key, values := range c.Header {
 		req.Header[key] = append(req.Header[key], values...)
 	}
-	// Drop the Authorization header when a redirect crosses an HTTP origin
-	// (scheme, host, or port). The standard library only strips sensitive
-	// headers when the hostname changes, so a redirect to a different port on
-	// the same host would otherwise forward credentials to an unintended
-	// endpoint. Any caller-provided CheckRedirect is preserved.
-	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
-	client := c.client()
+	return redirectSafeClient(c.client()).Do(req)
+}
+
+// redirectSafeClient returns a shallow copy of client whose CheckRedirect drops
+// the Authorization header when a redirect crosses an HTTP origin (scheme,
+// host, or port). The standard library only strips sensitive headers when the
+// hostname changes, so a redirect to a different port on the same host would
+// otherwise forward credentials to an unintended endpoint. Any caller-provided
+// CheckRedirect is preserved.
+//
+// This applies to token endpoint requests as well as registry requests: the
+// distribution spec flow sends the credential to the realm as HTTP Basic.
+//
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+func redirectSafeClient(client *http.Client) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -146,7 +157,7 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 		}
 		return nil
 	}
-	return clientCopy.Do(req)
+	return &clientCopy
 }
 
 // sameHTTPOrigin reports whether a and b share the same HTTP origin, i.e. the
