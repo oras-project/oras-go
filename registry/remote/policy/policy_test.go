@@ -832,8 +832,8 @@ func TestPolicyRequirements_JSONRoundTrip(t *testing.T) {
 			name: "sigstoreSigned with fulcio",
 			reqs: PolicyRequirements{
 				&PRSigstoreSigned{
-					KeyPath: "/path/to/key.pub",
-					KeyData: []byte("key data"),
+					KeyPath:  "/path/to/key.pub",
+					KeyData:  []byte("key data"),
 					KeyDatas: []string{"base64key1", "base64key2"},
 					Fulcio: &FulcioConfig{
 						CAPath:       "/path/ca.pem",

@@ -122,4 +122,3 @@ type Mounter interface {
 		getContent func() (io.ReadCloser, error),
 	) error
 }
-

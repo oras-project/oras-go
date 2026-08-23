@@ -291,7 +291,7 @@ func Test_DynamicStore_authConfigured_IgnoreDefaultNativeStore(t *testing.T) {
 	}
 
 	opts := StoreOptions{
-		AllowPlaintextPut:       true,
+		AllowPlaintextPut:        true,
 		IgnoreDefaultNativeStore: true,
 	}
 	ds, err := NewStore(configPath, opts)
@@ -365,7 +365,7 @@ func Test_DynamicStore_noAuthConfigured_IgnoreDefaultNativeStore(t *testing.T) {
 	}
 
 	ds, err := NewStore(configPath, StoreOptions{
-		AllowPlaintextPut:       true,
+		AllowPlaintextPut:        true,
 		IgnoreDefaultNativeStore: true,
 	})
 	if err != nil {
