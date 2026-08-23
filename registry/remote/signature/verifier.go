@@ -18,6 +18,7 @@ package signature
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 
 	"github.com/opencontainers/go-digest"
@@ -79,39 +80,48 @@ func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *policy.PRSign
 		return false, nil
 	}
 
-	// Check each signature.
-	for _, sigData := range sigs {
+	// Check each signature. A rejection is not fatal on its own — any one of
+	// several signatures may be the valid one — but if none is accepted the
+	// reasons are reported, so a misconfigured keyring is distinguishable from
+	// genuinely unsigned content.
+	var rejected []error
+	for i, sigData := range sigs {
 		payload, err := VerifyOpenPGPSignature(sigData, keyring)
 		if err != nil {
-			// Signature didn't verify — try next.
+			rejected = append(rejected, fmt.Errorf("signature %d: %w", i+1, err))
 			continue
 		}
 
 		// Validate the payload.
 		if err := payload.Validate(); err != nil {
+			rejected = append(rejected, fmt.Errorf("signature %d: %w", i+1, err))
 			continue
 		}
 
 		// Check that the digest matches.
 		payloadDigest, err := payload.ImageDigest()
 		if err != nil {
+			rejected = append(rejected, fmt.Errorf("signature %d: %w", i+1, err))
 			continue
 		}
 		if payloadDigest != imgDigest {
+			rejected = append(rejected, fmt.Errorf("signature %d: signed digest %s does not match image digest %s", i+1, payloadDigest, imgDigest))
 			continue
 		}
 
 		// Apply identity matching.
 		matched, err := MatchSignedIdentity(req.SignedIdentity, image.Reference, payload.DockerReference())
 		if err != nil {
+			rejected = append(rejected, fmt.Errorf("signature %d: %w", i+1, err))
 			continue
 		}
 		if matched {
 			return true, nil
 		}
+		rejected = append(rejected, fmt.Errorf("signature %d: signed identity %q does not match %q", i+1, payload.DockerReference(), image.Reference))
 	}
 
-	return false, nil
+	return false, fmt.Errorf("no valid signature found for %s: %w", image.Reference, errors.Join(rejected...))
 }
 
 // loadKeyRing loads an OpenPGP keyring from the PRSignedBy requirement's

@@ -176,11 +176,13 @@ func TestDefaultSignedByVerifier_Verify_WrongKey(t *testing.T) {
 	}
 
 	result, err := verifier.Verify(context.Background(), req, image)
-	if err != nil {
-		t.Fatalf("Verify() error: %v", err)
-	}
 	if result {
 		t.Error("Verify() = true, want false (wrong key)")
+	}
+	// The signature was present but rejected; Verify reports why so that a
+	// misconfiguration is distinguishable from genuinely unsigned content.
+	if err == nil {
+		t.Error("Verify() error = nil, want a rejection reason")
 	}
 }
 
@@ -215,11 +217,13 @@ func TestDefaultSignedByVerifier_Verify_DigestMismatch(t *testing.T) {
 	}
 
 	result, err := verifier.Verify(context.Background(), req, image)
-	if err != nil {
-		t.Fatalf("Verify() error: %v", err)
-	}
 	if result {
 		t.Error("Verify() = true, want false (digest mismatch)")
+	}
+	// The signature was present but rejected; Verify reports why so that a
+	// misconfiguration is distinguishable from genuinely unsigned content.
+	if err == nil {
+		t.Error("Verify() error = nil, want a rejection reason")
 	}
 }
 
@@ -256,11 +260,13 @@ func TestDefaultSignedByVerifier_Verify_IdentityMismatch(t *testing.T) {
 	}
 
 	result, err := verifier.Verify(context.Background(), req, image)
-	if err != nil {
-		t.Fatalf("Verify() error: %v", err)
-	}
 	if result {
 		t.Error("Verify() = true, want false (identity mismatch)")
+	}
+	// The signature was present but rejected; Verify reports why so that a
+	// misconfiguration is distinguishable from genuinely unsigned content.
+	if err == nil {
+		t.Error("Verify() error = nil, want a rejection reason")
 	}
 }
 
@@ -427,11 +433,13 @@ func TestDefaultSignedByVerifier_Verify_UnparseablePayload(t *testing.T) {
 		Scope:     scope,
 		Reference: scope + "@" + imgDigest.String(),
 	})
-	if err != nil {
-		t.Fatalf("Verify() error: %v", err)
-	}
 	if result {
 		t.Error("Verify() = true, want false (payload is not a signing payload)")
+	}
+	// The signature was present but rejected; Verify reports why so that a
+	// misconfiguration is distinguishable from genuinely unsigned content.
+	if err == nil {
+		t.Error("Verify() error = nil, want a rejection reason")
 	}
 }
 
@@ -462,11 +470,13 @@ func TestDefaultSignedByVerifier_Verify_InvalidPayload(t *testing.T) {
 		Scope:     scope,
 		Reference: scope + "@" + imgDigest.String(),
 	})
-	if err != nil {
-		t.Fatalf("Verify() error: %v", err)
-	}
 	if result {
 		t.Error("Verify() = true, want false (invalid payload)")
+	}
+	// The signature was present but rejected; Verify reports why so that a
+	// misconfiguration is distinguishable from genuinely unsigned content.
+	if err == nil {
+		t.Error("Verify() error = nil, want a rejection reason")
 	}
 }
 
@@ -496,11 +506,13 @@ func TestDefaultSignedByVerifier_Verify_IdentityMatchError(t *testing.T) {
 		Scope:     scope,
 		Reference: scope + "@" + imgDigest.String(),
 	})
-	if err != nil {
-		t.Fatalf("Verify() error: %v", err)
-	}
 	if result {
 		t.Error("Verify() = true, want false (identity matching failed)")
+	}
+	// The signature was present but rejected; Verify reports why so that a
+	// misconfiguration is distinguishable from genuinely unsigned content.
+	if err == nil {
+		t.Error("Verify() error = nil, want a rejection reason")
 	}
 }
 
