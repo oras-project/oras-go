@@ -17,6 +17,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 
@@ -102,7 +103,10 @@ func isMirrorFallbackError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return err != context.Canceled && err != context.DeadlineExceeded
+	// errors.Is, not ==: the transport wraps context errors, so a comparison
+	// against the sentinels would miss a cancelled context and go on to try
+	// every remaining mirror and then the primary.
+	return !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }
 
 // withMirrorFallbackResolve tries to resolve the reference against each
@@ -196,7 +200,14 @@ func withMirrorFallbackExists(
 		}
 		ok, err := exists(ctx, mirrors[i].Repository, target)
 		if err == nil {
-			return ok, nil
+			// Only a positive result is authoritative. A mirror that does not
+			// have the content says nothing about the primary, so keep
+			// looking; treating "absent here" as "absent everywhere" would
+			// report content that exists as missing.
+			if ok {
+				return true, nil
+			}
+			continue
 		}
 		if !isMirrorFallbackError(err) {
 			return false, err
