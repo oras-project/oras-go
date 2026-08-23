@@ -25,8 +25,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/oras-project/oras-go/v3/internal/syncutil"
 )
 
 // ConfigFile is the interface for a Docker configuration file that provides
@@ -48,14 +46,10 @@ type ConfigFile interface {
 	GetCredentialHelper(serverAddress string) string
 	// CredentialsStore returns the configured credentials store name.
 	CredentialsStore() string
-	// SetCredentialsStore sets the credentials store name.
-	SetCredentialsStore(credsStore string)
 	// IsAuthConfigured returns true if any authentication is configured.
 	IsAuthConfigured() bool
 	// Path returns the path to the config file.
 	Path() string
-	// Save saves the config file.
-	Save() error
 }
 
 // ConfigFileLoader is a function that loads a ConfigFile from a path.
@@ -83,7 +77,6 @@ type DynamicStore struct {
 	config             ConfigFile
 	options            StoreOptions
 	detectedCredsStore string
-	setCredsStoreOnce  syncutil.OnceOrRetry
 }
 
 // StoreOptions provides options for NewStore.
@@ -200,20 +193,15 @@ func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (Credenti
 // Put saves credentials into the store for the given server address.
 // Put returns ErrPlaintextPutDisabled if native store is not available and
 // [StoreOptions].AllowPlaintextPut is set to false.
+//
+// A detected native store is used for this store's own operations only; it is
+// deliberately not written back to the config file. Persisting it would edit a
+// file this library does not own — one shared with the Docker CLI and every
+// other tool that reads it — as a side effect of saving one credential, and
+// would change their behaviour too. Callers that want the setting recorded
+// should write it themselves.
 func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred Credential) error {
-	if err := ds.getStore(serverAddress).Put(ctx, serverAddress, cred); err != nil {
-		return err
-	}
-	// save the detected creds store back to the config file on first put
-	return ds.setCredsStoreOnce.Do(func() error {
-		if ds.detectedCredsStore != "" {
-			ds.config.SetCredentialsStore(ds.detectedCredsStore)
-			if err := ds.config.Save(); err != nil {
-				return fmt.Errorf("failed to save config with credsStore: %w", err)
-			}
-		}
-		return nil
-	})
+	return ds.getStore(serverAddress).Put(ctx, serverAddress, cred)
 }
 
 // Delete removes credentials from the store for the given server address.
