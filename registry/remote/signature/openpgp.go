@@ -28,6 +28,10 @@ import (
 // ErrSignatureVerification is returned when an OpenPGP signature cannot be verified.
 var ErrSignatureVerification = errors.New("signature verification failed")
 
+// maxPayloadBytes bounds the signed payload extracted from an OpenPGP message.
+// A simple signing payload is a small JSON document.
+const maxPayloadBytes = 1 << 20 // 1 MiB
+
 // KeyRing wraps an OpenPGP entity list for signature verification.
 type KeyRing struct {
 	entities openpgp.EntityList
@@ -38,15 +42,19 @@ type KeyRing struct {
 func LoadKeyRing(keyPaths []string, keyDatas [][]byte) (*KeyRing, error) {
 	var entities openpgp.EntityList
 
+	// Collect into a fresh slice: appending to the keyDatas parameter can write
+	// into the caller's backing array when it has spare capacity.
+	all := make([][]byte, 0, len(keyDatas)+len(keyPaths))
+	all = append(all, keyDatas...)
 	for _, path := range keyPaths {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read key file %s: %w", path, err)
 		}
-		keyDatas = append(keyDatas, data)
+		all = append(all, data)
 	}
 
-	for _, data := range keyDatas {
+	for _, data := range all {
 		// Try armored format first, then binary.
 		el, err := openpgp.ReadArmoredKeyRing(bytes.NewReader(data))
 		if err != nil {
@@ -79,9 +87,19 @@ func VerifyOpenPGPSignature(signedData []byte, keyring *KeyRing) (*SimpleSigning
 	}
 
 	// Read the message body (the signed payload).
-	body, err := io.ReadAll(md.UnverifiedBody)
+	//
+	// Bounded: the body is attacker-supplied at this point (it arrives from a
+	// lookaside store and its signature has not been checked yet — that only
+	// happens once the reader is drained), and an OpenPGP literal packet may be
+	// compressed, so an unbounded read is a decompression bomb. The body must
+	// still be drained for md.SignatureError to be populated, so read up to the
+	// limit and treat an overrun as a verification failure.
+	body, err := io.ReadAll(io.LimitReader(md.UnverifiedBody, maxPayloadBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to read message body: %v", ErrSignatureVerification, err)
+	}
+	if len(body) > maxPayloadBytes {
+		return nil, fmt.Errorf("%w: signed payload exceeds the %d byte limit", ErrSignatureVerification, maxPayloadBytes)
 	}
 
 	// Check signature verification status.
