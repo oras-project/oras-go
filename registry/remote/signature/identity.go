@@ -89,13 +89,36 @@ func matchExactRepository(configuredRepo, signedRef string) bool {
 
 // remapIdentity matches by replacing a prefix in the image reference with a
 // signed prefix, then checking for exact match.
+//
+// The prefix must line up with a reference component boundary. A plain string
+// prefix would make "registry.io/team" match "registry.io/team-evil/app:v1"
+// and remap it into the signer's namespace, letting whoever controls that
+// adjacent repository produce a signature that satisfies the policy.
 func remapIdentity(prefix, signedPrefix, imageRef, signedRef string) bool {
-	if !strings.HasPrefix(imageRef, prefix) {
+	if !hasReferencePrefix(imageRef, prefix) {
 		return false
 	}
 	// Remap: replace prefix in the image reference with signedPrefix.
 	remapped := signedPrefix + imageRef[len(prefix):]
 	return remapped == signedRef
+}
+
+// hasReferencePrefix reports whether ref starts with prefix at a component
+// boundary: the prefix must either match ref entirely or be followed by a
+// separator ("/", ":" or "@").
+func hasReferencePrefix(ref, prefix string) bool {
+	if prefix == "" || !strings.HasPrefix(ref, prefix) {
+		return false
+	}
+	if len(ref) == len(prefix) {
+		return true
+	}
+	switch ref[len(prefix)] {
+	case '/', ':', '@':
+		return true
+	default:
+		return false
+	}
 }
 
 // repositoryOf extracts the repository part from a reference.
