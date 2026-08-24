@@ -355,9 +355,9 @@ func TestNewRegistryProperties_MirrorByDigestOnlyDefault(t *testing.T) {
 				Prefix:             "docker.io",
 				MirrorByDigestOnly: true,
 				Mirrors: []Mirror{
-					{Location: "m1.example.com"},                              // empty → should default to "digest-only"
-					{Location: "m2.example.com", PullFromMirror: "tag-only"},  // explicit → should stay "tag-only"
-					{Location: "m3.example.com", PullFromMirror: "all"},       // explicit → should stay "all"
+					{Location: "m1.example.com"},                             // empty → should default to "digest-only"
+					{Location: "m2.example.com", PullFromMirror: "tag-only"}, // explicit → should stay "tag-only"
+					{Location: "m3.example.com", PullFromMirror: "all"},      // explicit → should stay "all"
 				},
 			},
 		},
@@ -378,7 +378,6 @@ func TestNewRegistryProperties_MirrorByDigestOnlyDefault(t *testing.T) {
 		t.Errorf("Mirrors[2].PullFromMirror = %q, want %q", props.Mirrors[2].PullFromMirror, "all")
 	}
 }
-
 
 func TestNewRegistryProperties_ReferrersAPI(t *testing.T) {
 	config := &RegistriesConfig{

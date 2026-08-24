@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configfile"
 )
 
 // FileStore implements a credentials store using the docker configuration file
@@ -54,10 +56,7 @@ var (
 //
 // Reference: https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewFileStore(configPath string) (*FileStore, error) {
-	if defaultConfigLoader == nil {
-		return nil, ErrNoConfigLoader
-	}
-	cfg, err := defaultConfigLoader(configPath)
+	cfg, err := configfile.Load(configPath)
 	if err != nil {
 		return nil, err
 	}

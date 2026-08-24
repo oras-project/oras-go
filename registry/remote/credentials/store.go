@@ -25,35 +25,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configfile"
 )
 
 // ConfigFile is the interface for a Docker configuration file that provides
-// credential storage capabilities. This interface is implemented by
-// [config.Config] from the config package.
-type ConfigFile interface {
-	// GetAuthConfig returns the AuthConfig for the given server address using
-	// exact hostname matching (Docker config.json semantics).
-	GetAuthConfig(serverAddress string) (AuthConfig, error)
-	// GetAuthConfigHierarchical returns the AuthConfig for the given server
-	// address using longest-prefix namespace matching (containers-auth.json
-	// semantics).
-	GetAuthConfigHierarchical(serverAddress string) (AuthConfig, error)
-	// PutAuthConfig saves the AuthConfig for the given server address.
-	PutAuthConfig(serverAddress string, authCfg AuthConfig) error
-	// DeleteAuthConfig removes the AuthConfig for the given server address.
-	DeleteAuthConfig(serverAddress string) error
-	// GetCredentialHelper returns the credential helper configured for the server.
-	GetCredentialHelper(serverAddress string) string
-	// CredentialsStore returns the configured credentials store name.
-	CredentialsStore() string
-	// IsAuthConfigured returns true if any authentication is configured.
-	IsAuthConfigured() bool
-	// Path returns the path to the config file.
-	Path() string
-}
-
-// ConfigFileLoader is a function that loads a ConfigFile from a path.
-type ConfigFileLoader func(configPath string) (ConfigFile, error)
+// credential storage capabilities. It is implemented by [config.Config] from
+// the config package.
+type ConfigFile = configfile.ConfigFile
 
 const (
 	dockerConfigDirEnv   = "DOCKER_CONFIG"
@@ -116,20 +95,6 @@ type StoreOptions struct {
 	Hierarchical bool
 }
 
-// defaultConfigLoader is set by the config package during init.
-// This allows the credentials package to load config files without importing config.
-var defaultConfigLoader ConfigFileLoader
-
-// ErrNoConfigLoader is returned when NewStore is called but no config loader
-// has been registered. This typically means the config package was not imported.
-var ErrNoConfigLoader = fmt.Errorf("no config loader registered; import the config package or use NewStoreFromConfig")
-
-// SetDefaultConfigLoader sets the default config file loader.
-// This is called by the config package during init to register itself.
-func SetDefaultConfigLoader(loader ConfigFileLoader) {
-	defaultConfigLoader = loader
-}
-
 // NewStoreFromConfig returns a Store based on the given ConfigFile.
 // This allows creating a store from an already-loaded config file.
 func NewStoreFromConfig(cfg ConfigFile, opts StoreOptions) *DynamicStore {
@@ -157,10 +122,7 @@ func NewStoreFromConfig(cfg ConfigFile, opts StoreOptions) *DynamicStore {
 //   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
-	if defaultConfigLoader == nil {
-		return nil, ErrNoConfigLoader
-	}
-	cfg, err := defaultConfigLoader(configPath)
+	cfg, err := configfile.Load(configPath)
 	if err != nil {
 		return nil, err
 	}

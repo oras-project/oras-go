@@ -696,12 +696,12 @@ func TestMergeRegistriesConfig(t *testing.T) {
 		UnqualifiedSearchRegistries: []string{"quay.io", "docker.io"},
 		ShortNameMode:               "enforcing",
 		Registries: []Registry{
-			{Prefix: "quay.io", Insecure: true},               // Override
-			{Prefix: "gcr.io", Location: "mirror.gcr.io"},     // Add new
+			{Prefix: "quay.io", Insecure: true},           // Override
+			{Prefix: "gcr.io", Location: "mirror.gcr.io"}, // Add new
 		},
 		Aliases: map[string]string{
-			"nginx":  "quay.io/nginx/nginx",              // Override
-			"ubuntu": "docker.io/library/ubuntu",         // Add new
+			"nginx":  "quay.io/nginx/nginx",      // Override
+			"ubuntu": "docker.io/library/ubuntu", // Add new
 		},
 	}
 
