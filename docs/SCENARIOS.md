@@ -470,7 +470,7 @@ fileStore, _ := credentials.NewFileStore("/custom/auth.json")
 fallback := credentials.NewStoreWithFallbacks(dockerStore, fileStore)
 
 client := &auth.Client{
-    CredentialFunc: remote.GetCredentialFunc(fallback),
+    CredentialFunc: remote.NewCredentialFunc(fallback),
 }
 
 repo, _ := remote.NewRepository("ghcr.io/org/repo")
@@ -504,7 +504,7 @@ evaluator, _ := configs.PolicyEvaluator(
 )
 
 // Check policy before allowing the image.
-allowed, _ := evaluator.Evaluate(ctx, policy.ImageReference{
+allowed, _ := evaluator.IsImageAllowed(ctx, policy.ImageReference{
     Transport: "docker",
     Scope:     "registry.example.com/app",
     Reference: "registry.example.com/app:v1.0@sha256:abc...",
@@ -600,7 +600,7 @@ repo.Registry.Client = &auth.Client{
             Policy: func() retry.Policy { return myPolicy },
         },
     },
-    Credential: remote.GetCredentialFunc(store),
+    CredentialFunc: remote.NewCredentialFunc(store),
 }
 ```
 
@@ -660,7 +660,7 @@ If you need to add logging without `ClientBuilder`, use `NewLoggingTransport` di
 transport := remote.NewLoggingTransport(retry.NewTransport(nil), slog.Default())
 repo.Registry.Client = &auth.Client{
     Client:     &http.Client{Transport: transport},
-    Credential: remote.GetCredentialFunc(store),
+    CredentialFunc: remote.NewCredentialFunc(store),
 }
 ```
 
