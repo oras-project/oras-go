@@ -28,6 +28,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3"
 	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/docker"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 	"github.com/oras-project/oras-go/v3/objects/builders"
@@ -351,7 +352,11 @@ func (c *Client) PushManifest(ctx context.Context, manifest models.Manifest, ref
 	}
 
 	desc := manifest.Descriptor()
-	if err := c.target.Push(ctx, desc, bytes.NewReader(manifestBytes)); err != nil {
+	// Content already in the store is not a failure: the builders push the
+	// manifest as part of Build, so BuildAndPush reaches here with the bytes
+	// already stored. This matches how Copy and PackManifest treat a
+	// re-push of identical content.
+	if err := c.target.Push(ctx, desc, bytes.NewReader(manifestBytes)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return &models.ObjectsError{Op: "push_manifest", Digest: desc.Digest, Err: err}
 	}
 
