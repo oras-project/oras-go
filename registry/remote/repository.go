@@ -336,9 +336,9 @@ func (r *Repository) skipReferrersGC() bool {
 // SetReferrersCapability indicates the Referrers API capability of the remote
 // repository. true: capable; false: not capable.
 //
-// SetReferrersCapability has no effect if the capability has already been set
-// to the same value. If the capability has been set to a conflicting value it
-// is silently ignored; the first value set wins.
+// The capability is fixed once set; the first value set wins and conflicting
+// later calls are ignored. Callers can use ReferrersCapability to read back
+// the effective capability.
 //   - When the capability is set to true, the Referrers() function will always
 //     request the Referrers API. Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers
 //   - When the capability is set to false, the Referrers() function will always

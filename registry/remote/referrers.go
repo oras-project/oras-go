@@ -46,11 +46,6 @@ type referrerChange struct {
 }
 
 var (
-	// ErrReferrersCapabilityAlreadySet is reserved to signal that the referrers
-	// capability of a repository has already been set to a conflicting value.
-	// The capability is fixed once set; the first value wins.
-	ErrReferrersCapabilityAlreadySet = errors.New("referrers capability cannot be changed once set")
-
 	// errNoReferrerUpdate is returned by applyReferrerChanges() when there
 	// is no any referrer update.
 	errNoReferrerUpdate = errors.New("no referrer update")
