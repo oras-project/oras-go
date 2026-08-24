@@ -19,17 +19,14 @@ package auth
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
-	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
 )
 
@@ -100,18 +97,26 @@ type Client struct {
 	// Reference: https://distribution.github.io/distribution/spec/auth/oauth/#getting-a-token
 	ClientID string
 
-	// TokenFetcher is an optional custom token fetcher for bearer
-	// authentication. If nil, the built-in token-fetching logic is used
-	// (see ForceAttemptOAuth2).
-	TokenFetcher TokenFetcher
-
-	// ForceAttemptOAuth2 controls whether to follow OAuth2 with password grant
-	// instead the distribution spec when authenticating using username and
-	// password.
+	// TokenFetcher determines how a bearer token is acquired when the registry
+	// issues a Bearer challenge.
+	//
+	// If nil, the client fetches an anonymous token via the distribution spec
+	// when there is no credential, and otherwise uses OAuth2 with password
+	// grant. To follow the legacy distribution spec instead — the approach used
+	// in oras-go v1 and v2 — set a composite fetcher in legacy mode:
+	//
+	//	client.TokenFetcher = auth.NewCompositeTokenFetcher(
+	//		client.Client, client.Header, client.ClientID, true)
+	//
+	// Note that in either case the registry itself is authenticated with a
+	// bearer token; the two differ only in how that token is obtained. The
+	// authentication scheme itself is not configurable — it is whatever the
+	// registry advertises in its WWW-Authenticate challenge.
+	//
 	// References:
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
-	ForceAttemptOAuth2 bool
+	TokenFetcher TokenFetcher
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -396,136 +401,27 @@ func (c *Client) fetchBasicAuth(ctx context.Context, registry string) (string, e
 }
 
 // fetchBearerToken fetches an access token for the bearer challenge.
+//
+// The acquisition strategy is delegated to TokenFetcher. When none is
+// configured, a CompositeTokenFetcher is used: anonymous access goes through
+// the distribution spec token endpoint and credentialed access uses OAuth2.
 func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service string, scopes []string) (string, error) {
 	cred, err := c.credential(ctx, registry)
 	if err != nil {
 		return "", err
 	}
 
-	// Use custom TokenFetcher if provided
-	if c.TokenFetcher != nil {
-		params := TokenParams{
-			Registry: registry,
-			Realm:    realm,
-			Service:  service,
-			Scopes:   scopes,
-		}
-		return c.TokenFetcher.FetchToken(ctx, params, cred)
+	fetcher := c.TokenFetcher
+	if fetcher == nil {
+		fetcher = NewCompositeTokenFetcher(c.Client, c.Header, c.ClientID, false)
 	}
-
-	// Fall back to original implementation
-	if cred.AccessToken != "" {
-		return cred.AccessToken, nil
+	params := TokenParams{
+		Registry: registry,
+		Realm:    realm,
+		Service:  service,
+		Scopes:   scopes,
 	}
-	if cred == credentials.EmptyCredential || (cred.RefreshToken == "" && !c.ForceAttemptOAuth2) {
-		return c.fetchDistributionToken(ctx, realm, service, scopes, cred.Username, cred.Password)
-	}
-	return c.fetchOAuth2Token(ctx, realm, service, scopes, cred)
-}
-
-// fetchDistributionToken fetches an access token as defined by the distribution
-// specification.
-// It fetches anonymous tokens if no credential is provided.
-// References:
-// - https://distribution.github.io/distribution/spec/auth/jwt/
-// - https://distribution.github.io/distribution/spec/auth/token/
-func (c *Client) fetchDistributionToken(ctx context.Context, realm, service string, scopes []string, username, password string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, realm, nil)
-	if err != nil {
-		return "", err
-	}
-	if username != "" || password != "" {
-		req.SetBasicAuth(username, password)
-	}
-	q := req.URL.Query()
-	if service != "" {
-		q.Set("service", service)
-	}
-	for _, scope := range scopes {
-		q.Add("scope", scope)
-	}
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := c.send(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", errutil.ParseErrorResponse(resp)
-	}
-
-	// As specified in https://distribution.github.io/distribution/spec/auth/token/ section
-	// "Token Response Fields", the token is either in `token` or
-	// `access_token`. If both present, they are identical.
-	var result struct {
-		Token       string `json:"token"`
-		AccessToken string `json:"access_token"`
-	}
-	lr := io.LimitReader(resp.Body, maxResponseBytes)
-	if err := json.NewDecoder(lr).Decode(&result); err != nil {
-		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
-	}
-	if result.AccessToken != "" {
-		return result.AccessToken, nil
-	}
-	if result.Token != "" {
-		return result.Token, nil
-	}
-	return "", fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
-}
-
-// fetchOAuth2Token fetches an OAuth2 access token.
-// Reference: https://distribution.github.io/distribution/spec/auth/oauth/
-func (c *Client) fetchOAuth2Token(ctx context.Context, realm, service string, scopes []string, cred credentials.Credential) (string, error) {
-	form := url.Values{}
-	if cred.RefreshToken != "" {
-		form.Set("grant_type", "refresh_token")
-		form.Set("refresh_token", cred.RefreshToken)
-	} else if cred.Username != "" && cred.Password != "" {
-		form.Set("grant_type", "password")
-		form.Set("username", cred.Username)
-		form.Set("password", cred.Password)
-	} else {
-		return "", errors.New("missing username or password for bearer auth")
-	}
-	form.Set("service", service)
-	clientID := c.ClientID
-	if clientID == "" {
-		clientID = defaultClientID
-	}
-	form.Set("client_id", clientID)
-	if len(scopes) != 0 {
-		form.Set("scope", strings.Join(scopes, " "))
-	}
-	body := strings.NewReader(form.Encode())
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, realm, body)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set(headerContentType, "application/x-www-form-urlencoded")
-
-	resp, err := c.send(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", errutil.ParseErrorResponse(resp)
-	}
-
-	var result struct {
-		AccessToken string `json:"access_token"`
-	}
-	lr := io.LimitReader(resp.Body, maxResponseBytes)
-	if err := json.NewDecoder(lr).Decode(&result); err != nil {
-		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
-	}
-	if result.AccessToken != "" {
-		return result.AccessToken, nil
-	}
-	return "", fmt.Errorf("%s %q: empty token returned", resp.Request.Method, resp.Request.URL)
+	return fetcher.FetchToken(ctx, params, cred)
 }
 
 // rewindRequestBody tries to rewind the request body if exists.
