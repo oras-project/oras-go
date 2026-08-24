@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -218,10 +219,17 @@ func TestSignature_GPG_WrongKeyRejected(t *testing.T) {
 		Scope:     scope,
 		Reference: imageRef,
 	})
-	if err != nil {
-		t.Fatalf("IsImageAllowed returned error: %v", err)
-	}
 	if allowed {
 		t.Fatal("expected image signed with wrong key to be rejected, but it was allowed")
+	}
+	// A signature that is present but validates against no configured key is
+	// reported with the reasons it was rejected, so a misconfigured keyring is
+	// distinguishable from genuinely unsigned content -- the latter rejects
+	// with a nil error, as TestSignature_GPG_UnsignedImageRejected asserts.
+	if err == nil {
+		t.Fatal("expected a rejection reason for a signature that validates against no key, got a nil error")
+	}
+	if !strings.Contains(err.Error(), "no valid signature found") {
+		t.Errorf("IsImageAllowed error = %v, want it to report that no signature validated", err)
 	}
 }
