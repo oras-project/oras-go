@@ -1074,6 +1074,17 @@ func TestPolicy_SetTransportScope(t *testing.T) {
 	if len(scopes["docker.io/library/nginx"]) != 1 || scopes["docker.io/library/nginx"][0].Type() != TypeReject {
 		t.Error("SetTransportScope() should overwrite an existing scope rather than append")
 	}
+
+	// Setting another scope, and another transport, must not clobber what is
+	// already there. This is what actually exercises the two nil-map guards.
+	p.SetTransportScope(TransportNameDocker, "docker.io/library/alpine", &Reject{})
+	p.SetTransportScope(TransportNameDir, "/tmp", &Reject{})
+	if got := len(p.Transports[TransportNameDocker]); got != 2 {
+		t.Errorf("SetTransportScope() should retain 2 docker scopes, got %d", got)
+	}
+	if got := len(p.Transports); got != 2 {
+		t.Errorf("SetTransportScope() should retain 2 transports, got %d", got)
+	}
 }
 
 // Test that a policy built with the fluent API round-trips through
