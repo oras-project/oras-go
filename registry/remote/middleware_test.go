@@ -275,6 +275,12 @@ func TestWithPolicyEnforcement_Manifests(t *testing.T) {
 	if err != nil {
 		t.Errorf("Manifests().Tag() error = %v, want nil", err)
 	}
+
+	// Test Untag
+	err = manifests.Untag(ctx, "latest")
+	if err != nil {
+		t.Errorf("Manifests().Untag() error = %v, want nil", err)
+	}
 }
 
 func TestWithPolicyEnforcement_PolicyDenied_AllOperations(t *testing.T) {
@@ -355,6 +361,9 @@ func TestWithPolicyEnforcement_PolicyDenied_AllOperations(t *testing.T) {
 	}
 	if err := manifests.Tag(ctx, desc, "latest"); err == nil {
 		t.Error("Manifests().Tag() should return error when policy denies access")
+	}
+	if err := manifests.Untag(ctx, "latest"); err == nil {
+		t.Error("Manifests().Untag() should return error when policy denies access")
 	}
 }
 
@@ -458,6 +467,7 @@ type mockRepository struct {
 	resolveDesc        ocispec.Descriptor
 	resolveErr         error
 	tagErr             error
+	untagErr           error
 	pushReferenceErr   error
 	fetchReferenceRC   io.ReadCloser
 	fetchReferenceErr  error
@@ -603,6 +613,10 @@ func (s *mockManifestStore) FetchReference(ctx context.Context, reference string
 
 func (s *mockManifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	return s.repo.Tag(ctx, desc, reference)
+}
+
+func (s *mockManifestStore) Untag(ctx context.Context, reference string) error {
+	return s.repo.untagErr
 }
 
 func (s *mockManifestStore) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {

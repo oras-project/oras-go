@@ -564,13 +564,7 @@ func (r *Repository) Untag(ctx context.Context, reference string) error {
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return err
 	}
-
-	manifests := r.Manifests()
-	untagger, ok := manifests.(content.Untagger)
-	if !ok {
-		return fmt.Errorf("manifest store %T does not implement content.Untagger", manifests)
-	}
-	return untagger.Untag(withPolicyChecked(ctx), reference)
+	return r.Manifests().Untag(withPolicyChecked(ctx), reference)
 }
 
 // PushReference pushes the manifest with a reference tag.

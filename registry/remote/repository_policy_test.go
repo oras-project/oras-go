@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
@@ -344,7 +343,7 @@ func TestRepository_ManifestStore_PushReference_PolicyCheck(t *testing.T) {
 
 func TestRepository_ManifestStore_Untag_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
-	err := repo.Manifests().(content.Untagger).Untag(context.Background(), "latest")
+	err := repo.Manifests().Untag(context.Background(), "latest")
 	assertPolicyDenied(t, err, "Manifests().Untag()")
 }
 

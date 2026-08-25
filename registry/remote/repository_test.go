@@ -6475,7 +6475,7 @@ func Test_ManifestStore_Untag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	store := repo.Manifests().(content.Untagger)
+	store := repo.Manifests()
 	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
