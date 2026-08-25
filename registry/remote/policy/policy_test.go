@@ -936,3 +936,183 @@ func TestPolicyRequirements_UnmarshalJSON_Errors(t *testing.T) {
 		})
 	}
 }
+
+func TestNewPolicy(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  *Policy
+		wantErr bool
+	}{
+		{
+			name:    "new policy is invalid until a default is set",
+			policy:  NewPolicy(),
+			wantErr: true,
+		},
+		{
+			name:    "policy with default set is valid",
+			policy:  NewPolicy().SetDefault(&InsecureAcceptAnything{}),
+			wantErr: false,
+		},
+		{
+			name:    "policy with reject default is valid",
+			policy:  NewPolicy().SetDefault(&Reject{}),
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.policy.Default == nil {
+				t.Error("Default should not be nil")
+			}
+			if tt.policy.Transports == nil {
+				t.Error("Transports should not be nil")
+			}
+			if len(tt.policy.Default) != 0 && tt.wantErr {
+				t.Errorf("Default should be empty, got %d entries", len(tt.policy.Default))
+			}
+			err := tt.policy.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestNewInsecureAcceptAnythingPolicy(t *testing.T) {
+	p := NewInsecureAcceptAnythingPolicy()
+
+	if len(p.Default) != 1 {
+		t.Fatalf("Default should have exactly 1 requirement, got %d", len(p.Default))
+	}
+	if p.Default[0].Type() != TypeInsecureAcceptAnything {
+		t.Errorf("Default[0].Type() = %s, want %s", p.Default[0].Type(), TypeInsecureAcceptAnything)
+	}
+	if err := p.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+
+	reqs := p.GetRequirementsForImage(TransportNameDocker, "docker.io/library/nginx")
+	if len(reqs) != 1 || reqs[0].Type() != TypeInsecureAcceptAnything {
+		t.Errorf("GetRequirementsForImage() = %v, want single %s", reqs, TypeInsecureAcceptAnything)
+	}
+}
+
+func TestNewRejectAllPolicy(t *testing.T) {
+	p := NewRejectAllPolicy()
+
+	if len(p.Default) != 1 {
+		t.Fatalf("Default should have exactly 1 requirement, got %d", len(p.Default))
+	}
+	if p.Default[0].Type() != TypeReject {
+		t.Errorf("Default[0].Type() = %s, want %s", p.Default[0].Type(), TypeReject)
+	}
+	if err := p.Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want nil", err)
+	}
+
+	reqs := p.GetRequirementsForImage(TransportNameDocker, "docker.io/library/nginx")
+	if len(reqs) != 1 || reqs[0].Type() != TypeReject {
+		t.Errorf("GetRequirementsForImage() = %v, want single %s", reqs, TypeReject)
+	}
+}
+
+func TestPolicy_SetDefault(t *testing.T) {
+	p := NewPolicy().SetDefault(&Reject{})
+
+	if len(p.Default) != 1 || p.Default[0].Type() != TypeReject {
+		t.Fatalf("SetDefault() = %v, want single %s", p.Default, TypeReject)
+	}
+
+	// SetDefault replaces existing requirements rather than appending.
+	p.SetDefault(&InsecureAcceptAnything{})
+	if len(p.Default) != 1 || p.Default[0].Type() != TypeInsecureAcceptAnything {
+		t.Errorf("SetDefault() did not replace requirements: %v", p.Default)
+	}
+
+	// SetDefault returns the receiver so chaining works.
+	reqs := p.SetDefault(&Reject{})
+	if reqs != p {
+		t.Errorf("SetDefault() did not return the receiver")
+	}
+
+	// A zero-arg call sets Default to nil and leaves the policy invalid.
+	p.SetDefault()
+	if p.Default != nil {
+		t.Errorf("SetDefault() with no args = %v, want nil", p.Default)
+	}
+	if err := p.Validate(); err == nil {
+		t.Error("Validate() error = nil, want error for nil default")
+	}
+}
+
+func TestPolicy_SetTransportScope(t *testing.T) {
+	t.Run("creates transports map when nil", func(t *testing.T) {
+		p := NewRejectAllPolicy()
+		if p.Transports != nil {
+			t.Fatalf("NewRejectAllPolicy().Transports = %v, want nil", p.Transports)
+		}
+
+		p.SetTransportScope(TransportNameDocker, "docker.io/library/nginx", &InsecureAcceptAnything{})
+		if p.Transports == nil {
+			t.Fatal("SetTransportScope() did not create the Transports map")
+		}
+		reqs := p.Transports[TransportNameDocker]["docker.io/library/nginx"]
+		if len(reqs) != 1 || reqs[0].Type() != TypeInsecureAcceptAnything {
+			t.Errorf("SetTransportScope() = %v, want single %s", reqs, TypeInsecureAcceptAnything)
+		}
+	})
+
+	t.Run("creates inner scope map when absent", func(t *testing.T) {
+		p := NewPolicy().SetTransportScope(TransportNameDocker, "docker.io/library/nginx", &Reject{})
+		if p.Transports[TransportNameDocker] == nil {
+			t.Fatal("SetTransportScope() did not create the inner TransportScopes map")
+		}
+		reqs := p.Transports[TransportNameDocker]["docker.io/library/nginx"]
+		if len(reqs) != 1 || reqs[0].Type() != TypeReject {
+			t.Errorf("SetTransportScope() = %v, want single %s", reqs, TypeReject)
+		}
+	})
+
+	t.Run("overwrites an existing scope", func(t *testing.T) {
+		p := NewPolicy().SetTransportScope(TransportNameDocker, "docker.io/library/nginx", &Reject{})
+		p.SetTransportScope(TransportNameDocker, "docker.io/library/nginx", &InsecureAcceptAnything{})
+		reqs := p.Transports[TransportNameDocker]["docker.io/library/nginx"]
+		if len(reqs) != 1 || reqs[0].Type() != TypeInsecureAcceptAnything {
+			t.Errorf("SetTransportScope() = %v, want overwritten single %s", reqs, TypeInsecureAcceptAnything)
+		}
+	})
+
+	t.Run("returns the receiver", func(t *testing.T) {
+		p := NewPolicy()
+		if got := p.SetTransportScope(TransportNameDocker, "", &Reject{}); got != p {
+			t.Error("SetTransportScope() did not return the receiver")
+		}
+	})
+}
+
+func TestPolicy_BuildersRoundTrip(t *testing.T) {
+	p := NewPolicy().SetDefault(&Reject{}).
+		SetTransportScope(TransportNameDocker, "", &InsecureAcceptAnything{})
+
+	if err := p.Validate(); err != nil {
+		t.Fatalf("built policy should be valid: %v", err)
+	}
+
+	policyPath := filepath.Join(t.TempDir(), "policy.json")
+	if err := p.Save(policyPath); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := LoadPolicy(policyPath)
+	if err != nil {
+		t.Fatalf("LoadPolicy() error = %v", err)
+	}
+
+	if len(loaded.Default) != 1 || loaded.Default[0].Type() != TypeReject {
+		t.Errorf("loaded default = %v, want single %s", loaded.Default, TypeReject)
+	}
+	if reqs := loaded.Transports[TransportNameDocker][""]; len(reqs) != 1 || reqs[0].Type() != TypeInsecureAcceptAnything {
+		t.Errorf("loaded docker transport = %v, want single %s", reqs, TypeInsecureAcceptAnything)
+	}
+}
