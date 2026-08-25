@@ -249,7 +249,7 @@ func TestRepository_Tag_PolicyCheck(t *testing.T) {
 func TestRepository_Untag_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
 	err := repo.Untag(context.Background(), "latest")
-	assertPolicyDenied(t, err, "Untag")
+	assertPolicyDenied(t, err, "Untag()")
 }
 
 func TestRepository_PushReference_PolicyCheck(t *testing.T) {
@@ -345,7 +345,7 @@ func TestRepository_ManifestStore_PushReference_PolicyCheck(t *testing.T) {
 func TestRepository_ManifestStore_Untag_PolicyCheck(t *testing.T) {
 	repo := newRejectPolicyRepo(t)
 	err := repo.Manifests().(content.Untagger).Untag(context.Background(), "latest")
-	assertPolicyDenied(t, err, "Manifests().Untag")
+	assertPolicyDenied(t, err, "Manifests().Untag()")
 }
 
 func TestRepository_BlobStore_Fetch_PolicyCheck(t *testing.T) {

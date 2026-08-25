@@ -1027,7 +1027,8 @@ func TestRepository_Untag(t *testing.T) {
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refNotFound:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refError:
-			w.WriteHeader(http.StatusInternalServerError)
+			// registries that do not support tag deletion answer 405
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusForbidden)
@@ -1043,7 +1044,7 @@ func TestRepository_Untag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
 	err = repo.Untag(ctx, "")
@@ -1074,9 +1075,10 @@ func TestRepository_Untag(t *testing.T) {
 		t.Errorf("Repository.Untag() did not send DELETE request")
 	}
 
-	// closing the server makes the underlying request fail
-	ts.Close()
-	err = repo.Untag(ctx, ref)
+	// a canceled context makes the underlying request fail
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	err = repo.Untag(canceledCtx, ref)
 	if err == nil {
 		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, true)
 	}
@@ -6456,7 +6458,8 @@ func Test_ManifestStore_Untag(t *testing.T) {
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refNotFound:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refError:
-			w.WriteHeader(http.StatusInternalServerError)
+			// registries that do not support tag deletion answer 405
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusForbidden)
@@ -6473,7 +6476,7 @@ func Test_ManifestStore_Untag(t *testing.T) {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	store := repo.Manifests().(content.Untagger)
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
 	// deleting by digest is rejected: only tags are accepted
@@ -6510,9 +6513,10 @@ func Test_ManifestStore_Untag(t *testing.T) {
 		t.Errorf("manifestStore.Untag() error = %v, wantErr %v", err, true)
 	}
 
-	// closing the server makes the underlying request fail
-	ts.Close()
-	err = store.Untag(ctx, refAccepted)
+	// a canceled context makes the underlying request fail
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	err = store.Untag(canceledCtx, refAccepted)
 	if err == nil {
 		t.Errorf("manifestStore.Untag() error = %v, wantErr %v", err, true)
 	}

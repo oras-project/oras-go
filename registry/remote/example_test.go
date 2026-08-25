@@ -163,6 +163,8 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == http.MethodDelete:
+			w.WriteHeader(http.StatusAccepted)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ManifestDigest) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ReferenceManifestDigest) && m == "PUT":
@@ -685,6 +687,7 @@ func ExampleRepository_Tag() {
 	// Succeed
 }
 
+// ExampleRepository_Untag gives example snippets for removing a tag.
 func ExampleRepository_Untag() {
 	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
 	if err != nil {

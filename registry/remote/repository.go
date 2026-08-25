@@ -567,11 +567,9 @@ func (r *Repository) Untag(ctx context.Context, reference string) error {
 
 	manifests := r.Manifests()
 	untagger, ok := manifests.(content.Untagger)
-
 	if !ok {
-		return fmt.Errorf("ManifestStore %T does not implement content.Untagger interface", manifests)
+		return fmt.Errorf("manifest store %T does not implement content.Untagger", manifests)
 	}
-
 	return untagger.Untag(withPolicyChecked(ctx), reference)
 }
 
@@ -1645,7 +1643,7 @@ func (s *manifestStore) Untag(ctx context.Context, reference string) error {
 		return err
 	}
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionDelete)
-	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return err
@@ -1660,7 +1658,7 @@ func (s *manifestStore) Untag(ctx context.Context, reference string) error {
 	case http.StatusOK, http.StatusAccepted, http.StatusNoContent:
 		return nil
 	case http.StatusNotFound:
-		return fmt.Errorf("%s: %w", ref.GetReference(), errdef.ErrNotFound)
+		return fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
 		return errutil.ParseErrorResponse(resp)
 	}
