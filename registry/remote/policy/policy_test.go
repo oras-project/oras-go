@@ -936,3 +936,180 @@ func TestPolicyRequirements_UnmarshalJSON_Errors(t *testing.T) {
 		})
 	}
 }
+
+// Test NewPolicy: it should return a policy with non-nil, empty Default and
+// Transports, and that policy should fail Validate() until a default is set.
+func TestNewPolicy(t *testing.T) {
+	p := NewPolicy()
+
+	if p.Default == nil {
+		t.Error("NewPolicy() Default should not be nil")
+	}
+	if len(p.Default) != 0 {
+		t.Errorf("NewPolicy() Default should be empty, got %d entries", len(p.Default))
+	}
+
+	if p.Transports == nil {
+		t.Error("NewPolicy() Transports should not be nil")
+	}
+	if len(p.Transports) != 0 {
+		t.Errorf("NewPolicy() Transports should be empty, got %d entries", len(p.Transports))
+	}
+
+	if err := p.Validate(); err == nil {
+		t.Error("NewPolicy() alone should fail Validate() since Default is empty")
+	}
+
+	if err := p.SetDefault(&Reject{}).Validate(); err != nil {
+		t.Errorf("NewPolicy().SetDefault(...) should pass Validate(), got error: %v", err)
+	}
+}
+
+// Test NewInsecureAcceptAnythingPolicy: Default should hold exactly one
+// *InsecureAcceptAnything, Validate() should pass, and
+// GetRequirementsForImage should return it for an arbitrary scope.
+func TestNewInsecureAcceptAnythingPolicy(t *testing.T) {
+	p := NewInsecureAcceptAnythingPolicy()
+
+	if len(p.Default) != 1 {
+		t.Fatalf("NewInsecureAcceptAnythingPolicy() Default should have 1 entry, got %d", len(p.Default))
+	}
+	if _, ok := p.Default[0].(*InsecureAcceptAnything); !ok {
+		t.Errorf("NewInsecureAcceptAnythingPolicy() Default[0] should be *InsecureAcceptAnything, got %T", p.Default[0])
+	}
+
+	if err := p.Validate(); err != nil {
+		t.Errorf("NewInsecureAcceptAnythingPolicy() should pass Validate(), got error: %v", err)
+	}
+
+	reqs := p.GetRequirementsForImage(TransportNameDocker, "docker.io/library/nginx")
+	if len(reqs) != 1 || reqs[0].Type() != TypeInsecureAcceptAnything {
+		t.Error("GetRequirementsForImage() should return the InsecureAcceptAnything default")
+	}
+}
+
+// Test NewRejectAllPolicy: Default should hold exactly one *Reject,
+// Validate() should pass, and GetRequirementsForImage should return it for
+// an arbitrary scope.
+func TestNewRejectAllPolicy(t *testing.T) {
+	p := NewRejectAllPolicy()
+
+	if len(p.Default) != 1 {
+		t.Fatalf("NewRejectAllPolicy() Default should have 1 entry, got %d", len(p.Default))
+	}
+	if _, ok := p.Default[0].(*Reject); !ok {
+		t.Errorf("NewRejectAllPolicy() Default[0] should be *Reject, got %T", p.Default[0])
+	}
+
+	if err := p.Validate(); err != nil {
+		t.Errorf("NewRejectAllPolicy() should pass Validate(), got error: %v", err)
+	}
+
+	reqs := p.GetRequirementsForImage(TransportNameDocker, "docker.io/library/nginx")
+	if len(reqs) != 1 || reqs[0].Type() != TypeReject {
+		t.Error("GetRequirementsForImage() should return the Reject default")
+	}
+}
+
+// Test Policy.SetDefault: it should replace rather than append to any
+// existing Default, return the receiver for chaining, and a zero-arg call
+// should leave the policy invalid (nil Default).
+func TestPolicy_SetDefault(t *testing.T) {
+	p := NewRejectAllPolicy()
+
+	// SetDefault replaces the existing requirements rather than appending.
+	returned := p.SetDefault(&InsecureAcceptAnything{})
+	if len(p.Default) != 1 || p.Default[0].Type() != TypeInsecureAcceptAnything {
+		t.Errorf("SetDefault() should replace Default, got %d entries", len(p.Default))
+	}
+
+	// SetDefault returns the receiver so calls can be chained.
+	if returned != p {
+		t.Error("SetDefault() should return the receiver")
+	}
+
+	// A zero-arg call sets Default to nil (variadic with no args), which
+	// leaves the policy invalid. This is worth pinning so it isn't
+	// "fixed" into a no-op.
+	p.SetDefault()
+	if p.Default != nil {
+		t.Errorf("SetDefault() with no arguments should leave Default nil, got %#v", p.Default)
+	}
+	if err := p.Validate(); err == nil {
+		t.Error("SetDefault() with no arguments should leave the policy invalid")
+	}
+}
+
+// Test Policy.SetTransportScope: it should lazily create the Transports map
+// and the inner TransportScopes map, overwrite an existing scope, and
+// return the receiver for chaining.
+func TestPolicy_SetTransportScope(t *testing.T) {
+	// NewRejectAllPolicy leaves Transports nil, exercising the nil-map guard.
+	p := NewRejectAllPolicy()
+	if p.Transports != nil {
+		t.Fatal("test setup: NewRejectAllPolicy() should leave Transports nil")
+	}
+
+	returned := p.SetTransportScope(TransportNameDocker, "docker.io/library/nginx", &InsecureAcceptAnything{})
+
+	if p.Transports == nil {
+		t.Fatal("SetTransportScope() should create the Transports map when nil")
+	}
+	scopes, ok := p.Transports[TransportNameDocker]
+	if !ok {
+		t.Fatal("SetTransportScope() should create the inner TransportScopes when absent")
+	}
+	if len(scopes["docker.io/library/nginx"]) != 1 || scopes["docker.io/library/nginx"][0].Type() != TypeInsecureAcceptAnything {
+		t.Error("SetTransportScope() did not set the expected requirements")
+	}
+
+	// SetTransportScope returns the receiver so calls can be chained.
+	if returned != p {
+		t.Error("SetTransportScope() should return the receiver")
+	}
+
+	// A second call to the same transport/scope overwrites it.
+	p.SetTransportScope(TransportNameDocker, "docker.io/library/nginx", &Reject{})
+	scopes = p.Transports[TransportNameDocker]
+	if len(scopes["docker.io/library/nginx"]) != 1 || scopes["docker.io/library/nginx"][0].Type() != TypeReject {
+		t.Error("SetTransportScope() should overwrite an existing scope rather than append")
+	}
+
+	// Setting another scope, and another transport, must not clobber what is
+	// already there. This is what actually exercises the two nil-map guards.
+	p.SetTransportScope(TransportNameDocker, "docker.io/library/alpine", &Reject{})
+	p.SetTransportScope(TransportNameDir, "/tmp", &Reject{})
+	if got := len(p.Transports[TransportNameDocker]); got != 2 {
+		t.Errorf("SetTransportScope() should retain 2 docker scopes, got %d", got)
+	}
+	if got := len(p.Transports); got != 2 {
+		t.Errorf("SetTransportScope() should retain 2 transports, got %d", got)
+	}
+}
+
+// Test that a policy built with the fluent API round-trips through
+// Save/LoadPolicy the same way a struct-literal policy does in
+// TestPolicy_SaveAndLoadPolicy.
+func TestPolicy_FluentAPI_SaveAndLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+	policyPath := filepath.Join(tmpDir, "policy.json")
+
+	original := NewRejectAllPolicy().
+		SetTransportScope(TransportNameDocker, "", &InsecureAcceptAnything{})
+
+	if err := original.Save(policyPath); err != nil {
+		t.Fatalf("failed to save policy: %v", err)
+	}
+
+	loaded, err := LoadPolicy(policyPath)
+	if err != nil {
+		t.Fatalf("failed to load policy: %v", err)
+	}
+
+	if len(loaded.Default) != 1 || loaded.Default[0].Type() != TypeReject {
+		t.Error("loaded policy default not correct")
+	}
+	if len(loaded.Transports[TransportNameDocker][""]) != 1 || loaded.Transports[TransportNameDocker][""][0].Type() != TypeInsecureAcceptAnything {
+		t.Error("loaded policy docker transport not correct")
+	}
+}
