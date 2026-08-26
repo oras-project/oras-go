@@ -82,6 +82,22 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 			props.Attributes.ReferrersAPI = properties.ReferrersAPIUnsupported
 		}
 
+		// Unlike referrers-api, an unrecognized value is rejected rather than
+		// ignored: silently falling back to the default would leave a user who
+		// typo'd the flow authenticating a way they did not ask for, and the
+		// resulting failure looks like bad credentials.
+		switch origReg.TokenFlow {
+		case "":
+			// leave as TokenFlowDefault
+		case "oauth2":
+			props.Attributes.TokenFlow = properties.TokenFlowOAuth2
+		case "distribution":
+			props.Attributes.TokenFlow = properties.TokenFlowDistribution
+		default:
+			return nil, fmt.Errorf("invalid token-flow %q for registry %q: must be %q or %q",
+				origReg.TokenFlow, origReg.Prefix, "oauth2", "distribution")
+		}
+
 		// Step 6: Populate mirrors.
 		if len(origReg.Mirrors) > 0 {
 			props.Mirrors = make([]properties.Mirror, len(origReg.Mirrors))

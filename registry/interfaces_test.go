@@ -403,4 +403,3 @@ func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descript
 	}
 	return true
 }
-

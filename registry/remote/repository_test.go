@@ -1007,6 +1007,83 @@ func TestRepository_Tag(t *testing.T) {
 	}
 }
 
+func TestRepository_Untag(t *testing.T) {
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	ref := "foobar"
+	refNotFound := "ghost"
+	refError := "boom"
+
+	var untagged bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+ref:
+			untagged = true
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refNotFound:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refError:
+			// registries that do not support tag deletion answer 405
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	ctx := context.Background()
+
+	err = repo.Untag(ctx, "")
+	if !errors.Is(err, errdef.ErrInvalidReference) {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, errdef.ErrInvalidReference)
+	}
+
+	err = repo.Untag(ctx, indexDesc.Digest.String())
+	if !errors.Is(err, errdef.ErrInvalidReference) {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, errdef.ErrInvalidReference)
+	}
+
+	err = repo.Untag(ctx, refNotFound)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	err = repo.Untag(ctx, refError)
+	if err == nil {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, true)
+	}
+
+	err = repo.Untag(ctx, ref)
+	if err != nil {
+		t.Fatalf("Repository.Untag() error = %v", err)
+	}
+	if !untagged {
+		t.Errorf("Repository.Untag() did not send DELETE request")
+	}
+
+	// a canceled context makes the underlying request fail
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	err = repo.Untag(canceledCtx, ref)
+	if err == nil {
+		t.Errorf("Repository.Untag() error = %v, wantErr %v", err, true)
+	}
+}
+
 func TestRepository_PushReference(t *testing.T) {
 	index := []byte(`{"manifests":[]}`)
 	indexDesc := ocispec.Descriptor{
@@ -3816,6 +3893,9 @@ func TestManifestStoreInterface(t *testing.T) {
 	if _, ok := ms.(interfaces.ReferenceParser); !ok {
 		t.Error("&manifestStore{} does not conform interfaces.ReferenceParser")
 	}
+	if _, ok := ms.(content.Untagger); !ok {
+		t.Error("&manifestStore{} does not conform content.Untagger")
+	}
 }
 
 func TestRepositoryMounterInterface(t *testing.T) {
@@ -6345,6 +6425,100 @@ func Test_ManifestStore_Tag(t *testing.T) {
 	}
 	if !bytes.Equal(gotIndex, index) {
 		t.Errorf("Repository.Tag() = %v, want %v", gotIndex, index)
+	}
+}
+
+func Test_ManifestStore_Untag(t *testing.T) {
+	index := []byte(`{"manifests":[]}`)
+	indexDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	// refOK, refAccepted and refNoContent exercise the three success status
+	// codes; refNotFound and refError exercise the error branches.
+	refOK := "ok"
+	refAccepted := "accepted"
+	refNoContent := "nocontent"
+	refNotFound := "ghost"
+	refError := "boom"
+
+	var untagged bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refOK:
+			untagged = true
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refAccepted:
+			untagged = true
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refNoContent:
+			untagged = true
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refNotFound:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+refError:
+			// registries that do not support tag deletion answer 405
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	store := repo.Manifests()
+	repo.Registry.PlainHTTP = true
+	ctx := context.Background()
+
+	// deleting by digest is rejected: only tags are accepted
+	err = store.Untag(ctx, indexDesc.Digest.String())
+	if !errors.Is(err, errdef.ErrInvalidReference) {
+		t.Errorf("manifestStore.Untag() error = %v, wantErr %v", err, errdef.ErrInvalidReference)
+	}
+
+	// an unparsable reference is rejected before any request is sent
+	err = store.Untag(ctx, "")
+	if !errors.Is(err, errdef.ErrInvalidReference) {
+		t.Errorf("manifestStore.Untag() error = %v, wantErr %v", err, errdef.ErrInvalidReference)
+	}
+
+	// 200, 202 and 204 are all treated as success
+	for _, ref := range []string{refOK, refAccepted, refNoContent} {
+		untagged = false
+		err = store.Untag(ctx, ref)
+		if err != nil {
+			t.Fatalf("manifestStore.Untag() error = %v", err)
+		}
+		if !untagged {
+			t.Errorf("manifestStore.Untag() did not send DELETE request for %q", ref)
+		}
+	}
+
+	err = store.Untag(ctx, refNotFound)
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("manifestStore.Untag() error = %v, wantErr %v", err, errdef.ErrNotFound)
+	}
+
+	err = store.Untag(ctx, refError)
+	if err == nil {
+		t.Errorf("manifestStore.Untag() error = %v, wantErr %v", err, true)
+	}
+
+	// a canceled context makes the underlying request fail
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	err = store.Untag(canceledCtx, refAccepted)
+	if err == nil {
+		t.Errorf("manifestStore.Untag() error = %v, wantErr %v", err, true)
 	}
 }
 

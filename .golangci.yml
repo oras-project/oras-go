@@ -19,5 +19,9 @@ linters:
     - govet
     - ineffassign
 
+formatters:
+  enable:
+    - gofmt
+
 run:
   go: "1.25"

@@ -301,6 +301,14 @@ func (s *policyEnforcingManifestStore) Tag(ctx context.Context, desc ocispec.Des
 	return s.manifests.Tag(ctx, desc, reference)
 }
 
+// Untag removes a tag reference with policy enforcement.
+func (s *policyEnforcingManifestStore) Untag(ctx context.Context, reference string) error {
+	if err := s.repo.checkPolicy(ctx, reference); err != nil {
+		return err
+	}
+	return s.manifests.Untag(ctx, reference)
+}
+
 // Ensure the wrappers satisfy the registry interfaces they enforce policy on.
 var (
 	_ registry.Repository    = (*policyEnforcingRepository)(nil)

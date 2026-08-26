@@ -39,6 +39,43 @@ func (r ReferrersAPI) String() string {
 	}
 }
 
+// TokenFlow selects how a bearer token is acquired when a registry answers with
+// a Bearer challenge and the credential is a username/password pair.
+//
+// It does not choose between authentication schemes: the scheme always follows
+// the registry's WWW-Authenticate challenge, and under both flows the registry
+// itself is authenticated with a bearer token. Only the exchange at the token
+// endpoint differs. Anonymous, access-token, and refresh-token credentials are
+// unaffected.
+type TokenFlow int
+
+const (
+	// TokenFlowDefault leaves the choice to the client, which uses OAuth2.
+	TokenFlowDefault TokenFlow = iota
+	// TokenFlowOAuth2 posts an OAuth2 password grant to the token endpoint.
+	// Reference: https://distribution.github.io/distribution/spec/auth/oauth/
+	TokenFlowOAuth2
+	// TokenFlowDistribution performs a distribution-spec GET against the token
+	// endpoint, passing the credential as HTTP Basic. This is the flow oras-go
+	// v1 and v2 used. The OAuth2 endpoint is a Docker extension rather than
+	// part of the OCI distribution spec, so registries that implement only the
+	// spec'd endpoint require this flow.
+	// Reference: https://distribution.github.io/distribution/spec/auth/token/
+	TokenFlowDistribution
+)
+
+// String returns the string representation of TokenFlow.
+func (t TokenFlow) String() string {
+	switch t {
+	case TokenFlowOAuth2:
+		return "oauth2"
+	case TokenFlowDistribution:
+		return "distribution"
+	default:
+		return "default"
+	}
+}
+
 // Attributes contains properties specific to the registry itself.
 type Attributes struct {
 	// ReferrersAPI indicates the Referrers API capability of the registry.
@@ -46,4 +83,8 @@ type Attributes struct {
 	// - ReferrersAPIUnsupported: the registry does not support the Referrers API
 	// - ReferrersAPIUnknown: the capability is unknown and will be auto-detected
 	ReferrersAPI ReferrersAPI
+
+	// TokenFlow selects how a bearer token is acquired for username/password
+	// credentials. TokenFlowDefault leaves the choice to the client.
+	TokenFlow TokenFlow
 }
