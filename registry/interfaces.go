@@ -62,10 +62,11 @@ type BlobStore interface {
 }
 
 // ManifestStore is a CAS with the ability to stat and delete its content.
-// Besides, ManifestStore provides reference tagging.
+// Besides, ManifestStore provides reference tagging and untagging.
 type ManifestStore interface {
 	BlobStore
 	content.Tagger
+	content.Untagger
 	ReferencePusher
 }
 
@@ -122,4 +123,3 @@ type Mounter interface {
 		getContent func() (io.ReadCloser, error),
 	) error
 }
-

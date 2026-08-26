@@ -24,6 +24,9 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // Test_withMirrorFallbackExists_mirrorMissing_fallsToPrimary covers a mirror
@@ -134,5 +137,91 @@ func Test_isMirrorFallbackError_wrappedContextErrors(t *testing.T) {
 				t.Errorf("isMirrorFallbackError(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// Test_buildCredentialFunc_scopedToItsOwnRegistry is the containment property:
+// a credential configured for one registry must not be handed to any other
+// host the client happens to talk to.
+func Test_buildCredentialFunc_scopedToItsOwnRegistry(t *testing.T) {
+	cred := credentials.Credential{Username: "user", Password: "secret"}
+	builder := NewClientBuilder()
+	props := &properties.Registry{
+		Reference:  properties.Reference{Registry: "registry.example.com", Repository: "app"},
+		Credential: cred,
+	}
+
+	credFunc := builder.buildCredentialFunc(props)
+
+	got, err := credFunc(context.Background(), "registry.example.com")
+	if err != nil {
+		t.Fatalf("own registry: unexpected error %v", err)
+	}
+	if got != cred {
+		t.Errorf("own registry: got %v, want the configured credential", got)
+	}
+
+	for _, other := range []string{"mirror.internal", "registry.example.com.evil.test", "evil.test"} {
+		got, err := credFunc(context.Background(), other)
+		if err != nil {
+			t.Fatalf("%s: unexpected error %v", other, err)
+		}
+		if got != credentials.EmptyCredential {
+			t.Errorf("%s: leaked credential %v", other, got)
+		}
+	}
+}
+
+// Test_buildCredentialFunc_dockerIOAlias guards the host normalization: the
+// credential func is called with the host the transport dials, which for the
+// "docker.io" alias is "registry-1.docker.io".
+func Test_buildCredentialFunc_dockerIOAlias(t *testing.T) {
+	cred := credentials.Credential{Username: "user", Password: "secret"}
+	builder := NewClientBuilder()
+	props := &properties.Registry{
+		Reference:  properties.Reference{Registry: "docker.io", Repository: "library/alpine"},
+		Credential: cred,
+	}
+
+	got, err := builder.buildCredentialFunc(props)(context.Background(), "registry-1.docker.io")
+	if err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if got != cred {
+		t.Errorf("got %v, want the configured credential for the docker.io alias host", got)
+	}
+}
+
+// Test_buildMirrorRepositories_doesNotShareCredential checks the same property
+// end to end: the client built for a mirror must not carry the primary's
+// credential.
+func Test_buildMirrorRepositories_doesNotShareCredential(t *testing.T) {
+	cred := credentials.Credential{Username: "user", Password: "secret"}
+	props := &properties.Registry{
+		Reference:  properties.Reference{Registry: "registry.example.com", Repository: "app"},
+		Credential: cred,
+		Mirrors: []properties.Mirror{
+			{Location: "mirror.internal"},
+		},
+	}
+
+	mirrors, err := buildMirrorRepositories(props, NewClientBuilder())
+	if err != nil {
+		t.Fatalf("buildMirrorRepositories: %v", err)
+	}
+	if len(mirrors) != 1 {
+		t.Fatalf("got %d mirrors, want 1", len(mirrors))
+	}
+
+	authClient, ok := mirrors[0].Registry.Client.(*auth.Client)
+	if !ok {
+		t.Fatalf("mirror client is %T, want *auth.Client", mirrors[0].Registry.Client)
+	}
+	got, err := authClient.CredentialFunc(context.Background(), "mirror.internal")
+	if err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if got != credentials.EmptyCredential {
+		t.Errorf("mirror client resolved credential %v; the primary's credential must not reach a mirror", got)
 	}
 }

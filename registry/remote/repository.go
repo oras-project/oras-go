@@ -336,9 +336,9 @@ func (r *Repository) skipReferrersGC() bool {
 // SetReferrersCapability indicates the Referrers API capability of the remote
 // repository. true: capable; false: not capable.
 //
-// SetReferrersCapability has no effect if the capability has already been set
-// to the same value. If the capability has been set to a conflicting value it
-// is silently ignored; the first value set wins.
+// The capability is fixed once set; the first value set wins and conflicting
+// later calls are ignored. Callers can use ReferrersCapability to read back
+// the effective capability.
 //   - When the capability is set to true, the Referrers() function will always
 //     request the Referrers API. Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers
 //   - When the capability is set to false, the Referrers() function will always
@@ -547,6 +547,24 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 		return err
 	}
 	return r.Manifests().Tag(withPolicyChecked(ctx), desc, reference)
+}
+
+// Untag removes the association between the given tag and the manifest it
+// currently points to. Only tags are accepted; to delete a manifest by
+// digest, use Delete.
+//
+// Tag deletion is an optional, loosely specified capability. Some registries
+// do not support it (returning 400 or 405, surfaced here as an error), and
+// some delete the underlying manifest — and thus every tag pointing to it —
+// rather than only the given tag. This differs from the local content/oci
+// store's Untag, which never deletes the underlying content.
+//
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-tags
+func (r *Repository) Untag(ctx context.Context, reference string) error {
+	if err := r.checkPolicy(ctx, reference); err != nil {
+		return err
+	}
+	return r.Manifests().Untag(withPolicyChecked(ctx), reference)
 }
 
 // PushReference pushes the manifest with a reference tag.
@@ -1604,6 +1622,40 @@ func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, refere
 	defer rc.Close()
 
 	return s.push(ctx, desc, rc, ref.Reference)
+}
+
+// Untag removes the association between the given tag and the manifest it currently points to.
+func (s *manifestStore) Untag(ctx context.Context, reference string) error {
+	if err := s.repo.checkPolicy(ctx, reference); err != nil {
+		return err
+	}
+	ref, err := s.ParseReference(reference)
+	if err != nil {
+		return err
+	}
+	if err := ref.ValidateReferenceAsTag(); err != nil {
+		return err
+	}
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionDelete)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := s.repo.do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusAccepted, http.StatusNoContent:
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
+	default:
+		return errutil.ParseErrorResponse(resp)
+	}
 }
 
 // PushReference pushes the manifest with a reference tag.
