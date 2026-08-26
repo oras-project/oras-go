@@ -74,6 +74,12 @@ none of the files are present.
 configs, _ := config.LoadConfigs()
 ```
 
+Note that the accessors are stricter than the loader: while `LoadConfigs`
+succeeds with no files present, `Configs.CredentialStore` returns an error
+when neither Docker `config.json` nor containers `auth.json` was loaded.
+The examples below elide that error for brevity, but production callers
+should check it rather than silently ending up with a nil store.
+
 **`LoadConfigsWithOptions`** lets you override specific paths. Any path you
 set is used instead of the default for that config type. However, fields left
 empty still trigger the default search — for example, omitting
@@ -526,31 +532,36 @@ oras-go can be wrapped with middleware to add cross-cutting concerns.
 - **`remote.Compose`** — Chain multiple middlewares together.
 - **`remote.WithPolicyEnforcement`** — Built-in middleware for applying container policy checks.
 - **`Registry.HandleWarning`** — Callback invoked for each RFC 7234 `Warning` header returned by the registry.
-- **`remote.NewWarningLogger`** — Creates a `HandleWarning` callback that logs each unique warning exactly once using `log/slog`, suppressing duplicates.
+- **`remote.NewWarningLogger`** — Creates a `HandleWarning` callback that logs each unique warning from a given registry exactly once at `slog.LevelWarn`, suppressing duplicates.
 - **`CopyOptions.PolicyCheck`** — Callback hook for policy enforcement in the copy path.
 - **`CopyGraphOptions.PreCopy` / `PostCopy` / `OnCopySkipped`** — Hooks for custom logic during graph traversal.
 
 ### Typical Flow
 
 ```go
+baseRepo, _ := remote.NewRepository("registry.example.com/app")
+
+// Handle registry deprecation warnings. Configure the concrete *remote.Repository
+// before composing — middlewares return the registry.Repository interface, which
+// does not expose the Registry field.
+// NewWarningLogger deduplicates: each unique warning text is logged only once.
+baseRepo.Registry.HandleWarning = remote.NewWarningLogger(
+    baseRepo.Registry.Reference.Registry, slog.Default())
+
 // Compose middlewares for a production repository client.
 middleware := remote.Compose(
     remote.WithPolicyEnforcement(evaluator, "docker", scope),
     myMetricsMiddleware(),
 )
 
-baseRepo, _ := remote.NewRepository("registry.example.com/app")
+// repo is a registry.Repository — the composed view used by callers.
 repo := middleware(baseRepo)
-
-// Handle registry deprecation warnings.
-// NewWarningLogger deduplicates: each unique warning text is logged only once.
-repo.Registry.HandleWarning = remote.NewWarningLogger(slog.Default())
 ```
 
 For manual warning handling without deduplication:
 
 ```go
-repo.Registry.HandleWarning = func(w remote.Warning) {
+baseRepo.Registry.HandleWarning = func(w remote.Warning) {
     log.Printf("Registry warning: %s", w.Text)
 }
 ```
@@ -563,7 +574,7 @@ The `retry` package provides an `http.RoundTripper` that automatically retries f
 
 ### Capabilities Used
 
-- **`retry.NewTransport`** — Wraps an `http.RoundTripper` with the default retry policy (retries on 429, 500, 502, 503, 504 and network errors).
+- **`retry.NewTransport`** — Wraps an `http.RoundTripper` with the default retry policy (retries on 408, 429, any 5xx, and network timeouts).
 - **`retry.NewClient`** — Convenience function returning an `*http.Client` with the retry transport already wired.
 - **`retry.Policy`** — Interface for custom retry/backoff logic; replace `Transport.Policy` to override defaults.
 
@@ -606,10 +617,17 @@ repo.Registry.Client = &auth.Client{
 
 ### Default Retry Behaviour
 
-The default policy retries up to 5 times with exponential backoff (capped at 30 s) on:
-- HTTP 429 Too Many Requests (respects `Retry-After` header)
-- HTTP 500, 502, 503, 504
-- Network-level errors (connection refused, EOF, etc.)
+The default policy (`retry.DefaultPolicy`) retries up to 5 times with exponential
+backoff — base 250 ms, factor 2, 10 % jitter — clamped to the `[MinWait, MaxWait]`
+range of 200 ms to 3 s. It retries on:
+- HTTP 429 Too Many Requests (respects `Retry-After` header, which overrides the backoff)
+- HTTP 408 Request Timeout
+- Any HTTP status ≥ 500
+- Network timeouts — errors implementing `net.Error` whose `Timeout()` reports true
+
+Note that non-timeout network failures such as connection refused and unexpected EOF
+are *not* retried by `DefaultPredicate`; supply a custom `retry.Policy` if you need
+those covered.
 
 Requests with bodies are only retried when `Request.GetBody` is set, so the body can be rewound.
 
@@ -748,7 +766,7 @@ oras-go returns typed errors that allow callers to distinguish between categorie
 - **`errdef.ErrNotFound`** — The referenced artifact, tag, or blob does not exist in the registry.
 - **`errdef.ErrAlreadyExists`** — The content was already present (push is idempotent, but callers may log or skip).
 - **`errdef.ErrSizeExceedsLimit`** — Content exceeds the configured size limit.
-- **`oras.CopyError`** — Wraps errors from `oras.Copy` / `oras.CopyGraph`, indicating which node failed and whether the error originated from the source or destination.
+- **`oras.CopyError`** — Wraps errors from `oras.Copy` / `oras.CopyGraph`, reporting the failing operation (`Op`, e.g. `"Fetch"`, `"Push"`, `"Mount"`) and whether the error originated from the source or destination.
 - **`oras.CopyErrorOrigin`** — Enum distinguishing `CopyErrorOriginSource` from `CopyErrorOriginDestination`.
 - **`errors.As`** (stdlib) — Unwrap typed errors for structured handling.
 
@@ -778,9 +796,9 @@ if err != nil {
     if errors.As(err, &copyErr) {
         switch copyErr.Origin {
         case oras.CopyErrorOriginSource:
-            log.Printf("fetch failed from source at %s: %v", copyErr.Descriptor.Digest, copyErr.Err)
+            log.Printf("source operation %q failed: %v", copyErr.Op, copyErr.Err)
         case oras.CopyErrorOriginDestination:
-            log.Printf("push failed to destination at %s: %v", copyErr.Descriptor.Digest, copyErr.Err)
+            log.Printf("destination operation %q failed: %v", copyErr.Op, copyErr.Err)
         }
     }
     return err
