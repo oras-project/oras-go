@@ -110,6 +110,35 @@ configs := &config.Configs{
 }
 ```
 
+### Path Resolution Strategies
+
+`LoadConfigsOptions.Strategy` selects *how* the default locations are searched
+when a path is not overridden. It does not change which files are read, only
+where they are looked for and how multiple copies are combined.
+
+- **`config.StrategyContainersImage`** (default, zero value) — the current
+  containers/image layout: two tiers (system + user) with merge-all semantics,
+  so a user-level `registries.conf.d` drop-in adds to the system config rather
+  than replacing it.
+- **`config.StrategyUAPI`** — the Podman 6 layout based on the UAPI
+  configuration files specification: three tiers (vendor + system + user),
+  first-found-wins for main config files, and rootful/rootless drop-in
+  directories.
+
+```go
+configs, _ := config.LoadConfigsWithOptions(config.LoadConfigsOptions{
+    Strategy: config.StrategyUAPI,
+})
+```
+
+`StrategyUAPI` is **experimental**. It tracks a draft upstream specification
+and its behaviour may change; pin to `StrategyContainersImage` (or simply omit
+the field) if you need stability. The same choice is available to the
+individual loaders through `LoadSystemRegistriesConfigWithStrategy` and
+`LoadSystemRegistriesDConfigWithStrategy`.
+
+Reference: <https://uapi-group.org/specifications/specs/configuration_files_specification/>
+
 ---
 
 ## 2. CLI Tool with Flag Overrides
@@ -807,6 +836,237 @@ if err != nil {
 
 ---
 
+## 16. Registry Mirror Fallback
+
+Where scenario 6 copies content *into* a mirror you control, this scenario reads
+*through* mirrors declared in `registries.conf`. A `Repository` built from
+registry properties tries each applicable mirror in order and falls back to the
+primary registry, which is what makes pulls work in air-gapped, rate-limited,
+and pull-through-cache environments without changing any references in your code.
+
+### Capabilities Used
+
+- **`config.RegistriesConfig`** — Parses the `[[registry.mirror]]` blocks of `registries.conf`.
+- **`properties.Mirror`** — A resolved mirror endpoint: `Location`, per-mirror `Transport`, and `PullFromMirror` policy.
+- **`properties.Registry.Mirrors`** — The ordered mirror list attached to the target registry.
+- **`remote.NewRepositoryWithProperties`** — Builds a `Repository` wired with the mirror list; a `Repository` from `remote.NewRepository` has no mirrors.
+- **`remote.PullFromMirrorAll` / `PullFromMirrorDigestOnly` / `PullFromMirrorTagOnly`** — The pull-policy constants.
+
+### Configuration
+
+```toml
+# /etc/containers/registries.conf
+[[registry]]
+prefix = "docker.io"
+location = "docker.io"
+
+  [[registry.mirror]]
+  location = "mirror.corp.internal"
+  pull-from-mirror = "all"
+
+  [[registry.mirror]]
+  location = "backup-mirror.corp.internal"
+  insecure = true
+```
+
+### Typical Flow
+
+Mirrors require no API of their own — load the config, build the repository from
+properties, and read as usual:
+
+```go
+configs, _ := config.LoadConfigs()
+
+// props.Mirrors is populated from the [[registry.mirror]] blocks matching
+// this reference. ErrRegistryBlocked is returned here if the registry is
+// marked blocked = true in registries.conf.
+props, _ := configs.RegistryProperties("docker.io/library/nginx")
+
+builder := remote.NewClientBuilder()
+builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
+
+// The Repository carries the mirror list; reads transparently use it.
+repo, _ := remote.NewRepositoryWithProperties(props, builder)
+
+// Tries mirror.corp.internal, then backup-mirror.corp.internal,
+// then docker.io — first success wins.
+_, _ = oras.Copy(ctx, repo, "latest", localStore, "latest", oras.DefaultCopyOptions)
+```
+
+### Fallback Semantics
+
+- **Reads only.** `Resolve`, `Fetch`, `FetchReference`, and `Exists` consult mirrors. Pushes, tags, and deletes always go to the primary registry, so a read-only mirror never receives writes.
+- **In order, first success wins.** Mirrors are tried in the order they appear in `registries.conf`, and the primary registry is the final fallback.
+- **Not every error falls through.** Context cancellation and deadline expiry stop the chain immediately and are returned as-is, rather than being retried against every remaining mirror.
+- **Per-mirror transport.** Each mirror carries its own `Transport`, so an `insecure = true` mirror does not relax TLS for the primary.
+- **References are rewritten.** A fully-qualified reference is reduced to a bare tag or `@digest` before being handed to a mirror, so the mirror combines it with its own base instead of rejecting it as a host mismatch.
+
+### Restricting When a Mirror Is Used
+
+`pull-from-mirror` controls which references a mirror may serve:
+
+| Value | Behaviour |
+|---|---|
+| `"all"` (or empty) | Mirror handles both tag and digest references. |
+| `"digest-only"` | Mirror handles only digest references. |
+| `"tag-only"` | Mirror handles only tag references. |
+
+`digest-only` is the safe default for an untrusted cache: a digest reference is
+content-addressed, so a mirror cannot substitute different content, whereas a
+mirror serving a tag decides for itself what `latest` means. Setting
+`mirror-by-digest-only = true` on the registry applies `digest-only` to every
+mirror under it that does not set its own policy.
+
+---
+
+## 17. Bearer Token Flow Selection
+
+When a registry answers with a `Bearer` challenge and the credential is a
+username/password pair, there are two ways to exchange it for a token at the
+token endpoint. oras-go defaults to OAuth2, but the OAuth2 password grant is a
+Docker extension rather than part of the OCI distribution spec, so registries
+that implement only the spec'd endpoint need the other flow.
+
+This selects only the *token exchange*. The authentication scheme itself is
+always whatever the registry advertises in `WWW-Authenticate`, and under both
+flows the registry is authenticated with a bearer token. Anonymous,
+access-token, and refresh-token credentials are unaffected.
+
+### Capabilities Used
+
+- **`properties.TokenFlow`** — `TokenFlowDefault`, `TokenFlowOAuth2`, `TokenFlowDistribution`.
+- **`properties.Registry.Attributes.TokenFlow`** — Per-registry selection, settable from config or from a CLI flag.
+- **`registries.conf` `token-flow` key** — Declarative per-registry selection (an ORAS-specific extension).
+- **`auth.TokenFetcher`** — Interface for supplying a token acquisition strategy of your own.
+- **`auth.NewCompositeTokenFetcher`** — Builds the standard fetcher pair; the `legacyMode` argument selects the distribution flow for credentialed access.
+- **`remote.ClientBuilder.TokenFetcher`** — Overrides the flow for every registry the builder serves.
+
+### Via registries.conf
+
+```toml
+[[registry]]
+prefix = "registry.internal.corp"
+token-flow = "distribution"
+```
+
+An invalid value is rejected rather than ignored — `RegistryProperties` returns
+an error naming the offending registry. Silently falling back to the default
+would leave a user who typo'd the flow authenticating a way they did not ask
+for, and the resulting failure looks like bad credentials.
+
+### Via Properties
+
+```go
+configs, _ := config.LoadConfigs()
+props, _ := configs.RegistryProperties("registry.internal.corp/app")
+
+// Override from a CLI flag, after config has been applied.
+if *tokenFlow == "distribution" {
+    props.Attributes.TokenFlow = properties.TokenFlowDistribution
+}
+
+builder := remote.NewClientBuilder()
+builder.CredentialStore, _ = configs.CredentialStore(credentials.StoreOptions{})
+repo, _ := remote.NewRepositoryWithProperties(props, builder)
+```
+
+### Supplying a Custom Fetcher
+
+`ClientBuilder.TokenFetcher` takes precedence over `props.Attributes.TokenFlow`
+for every registry the builder serves — it is the caller's explicit choice, so
+it wins over configuration. Use it to force the distribution flow globally, or
+to plug in an entirely different strategy:
+
+```go
+// Force the distribution flow (the oras-go v1/v2 behaviour) everywhere.
+builder.TokenFetcher = auth.NewCompositeTokenFetcher(
+    http.DefaultClient, nil, "", true)
+```
+
+Any type implementing `auth.TokenFetcher` works, which is the hook for
+federated or workload-identity token exchange:
+
+```go
+type TokenFetcher interface {
+    FetchToken(ctx context.Context, params TokenParams, cred credentials.Credential) (string, error)
+}
+```
+
+### Which Flow to Use
+
+| Situation | Flow |
+|---|---|
+| Docker Hub, GHCR, ECR, ACR, GAR, most hosted registries | `TokenFlowDefault` (OAuth2) |
+| Registry implements only the distribution-spec token endpoint | `TokenFlowDistribution` |
+| Token exchange fails with 404 or 405 at the token endpoint | Try `TokenFlowDistribution` |
+| Migrating from oras-go v1 or v2 and auth regressed | `TokenFlowDistribution` — that was the old default |
+
+---
+
+## 18. Bounded Listing and Pagination Limits
+
+Catalog, tag, and referrer listings are paginated, and the number of pages is
+controlled by the registry, not by the caller. A registry that returns a
+`Link` header on every page — whether through misconfiguration or malice —
+makes an unbounded listing loop forever. The page-limit fields cap that work
+and surface a typed error when the cap is hit.
+
+### Capabilities Used
+
+- **`Registry.RepositoryListMaxPages`** — Caps pages fetched during catalog listing.
+- **`Registry.TagListMaxPages` / `Registry.ReferrerListMaxPages`** — Registry-wide defaults for tag and referrer listings.
+- **`Repository.TagListMaxPages` / `Repository.ReferrerListMaxPages`** — Per-repository overrides, applied when greater than zero.
+- **`errdef.ErrTooManyPages`** — Returned (wrapped) when a listing exceeds its cap.
+- **`Registry.MaxMetadataBytes`** — Complementary cap on the response size of a single metadata call.
+
+### Typical Flow
+
+```go
+repo, _ := remote.NewRepository("registry.example.com/myapp")
+
+// Registry-wide defaults.
+repo.Registry.RepositoryListMaxPages = 100
+repo.Registry.TagListMaxPages = 50
+repo.Registry.ReferrerListMaxPages = 20
+
+// Per-repository override for a repository known to have many tags.
+repo.TagListMaxPages = 200
+
+err := repo.Tags(ctx, "", func(tags []string) error {
+    for _, tag := range tags {
+        fmt.Println(tag)
+    }
+    return nil
+})
+if errors.Is(err, errdef.ErrTooManyPages) {
+    // Partial results were already delivered to the callback.
+    log.Printf("tag listing truncated: %v", err)
+}
+```
+
+### Resolution Order
+
+For tags and referrers, the effective limit is:
+
+1. The `Repository` field, if greater than zero.
+2. Otherwise the `Registry` field.
+3. If both are zero, the listing is **unlimited**.
+
+Zero means unlimited rather than "fetch nothing", so the default behaviour is
+unchanged and these fields are strictly opt-in. Catalog listing has no
+per-repository tier — it is a registry-level operation, so only
+`Registry.RepositoryListMaxPages` applies.
+
+### Partial Results
+
+The limit is enforced between pages, so the callback has already been invoked
+for every page fetched before the cap was reached. Callers that need
+all-or-nothing semantics should accumulate into a local slice and discard it
+when `errdef.ErrTooManyPages` is returned, rather than acting on what the
+callback already received.
+
+---
+
 ## Summary Matrix
 
 | Scenario | Key Packages | Config Loading | Policy | Signatures |
@@ -826,6 +1086,9 @@ if err != nil {
 | Debug logging transport | `remote` | None | No | No |
 | Referrers | `oras`, `remote` | Optional | No | No |
 | Structured error handling | `oras`, `errdef` | None | No | No |
+| Registry mirror fallback | `remote`, `config`, `properties` | registries.conf | Optional | No |
+| Bearer token flow selection | `remote`, `remote/auth`, `config`, `properties` | registries.conf | No | No |
+| Bounded listing and pagination | `remote`, `errdef` | None | No | No |
 
 ---
 
@@ -842,6 +1105,7 @@ if err != nil {
 | **Lookaside** | An external storage location (file path or HTTPS URL) configured in `registries.d` where detached image signatures are stored and fetched, separate from the registry itself. |
 | **Manifest** | A JSON document that describes a single OCI artifact — its config descriptor, layer descriptors, annotations, and optional subject. A manifest is itself stored as a blob and addressed by digest. |
 | **Media Type** | A MIME-type string (e.g., `application/vnd.oci.image.manifest.v1+json`) that declares the format of a blob or manifest. |
+| **Mirror** | An alternate registry endpoint, declared in `registries.conf`, that is tried before the primary registry when reading content. Mirrors serve reads only; writes always go to the primary. |
 | **OCI** | The Open Container Initiative — a set of specifications for container image formats, runtime behavior, and distribution (registry) APIs. |
 | **OCI Layout** | An on-disk directory structure defined by the OCI Image Layout Specification for storing image content offline. Contains an `index.json`, an `oci-layout` marker, and a `blobs/` directory. |
 | **Platform** | An OS and architecture combination (e.g., `linux/amd64`, `linux/arm64`) used to select the correct manifest from an index. |
