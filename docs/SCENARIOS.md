@@ -1067,6 +1067,78 @@ callback already received.
 
 ---
 
+## 19. Namespace-Scoped Authentication (Proposed)
+
+Registries that partition access by namespace — ECR, Artifact Registry, Harbor
+projects, GitLab groups — issue different credentials for different paths under
+the same host. Authenticating against `example.com/team-a` and
+`example.com/team-b` independently requires a value that names a registry
+*optionally narrowed to a namespace or repository*, and credential storage keyed
+on that value rather than on the host alone.
+
+> **Status:** not yet implemented. Tracked in
+> [oras-project/oras-go#1348](https://github.com/oras-project/oras-go/issues/1348).
+> The library today is host-only end to end: `remote.Login` keys the store on
+> `Reference.Registry`, and `credentials.CredentialFunc` receives only a
+> `hostport`, so a namespaced key could never be read back.
+
+### Capabilities Used
+
+- **`RegistryScope`** — A registry host plus an optional namespace or repository
+  path, never carrying a tag or digest. Named after the existing `scope`
+  vocabulary in `config.RegistriesDConfig.GetLookasideURLs`, which already
+  matches `registry.example.com/namespace` by longest prefix.
+- **`auth.ScopeRepository` / `auth.AppendScopesForHost`** — Carry the namespace
+  into the token request. `auth.Client` merges context scope hints with the
+  scope named in the `WWW-Authenticate` challenge.
+- **`credentials.StoreOptions.Hierarchical`** — Longest-prefix credential
+  lookup, as used by containers-auth.json: `host/ns/repo` falls back to
+  `host/ns`, then to `host`.
+
+### Typical Flow
+
+```go
+// "example.com", "example.com/myspace", and "example.com/myspace/app" are all
+// valid; a tag or digest is rejected.
+scope, err := ParseRegistryScope(target)
+if err != nil {
+    return err
+}
+
+// Hint the namespace so the token is requested for it, not for the bare host.
+// Pull-only: a login is a credential check, and demanding push would reject a
+// legitimate read-only account.
+if scope.Path != "" {
+    ctx = auth.AppendScopesForHost(ctx, scope.Registry,
+        auth.ScopeRepository(scope.Path, auth.ActionPull))
+}
+
+// Store under the scope, so two namespaces on one host do not collide.
+store, _ := credentials.NewStore(configPath, credentials.StoreOptions{
+    Hierarchical: true,
+})
+```
+
+### Namespace and Repository Are Not Distinguishable
+
+`repositoryRegexp` accepts multi-segment paths, so `myspace` and `myspace/app`
+are syntactically identical. The library cannot tell a namespace from a
+repository and does not try — `RegistryScope` carries a single `Path`, and what
+it means is the registry's business.
+
+Parsing splits the host off before inspecting the path. Splitting the other way
+makes the port in `localhost:5000` parse as a tag.
+
+### What a Scoped Login Proves
+
+Less than it appears. The token fetch only fires on a `401`, so a registry that
+serves `GET /v2/` anonymously validates nothing. And the distribution spec
+permits a token server to grant a narrower scope than requested without
+erroring, so a successful ping is not proof the caller holds the namespace.
+There is no registry endpoint for a namespace, so this may be the ceiling.
+
+---
+
 ## Summary Matrix
 
 | Scenario | Key Packages | Config Loading | Policy | Signatures |
@@ -1089,6 +1161,7 @@ callback already received.
 | Registry mirror fallback | `remote`, `config`, `properties` | registries.conf | Optional | No |
 | Bearer token flow selection | `remote`, `remote/auth`, `config`, `properties` | registries.conf | No | No |
 | Bounded listing and pagination | `remote`, `errdef` | None | No | No |
+| Namespace-scoped authentication *(proposed)* | `remote/auth`, `credentials`, `config` | containers auth (hierarchical) | No | No |
 
 ---
 
@@ -1106,6 +1179,7 @@ callback already received.
 | **Manifest** | A JSON document that describes a single OCI artifact — its config descriptor, layer descriptors, annotations, and optional subject. A manifest is itself stored as a blob and addressed by digest. |
 | **Media Type** | A MIME-type string (e.g., `application/vnd.oci.image.manifest.v1+json`) that declares the format of a blob or manifest. |
 | **Mirror** | An alternate registry endpoint, declared in `registries.conf`, that is tried before the primary registry when reading content. Mirrors serve reads only; writes always go to the primary. |
+| **Namespace** | A path prefix within a registry that groups repositories (e.g., `myspace` in `example.com/myspace/app`). Namespaces are not distinguishable from repositories by syntax alone — both are multi-segment paths — so the distinction is enforced by the registry, not by a reference parser. |
 | **OCI** | The Open Container Initiative — a set of specifications for container image formats, runtime behavior, and distribution (registry) APIs. |
 | **OCI Layout** | An on-disk directory structure defined by the OCI Image Layout Specification for storing image content offline. Contains an `index.json`, an `oci-layout` marker, and a `blobs/` directory. |
 | **Platform** | An OS and architecture combination (e.g., `linux/amd64`, `linux/arm64`) used to select the correct manifest from an index. |
@@ -1113,5 +1187,6 @@ callback already received.
 | **Referrer** | An artifact whose manifest contains a `subject` field pointing to another manifest's digest. Referrers attach metadata (signatures, SBOMs, attestations) to a subject artifact. |
 | **Registry** | A server that hosts OCI repositories and implements the OCI Distribution Specification API for pushing, pulling, and discovering content. |
 | **Repository** | A named collection of manifests within a registry (e.g., `registry.example.com/myapp`). A repository can contain multiple tags and digests. |
+| **Scope** | In auth, the resource and actions a bearer token is requested for, written `repository:<name>:<actions>` (e.g., `repository:myspace/app:pull,push`). In `registries.d` and containers-auth.json, *scope* instead means a registry host with an optional namespace path (e.g., `example.com/myspace`), matched by longest prefix. |
 | **Subject** | The manifest that a referrer points to via its `subject` field. For example, if an SBOM manifest references an image manifest, the image manifest is the subject. |
 | **Tag** | A mutable, human-readable name (e.g., `latest`, `v1.0`) that points to a single manifest digest within a repository. Tags can be reassigned to different digests over time. |
