@@ -167,10 +167,11 @@ func Copy(ctx context.Context, src ReadOnlyTarget, srcRef string, dst Target, ds
 
 	if opts.MapRoot != nil {
 		proxy.StopCaching = true
-		root, err = opts.MapRoot(ctx, proxy, root)
+		mappedRoot, err := opts.MapRoot(ctx, proxy, root)
 		if err != nil {
 			return ocispec.Descriptor{}, newCopyError("MapRoot", CopyErrorOriginSource, root, err)
 		}
+		root = mappedRoot
 		proxy.StopCaching = false
 	}
 

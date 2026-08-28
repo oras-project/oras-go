@@ -2480,6 +2480,42 @@ func TestCopy_CopyError_Descriptor(t *testing.T) {
 			t.Errorf("CopyError message = %q, want %q", got, want)
 		}
 	})
+
+	t.Run("map root error retains the pre-map descriptor", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		dst := memory.New()
+		srcRef := "test"
+
+		manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/test", oras.PackManifestOptions{})
+		if err != nil {
+			t.Fatalf("failed to pack test content: %v", err)
+		}
+		if err := src.Tag(ctx, manifestDesc, srcRef); err != nil {
+			t.Fatalf("failed to tag test content on src: %v", err)
+		}
+
+		opts := oras.DefaultCopyOptions
+		opts.MapRoot = func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+			// MapRoot fails and returns a zero-value descriptor, as real
+			// implementations (e.g. platform selection) commonly do.
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		}
+
+		_, err = oras.Copy(ctx, src, srcRef, dst, "", opts)
+		var copyErr *oras.CopyError
+		if !errors.As(err, &copyErr) {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		// the CopyError must identify the original (pre-map) root, not the
+		// zero-value descriptor MapRoot returned on failure.
+		if !reflect.DeepEqual(copyErr.Descriptor, manifestDesc) {
+			t.Errorf("CopyError descriptor = %v, want %v", copyErr.Descriptor, manifestDesc)
+		}
+		if reflect.DeepEqual(copyErr.Descriptor, ocispec.Descriptor{}) {
+			t.Errorf("CopyError descriptor is zero value, want the pre-map root descriptor")
+		}
+	})
 }
 
 func TestCopyGraph_CopyError(t *testing.T) {
