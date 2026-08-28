@@ -2404,6 +2404,120 @@ func TestCopy_CopyError(t *testing.T) {
 
 }
 
+// TestCopy_CopyError_Descriptor verifies that a CopyError identifies the
+// content that the failing operation was acting on.
+func TestCopy_CopyError_Descriptor(t *testing.T) {
+	t.Run("exists error", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/test", oras.PackManifestOptions{})
+		if err != nil {
+			t.Fatalf("failed to pack test content: %v", err)
+		}
+		dst := &badExister{
+			memory.New(),
+		}
+
+		err = oras.CopyGraph(ctx, src, dst, manifestDesc, oras.DefaultCopyGraphOptions)
+		var copyErr *oras.CopyError
+		if !errors.As(err, &copyErr) {
+			t.Fatalf("CopyGraph() error is not a CopyError: %v", err)
+		}
+		if !reflect.DeepEqual(copyErr.Descriptor, manifestDesc) {
+			t.Errorf("CopyError descriptor = %v, want %v", copyErr.Descriptor, manifestDesc)
+		}
+		want := `failed to perform "Exists" on destination for ` + manifestDesc.Digest.String() + `: ` + errExists.Error()
+		if got := copyErr.Error(); got != want {
+			t.Errorf("CopyError message = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("tag error", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		dst := &badTagger{
+			Target: memory.New(),
+		}
+		srcRef := "test"
+
+		manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/test", oras.PackManifestOptions{})
+		if err != nil {
+			t.Fatalf("failed to pack test content: %v", err)
+		}
+		if err := src.Tag(ctx, manifestDesc, srcRef); err != nil {
+			t.Fatalf("failed to tag test content on src: %v", err)
+		}
+
+		_, err = oras.Copy(ctx, src, srcRef, dst, "", oras.DefaultCopyOptions)
+		var copyErr *oras.CopyError
+		if !errors.As(err, &copyErr) {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		if !reflect.DeepEqual(copyErr.Descriptor, manifestDesc) {
+			t.Errorf("CopyError descriptor = %v, want %v", copyErr.Descriptor, manifestDesc)
+		}
+		want := `failed to perform "Tag" on destination for ` + manifestDesc.Digest.String() + `: ` + errTag.Error()
+		if got := copyErr.Error(); got != want {
+			t.Errorf("CopyError message = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("nil source target has no descriptor", func(t *testing.T) {
+		ctx := context.Background()
+		dst := memory.New()
+
+		_, err := oras.Copy(ctx, nil, "", dst, "", oras.DefaultCopyOptions)
+		var copyErr *oras.CopyError
+		if !errors.As(err, &copyErr) {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		if !reflect.DeepEqual(copyErr.Descriptor, ocispec.Descriptor{}) {
+			t.Errorf("CopyError descriptor = %v, want zero value", copyErr.Descriptor)
+		}
+		// the message must be unchanged when no descriptor is available
+		want := `failed to perform "Copy" on source: nil source target`
+		if got := copyErr.Error(); got != want {
+			t.Errorf("CopyError message = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("map root error retains the pre-map descriptor", func(t *testing.T) {
+		ctx := context.Background()
+		src := memory.New()
+		dst := memory.New()
+		srcRef := "test"
+
+		manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/test", oras.PackManifestOptions{})
+		if err != nil {
+			t.Fatalf("failed to pack test content: %v", err)
+		}
+		if err := src.Tag(ctx, manifestDesc, srcRef); err != nil {
+			t.Fatalf("failed to tag test content on src: %v", err)
+		}
+
+		opts := oras.DefaultCopyOptions
+		opts.MapRoot = func(ctx context.Context, src content.ReadOnlyStorage, root ocispec.Descriptor) (ocispec.Descriptor, error) {
+			// MapRoot fails and returns a zero-value descriptor, as real
+			// implementations (e.g. platform selection) commonly do.
+			return ocispec.Descriptor{}, errdef.ErrNotFound
+		}
+
+		_, err = oras.Copy(ctx, src, srcRef, dst, "", opts)
+		var copyErr *oras.CopyError
+		if !errors.As(err, &copyErr) {
+			t.Fatalf("Copy() error is not a CopyError: %v", err)
+		}
+		// the CopyError must identify the original (pre-map) root, not the
+		// zero-value descriptor MapRoot returned on failure.
+		if !reflect.DeepEqual(copyErr.Descriptor, manifestDesc) {
+			t.Errorf("CopyError descriptor = %v, want %v", copyErr.Descriptor, manifestDesc)
+		}
+		if reflect.DeepEqual(copyErr.Descriptor, ocispec.Descriptor{}) {
+			t.Errorf("CopyError descriptor is zero value, want the pre-map root descriptor")
+		}
+	})
+}
+
 func TestCopyGraph_CopyError(t *testing.T) {
 	t.Run("src target is nil", func(t *testing.T) {
 		ctx := context.Background()
