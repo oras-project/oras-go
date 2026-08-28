@@ -15,7 +15,11 @@ limitations under the License.
 
 package oras
 
-import "fmt"
+import (
+	"fmt"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+)
 
 // CopyErrorOrigin defines the source of a copy error.
 type CopyErrorOrigin int
@@ -46,28 +50,44 @@ type CopyError struct {
 	Op string
 	// Origin indicates the source of the error.
 	Origin CopyErrorOrigin
+	// Descriptor is the content that the operation was acting on. It is the
+	// zero value for errors raised before a specific node was selected.
+	Descriptor ocispec.Descriptor
 	// Err is the underlying error.
 	Err error
 }
 
 // newCopyError creates a new CopyError.
-func newCopyError(op string, origin CopyErrorOrigin, err error) error {
+//
+// desc is the content that the operation was acting on. Pass the zero value
+// when the error is raised before a specific node is selected.
+func newCopyError(op string, origin CopyErrorOrigin, desc ocispec.Descriptor, err error) error {
 	if err == nil {
 		return nil
 	}
 	return &CopyError{
-		Op:     op,
-		Origin: origin,
-		Err:    err,
+		Op:         op,
+		Origin:     origin,
+		Descriptor: desc,
+		Err:        err,
 	}
 }
 
 // Error implements the error interface for CopyError.
 func (e *CopyError) Error() string {
+	// the descriptor is optional: it is the zero value for errors raised
+	// before a specific node was selected.
+	hasDescriptor := e.Descriptor.Digest != ""
 	switch e.Origin {
 	case CopyErrorOriginSource, CopyErrorOriginDestination:
+		if hasDescriptor {
+			return fmt.Sprintf("failed to perform %q on %s for %s: %v", e.Op, e.Origin, e.Descriptor.Digest, e.Err)
+		}
 		return fmt.Sprintf("failed to perform %q on %s: %v", e.Op, e.Origin, e.Err)
 	default:
+		if hasDescriptor {
+			return fmt.Sprintf("failed to perform %q for %s: %v", e.Op, e.Descriptor.Digest, e.Err)
+		}
 		return fmt.Sprintf("failed to perform %q: %v", e.Op, e.Err)
 	}
 }

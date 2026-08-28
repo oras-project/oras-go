@@ -76,10 +76,10 @@ type ExtendedCopyGraphOptions struct {
 // Returns the descriptor of the tagged node on successful copy.
 func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, dst Target, dstRef string, opts ExtendedCopyOptions) (ocispec.Descriptor, error) {
 	if src == nil {
-		return ocispec.Descriptor{}, newCopyError("ExtendedCopy", CopyErrorOriginSource, errors.New("nil source target"))
+		return ocispec.Descriptor{}, newCopyError("ExtendedCopy", CopyErrorOriginSource, ocispec.Descriptor{}, errors.New("nil source target"))
 	}
 	if dst == nil {
-		return ocispec.Descriptor{}, newCopyError("ExtendedCopy", CopyErrorOriginDestination, errors.New("nil destination target"))
+		return ocispec.Descriptor{}, newCopyError("ExtendedCopy", CopyErrorOriginDestination, ocispec.Descriptor{}, errors.New("nil destination target"))
 	}
 	if dstRef == "" {
 		dstRef = srcRef
@@ -87,7 +87,7 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 
 	node, err := src.Resolve(ctx, srcRef)
 	if err != nil {
-		return ocispec.Descriptor{}, newCopyError("Resolve", CopyErrorOriginSource, err)
+		return ocispec.Descriptor{}, newCopyError("Resolve", CopyErrorOriginSource, ocispec.Descriptor{}, err)
 	}
 
 	if err := ExtendedCopyGraph(ctx, src, dst, node, opts.ExtendedCopyGraphOptions); err != nil {
@@ -95,7 +95,7 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 	}
 
 	if err := dst.Tag(ctx, node, dstRef); err != nil {
-		return ocispec.Descriptor{}, newCopyError("Tag", CopyErrorOriginDestination, err)
+		return ocispec.Descriptor{}, newCopyError("Tag", CopyErrorOriginDestination, node, err)
 	}
 
 	return node, nil
@@ -108,10 +108,10 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 // The node (e.g. a manifest of the artifact) is identified by a descriptor.
 func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
 	if src == nil {
-		return newCopyError("ExtendedCopyGraph", CopyErrorOriginSource, errors.New("nil source target"))
+		return newCopyError("ExtendedCopyGraph", CopyErrorOriginSource, ocispec.Descriptor{}, errors.New("nil source target"))
 	}
 	if dst == nil {
-		return newCopyError("ExtendedCopyGraph", CopyErrorOriginDestination, errors.New("nil destination target"))
+		return newCopyError("ExtendedCopyGraph", CopyErrorOriginDestination, ocispec.Descriptor{}, errors.New("nil destination target"))
 	}
 
 	roots, err := findRoots(ctx, src, node, opts)
@@ -189,7 +189,7 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 
 		predecessors, err := opts.FindPredecessors(ctx, storage, currentNode)
 		if err != nil {
-			return nil, newCopyError("FindPredecessors", CopyErrorOriginSource, err)
+			return nil, newCopyError("FindPredecessors", CopyErrorOriginSource, currentNode, err)
 		}
 
 		// The current node has no predecessor node,

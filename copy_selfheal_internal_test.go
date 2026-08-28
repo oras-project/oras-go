@@ -19,6 +19,8 @@ import (
 	"errors"
 	"testing"
 
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
 )
 
@@ -76,7 +78,7 @@ func TestIsMissingReferencedContentError(t *testing.T) {
 		},
 		{
 			name: "wrapped in CopyError",
-			err: newCopyError("Push", CopyErrorOriginDestination, errcode.Errors{
+			err: newCopyError("Push", CopyErrorOriginDestination, ocispec.Descriptor{}, errcode.Errors{
 				{Code: errcode.ErrorCodeManifestBlobUnknown},
 			}),
 			want: true,
