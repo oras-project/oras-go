@@ -74,6 +74,10 @@ func NewLoggingTransport(inner http.RoundTripper, logger *slog.Logger) *LoggingT
 
 // RoundTrip implements http.RoundTripper, logging the request and response.
 func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !t.logger.Enabled(req.Context(), slog.LevelDebug) {
+		return t.inner.RoundTrip(req)
+	}
+
 	id := requestCounter.Add(1) - 1
 	loggedURL := *req.URL
 	loggedURL.RawQuery = ""
