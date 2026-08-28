@@ -69,8 +69,14 @@ type ClientBuilder struct {
 
 	// Logger enables HTTP request/response debug logging when non-nil.
 	// Each retry attempt is logged individually. If nil, no logging transport
-	// is added. Use slog.Default() to log to the default handler.
+	// is added. Logger is also used for registry warnings when WarningLogger is
+	// nil. Use slog.Default() to log to the default handler.
 	Logger *slog.Logger
+
+	// WarningLogger logs registry warnings at slog.LevelWarn, deduplicated per
+	// registry. If nil, Logger is used for backward compatibility. If both are
+	// nil, warnings are not logged.
+	WarningLogger *slog.Logger
 }
 
 // NewClientBuilder creates a new ClientBuilder with default settings.
@@ -213,6 +219,13 @@ func (b *ClientBuilder) buildTransport(tlsConfig *tls.Config) http.RoundTripper 
 	return transport
 }
 
+func (b *ClientBuilder) warningLogger() *slog.Logger {
+	if b.WarningLogger != nil {
+		return b.WarningLogger
+	}
+	return b.Logger
+}
+
 // buildHTTPClient creates an HTTP client with the given transport.
 func (b *ClientBuilder) buildHTTPClient(transport http.RoundTripper) *http.Client {
 	return &http.Client{
@@ -295,8 +308,8 @@ func NewRegistryWithProperties(props *properties.Registry, builder *ClientBuilde
 		Policy:    builder.PolicyEvaluator,
 	}
 
-	if builder.Logger != nil {
-		reg.HandleWarning = NewWarningLogger(props.Reference.Registry, builder.Logger)
+	if logger := builder.warningLogger(); logger != nil {
+		reg.HandleWarning = NewWarningLogger(props.Reference.Registry, logger)
 	}
 
 	return reg, nil
@@ -375,8 +388,8 @@ func buildMirrorRepositories(props *properties.Registry, builder *ClientBuilder)
 			Reference: registry.Reference{Registry: m.Location},
 			PlainHTTP: m.Transport.PlainHTTP,
 		}
-		if builder.Logger != nil {
-			mirrorReg.HandleWarning = NewWarningLogger(m.Location, builder.Logger)
+		if logger := builder.warningLogger(); logger != nil {
+			mirrorReg.HandleWarning = NewWarningLogger(m.Location, logger)
 		}
 
 		pullPolicy := m.PullFromMirror
