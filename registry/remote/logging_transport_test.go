@@ -91,6 +91,53 @@ func TestLoggingTransport_RoundTrip_Error(t *testing.T) {
 	}
 }
 
+func TestLoggingTransport_RoundTrip_DebugDisabledDoesNotReadBody(t *testing.T) {
+	payload := `{"status":"ok"}`
+	body := &trackingReadCloser{Reader: strings.NewReader(payload)}
+	inner := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       body,
+			Request:    req,
+		}, nil
+	})
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	lt := NewLoggingTransport(inner, logger)
+	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
+
+	resp, err := lt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if body.reads != 0 {
+		t.Fatalf("response body read %d times with debug logging disabled, want 0", body.reads)
+	}
+
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if string(got) != payload {
+		t.Errorf("body = %q, want %q", got, payload)
+	}
+}
+
+type trackingReadCloser struct {
+	io.Reader
+	reads int
+}
+
+func (r *trackingReadCloser) Read(p []byte) (int, error) {
+	r.reads++
+	return r.Reader.Read(p)
+}
+
+func (*trackingReadCloser) Close() error {
+	return nil
+}
+
 func TestFormatHeaders_Scrubbing(t *testing.T) {
 	h := http.Header{
 		"Authorization": {"Bearer secret"},
