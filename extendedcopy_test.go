@@ -1980,3 +1980,35 @@ var errGraphTag = errors.New("graph tag error")
 func (bgt *badGraphTagger) Tag(_ context.Context, _ ocispec.Descriptor, _ string) error {
 	return errGraphTag
 }
+
+// TestExtendedCopy_CopyError_Descriptor verifies that a CopyError raised by
+// ExtendedCopy identifies the node that the failing operation was acting on.
+func TestExtendedCopy_CopyError_Descriptor(t *testing.T) {
+	ctx := context.Background()
+	src := memory.New()
+	dst := &badTagger{
+		Target: memory.New(),
+	}
+	srcRef := "test"
+
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, "application/test", oras.PackManifestOptions{})
+	if err != nil {
+		t.Fatalf("failed to pack test content: %v", err)
+	}
+	if err := src.Tag(ctx, manifestDesc, srcRef); err != nil {
+		t.Fatalf("failed to tag test content on src: %v", err)
+	}
+
+	_, err = oras.ExtendedCopy(ctx, src, srcRef, dst, "", oras.DefaultExtendedCopyOptions)
+	var copyErr *oras.CopyError
+	if !errors.As(err, &copyErr) {
+		t.Fatalf("ExtendedCopy() error is not a CopyError: %v", err)
+	}
+	if !reflect.DeepEqual(copyErr.Descriptor, manifestDesc) {
+		t.Errorf("CopyError descriptor = %v, want %v", copyErr.Descriptor, manifestDesc)
+	}
+	want := `failed to perform "Tag" on destination for ` + manifestDesc.Digest.String() + `: ` + errTag.Error()
+	if got := copyErr.Error(); got != want {
+		t.Errorf("CopyError message = %q, want %q", got, want)
+	}
+}

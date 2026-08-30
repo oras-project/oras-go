@@ -16,6 +16,7 @@ limitations under the License.
 package remote
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -23,11 +24,14 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -714,6 +718,138 @@ func TestNewRegistryWithProperties_WithPolicyEvaluator(t *testing.T) {
 	if reg.Policy != evaluator {
 		t.Error("Registry.Policy should be set to the builder's PolicyEvaluator")
 	}
+}
+
+func TestClientBuilder_LoggerRouting(t *testing.T) {
+	props := &properties.Registry{
+		Reference: properties.Reference{Registry: "registry.example.com"},
+	}
+	warning := Warning{WarningValue: WarningValue{Code: 299, Agent: "-", Text: "deprecated API"}}
+	baseTransport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"status":"ok"}`)),
+			Request:    req,
+		}, nil
+	})
+	newLogger := func(buf *bytes.Buffer, level slog.Level) *slog.Logger {
+		return slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: level}))
+	}
+	clientTransport := func(t *testing.T, reg *Registry) http.RoundTripper {
+		t.Helper()
+		client, ok := reg.Client.(*auth.Client)
+		if !ok {
+			t.Fatalf("registry client is %T, want *auth.Client", reg.Client)
+		}
+		return client.Client.Transport
+	}
+	doRequest := func(t *testing.T, transport http.RoundTripper) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, "https://registry.example.com/v2/", nil)
+		if err != nil {
+			t.Fatalf("NewRequest() error = %v", err)
+		}
+		resp, err := transport.RoundTrip(req)
+		if err != nil {
+			t.Fatalf("RoundTrip() error = %v", err)
+		}
+		resp.Body.Close()
+	}
+
+	t.Run("warning logger only", func(t *testing.T) {
+		var warningLogs bytes.Buffer
+		builder := NewClientBuilder()
+		builder.BaseTransport = baseTransport
+		builder.WarningLogger = newLogger(&warningLogs, slog.LevelWarn)
+
+		reg, err := NewRegistryWithProperties(props, builder)
+		if err != nil {
+			t.Fatalf("NewRegistryWithProperties() error = %v", err)
+		}
+		if _, ok := clientTransport(t, reg).(*LoggingTransport); ok {
+			t.Fatal("WarningLogger should not enable HTTP debug logging")
+		}
+		if reg.HandleWarning == nil {
+			t.Fatal("HandleWarning should be configured")
+		}
+		reg.HandleWarning(warning)
+		if !strings.Contains(warningLogs.String(), warning.Text) {
+			t.Errorf("warning log = %q, want warning %q", warningLogs.String(), warning.Text)
+		}
+	})
+
+	t.Run("logger remains the warning fallback", func(t *testing.T) {
+		var logs bytes.Buffer
+		builder := NewClientBuilder()
+		builder.BaseTransport = baseTransport
+		builder.Logger = newLogger(&logs, slog.LevelDebug)
+
+		reg, err := NewRegistryWithProperties(props, builder)
+		if err != nil {
+			t.Fatalf("NewRegistryWithProperties() error = %v", err)
+		}
+		transport := clientTransport(t, reg)
+		if _, ok := transport.(*LoggingTransport); !ok {
+			t.Fatalf("client transport is %T, want *LoggingTransport", transport)
+		}
+		reg.HandleWarning(warning)
+		doRequest(t, transport)
+		if got := logs.String(); !strings.Contains(got, warning.Text) || !strings.Contains(got, "level=DEBUG") {
+			t.Errorf("combined log = %q, want warning and debug records", got)
+		}
+	})
+
+	t.Run("warning and debug loggers are independent", func(t *testing.T) {
+		var debugLogs bytes.Buffer
+		var warningLogs bytes.Buffer
+		builder := NewClientBuilder()
+		builder.BaseTransport = baseTransport
+		builder.Logger = newLogger(&debugLogs, slog.LevelDebug)
+		builder.WarningLogger = newLogger(&warningLogs, slog.LevelWarn)
+
+		reg, err := NewRegistryWithProperties(props, builder)
+		if err != nil {
+			t.Fatalf("NewRegistryWithProperties() error = %v", err)
+		}
+		reg.HandleWarning(warning)
+		doRequest(t, clientTransport(t, reg))
+		if got := warningLogs.String(); !strings.Contains(got, warning.Text) || strings.Contains(got, "level=DEBUG") {
+			t.Errorf("warning log = %q, want only warning records", got)
+		}
+		if got := debugLogs.String(); !strings.Contains(got, "level=DEBUG") || strings.Contains(got, warning.Text) {
+			t.Errorf("debug log = %q, want only debug records", got)
+		}
+	})
+
+	t.Run("mirror warnings use the mirror location", func(t *testing.T) {
+		var warningLogs bytes.Buffer
+		builder := NewClientBuilder()
+		builder.WarningLogger = newLogger(&warningLogs, slog.LevelWarn)
+		mirrorProps := &properties.Registry{
+			Reference: properties.Reference{Registry: "registry.example.com", Repository: "app"},
+			Mirrors: []properties.Mirror{
+				{Location: "mirror.example.com"},
+			},
+		}
+
+		mirrors, err := buildMirrorRepositories(mirrorProps, builder)
+		if err != nil {
+			t.Fatalf("buildMirrorRepositories() error = %v", err)
+		}
+		if len(mirrors) != 1 {
+			t.Fatalf("buildMirrorRepositories() returned %d mirrors, want 1", len(mirrors))
+		}
+		mirrors[0].Registry.HandleWarning(warning)
+		got := warningLogs.String()
+		if !strings.Contains(got, "mirror.example.com") {
+			t.Errorf("warning log = %q, want mirror location", got)
+		}
+		if strings.Contains(got, "registry.example.com") {
+			t.Errorf("warning log = %q, should not contain primary registry location", got)
+		}
+	})
 }
 
 // mockCredentialStore is a test helper that returns credentials from a map.

@@ -18,6 +18,7 @@ package auth
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -726,6 +727,7 @@ func TestClient_Do_Bearer_Auth(t *testing.T) {
 			}, nil
 		},
 	}
+	client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
 
 	// first request
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -853,6 +855,7 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 		},
 		Cache: NewCache(),
 	}
+	client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
 
 	// first request
 	ctx := WithScopes(context.Background(), scopes...)
@@ -995,6 +998,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		}),
 		Cache: NewCache(),
 	}
+	client1.TokenFetcher = NewCompositeTokenFetcher(client1.Client, client1.Header, client1.ClientID, true)
 
 	// set up server 2
 	username2 := "test_user2"
@@ -1065,6 +1069,7 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 		}),
 		Cache: NewCache(),
 	}
+	client2.TokenFetcher = NewCompositeTokenFetcher(client2.Client, client2.Header, client2.ClientID, true)
 
 	ctx := context.Background()
 	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
@@ -1312,7 +1317,6 @@ func TestClient_Do_Bearer_OAuth2_Password(t *testing.T) {
 				Password: password,
 			}, nil
 		},
-		ForceAttemptOAuth2: true,
 	}
 
 	// first request
@@ -1459,8 +1463,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached(t *testing.T) {
 				Password: password,
 			}, nil
 		},
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	// first request
@@ -1622,8 +1625,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 			Username: username1,
 			Password: password1,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 	// set up server 2
 	username2 := "test_user2"
@@ -1712,8 +1714,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 			Username: username2,
 			Password: password2,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	ctx := context.Background()
@@ -2970,8 +2971,7 @@ func TestClient_Do_Scope_Hint_Mismatch(t *testing.T) {
 				Password: password,
 			}, nil
 		},
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	// first request
@@ -3114,8 +3114,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 			Username: username1,
 			Password: password1,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	// set up server 1
@@ -3208,8 +3207,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 			Username: username2,
 			Password: password2,
 		}),
-		ForceAttemptOAuth2: true,
-		Cache:              NewCache(),
+		Cache: NewCache(),
 	}
 
 	ctx := context.Background()
@@ -3350,6 +3348,7 @@ func TestClient_Do_Invalid_Credential_Basic(t *testing.T) {
 			}, nil
 		},
 	}
+	client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
 
 	// request should fail
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3435,6 +3434,7 @@ func TestClient_Do_Invalid_Credential_Bearer(t *testing.T) {
 			}, nil
 		},
 	}
+	client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
 
 	// request should fail
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -3620,6 +3620,7 @@ func TestClient_Do_Scheme_Change(t *testing.T) {
 		},
 		Cache: NewCache(),
 	}
+	client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
 
 	// request with bearer auth
 	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
@@ -4379,6 +4380,185 @@ func Test_validateRealm(t *testing.T) {
 			err := validateRealm(tt.realm, tt.registry)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestClient_Do_Bearer_TokenFlowSelection pins down which token endpoint flow
+// is used for a Bearer challenge, and asserts that both flows still
+// authenticate to the registry itself with a bearer token. That is the only
+// axis TokenFetcher controls: the scheme itself always follows the registry's
+// WWW-Authenticate challenge and is not configurable.
+func TestClient_Do_Bearer_TokenFlowSelection(t *testing.T) {
+	tests := []struct {
+		name            string
+		legacyFetcher   bool
+		wantTokenMethod string
+	}{
+		{"default uses OAuth2 password grant", false, http.MethodPost},
+		{"legacy composite fetcher uses distribution spec", true, http.MethodGet},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const wantToken = "test/access/token"
+			var gotTokenMethod, gotRegistryAuth string
+
+			as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotTokenMethod = r.Method
+				if err := json.NewEncoder(w).Encode(map[string]string{
+					"token":        wantToken,
+					"access_token": wantToken,
+				}); err != nil {
+					t.Errorf("failed to write token response: %v", err)
+				}
+			}))
+			defer as.Close()
+
+			var service string
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if auth := r.Header.Get("Authorization"); auth != "" {
+					gotRegistryAuth = auth
+					return
+				}
+				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, "repository:test:pull")
+				w.Header().Set("Www-Authenticate", challenge)
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+			service = uri.Host
+
+			client := &Client{
+				CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+					return credentials.Credential{
+						Username: "test_user",
+						Password: "test_password",
+					}, nil
+				},
+			}
+			if tt.legacyFetcher {
+				client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
+			}
+
+			req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Client.Do() error = %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+			}
+			if gotTokenMethod != tt.wantTokenMethod {
+				t.Errorf("token endpoint method = %v, want %v", gotTokenMethod, tt.wantTokenMethod)
+			}
+			if want := "Bearer " + wantToken; gotRegistryAuth != want {
+				t.Errorf("registry received %q, want %q", gotRegistryAuth, want)
+			}
+		})
+	}
+}
+
+// TestClient_fetchBearerToken_RealmRedirect verifies that a token endpoint
+// redirect crossing an HTTP origin does not carry the credential along. The
+// distribution spec flow sends the credential to the realm as HTTP Basic, so
+// this path needs the same protection as a registry request.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+func TestClient_fetchBearerToken_RealmRedirect(t *testing.T) {
+	const (
+		username  = "test_user"
+		password  = "test_password"
+		wantToken = "test/access/token"
+	)
+	wantRealmAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	writeToken := func(w http.ResponseWriter) {
+		if err := json.NewEncoder(w).Encode(map[string]string{"token": wantToken}); err != nil {
+			t.Errorf("failed to write token response: %v", err)
+		}
+	}
+
+	tests := []struct {
+		name string
+		// crossOrigin redirects the realm to a second server on a different
+		// port, rather than to another path on the same server.
+		crossOrigin  bool
+		wantSinkAuth string
+	}{
+		{"cross-origin redirect drops credential", true, ""},
+		{"same-origin redirect keeps credential", false, wantRealmAuth},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sinkAuth atomic.Value
+			sinkAuth.Store("")
+
+			// sink is the redirect target when crossing origins.
+			sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sinkAuth.Store(r.Header.Get("Authorization"))
+				writeToken(w)
+			}))
+			defer sink.Close()
+
+			var as *httptest.Server
+			as = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/redirected":
+					sinkAuth.Store(r.Header.Get("Authorization"))
+					writeToken(w)
+				case tt.crossOrigin:
+					http.Redirect(w, r, sink.URL, http.StatusTemporaryRedirect)
+				default:
+					http.Redirect(w, r, as.URL+"/redirected", http.StatusTemporaryRedirect)
+				}
+			}))
+			defer as.Close()
+
+			var service string
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") == "Bearer "+wantToken {
+					return
+				}
+				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, "repository:test:pull")
+				w.Header().Set("Www-Authenticate", challenge)
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+			service = uri.Host
+
+			client := &Client{
+				CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+					return credentials.Credential{Username: username, Password: password}, nil
+				},
+			}
+			// Legacy mode sends the credential to the realm as HTTP Basic.
+			client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
+
+			req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Client.Do() error = %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+			}
+			if got := sinkAuth.Load().(string); got != tt.wantSinkAuth {
+				t.Errorf("redirect target received Authorization %q, want %q", got, tt.wantSinkAuth)
 			}
 		})
 	}

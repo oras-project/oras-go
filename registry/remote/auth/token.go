@@ -49,14 +49,14 @@ type TokenFetcher interface {
 
 // sendRequest adds the custom headers to the request and sends it using the
 // given client. If client is nil, http.DefaultClient is used.
+//
+// The client is wrapped by redirectSafeClient so that a token endpoint
+// redirect crossing an HTTP origin does not carry the credential along.
 func sendRequest(client *http.Client, header http.Header, req *http.Request) (*http.Response, error) {
 	for key, values := range header {
 		req.Header[key] = append(req.Header[key], values...)
 	}
-	if client == nil {
-		client = http.DefaultClient
-	}
-	return client.Do(req)
+	return redirectSafeClient(client).Do(req)
 }
 
 // decodeTokenResponse decodes a token endpoint response body and returns the
