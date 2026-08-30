@@ -24,14 +24,6 @@ import (
 	"reflect"
 	"testing"
 
-	// Registers the default config loader for the entire test binary, which
-	// includes the in-package (package credentials) tests. Those tests cannot
-	// perform this import themselves: config imports credentials, so importing
-	// config from package credentials would be an import cycle. Only an
-	// external test package can close that cycle. See TestMain in main_test.go,
-	// which fails fast if this import is ever dropped.
-	_ "github.com/oras-project/oras-go/v3/registry/remote/config"
-
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configtest"
 )
