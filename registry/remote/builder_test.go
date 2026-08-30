@@ -23,8 +23,10 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"math/big"
 	"net/http"
@@ -455,6 +457,69 @@ func TestClientBuilder_Build_WithInvalidCACert(t *testing.T) {
 	_, err := builder.Build(props)
 	if err == nil {
 		t.Error("Build() should return error for invalid CA cert path")
+	}
+}
+
+func Test_buildMirrorRepositories_invalidCACert(t *testing.T) {
+	const missingCACert = "/nonexistent/ca.crt"
+	builder := NewClientBuilder()
+
+	tests := []struct {
+		name     string
+		mirrors  []properties.Mirror
+		location string
+	}{
+		{
+			name: "single mirror with missing CA cert",
+			mirrors: []properties.Mirror{
+				{
+					Location: "mirror.example.com",
+					Transport: properties.Transport{
+						CACert: missingCACert,
+					},
+				},
+			},
+			location: "mirror.example.com",
+		},
+		{
+			name: "second of two mirrors fails",
+			mirrors: []properties.Mirror{
+				{Location: "good-mirror.example.com"},
+				{
+					Location: "bad-mirror.example.com",
+					Transport: properties.Transport{
+						CACert: missingCACert,
+					},
+				},
+			},
+			location: "bad-mirror.example.com",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			props := &properties.Registry{
+				Reference: properties.Reference{
+					Registry:   "registry.example.com",
+					Repository: "test/repo",
+				},
+				Mirrors: tt.mirrors,
+			}
+
+			got, err := buildMirrorRepositories(props, builder)
+			if got != nil {
+				t.Errorf("buildMirrorRepositories() = %v, want nil", got)
+			}
+			if err == nil {
+				t.Fatal("buildMirrorRepositories() error = nil, want wrapped CA cert read error")
+			}
+			if !strings.Contains(err.Error(), tt.location) {
+				t.Errorf("error %q does not name failing mirror %q", err, tt.location)
+			}
+			if !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("error %v is not fs.ErrNotExist through the wrap chain", err)
+			}
+		})
 	}
 }
 
