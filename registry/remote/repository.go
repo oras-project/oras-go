@@ -40,7 +40,6 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/httputil"
 	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/spec"
-	"github.com/oras-project/oras-go/v3/internal/syncutil"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
@@ -171,7 +170,8 @@ type Repository struct {
 
 	// referrersMergePool provides a way to manage concurrent updates to a
 	// referrers index tagged by referrers tag schema.
-	referrersMergePool syncutil.Pool[syncutil.Merge[referrerChange]]
+	// Lazily initialized via atomic CAS on first access; safe for concurrent use.
+	referrersMergePool atomic.Pointer[referrerMergePool]
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -366,6 +366,16 @@ func (r *Repository) ReferrersCapability() properties.ReferrersAPI {
 // loadReferrersState atomically loads r.referrersState.
 func (r *Repository) loadReferrersState() properties.ReferrersAPI {
 	return properties.ReferrersAPI(atomic.LoadInt32(&r.referrersState))
+}
+
+// getReferrersMergePool returns the referrers merge pool, initializing it if needed.
+// Safe for concurrent use: uses atomic CAS to ensure only one instance is created.
+func (r *Repository) getReferrersMergePool() *referrerMergePool {
+	if pool := r.referrersMergePool.Load(); pool != nil {
+		return pool
+	}
+	r.referrersMergePool.CompareAndSwap(nil, newReferrerMergePool())
+	return r.referrersMergePool.Load()
 }
 
 // do sends an HTTP request and returns an HTTP response using the HTTP client
@@ -1245,6 +1255,8 @@ func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
 		return false, err
 	}
+	// Policy has been evaluated for this operation; mark the context so the
+	// Resolve below does not evaluate it a second time.
 	_, err := s.Resolve(withPolicyChecked(ctx), target.Digest.String())
 	if err == nil {
 		return true, nil
@@ -1449,6 +1461,8 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
 		return false, err
 	}
+	// Policy has been evaluated for this operation; mark the context so the
+	// Resolve below does not evaluate it a second time.
 	_, err := s.Resolve(withPolicyChecked(ctx), target.Digest.String())
 	if err == nil {
 		return true, nil
@@ -1902,7 +1916,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		return nil
 	}
 
-	merge, done := s.repo.referrersMergePool.Get(referrersTag)
+	merge, done := s.repo.getReferrersMergePool().Get(referrersTag)
 	defer done()
 	return merge.Do(change, prepare, update)
 }
