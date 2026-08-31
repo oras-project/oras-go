@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -1890,6 +1891,105 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 			t.Errorf("count(PostCopy()) = %d, want %d", got, expected)
 		}
 	})
+}
+
+func TestCopyGraph_InvalidSuccessorDescriptor(t *testing.T) {
+	ctx := context.Background()
+	rootContent := []byte("root")
+	root := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, rootContent)
+
+	tests := []struct {
+		name      string
+		successor ocispec.Descriptor
+		reason    string
+	}{
+		{
+			name: "missing manifest size",
+			successor: ocispec.Descriptor{
+				MediaType: ocispec.MediaTypeImageManifest,
+				Digest:    digest.FromString("successor"),
+			},
+			reason: "manifest size must be greater than zero",
+		},
+		{
+			name: "negative size",
+			successor: ocispec.Descriptor{
+				MediaType: ocispec.MediaTypeImageLayer,
+				Digest:    digest.FromString("successor"),
+				Size:      -1,
+			},
+			reason: "invalid size -1",
+		},
+		{
+			name: "invalid digest",
+			successor: ocispec.Descriptor{
+				MediaType: ocispec.MediaTypeImageLayer,
+				Digest:    "not-a-digest",
+				Size:      1,
+			},
+			reason: "invalid digest",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := cas.NewMemory()
+			if err := src.Push(ctx, root, bytes.NewReader(rootContent)); err != nil {
+				t.Fatal(err)
+			}
+			opts := oras.CopyGraphOptions{
+				FindSuccessors: func(context.Context, content.Fetcher, ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+					return []ocispec.Descriptor{tt.successor}, nil
+				},
+			}
+
+			err := oras.CopyGraph(ctx, src, cas.NewMemory(), root, opts)
+			if err == nil {
+				t.Fatal("CopyGraph() error = nil, want invalid successor descriptor error")
+			}
+			want := fmt.Sprintf("invalid successor descriptor for %s: successor media type: %s; successor size: %d; successor digest: %s",
+				root.Digest, tt.successor.MediaType, tt.successor.Size, tt.successor.Digest)
+			if got := err.Error(); !strings.Contains(got, want) || !strings.Contains(got, tt.reason) {
+				t.Errorf("CopyGraph() error = %q, want it to contain %q and %q", got, want, tt.reason)
+			}
+		})
+	}
+}
+
+func TestCopyGraph_ZeroSizeBlobSuccessor(t *testing.T) {
+	ctx := context.Background()
+	src := cas.NewMemory()
+	dst := cas.NewMemory()
+	rootContent := []byte("root")
+	root := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, rootContent)
+	emptyBlob := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, nil)
+	contents := []struct {
+		desc ocispec.Descriptor
+		blob []byte
+	}{
+		{root, rootContent},
+		{emptyBlob, nil},
+	}
+	for _, item := range contents {
+		if err := src.Push(ctx, item.desc, bytes.NewReader(item.blob)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opts := oras.CopyGraphOptions{
+		FindSuccessors: func(_ context.Context, _ content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			if content.Equal(desc, root) {
+				return []ocispec.Descriptor{emptyBlob}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+		t.Fatalf("CopyGraph() error = %v", err)
+	}
+	if exists, err := dst.Exists(ctx, emptyBlob); err != nil || !exists {
+		t.Errorf("empty blob copied = %v, error = %v; want true, nil", exists, err)
+	}
 }
 
 // countingStorage counts the calls to its content.Storage methods
