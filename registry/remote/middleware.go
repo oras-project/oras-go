@@ -162,6 +162,11 @@ func (r *policyEnforcingRepository) Referrers(ctx context.Context, desc ocispec.
 	return r.repo.Referrers(ctx, desc, artifactType, fn)
 }
 
+// Predecessors bypasses policy checks so policy verification can discover attestations.
+func (r *policyEnforcingRepository) Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	return r.repo.Predecessors(ctx, node)
+}
+
 // Tags bypasses policy checks because it returns names rather than image content.
 func (r *policyEnforcingRepository) Tags(ctx context.Context, last string, fn func(tags []string) error) error {
 	return r.repo.Tags(ctx, last, fn)
