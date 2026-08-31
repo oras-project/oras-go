@@ -1,5 +1,9 @@
 # Migration Guide
 
+## Major Changes in `v3`
+
+- `registry.Repository` now embeds `content.PredecessorFinder`. Implementations of `registry.Repository` must provide a `Predecessors` method. Consumers who only call the interface are unaffected.
+
 In version `v2`, ORAS Go library has been completely refreshed with:
 
 - More unified interfaces

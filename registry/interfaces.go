@@ -40,6 +40,7 @@ type Repository interface {
 	content.Storage
 	content.Deleter
 	content.TagResolver
+	content.PredecessorFinder
 	ReferenceFetcher
 	ReferencePusher
 	ReferrerLister

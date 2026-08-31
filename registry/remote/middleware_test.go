@@ -381,8 +381,9 @@ func TestWithPolicyEnforcement_PolicyDenied_CarveOuts(t *testing.T) {
 
 	desc := ocispec.Descriptor{Digest: "sha256:test"}
 	baseRepo := &mockRepository{
-		referrersResult: []ocispec.Descriptor{desc},
-		tagsResult:      []string{"latest"},
+		referrersResult:    []ocispec.Descriptor{desc},
+		predecessorsResult: []ocispec.Descriptor{desc},
+		tagsResult:         []string{"latest"},
 	}
 	middleware := WithPolicyEnforcement(evaluator, policy.TransportNameDocker, "test/repo")
 	wrapped := middleware(baseRepo)
@@ -406,6 +407,14 @@ func TestWithPolicyEnforcement_PolicyDenied_CarveOuts(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("Referrers() error = %v, want nil", err)
+	}
+
+	predecessors, err := wrapped.Predecessors(ctx, desc)
+	if err != nil {
+		t.Errorf("Predecessors() error = %v, want nil", err)
+	}
+	if len(predecessors) != 1 || predecessors[0].Digest != desc.Digest {
+		t.Errorf("Predecessors() = %v, want [%v]", predecessors, desc)
 	}
 }
 
