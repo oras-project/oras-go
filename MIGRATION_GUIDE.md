@@ -32,7 +32,7 @@ an application is migrated package by package.
 ### Registry and repository configuration
 
 In v2, `remote.Repository` duplicated configuration such as the HTTP client,
-plain-HTTP setting, warning handler, policy, and metadata limit. In v3, a
+plain-HTTP setting, warning handler, and metadata limit. In v3, a
 repository points to its parent `remote.Registry`, which owns those shared
 settings. Per-repository overrides such as media types and tag/referrer page
 sizes remain on `remote.Repository`.
@@ -44,7 +44,15 @@ sizes remain on `remote.Repository`.
 | `repo.MaxMetadataBytes` | `repo.Registry.MaxMetadataBytes` |
 | `repo.HandleWarning` | `repo.Registry.HandleWarning` |
 | `repo.Reference` | `repo.Reference()` |
+| `repo.Reference.Repository` | `repo.RepositoryName` |
+| `repo.Reference.Registry` | `repo.Registry.Reference.Registry` |
 | `remote.Registry.RepositoryOptions` | fields directly on `remote.Registry` |
+
+Note that `Reference()` is a read-only getter; the reference can no longer be
+set through it. The v2 struct-literal pattern
+`&remote.Repository{Reference: ref, Client: c}` does not compile in v3;
+construct repositories with `remote.NewRepository` or
+`remote.NewRepositoryWithProperties` instead.
 
 For example:
 
@@ -93,6 +101,9 @@ function type explicit.
 | `auth.Client.Credential` | `auth.Client.CredentialFunc` |
 | `credentials.Credential(store)` | `remote.NewCredentialFunc(store)` |
 | `credentials.Login` / `credentials.Logout` | `remote.Login` / `remote.Logout` |
+| `credentials.ServerAddressFromHostname` | `remote.ServerAddressFromHostname` |
+| `credentials.ServerAddressFromRegistry` | `remote.ServerAddressFromRegistry` |
+| `credentials.ErrClientTypeUnsupported` | `remote.ErrClientTypeUnsupported` |
 
 For example:
 
@@ -139,9 +150,7 @@ store, err := credentials.NewStore(path, credentials.StoreOptions{
 
 When a native store is detected, v3 uses it for the current `DynamicStore` but
 does not write the detected `credsStore` value back to the Docker configuration
-file. Accordingly, `SetCredentialsStore` and `Save` were removed from
-`credentials.ConfigFile`. Custom implementations of that interface no longer
-need to provide those two methods.
+file.
 
 ### Bearer token flow
 
@@ -168,8 +177,8 @@ When using `remote.ClientBuilder`, the same choice can be made through
 `registry.Reference` now records a tag and digest separately. This preserves
 both parts of a reference such as `repository:tag@digest` instead of dropping
 the tag. Its `Digest()` method was renamed to `GetDigest()` because `Digest` is
-now a field, and `GetReference()` returns the digest when present or the tag
-otherwise.
+now a field. For references produced by the parsers, `GetReference()` returns
+the digest when present or the tag otherwise.
 
 The legacy `registry.Reference` type and `registry.ParseReference` function are
 deprecated in v3. New code should use
@@ -213,7 +222,9 @@ the reference must be a tag.
 `remote.Repository.SetReferrersCapability` no longer returns an error. The
 first value wins and later conflicting calls are ignored. Code that inspected
 `remote.ErrReferrersCapabilityAlreadySet` should set the value and then read
-back the effective state:
+back the effective state with the new `ReferrersCapability()` getter, which
+returns a `properties.ReferrersAPI` (`ReferrersAPISupported`,
+`ReferrersAPIUnsupported`, or `ReferrersAPIUnknown`) rather than a `bool`:
 
 ```go
 repo.SetReferrersCapability(true)
@@ -231,6 +242,9 @@ changes:
   package now loads configuration directly.
 - Remove uses of `credentials.ConfigFileLoader` and
   `credentials.ErrNoConfigLoader`; neither has a replacement.
+- Remove the `SetCredentialsStore` and `Save` methods from custom
+  implementations of `credentials.ConfigFile` (an interface introduced during
+  v3 development); both were dropped from the interface.
 - Remove the `force-basic-auth` key from `registries.conf` and uses of
   `properties.Attributes.ForceBasicAuth`. The option was never consumed. The
   registry's `WWW-Authenticate` challenge selects the authentication scheme;
@@ -266,6 +280,9 @@ changes:
   signatures with `registries.d` lookaside storage.
 - **Content caching:** `content/cache.CacheReadOnlyTarget` wraps a read-only
   target with a content store. `content/cache.NewFromEnv` uses `ORAS_CACHE`.
+- **Hierarchical credential matching:** `credentials.StoreOptions.Hierarchical`
+  enables longest-prefix namespace matching when reading credentials from the
+  plaintext config file, as used by containers `auth.json` (Podman/Buildah).
 - **HTTP diagnostics:** `remote.NewLoggingTransport` adds `slog`-based debug
   logging with sensitive-header redaction and bounded response bodies.
 - **Tag deletion:** `remote.Repository.Untag` deletes a tag without deleting
