@@ -1,65 +1,299 @@
 # Migration Guide
 
-## Major Changes in `v3`
+ORAS Go v3 changes the module path and reorganizes remote-registry
+configuration so that a registry owns settings shared by its repositories. It
+also moves credentials out of the `auth` package and makes several interface
+and authentication changes.
 
-- `registry.Repository` now embeds `content.PredecessorFinder`. Implementations of `registry.Repository` must provide a `Predecessors` method. Consumers who only call the interface are unaffected.
+This guide covers migration from v2 to v3. For the older v1 to v2 migration,
+see the [v2 branch migration guide](https://github.com/oras-project/oras-go/blob/v2/MIGRATION_GUIDE.md).
 
-In version `v2`, ORAS Go library has been completely refreshed with:
+## Upgrade the module
 
-- More unified interfaces
-- Notably fewer dependencies
-- Higher test coverage
-- Better documentation
+Replace the v2 module requirement and imports:
 
-**Additionally, ORAS Go `v2` is now a registry client.**
+```diff
+-oras.land/oras-go/v2
++github.com/oras-project/oras-go/v3
+```
 
-## Major Changes in `v2`
+Then update the module graph:
 
-- Content store
-  - [`content.File`](https://pkg.go.dev/oras.land/oras-go/pkg/content#File) is now [`file.Store`](https://pkg.go.dev/oras.land/oras-go/v2/content/file#Store)
-  - [`content.OCI`](https://pkg.go.dev/oras.land/oras-go/pkg/content#OCI) is now [`oci.Store`](https://pkg.go.dev/oras.land/oras-go/v2/content/oci#Store)
-  - [`content.Memory`](https://pkg.go.dev/oras.land/oras-go/pkg/content#Memory) is now [`memory.Store`](https://pkg.go.dev/oras.land/oras-go/v2/content/memory#Store)
-- Registry interaction
-  - Introduces an [SDK](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote) to interact with OCI-compliant and Docker-compliant registries
-- Authentication
-  - Implements authentication through [`auth.Client`](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#Client) and supports credential management via [`credentials`](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/credentials)
-- Copy operations
-  - Enhances artifact [copying](https://pkg.go.dev/oras.land/oras-go/v2#Copy) capabilities between various [`Target`](https://pkg.go.dev/oras.land/oras-go/v2#Target) with flexible options
-  - Enables [extended-copying](https://pkg.go.dev/oras.land/oras-go/v2#ExtendedCopy) of artifacts along with their predecessors (e.g., referrers)
+```sh
+go get github.com/oras-project/oras-go/v3
+go mod tidy
+```
 
-## Migrating from `v1` to `v2`
+The v2 and v3 module paths are distinct, so they can coexist temporarily while
+an application is migrated package by package.
 
-1. Get the `v2` package
+## Breaking changes
 
-    ```sh
-    go get oras.land/oras-go/v2
-    ```
+### Registry and repository configuration
 
-2. Import and use the `v2` package
+In v2, `remote.Repository` duplicated configuration such as the HTTP client,
+plain-HTTP setting, warning handler, policy, and metadata limit. In v3, a
+repository points to its parent `remote.Registry`, which owns those shared
+settings. Per-repository overrides such as media types and tag/referrer page
+sizes remain on `remote.Repository`.
 
-    ```go
-    import "oras.land/oras-go/v2"
-    ```
+| v2 | v3 |
+| --- | --- |
+| `repo.Client` | `repo.Registry.Client` |
+| `repo.PlainHTTP` | `repo.Registry.PlainHTTP` |
+| `repo.MaxMetadataBytes` | `repo.Registry.MaxMetadataBytes` |
+| `repo.HandleWarning` | `repo.Registry.HandleWarning` |
+| `repo.Reference` | `repo.Reference()` |
+| `remote.Registry.RepositoryOptions` | fields directly on `remote.Registry` |
 
-3. Run
+For example:
 
-   ```sh
-   go mod tidy
-    ```
+```go
+// v2
+repo, err := remote.NewRepository("localhost:5000/example")
+if err != nil {
+	return err
+}
+repo.Client = client
+repo.PlainHTTP = true
+ref := repo.Reference
+```
 
-Since breaking changes are introduced in `v2`, code refactoring is required for migrating from `v1` to `v2`.  
-The migration can be done in an iterative fashion, as `v1` and `v2` can be imported and used at the same time.
+becomes:
 
-For comprehensive documentation and examples, please refer to [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
+```go
+// v3
+repo, err := remote.NewRepository("localhost:5000/example")
+if err != nil {
+	return err
+}
+repo.Registry.Client = client
+repo.Registry.PlainHTTP = true
+ref := repo.Reference()
+```
+
+`remote.NewRegistryWithProperties` and
+`remote.NewRepositoryWithProperties` are the preferred constructors when
+configuration comes from `registries.conf`, Docker configuration, certificates,
+or policy files. They use `remote.ClientBuilder` to apply the same client and
+transport rules to the primary registry and its mirrors.
+
+### Authentication and credentials
+
+Credential values and functions moved from `registry/remote/auth` to
+`registry/remote/credentials`. The auth client field was renamed to make its
+function type explicit.
+
+| v2 | v3 |
+| --- | --- |
+| `auth.Credential` | `credentials.Credential` |
+| `auth.EmptyCredential` | `credentials.EmptyCredential` |
+| `auth.CredentialFunc` | `credentials.CredentialFunc` |
+| `auth.StaticCredential` | `credentials.StaticCredentialFunc` |
+| `auth.Client.Credential` | `auth.Client.CredentialFunc` |
+| `credentials.Credential(store)` | `remote.NewCredentialFunc(store)` |
+| `credentials.Login` / `credentials.Logout` | `remote.Login` / `remote.Logout` |
+
+For example:
+
+```go
+// v2
+client := &auth.Client{
+	Credential: auth.StaticCredential("registry.example.com", auth.Credential{
+		Username: "user",
+		Password: "password",
+	}),
+}
+```
+
+becomes:
+
+```go
+// v3
+client := &auth.Client{
+	CredentialFunc: credentials.StaticCredentialFunc(
+		"registry.example.com",
+		credentials.Credential{
+			Username: "user",
+			Password: "password",
+		},
+	),
+}
+```
+
+The `credentials.Store` methods now accept and return
+`credentials.Credential`. Custom stores must update their method signatures.
+
+#### Native credential-store detection
+
+`credentials.StoreOptions.DetectDefaultNativeStore` was replaced by the
+inverse `IgnoreDefaultNativeStore` option. Detection is enabled by default in
+v3:
+
+```go
+// Preserve the v2 zero-value behavior, which did not detect a native store.
+store, err := credentials.NewStore(path, credentials.StoreOptions{
+	IgnoreDefaultNativeStore: true,
+})
+```
+
+When a native store is detected, v3 uses it for the current `DynamicStore` but
+does not write the detected `credsStore` value back to the Docker configuration
+file. Accordingly, `SetCredentialsStore` and `Save` were removed from
+`credentials.ConfigFile`. Custom implementations of that interface no longer
+need to provide those two methods.
+
+### Bearer token flow
+
+`auth.Client.ForceAttemptOAuth2` was replaced by `auth.Client.TokenFetcher`.
+With username/password credentials, the v3 default uses the OAuth2 password
+grant. To preserve the v2 default and use the distribution-spec token flow,
+configure a composite fetcher in legacy mode:
+
+```go
+client.TokenFetcher = auth.NewCompositeTokenFetcher(
+	client.Client,
+	client.Header,
+	client.ClientID,
+	true,
+)
+```
+
+When using `remote.ClientBuilder`, the same choice can be made through
+`properties.TokenFlowDistribution`. A caller-supplied
+`ClientBuilder.TokenFetcher` takes precedence over the registry properties.
+
+### Registry references
+
+`registry.Reference` now records a tag and digest separately. This preserves
+both parts of a reference such as `repository:tag@digest` instead of dropping
+the tag. Its `Digest()` method was renamed to `GetDigest()` because `Digest` is
+now a field, and `GetReference()` returns the digest when present or the tag
+otherwise.
+
+The legacy `registry.Reference` type and `registry.ParseReference` function are
+deprecated in v3. New code should use
+`registry/remote/properties.Reference` and `properties.NewReference`:
+
+```go
+ref, err := properties.NewReference("registry.example.com/team/app:v1")
+if err != nil {
+	return err
+}
+fmt.Println(ref.Registry, ref.Repository, ref.Tag)
+```
+
+The parsers also accept `oci://`, `http://`, and `https://` prefixes.
+
+### Repository interfaces, predecessors, and untagging
+
+`registry.Repository` now embeds `content.PredecessorFinder`. Applications
+that only consume a `registry.Repository` are unaffected, but custom
+implementations must add:
+
+```go
+Predecessors(ctx context.Context, node ocispec.Descriptor) ([]ocispec.Descriptor, error)
+```
+
+This method returns the descriptors that directly point to `node`.
+
+`registry.ManifestStore` now embeds `content.Untagger`. Implementations must
+add:
+
+```go
+Untag(ctx context.Context, reference string) error
+```
+
+The concrete `remote.Repository` implements this method using the OCI
+Distribution Specification tag-deletion API. Untagging a digest is rejected;
+the reference must be a tag.
+
+### Referrers capability
+
+`remote.Repository.SetReferrersCapability` no longer returns an error. The
+first value wins and later conflicting calls are ignored. Code that inspected
+`remote.ErrReferrersCapabilityAlreadySet` should set the value and then read
+back the effective state:
+
+```go
+repo.SetReferrersCapability(true)
+effective := repo.ReferrersCapability()
+```
+
+`remote.ErrReferrersCapabilityAlreadySet` was removed.
+
+### Removed v3 development APIs
+
+Applications that tested against pre-release v3 snapshots may also need these
+changes:
+
+- Remove calls to `credentials.SetDefaultConfigLoader`. The credentials
+  package now loads configuration directly.
+- Remove uses of `credentials.ConfigFileLoader` and
+  `credentials.ErrNoConfigLoader`; neither has a replacement.
+- Remove the `force-basic-auth` key from `registries.conf` and uses of
+  `properties.Attributes.ForceBasicAuth`. The option was never consumed. The
+  registry's `WWW-Authenticate` challenge selects the authentication scheme;
+  `token-flow` selects how a bearer token is acquired.
+
+## Observable behavior changes
+
+- `oras.CopyError` includes a `Descriptor` when a copy operation had already
+  selected content. Its error string includes the digest in those cases. Use
+  `errors.As` and the structured fields rather than comparing error strings.
+- Registry repository listing can be bounded with `RepositoryListMaxPages`.
+  Its zero value is unlimited; exceeding a configured limit wraps
+  `errdef.ErrTooManyPages`. The existing tag and referrer page limits now also
+  serve as defaults on `remote.Registry`, with repository-level overrides.
+- A detected native credential store is no longer persisted to a shared Docker
+  configuration file as a side effect of `DynamicStore.Put`.
+
+## Major additions in v3
+
+- **Unified configuration:** `registry/remote/config.LoadConfigs` loads Docker
+  credentials, containers `auth.json`, `registries.conf`, `policy.json`,
+  `registries.d`, and certificate directories. The default path strategy
+  follows `containers/image`; the experimental UAPI strategy is also
+  available.
+- **Configured clients:** `remote.ClientBuilder` constructs clients,
+  registries, and repositories with TLS, retries, credentials, token flow,
+  warnings, logging, policy, and mirror settings.
+- **Registry mirrors:** repositories created from registry properties try
+  applicable mirrors for read operations and fall back to the primary.
+  Writes always go to the primary.
+- **Policy and signatures:** the `registry/remote/policy` package enforces
+  allow/deny policy, and `registry/remote/signature` verifies OpenPGP simple
+  signatures with `registries.d` lookaside storage.
+- **Content caching:** `content/cache.CacheReadOnlyTarget` wraps a read-only
+  target with a content store. `content/cache.NewFromEnv` uses `ORAS_CACHE`.
+- **HTTP diagnostics:** `remote.NewLoggingTransport` adds `slog`-based debug
+  logging with sensitive-header redaction and bounded response bodies.
+- **Tag deletion:** `remote.Repository.Untag` deletes a tag without deleting
+  the referenced manifest.
+- **Copy diagnostics and policy:** `oras.CopyError.Descriptor` identifies the
+  failing content, and `oras.CopyOptions.PolicyCheck` can reject a copy before
+  content transfer begins.
+
+For current API documentation and examples, see
+[pkg.go.dev](https://pkg.go.dev/github.com/oras-project/oras-go/v3).
 
 ## FAQs
 
-### Is there a 1:1 mapping of APIs between `v1` and `v2`?
+### Can v2 and v3 be imported by the same application?
 
-No, `v2` does not have a direct 1:1 mapping of APIs with `v1`, as the structure of the APIs has been significantly redesigned. Instead of looking for a direct replacement, see this as a chance to upgrade your application with `v2`'s new features.
+Yes. They have different module paths. This can make an incremental migration
+easier, but values from the two majors have distinct Go types and must not be
+mixed without explicit conversion.
 
-You can explore the [end-to-end examples](https://pkg.go.dev/oras.land/oras-go/v2#pkg-overview) that demonstrate the usage of v2 in practical scenarios.
+### Where is the v1 to v2 guide?
+
+It remains on the
+[`v2` branch](https://github.com/oras-project/oras-go/blob/v2/MIGRATION_GUIDE.md),
+next to the version it documents.
 
 ## Community Support
 
-If you encounter challenges during migration, seek assistance from the community by [submitting GitHub issues](https://github.com/oras-project/oras-go/issues/new) or asking in the [#oras](https://cloud-native.slack.com/archives/CJ1KHJM5Z) Slack channel.
+If you encounter challenges during migration, seek assistance from the
+community by [submitting a GitHub issue](https://github.com/oras-project/oras-go/issues/new)
+or asking in the [#oras](https://cloud-native.slack.com/archives/CJ1KHJM5Z)
+Slack channel.
