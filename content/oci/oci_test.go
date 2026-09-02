@@ -32,6 +32,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -2670,6 +2671,105 @@ func TestStore_GC(t *testing.T) {
 			t.Fatalf("want existence %d to be %v, got %v", i, wantValue, exists)
 		}
 	}
+}
+
+// TestStore_GCWithUnreachableReferrer covers an untagged referrer that stays in
+// the index while its subject is no longer reachable from any tag, which is
+// what a store looks like after a tag is removed from a manifest that has
+// referrers. Walking the subject chain must terminate, and a referrer that
+// reaches a tagged manifest after more than one hop must be kept.
+func TestStore_GCWithUnreachableReferrer(t *testing.T) {
+	ctx := context.Background()
+
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, subject *ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config:  config,
+			Subject: subject,
+			Layers:  layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("blob"))    // Blob 1
+	generateManifest(descs[0], nil, descs[1])                  // Blob 2, subject, left untagged
+	generateManifest(descs[0], &descs[2], descs[1])            // Blob 3, referrer of blob 2
+	generateManifest(descs[0], &descs[3], descs[1])            // Blob 4, referrer of blob 3
+
+	t.Run("subject unreachable from any tag", func(t *testing.T) {
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		for i := 0; i <= 3; i++ {
+			if err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i])); err != nil {
+				t.Fatalf("failed to push test content: %d: %v", i, err)
+			}
+		}
+
+		done := make(chan error, 1)
+		go func() { done <- s.GC(ctx) }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal("GC() error =", err)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("GC() did not return: the subject walk does not terminate")
+		}
+	})
+
+	t.Run("referrer two hops from a tagged manifest is kept", func(t *testing.T) {
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		for i := 0; i <= 4; i++ {
+			if err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i])); err != nil {
+				t.Fatalf("failed to push test content: %d: %v", i, err)
+			}
+		}
+		if err := s.Tag(ctx, descs[2], "latest"); err != nil {
+			t.Fatal("Tag() error =", err)
+		}
+
+		done := make(chan error, 1)
+		go func() { done <- s.GC(ctx) }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal("GC() error =", err)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("GC() did not return: the subject walk does not terminate")
+		}
+
+		// Blob 4 reaches the tagged blob 2 through blob 3, so both referrers
+		// are reachable and must survive.
+		for i := 0; i <= 4; i++ {
+			exists, err := s.Exists(ctx, descs[i])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !exists {
+				t.Errorf("descs[%d] should exist after GC", i)
+			}
+		}
+	})
 }
 
 func TestStore_GCAndDeleteOnIndex(t *testing.T) {
