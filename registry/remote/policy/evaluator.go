@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/errdef"
 )
 
@@ -30,6 +31,12 @@ type ImageReference struct {
 	Scope string
 	// Reference is the full reference (e.g., "docker.io/library/nginx:latest")
 	Reference string
+	// Digest is the manifest digest the reference resolves to, if known.
+	// Signature-based requirements (signedBy, sigstoreSigned) verify
+	// signatures against the manifest digest, so callers that resolve a tag
+	// reference should set it before evaluating those requirements.
+	// When empty, verifiers fall back to extracting a digest from Reference.
+	Digest digest.Digest
 }
 
 // SignedByVerifier verifies GPG/simple signing signatures.
@@ -114,6 +121,49 @@ func (e *Evaluator) IsImageAllowed(ctx context.Context, image ImageReference) (b
 	}
 
 	return true, nil
+}
+
+// IsReferenceAllowed determines if an image is allowed by the requirements
+// that can be decided from the reference alone, such as reject and
+// insecureAcceptAnything. Signature-based requirements (signedBy,
+// sigstoreSigned) are skipped: they verify signatures against a manifest
+// digest, which a tag reference or a reference-less operation does not
+// carry. Callers should evaluate them with IsImageAllowed once the
+// reference is resolved, setting ImageReference.Digest to the resolved
+// manifest digest.
+func (e *Evaluator) IsReferenceAllowed(ctx context.Context, image ImageReference) (bool, error) {
+	reqs := e.policy.GetRequirementsForImage(image.Transport, image.Scope)
+
+	if len(reqs) == 0 {
+		// No requirements: treat as a policy error and reject by default for safety.
+		return false, fmt.Errorf("no policy requirements found for %s:%s", image.Transport, image.Scope)
+	}
+
+	// All reference-level requirements must be satisfied.
+	for _, req := range reqs {
+		if requiresResolvedImage(req) {
+			continue
+		}
+		allowed, err := e.evaluateRequirement(ctx, req, image)
+		if err != nil {
+			return false, fmt.Errorf("failed to evaluate requirement %s: %w", req.Type(), err)
+		}
+		if !allowed {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// requiresResolvedImage reports whether the requirement needs the resolved
+// manifest digest of the image to be evaluated.
+func requiresResolvedImage(req PolicyRequirement) bool {
+	switch req.(type) {
+	case *PRSignedBy, *PRSigstoreSigned:
+		return true
+	}
+	return false
 }
 
 // evaluateRequirement evaluates a single policy requirement

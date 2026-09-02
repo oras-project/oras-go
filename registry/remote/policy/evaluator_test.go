@@ -254,3 +254,96 @@ func TestEvaluator_WithBothVerifiers(t *testing.T) {
 		t.Error("IsImageAllowed() should return true when all verifiers pass")
 	}
 }
+
+func TestEvaluator_IsReferenceAllowed(t *testing.T) {
+	image := ImageReference{
+		Transport: TransportNameDocker,
+		Scope:     "docker.io/library/nginx",
+		Reference: "docker.io/library/nginx:latest",
+	}
+
+	t.Run("signature requirements are deferred", func(t *testing.T) {
+		policy := &Policy{
+			Default: PolicyRequirements{
+				&PRSignedBy{KeyType: "GPGKeys", KeyPath: "/path/to/key.gpg"},
+				&PRSigstoreSigned{KeyPath: "/path/to/key.pub"},
+			},
+		}
+		// No verifiers configured: if signature requirements were evaluated,
+		// this would fail with ErrUnsupported.
+		evaluator, err := NewEvaluator(policy)
+		if err != nil {
+			t.Fatalf("NewEvaluator() error: %v", err)
+		}
+
+		allowed, err := evaluator.IsReferenceAllowed(context.Background(), image)
+		if err != nil {
+			t.Fatalf("IsReferenceAllowed() error: %v", err)
+		}
+		if !allowed {
+			t.Error("IsReferenceAllowed() = false, want true (signature requirements deferred)")
+		}
+	})
+
+	t.Run("reject is evaluated", func(t *testing.T) {
+		policy := &Policy{
+			Default: PolicyRequirements{
+				&PRSignedBy{KeyType: "GPGKeys", KeyPath: "/path/to/key.gpg"},
+				&Reject{},
+			},
+		}
+		evaluator, err := NewEvaluator(policy)
+		if err != nil {
+			t.Fatalf("NewEvaluator() error: %v", err)
+		}
+
+		allowed, err := evaluator.IsReferenceAllowed(context.Background(), image)
+		if err != nil {
+			t.Fatalf("IsReferenceAllowed() error: %v", err)
+		}
+		if allowed {
+			t.Error("IsReferenceAllowed() = true, want false (reject)")
+		}
+	})
+
+	t.Run("insecureAcceptAnything is evaluated", func(t *testing.T) {
+		policy := &Policy{
+			Default: PolicyRequirements{&InsecureAcceptAnything{}},
+		}
+		evaluator, err := NewEvaluator(policy)
+		if err != nil {
+			t.Fatalf("NewEvaluator() error: %v", err)
+		}
+
+		allowed, err := evaluator.IsReferenceAllowed(context.Background(), image)
+		if err != nil {
+			t.Fatalf("IsReferenceAllowed() error: %v", err)
+		}
+		if !allowed {
+			t.Error("IsReferenceAllowed() = false, want true")
+		}
+	})
+
+	t.Run("no requirements rejects", func(t *testing.T) {
+		policy := &Policy{
+			Default: PolicyRequirements{&InsecureAcceptAnything{}},
+			Transports: map[TransportName]TransportScopes{
+				TransportNameDocker: {
+					image.Scope: PolicyRequirements{},
+				},
+			},
+		}
+		evaluator, err := NewEvaluator(policy)
+		if err != nil {
+			t.Fatalf("NewEvaluator() error: %v", err)
+		}
+
+		allowed, err := evaluator.IsReferenceAllowed(context.Background(), image)
+		if err == nil {
+			t.Error("IsReferenceAllowed() error = nil, want error for empty requirements")
+		}
+		if allowed {
+			t.Error("IsReferenceAllowed() = true, want false")
+		}
+	})
+}

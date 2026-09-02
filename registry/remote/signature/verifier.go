@@ -64,10 +64,17 @@ func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *policy.PRSign
 		return false, fmt.Errorf("failed to load keyring: %w", err)
 	}
 
-	// Parse the image reference to get the digest.
-	imgDigest, err := parseImageDigest(image.Reference)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse image digest from reference %s: %w", image.Reference, err)
+	// Determine the manifest digest to verify against: prefer the resolved
+	// digest supplied by the caller, falling back to one embedded in the
+	// reference.
+	imgDigest := image.Digest
+	if imgDigest == "" {
+		imgDigest, err = parseImageDigest(image.Reference)
+		if err != nil {
+			return false, fmt.Errorf("failed to parse image digest from reference %s: %w", image.Reference, err)
+		}
+	} else if err := imgDigest.Validate(); err != nil {
+		return false, fmt.Errorf("invalid image digest %q: %w", imgDigest, err)
 	}
 
 	// Fetch signatures.
