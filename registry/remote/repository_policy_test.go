@@ -16,7 +16,9 @@ limitations under the License.
 package remote
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,10 +27,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
+	"github.com/oras-project/oras-go/v3/registry/remote/signature"
 )
 
 var testReference = registry.Reference{
@@ -592,8 +596,63 @@ func TestRepository_Resolve_SignedByPolicy_Tag(t *testing.T) {
 	if verifier.seen[0].Digest != indexDesc.Digest {
 		t.Errorf("verifier got digest %q, want %q", verifier.seen[0].Digest, indexDesc.Digest)
 	}
-	if verifier.seen[0].Reference != "signed" {
-		t.Errorf("verifier got reference %q, want %q", verifier.seen[0].Reference, "signed")
+	wantReference := repo.Reference().String() + ":signed"
+	if verifier.seen[0].Reference != wantReference {
+		t.Errorf("verifier got reference %q, want %q", verifier.seen[0].Reference, wantReference)
+	}
+}
+
+func TestRepository_DefaultSignedByVerifier_EndToEnd(t *testing.T) {
+	repo, desc := newSignedByTestServer(t, &recordingSignedByVerifier{allow: true})
+	imageReference := repo.Reference().String() + ":signed"
+
+	signer, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("openpgp.NewEntity() error = %v", err)
+	}
+	payload := signature.NewSimpleSigningPayload(desc.Digest, imageReference)
+	payloadBytes, err := payload.Marshal()
+	if err != nil {
+		t.Fatalf("payload.Marshal() error = %v", err)
+	}
+	signedData, err := signature.CreateOpenPGPSignature(payloadBytes, signer)
+	if err != nil {
+		t.Fatalf("CreateOpenPGPSignature() error = %v", err)
+	}
+
+	var publicKey bytes.Buffer
+	if err := signer.Serialize(&publicKey); err != nil {
+		t.Fatalf("signer.Serialize() error = %v", err)
+	}
+	storeURL := "file://" + t.TempDir()
+	store := signature.NewLookasideStore(storeURL, storeURL)
+	if err := store.PutSignature(context.Background(), repo.Reference().String(), desc.Digest, signedData); err != nil {
+		t.Fatalf("PutSignature() error = %v", err)
+	}
+	pol, err := policy.NewEvaluator(&policy.Policy{
+		Default: policy.PolicyRequirements{&policy.PRSignedBy{
+			KeyType: "GPGKeys",
+			KeyData: base64.StdEncoding.EncodeToString(publicKey.Bytes()),
+		}},
+	}, policy.WithSignedByVerifier(signature.NewSignedByVerifier(store)))
+	if err != nil {
+		t.Fatalf("NewEvaluator() error = %v", err)
+	}
+	repo.Registry.Policy = pol
+
+	got, err := repo.Resolve(context.Background(), "signed")
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got.Digest != desc.Digest {
+		t.Errorf("Resolve() = %v, want %v", got, desc)
+	}
+	rc, err := repo.Fetch(context.Background(), desc)
+	if err != nil {
+		t.Fatalf("Fetch() error = %v", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Errorf("Fetch().Close() error = %v", err)
 	}
 }
 
@@ -615,10 +674,11 @@ func TestRepository_Resolve_SignedByPolicy_DigestPreflight(t *testing.T) {
 	if *requests != 0 {
 		t.Errorf("registry requests = %d, want 0", *requests)
 	}
+	wantReference := repo.Reference().String() + reference
 	if len(verifier.seen) != 1 || verifier.seen[0].Digest != desc.Digest {
 		t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, desc.Digest)
-	} else if verifier.seen[0].Reference != reference {
-		t.Errorf("verifier got reference %q, want %q", verifier.seen[0].Reference, reference)
+	} else if verifier.seen[0].Reference != wantReference {
+		t.Errorf("verifier got reference %q, want %q", verifier.seen[0].Reference, wantReference)
 	}
 }
 

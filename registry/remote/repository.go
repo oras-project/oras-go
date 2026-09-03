@@ -410,25 +410,17 @@ func withPolicyChecked(ctx context.Context) context.Context {
 	return context.WithValue(ctx, policyCheckedKey{}, true)
 }
 
-// checkPolicy validates the repository access against the requirements of
-// the configured policy that can be decided from the reference alone, such
-// as reject and insecureAcceptAnything. If no policy is configured (Policy
-// is nil), this is a no-op.
+// checkPolicy validates repository access before network I/O. It evaluates
+// reference-level requirements for every reference and digest-dependent
+// requirements when the reference already carries a digest. If no policy is
+// configured (Policy is nil), this is a no-op.
 //
-// Policy is enforced on all registry operations including:
-//   - Content operations: Fetch, Push, Resolve, FetchReference, PushReference
-//   - Metadata operations: Exists, Tags, Referrers, Predecessors
-//   - Mutating operations: Delete, Tag, Mount
-//
-// Signature requirements (signedBy/sigstoreSigned) verify signatures
-// against a manifest digest, which a tag reference or a reference-less
-// operation does not carry, so they are evaluated separately by
-// checkPolicyResolved on the operations that resolve or supply a manifest
-// descriptor: Fetch, Push, Exists, Delete, Resolve, FetchReference, Tag and
-// PushReference. Operations that never involve a manifest are subject only
-// to reference-level requirements. Descriptor-based push operations verify
-// the supplied manifest before uploading it, so its signing material must be
-// discoverable by the configured verifier at that point.
+// Signature requirements (signedBy/sigstoreSigned) are otherwise evaluated
+// by checkPolicyResolved when an operation resolves or supplies a manifest
+// descriptor. Blob operations and operations without a manifest remain
+// reference-level only. Descriptor-based push operations verify the supplied
+// manifest before uploading it, so its signing material must be discoverable
+// by the configured verifier at that point.
 func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 	if ctx.Value(policyCheckedKey{}) != nil {
 		return nil
@@ -447,7 +439,8 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 	if !allowed {
 		return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
 	}
-	if imageRef.Digest = r.policyDigest(reference); imageRef.Digest != "" {
+	imageRef.Digest = r.policyDigest(reference)
+	if imageRef.Digest != "" {
 		allowed, err = pol.IsResolvedImageAllowed(withPolicyChecked(ctx), imageRef)
 		if err != nil {
 			return fmt.Errorf("policy check failed: %w", err)
@@ -462,7 +455,8 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 // checkPolicyResolved validates the manifest descriptor a reference resolves
 // to against digest-dependent policy requirements. The caller's reference is
 // kept for signed identity matching while the resolved digest is used for
-// signature lookup and payload validation.
+// signature lookup and payload validation. Callers must first call checkPolicy
+// with the same reference because digest references are fully checked there.
 func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, desc ocispec.Descriptor) error {
 	if ctx.Value(policyCheckedKey{}) != nil {
 		return nil
@@ -478,7 +472,11 @@ func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, 
 		return nil
 	}
 
-	imageRef := r.policyImageReference(reference)
+	policyReference := reference
+	if policyReference == "" {
+		policyReference = desc.Digest.String()
+	}
+	imageRef := r.policyImageReference(policyReference)
 	imageRef.Digest = desc.Digest
 
 	// Mark the context as checked so verifiers that call back into this
@@ -516,7 +514,11 @@ func (r *Repository) policyImageReference(reference string) policy.ImageReferenc
 	repoRef := r.Reference()
 	ref := repoRef.String()
 	if reference != "" {
-		ref = reference
+		if parsed, err := r.ParseReference(reference); err == nil {
+			ref = parsed.String()
+		} else {
+			ref = reference
+		}
 	}
 	return policy.ImageReference{
 		Transport: policy.TransportNameDocker,
