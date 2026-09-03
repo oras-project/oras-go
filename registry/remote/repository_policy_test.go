@@ -400,9 +400,11 @@ func TestRepository_ScopeSpecificPolicy(t *testing.T) {
 // mockReadCloser is a simple mock for testing
 type mockReadCloser struct {
 	io.Reader
+	closed bool
 }
 
 func (m *mockReadCloser) Close() error {
+	m.closed = true
 	return nil
 }
 
@@ -450,13 +452,21 @@ func newSignedByPolicyRepo(t *testing.T, verifier policy.SignedByVerifier) *Repo
 // reference without an explicit digest.
 func newSignedByTestServer(t *testing.T, verifier policy.SignedByVerifier) (*Repository, ocispec.Descriptor) {
 	t.Helper()
+	repo, desc, _ := newSignedByTestServerWithRequests(t, verifier)
+	return repo, desc
+}
+
+func newSignedByTestServerWithRequests(t *testing.T, verifier policy.SignedByVerifier) (*Repository, ocispec.Descriptor, *int) {
+	t.Helper()
 	index := []byte(`{"manifests":[]}`)
 	indexDesc := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageIndex,
 		Digest:    digest.FromBytes(index),
 		Size:      int64(len(index)),
 	}
+	requests := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
 		switch r.URL.Path {
 		case "/v2/test/manifests/signed",
 			"/v2/test/manifests/" + indexDesc.Digest.String():
@@ -483,7 +493,7 @@ func newSignedByTestServer(t *testing.T, verifier policy.SignedByVerifier) (*Rep
 	}
 	repo.Registry.PlainHTTP = true
 	repo.Registry.Policy = newSignedByEvaluator(t, verifier)
-	return repo, indexDesc
+	return repo, indexDesc, &requests
 }
 
 func TestRepository_SignedByPolicy_TaglessOperation(t *testing.T) {
@@ -497,6 +507,70 @@ func TestRepository_SignedByPolicy_TaglessOperation(t *testing.T) {
 	}
 	if len(verifier.seen) != 0 {
 		t.Errorf("signature verifier should not be called without a manifest reference, got %d calls", len(verifier.seen))
+	}
+}
+
+func TestRepository_ManifestDescriptorOperations_SignedByPolicy_Denied(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation func(context.Context, *Repository, ocispec.Descriptor) error
+	}{
+		{
+			name: "Fetch",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				_, err := repo.Fetch(ctx, desc)
+				return err
+			},
+		},
+		{
+			name: "Manifests().Fetch",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				_, err := repo.Manifests().Fetch(ctx, desc)
+				return err
+			},
+		},
+		{
+			name: "Push",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				return repo.Push(ctx, desc, strings.NewReader(`{"manifests":[]}`))
+			},
+		},
+		{
+			name: "Manifests().Push",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				return repo.Manifests().Push(ctx, desc, strings.NewReader(`{"manifests":[]}`))
+			},
+		},
+		{
+			name: "Delete",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				repo.SetReferrersCapability(true)
+				return repo.Delete(ctx, desc)
+			},
+		},
+		{
+			name: "Manifests().Delete",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				repo.SetReferrersCapability(true)
+				return repo.Manifests().Delete(ctx, desc)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			verifier := &recordingSignedByVerifier{allow: false}
+			repo, desc, requests := newSignedByTestServerWithRequests(t, verifier)
+
+			err := tt.operation(context.Background(), repo, desc)
+			assertPolicyDenied(t, err, tt.name)
+			if *requests != 0 {
+				t.Errorf("registry requests = %d, want 0", *requests)
+			}
+			if len(verifier.seen) != 1 || verifier.seen[0].Digest != desc.Digest {
+				t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, desc.Digest)
+			}
+		})
 	}
 }
 
@@ -531,6 +605,90 @@ func TestRepository_Resolve_SignedByPolicy_Denied(t *testing.T) {
 	assertPolicyDenied(t, err, "Resolve()")
 }
 
+func TestRepository_Resolve_SignedByPolicy_DigestPreflight(t *testing.T) {
+	verifier := &recordingSignedByVerifier{allow: false}
+	repo, desc, requests := newSignedByTestServerWithRequests(t, verifier)
+	reference := "@" + desc.Digest.String()
+
+	_, err := repo.Resolve(context.Background(), reference)
+	assertPolicyDenied(t, err, "Resolve()")
+	if *requests != 0 {
+		t.Errorf("registry requests = %d, want 0", *requests)
+	}
+	if len(verifier.seen) != 1 || verifier.seen[0].Digest != desc.Digest {
+		t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, desc.Digest)
+	} else if verifier.seen[0].Reference != reference {
+		t.Errorf("verifier got reference %q, want %q", verifier.seen[0].Reference, reference)
+	}
+}
+
+func TestRepository_Resolve_SignedByPolicy_DigestChecksOnce(t *testing.T) {
+	verifier := &recordingSignedByVerifier{allow: true}
+	repo, desc, requests := newSignedByTestServerWithRequests(t, verifier)
+	reference := "@" + desc.Digest.String()
+
+	got, err := repo.Resolve(context.Background(), reference)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got.Digest != desc.Digest {
+		t.Errorf("Resolve() = %v, want %v", got, desc)
+	}
+	if *requests != 1 {
+		t.Errorf("registry requests = %d, want 1", *requests)
+	}
+	if len(verifier.seen) != 1 || verifier.seen[0].Digest != desc.Digest {
+		t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, desc.Digest)
+	}
+}
+
+func TestRepository_SignedByPolicy_MirrorPaths(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation func(context.Context, *Repository) (ocispec.Descriptor, io.ReadCloser, error)
+	}{
+		{
+			name: "Resolve",
+			operation: func(ctx context.Context, repo *Repository) (ocispec.Descriptor, io.ReadCloser, error) {
+				desc, err := repo.Resolve(ctx, "signed")
+				return desc, nil, err
+			},
+		},
+		{
+			name: "FetchReference",
+			operation: func(ctx context.Context, repo *Repository) (ocispec.Descriptor, io.ReadCloser, error) {
+				return repo.FetchReference(ctx, "signed")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			verifier := &recordingSignedByVerifier{allow: true}
+			primary, want, primaryRequests := newSignedByTestServerWithRequests(t, verifier)
+			mirror, _, mirrorRequests := newSignedByTestServerWithRequests(t, verifier)
+			primary.mirrors = []mirrorRepository{{Repository: mirror, pullFromMirror: PullFromMirrorAll}}
+
+			got, rc, err := tt.operation(context.Background(), primary)
+			if err != nil {
+				t.Fatalf("%s() error = %v", tt.name, err)
+			}
+			if rc != nil {
+				defer rc.Close()
+			}
+			if got.Digest != want.Digest {
+				t.Errorf("%s() = %v, want %v", tt.name, got, want)
+			}
+			if *primaryRequests != 0 || *mirrorRequests != 1 {
+				t.Errorf("registry requests = primary %d, mirror %d; want primary 0, mirror 1", *primaryRequests, *mirrorRequests)
+			}
+			if len(verifier.seen) != 1 || verifier.seen[0].Digest != want.Digest {
+				t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, want.Digest)
+			}
+		})
+	}
+}
+
 func TestRepository_FetchReference_SignedByPolicy_Tag(t *testing.T) {
 	verifier := &recordingSignedByVerifier{allow: true}
 	repo, indexDesc := newSignedByTestServer(t, verifier)
@@ -554,6 +712,71 @@ func TestRepository_FetchReference_SignedByPolicy_Denied(t *testing.T) {
 
 	_, _, err := repo.FetchReference(context.Background(), "signed")
 	assertPolicyDenied(t, err, "FetchReference()")
+}
+
+func TestRepository_FetchReference_SignedByPolicy_DeniedClosesBody(t *testing.T) {
+	verifier := &recordingSignedByVerifier{allow: false}
+	repo := newSignedByPolicyRepo(t, verifier)
+	manifest := []byte(`{"manifests":[]}`)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	body := &mockReadCloser{Reader: strings.NewReader(string(manifest))}
+	repo.Registry.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": {desc.MediaType}, "Docker-Content-Digest": {desc.Digest.String()}},
+			Body:          body,
+			ContentLength: desc.Size,
+			Request:       req,
+		}, nil
+	})}
+
+	_, _, err := repo.FetchReference(context.Background(), "signed")
+	assertPolicyDenied(t, err, "FetchReference()")
+	if !body.closed {
+		t.Error("response body was not closed after policy denial")
+	}
+}
+
+func TestRepository_ManifestStore_FetchReference_UnknownContentLengthChecksPolicyOnce(t *testing.T) {
+	verifier := &recordingSignedByVerifier{allow: true}
+	repo := newSignedByPolicyRepo(t, verifier)
+	manifest := []byte(`{"manifests":[]}`)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	repo.Registry.Client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := io.NopCloser(strings.NewReader(""))
+		contentLength := desc.Size
+		if req.Method == http.MethodGet {
+			body = io.NopCloser(strings.NewReader(string(manifest)))
+			contentLength = -1
+		}
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"Content-Type": {desc.MediaType}, "Docker-Content-Digest": {desc.Digest.String()}},
+			Body:          body,
+			ContentLength: contentLength,
+			Request:       req,
+		}, nil
+	})}
+
+	got, rc, err := repo.Manifests().FetchReference(context.Background(), "signed")
+	if err != nil {
+		t.Fatalf("Manifests().FetchReference() error = %v", err)
+	}
+	defer rc.Close()
+	if got.Digest != desc.Digest {
+		t.Errorf("Manifests().FetchReference() = %v, want %v", got, desc)
+	}
+	if len(verifier.seen) != 1 || verifier.seen[0].Digest != desc.Digest {
+		t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, desc.Digest)
+	}
 }
 
 func TestRepository_ManifestStore_Resolve_SignedByPolicy_Denied(t *testing.T) {

@@ -347,3 +347,54 @@ func TestEvaluator_IsReferenceAllowed(t *testing.T) {
 		}
 	})
 }
+
+func TestEvaluator_IsResolvedImageAllowed_SkipsReferenceRequirements(t *testing.T) {
+	policy := &Policy{
+		Default: PolicyRequirements{
+			&Reject{},
+			&PRSignedBy{KeyType: "GPGKeys", KeyPath: "/path/to/key.gpg"},
+		},
+	}
+	evaluator, err := NewEvaluator(policy, WithSignedByVerifier(&mockSignedByVerifier{result: true}))
+	if err != nil {
+		t.Fatalf("NewEvaluator() error: %v", err)
+	}
+
+	allowed, err := evaluator.IsResolvedImageAllowed(context.Background(), ImageReference{
+		Transport: TransportNameDocker,
+		Scope:     "docker.io/library/nginx",
+		Reference: "docker.io/library/nginx:latest",
+	})
+	if err != nil {
+		t.Fatalf("IsResolvedImageAllowed() error: %v", err)
+	}
+	if !allowed {
+		t.Error("IsResolvedImageAllowed() = false, want true (reference requirements skipped)")
+	}
+}
+
+func TestEvaluator_IsResolvedImageAllowed_NoRequirementsRejects(t *testing.T) {
+	policy := &Policy{
+		Default: PolicyRequirements{&InsecureAcceptAnything{}},
+		Transports: map[TransportName]TransportScopes{
+			TransportNameDocker: {
+				"docker.io/library/nginx": PolicyRequirements{},
+			},
+		},
+	}
+	evaluator, err := NewEvaluator(policy)
+	if err != nil {
+		t.Fatalf("NewEvaluator() error: %v", err)
+	}
+
+	allowed, err := evaluator.IsResolvedImageAllowed(context.Background(), ImageReference{
+		Transport: TransportNameDocker,
+		Scope:     "docker.io/library/nginx",
+	})
+	if err == nil {
+		t.Error("IsResolvedImageAllowed() error = nil, want error for empty requirements")
+	}
+	if allowed {
+		t.Error("IsResolvedImageAllowed() = true, want false")
+	}
+}
