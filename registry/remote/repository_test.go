@@ -149,6 +149,16 @@ func TestNewRepository(t *testing.T) {
 			wantErr:   errdef.ErrInvalidReference,
 		},
 		{
+			name:      "reference with tag",
+			reference: "localhost:5000/hello-world:v1",
+			wantErr:   errdef.ErrInvalidReference,
+		},
+		{
+			name:      "reference with digest",
+			reference: "localhost:5000/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			wantErr:   errdef.ErrInvalidReference,
+		},
+		{
 			name:      "empty reference",
 			reference: "",
 			wantErr:   errdef.ErrInvalidReference,

@@ -177,10 +177,18 @@ type Repository struct {
 // NewRepository creates a client to the remote repository identified by a
 // reference. A default Registry is created internally.
 // Example: localhost:5000/hello-world
+//
+// The reference must not contain a tag or a digest, since a Repository
+// identifies a repository rather than a specific artifact. A reference
+// carrying one is rejected with an error wrapping
+// [errdef.ErrInvalidReference].
 func NewRepository(reference string) (*Repository, error) {
 	ref, err := registry.ParseReference(reference)
 	if err != nil {
 		return nil, err
+	}
+	if ref.Tag != "" || ref.Digest != "" {
+		return nil, fmt.Errorf("%w: %q: expected a repository without a tag or digest", errdef.ErrInvalidReference, reference)
 	}
 
 	// Create a default Registry
