@@ -80,6 +80,15 @@ repo.Registry.PlainHTTP = true
 ref := repo.Reference()
 ```
 
+`repo.Reference` → `repo.Reference()` is not a pure rename. In v2 the field
+held the full parsed reference, including any tag or digest passed to
+`remote.NewRepository`; in v3 a `remote.Repository` identifies a repository
+only, so `Reference()` returns just the registry and repository name, and
+`remote.NewRepository` rejects a reference carrying a tag or digest with an
+error wrapping `errdef.ErrInvalidReference`. Parse such input with
+`properties.NewReference` and keep the tag or digest for the operation that
+needs it.
+
 `remote.NewRegistryWithProperties` and
 `remote.NewRepositoryWithProperties` are the preferred constructors when
 configuration comes from `registries.conf`, Docker configuration, certificates,
@@ -252,6 +261,10 @@ changes:
 
 ## Observable behavior changes
 
+- `remote.NewRepository` returns an error wrapping `errdef.ErrInvalidReference`
+  when the reference contains a tag or digest (e.g.
+  `localhost:5000/example:v1`). In v2 such a reference was accepted and the
+  tag or digest was kept on `repo.Reference`.
 - `oras.CopyError` includes a `Descriptor` when a copy operation had already
   selected content. Its error string includes the digest in those cases. Use
   `errors.As` and the structured fields rather than comparing error strings.
