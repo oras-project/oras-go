@@ -894,8 +894,8 @@ func TestPackManifest(t *testing.T) {
 
 		artifactType := "application/vnd.test.pack.annotated"
 		annotations := map[string]string{
-			"com.example.key":              "value123",
-			ocispec.AnnotationCreated:       time.Now().UTC().Format(time.RFC3339),
+			"com.example.key":         "value123",
+			ocispec.AnnotationCreated: time.Now().UTC().Format(time.RFC3339),
 		}
 		packOpts := oras.PackManifestOptions{
 			ManifestAnnotations: annotations,

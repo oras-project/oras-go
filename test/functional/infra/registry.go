@@ -27,8 +27,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -42,14 +42,14 @@ import (
 
 // gvkToGVR maps well-known GVKs to GVRs to avoid needing discovery.
 var gvkToGVR = map[schema.GroupVersionKind]schema.GroupVersionResource{
-	{Group: "", Version: "v1", Kind: "ConfigMap"}:                 {Group: "", Version: "v1", Resource: "configmaps"},
-	{Group: "", Version: "v1", Kind: "Secret"}:                    {Group: "", Version: "v1", Resource: "secrets"},
-	{Group: "", Version: "v1", Kind: "Service"}:                   {Group: "", Version: "v1", Resource: "services"},
-	{Group: "", Version: "v1", Kind: "Namespace"}:                 {Group: "", Version: "v1", Resource: "namespaces"},
-	{Group: "apps", Version: "v1", Kind: "Deployment"}:            {Group: "apps", Version: "v1", Resource: "deployments"},
-	{Group: "apps", Version: "v1", Kind: "StatefulSet"}:           {Group: "apps", Version: "v1", Resource: "statefulsets"},
-	{Group: "apps", Version: "v1", Kind: "DaemonSet"}:             {Group: "apps", Version: "v1", Resource: "daemonsets"},
-	{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"}:  {Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
+	{Group: "", Version: "v1", Kind: "ConfigMap"}:                {Group: "", Version: "v1", Resource: "configmaps"},
+	{Group: "", Version: "v1", Kind: "Secret"}:                   {Group: "", Version: "v1", Resource: "secrets"},
+	{Group: "", Version: "v1", Kind: "Service"}:                  {Group: "", Version: "v1", Resource: "services"},
+	{Group: "", Version: "v1", Kind: "Namespace"}:                {Group: "", Version: "v1", Resource: "namespaces"},
+	{Group: "apps", Version: "v1", Kind: "Deployment"}:           {Group: "apps", Version: "v1", Resource: "deployments"},
+	{Group: "apps", Version: "v1", Kind: "StatefulSet"}:          {Group: "apps", Version: "v1", Resource: "statefulsets"},
+	{Group: "apps", Version: "v1", Kind: "DaemonSet"}:            {Group: "apps", Version: "v1", Resource: "daemonsets"},
+	{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"}: {Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"},
 }
 
 // ApplyManifests reads all YAML files from a directory and creates/updates resources
