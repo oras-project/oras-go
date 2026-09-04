@@ -392,7 +392,7 @@ func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopes(context.Background(), scope)
+	ctx := WithScopesForHost(context.Background(), uri.Host, scope)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -858,7 +858,7 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 	client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
 
 	// first request
-	ctx := WithScopes(context.Background(), scopes...)
+	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -1467,7 +1467,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopes(context.Background(), scopes...)
+	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -2095,7 +2095,7 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopes(context.Background(), scopes...)
+	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -2568,7 +2568,7 @@ func TestClient_Do_Token_Expire(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopes(context.Background(), scopes...)
+	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -2975,7 +2975,7 @@ func TestClient_Do_Scope_Hint_Mismatch(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopes(context.Background(), scopes...)
+	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)

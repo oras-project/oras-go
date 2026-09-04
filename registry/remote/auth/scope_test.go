@@ -169,88 +169,7 @@ func TestAppendRepositoryScope(t *testing.T) {
 	}
 }
 
-func TestWithScopes(t *testing.T) {
-	ctx := context.Background()
-
-	// with single scope
-	want := []string{
-		"repository:foo:pull",
-	}
-	ctx = WithScopes(ctx, want...)
-	if got := GetScopes(ctx); !reflect.DeepEqual(got, want) {
-		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want)
-	}
-
-	// overwrite scopes
-	want = []string{
-		"repository:bar:push",
-	}
-	ctx = WithScopes(ctx, want...)
-	if got := GetScopes(ctx); !reflect.DeepEqual(got, want) {
-		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want)
-	}
-
-	// overwrite scopes with de-duplication
-	scopes := []string{
-		"repository:hello-world:push",
-		"repository:alpine:delete",
-		"repository:hello-world:pull",
-		"repository:alpine:delete",
-	}
-	want = []string{
-		"repository:alpine:delete",
-		"repository:hello-world:pull,push",
-	}
-	ctx = WithScopes(ctx, scopes...)
-	if got := GetScopes(ctx); !reflect.DeepEqual(got, want) {
-		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want)
-	}
-
-	// clean scopes
-	want = nil
-	ctx = WithScopes(ctx, want...)
-	if got := GetScopes(ctx); !reflect.DeepEqual(got, want) {
-		t.Errorf("GetScopes(WithScopes()) = %v, want %v", got, want)
-	}
-}
-
-func TestAppendScopes(t *testing.T) {
-	ctx := context.Background()
-
-	// append single scope
-	want := []string{
-		"repository:foo:pull",
-	}
-	ctx = AppendScopes(ctx, want...)
-	if got := GetScopes(ctx); !reflect.DeepEqual(got, want) {
-		t.Errorf("GetScopes(AppendScopes()) = %v, want %v", got, want)
-	}
-
-	// append scopes with de-duplication
-	scopes := []string{
-		"repository:hello-world:push",
-		"repository:alpine:delete",
-		"repository:hello-world:pull",
-		"repository:alpine:delete",
-	}
-	want = []string{
-		"repository:alpine:delete",
-		"repository:foo:pull",
-		"repository:hello-world:pull,push",
-	}
-	ctx = AppendScopes(ctx, scopes...)
-	if got := GetScopes(ctx); !reflect.DeepEqual(got, want) {
-		t.Errorf("GetScopes(AppendScopes()) = %v, want %v", got, want)
-	}
-
-	// append empty scopes
-	ctx = AppendScopes(ctx)
-	if got := GetScopes(ctx); !reflect.DeepEqual(got, want) {
-		t.Errorf("GetScopes(AppendScopes()) = %v, want %v", got, want)
-	}
-}
-
-func TestWithScopesPerHost(t *testing.T) {
+func TestWithScopesForHost(t *testing.T) {
 	ctx := context.Background()
 	reg1 := "registry1.example.com"
 	reg2 := "registry2.example.com"
@@ -269,6 +188,9 @@ func TestWithScopesPerHost(t *testing.T) {
 	}
 	if got := GetScopesForHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
 		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want2)
+	}
+	if got := GetScopesForHost(ctx, "registry3.example.com"); got != nil {
+		t.Errorf("GetScopesForHost() = %v for an unrelated host, want nil", got)
 	}
 
 	// overwrite scopes
@@ -329,7 +251,7 @@ func TestWithScopesPerHost(t *testing.T) {
 	}
 }
 
-func TestAppendScopesPerHost(t *testing.T) {
+func TestAppendScopesForHost(t *testing.T) {
 	ctx := context.Background()
 	reg1 := "registry1.example.com"
 	reg2 := "registry2.example.com"
@@ -654,74 +576,6 @@ func Test_cleanActions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := cleanActions(tt.actions); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("cleanActions() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_getAllScopesForHost(t *testing.T) {
-	host := "registry.example.com"
-	tests := []struct {
-		name         string
-		scopes       []string
-		globalScopes []string
-		want         []string
-	}{
-		{
-			name:   "Empty per-host scopes",
-			scopes: []string{},
-			globalScopes: []string{
-				"repository:hello-world:push",
-				"repository:alpine:delete",
-				"repository:hello-world:pull",
-				"repository:alpine:delete",
-			},
-			want: []string{
-				"repository:alpine:delete",
-				"repository:hello-world:pull,push",
-			},
-		},
-		{
-			name: "Empty global scopes",
-			scopes: []string{
-				"repository:hello-world:push",
-				"repository:alpine:delete",
-				"repository:hello-world:pull",
-				"repository:alpine:delete",
-			},
-			globalScopes: []string{},
-			want: []string{
-				"repository:alpine:delete",
-				"repository:hello-world:pull,push",
-			},
-		},
-		{
-			name: "Per-host scopes + global scopes",
-			scopes: []string{
-				"repository:hello-world:push",
-				"repository:alpine:delete",
-				"repository:hello-world:pull",
-				"repository:alpine:delete",
-			},
-			globalScopes: []string{
-				"repository:foo:pull",
-				"repository:hello-world:pull",
-				"repository:alpine:pull",
-			},
-			want: []string{
-				"repository:alpine:delete,pull",
-				"repository:foo:pull",
-				"repository:hello-world:pull,push",
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			ctx = WithScopesForHost(ctx, host, tt.scopes...)
-			ctx = WithScopes(ctx, tt.globalScopes...)
-			if got := GetAllScopesForHost(ctx, host); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("getAllScopesForHost() = %v, want %v", got, tt.want)
 			}
 		})
 	}
