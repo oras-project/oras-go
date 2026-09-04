@@ -51,8 +51,8 @@ sizes remain on `remote.Repository`.
 Note that `Reference()` is a read-only getter; the reference can no longer be
 set through it. The v2 struct-literal pattern
 `&remote.Repository{Reference: ref, Client: c}` does not compile in v3;
-construct repositories with `remote.NewRepository` or
-`remote.NewRepositoryWithProperties` instead.
+construct the repository with `remote.NewRepository`, then configure its
+shared client through `repo.Registry.Client`, as shown below.
 
 For example:
 
