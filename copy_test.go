@@ -1947,7 +1947,7 @@ func TestCopyGraph_InvalidSuccessorDescriptor(t *testing.T) {
 			if err == nil {
 				t.Fatal("CopyGraph() error = nil, want invalid successor descriptor error")
 			}
-			want := fmt.Sprintf("invalid successor descriptor for %s: successor media type: %s; successor size: %d; successor digest: %s",
+			want := fmt.Sprintf("failed to perform \"FindSuccessors\" on source for %s: invalid successor descriptor: successor media type: %s; successor size: %d; successor digest: %s",
 				root.Digest, tt.successor.MediaType, tt.successor.Size, tt.successor.Digest)
 			if got := err.Error(); !strings.Contains(got, want) || !strings.Contains(got, tt.reason) {
 				t.Errorf("CopyGraph() error = %q, want it to contain %q and %q", got, want, tt.reason)
