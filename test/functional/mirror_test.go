@@ -20,10 +20,12 @@ package functional_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"testing"
 
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote"
 	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
@@ -218,6 +220,12 @@ func TestMirror_DigestOnly_SkipsTagPull(t *testing.T) {
 	if err == nil {
 		t.Fatal("tag Resolve should fail when mirror is digest-only and primary is empty")
 	}
+	// It must fail because the primary has no such tag, not because the mirror
+	// was contacted and errored: a TLS or connection failure reaching the
+	// mirror would otherwise look identical to the bypass this test asserts.
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Resolve error = %v, want %v", err, errdef.ErrNotFound)
+	}
 }
 
 // TestMirror_DigestOnly_DigestPullUsesMirror verifies that a
@@ -260,6 +268,11 @@ func TestMirror_TagOnly_SkipsDigestPull(t *testing.T) {
 	_, err := primaryWithMirror.Fetch(ctx, desc)
 	if err == nil {
 		t.Fatal("digest Fetch should fail when mirror is tag-only and primary is empty")
+	}
+	// As above: the failure must come from the empty primary, not from a
+	// mirror that was contacted despite the tag-only policy.
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Fetch error = %v, want %v", err, errdef.ErrNotFound)
 	}
 }
 

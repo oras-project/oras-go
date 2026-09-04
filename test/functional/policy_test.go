@@ -27,6 +27,24 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
+// requirePolicyDenied asserts that err is a policy denial naming exactly ref.
+//
+// The policy layer formats its denial with fmt.Errorf and exposes no sentinel,
+// so this has to match on the message. It pins the reference the denial was
+// computed for rather than just the "access denied" prefix: which reference a
+// check runs against is where scope handling gets this wrong, and a bare
+// substring match on the prefix would not notice.
+func requirePolicyDenied(t *testing.T, err error, ref string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected denial by policy for %s, got a nil error", ref)
+	}
+	want := "access denied by policy for " + ref
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %v, want it to contain %q", err, want)
+	}
+}
+
 // TestPolicy_Fetch_Reject verifies that Fetch is blocked by a reject policy.
 func TestPolicy_Fetch_Reject(t *testing.T) {
 	ctx := context.Background()
@@ -46,12 +64,7 @@ func TestPolicy_Fetch_Reject(t *testing.T) {
 	repoWithPolicy.Registry.Policy = evaluator
 
 	_, err = repoWithPolicy.Fetch(ctx, desc)
-	if err == nil {
-		t.Fatal("Fetch should fail with reject policy, got nil error")
-	}
-	if !strings.Contains(err.Error(), "access denied") {
-		t.Errorf("expected 'access denied' in error, got: %v", err)
-	}
+	requirePolicyDenied(t, err, registryHost+"/"+repoName)
 }
 
 // TestPolicy_Push_Reject verifies that Push is blocked by a reject policy.
@@ -70,12 +83,7 @@ func TestPolicy_Push_Reject(t *testing.T) {
 	desc := content.NewDescriptorFromBytes("application/octet-stream", data)
 
 	err = repo.Push(ctx, desc, bytes.NewReader(data))
-	if err == nil {
-		t.Fatal("Push should fail with reject policy, got nil error")
-	}
-	if !strings.Contains(err.Error(), "access denied") {
-		t.Errorf("expected 'access denied' in error, got: %v", err)
-	}
+	requirePolicyDenied(t, err, registryHost+"/"+repoName)
 }
 
 // TestPolicy_Resolve_Reject verifies that Resolve is blocked by a reject policy.
@@ -91,12 +99,7 @@ func TestPolicy_Resolve_Reject(t *testing.T) {
 	repo.Registry.Policy = evaluator
 
 	_, err = repo.Resolve(ctx, "latest")
-	if err == nil {
-		t.Fatal("Resolve should fail with reject policy, got nil error")
-	}
-	if !strings.Contains(err.Error(), "access denied") {
-		t.Errorf("expected 'access denied' in error, got: %v", err)
-	}
+	requirePolicyDenied(t, err, registryHost+"/"+repoName+":latest")
 }
 
 // TestPolicy_Accept verifies that push and fetch succeed with an accept-all policy.
@@ -172,10 +175,5 @@ func TestPolicy_ScopeSpecific_RejectOverridesDefaultAccept(t *testing.T) {
 	repoWithPolicy.Registry.Policy = evaluator
 
 	_, err = repoWithPolicy.Fetch(ctx, desc)
-	if err == nil {
-		t.Fatal("Fetch should fail with scope-specific reject, got nil error")
-	}
-	if !strings.Contains(err.Error(), "access denied") {
-		t.Errorf("expected 'access denied' in error, got: %v", err)
-	}
+	requirePolicyDenied(t, err, registryHost+"/"+repoName)
 }

@@ -20,10 +20,14 @@ package functional
 import (
 	"bytes"
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
 )
 
 func TestBasicAuthPushPull(t *testing.T) {
@@ -61,6 +65,13 @@ func TestUnauthenticatedPushFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected unauthenticated push to fail, but it succeeded")
 	}
+	// The registry answers with a Basic challenge and no credential is
+	// configured, so the client fails before it can retry the request. Assert
+	// the sentinel rather than "some error": a connection refused or a DNS
+	// failure would otherwise satisfy this test.
+	if !errors.Is(err, auth.ErrBasicCredentialNotFound) {
+		t.Errorf("Push error = %v, want %v", err, auth.ErrBasicCredentialNotFound)
+	}
 }
 
 func TestWrongCredentialsFail(t *testing.T) {
@@ -73,6 +84,16 @@ func TestWrongCredentialsFail(t *testing.T) {
 	err := repo.Push(ctx, desc, bytes.NewReader(content))
 	if err == nil {
 		t.Fatal("Expected push with wrong credentials to fail, but it succeeded")
+	}
+	// Credentials are present but wrong, so the request reaches the registry
+	// and comes back as a 401. Pin the status code: without it this test also
+	// passes when the client never got far enough to authenticate at all.
+	var errResp *errcode.ErrorResponse
+	if !errors.As(err, &errResp) {
+		t.Fatalf("Push error = %v (%T), want an *errcode.ErrorResponse", err, err)
+	}
+	if errResp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("Push error status = %d, want %d", errResp.StatusCode, http.StatusUnauthorized)
 	}
 }
 

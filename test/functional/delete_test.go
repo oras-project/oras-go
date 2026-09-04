@@ -20,7 +20,10 @@ package functional
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/oras-project/oras-go/v3/errdef"
 )
 
 func TestDeleteBlob(t *testing.T) {
@@ -76,9 +79,13 @@ func TestDeleteManifest(t *testing.T) {
 		t.Fatalf("Delete manifest failed: %v", err)
 	}
 
-	// Verify resolve fails.
+	// Verify resolve fails, and specifically that the registry's 404 is
+	// surfaced as errdef.ErrNotFound rather than any other failure.
 	_, err = repo.Resolve(ctx, tag)
 	if err == nil {
 		t.Fatal("Resolve should fail after manifest delete")
+	}
+	if !errors.Is(err, errdef.ErrNotFound) {
+		t.Errorf("Resolve after delete error = %v, want %v", err, errdef.ErrNotFound)
 	}
 }
