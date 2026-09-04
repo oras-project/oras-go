@@ -246,7 +246,7 @@ func (b *ClientBuilder) buildCredentialFunc(props *properties.Registry) credenti
 	// Match what the transport actually dials: Host() maps the "docker.io"
 	// alias onto "registry-1.docker.io", and the credential func is called with
 	// the request host.
-	host := registry.Reference{Registry: props.Reference.Registry}.Host()
+	host := props.Reference.Host()
 
 	return func(ctx context.Context, reg string) (credentials.Credential, error) {
 		// Credential specified in properties, for its own registry only.

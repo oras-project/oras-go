@@ -20,14 +20,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/oras-project/oras-go/v3/registry"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 func Test_buildReferrersURL(t *testing.T) {
-	ref := registry.Reference{
+	ref := properties.Reference{
 		Registry:   "localhost",
 		Repository: "hello-world",
-		Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+		Digest:     "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 	}
 
 	params := []struct {
