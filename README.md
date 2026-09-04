@@ -42,9 +42,8 @@ This project follows [Semantic Versioning](https://semver.org/) (`MAJOR`.`MINOR`
 
 ## Branches
 
-To migrate from `v2` to `v3`, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
-To migrate from `v1` to `v2`, see the
-[`v2` branch migration guide](https://github.com/oras-project/oras-go/blob/v2/MIGRATION_GUIDE.md).
+- To migrate from `v2` to `v3`, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
+- To migrate from `v1` to `v2`, see the [`v2` branch migration guide](https://github.com/oras-project/oras-go/blob/v2/MIGRATION_GUIDE.md).
 
 ### main (v3 development)
 
