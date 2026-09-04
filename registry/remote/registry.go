@@ -29,6 +29,7 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // Registry is an HTTP client to a remote registry.
@@ -105,14 +106,14 @@ type Registry struct {
 // name.
 // Example: localhost:5000
 func NewRegistry(name string) (*Registry, error) {
-	ref := registry.Reference{
+	ref := properties.Reference{
 		Registry: name,
 	}
 	if err := ref.ValidateRegistry(); err != nil {
 		return nil, err
 	}
 	return &Registry{
-		Reference: ref,
+		Reference: registry.Reference{Registry: ref.Registry},
 	}, nil
 }
 
@@ -153,7 +154,8 @@ func (r *Registry) do(req *http.Request) (*http.Response, error) {
 //   - https://distribution.github.io/distribution/spec/api/#base
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#api
 func (r *Registry) Ping(ctx context.Context) error {
-	url := buildRegistryBaseURL(r.PlainHTTP, r.Reference)
+	ref := properties.Reference{Registry: r.Reference.Registry}
+	url := buildRegistryBaseURL(r.PlainHTTP, ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -185,7 +187,8 @@ func (r *Registry) Ping(ctx context.Context) error {
 // Reference: https://distribution.github.io/distribution/spec/api/#catalog
 func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos []string) error) error {
 	ctx = auth.AppendScopesForHost(ctx, r.Reference.Host(), auth.ScopeRegistryCatalog)
-	url := buildRegistryCatalogURL(r.PlainHTTP, r.Reference)
+	ref := properties.Reference{Registry: r.Reference.Registry}
+	url := buildRegistryCatalogURL(r.PlainHTTP, ref)
 	var err error
 	maxPages := r.RepositoryListMaxPages
 	for page := 0; err == nil; page++ {
@@ -248,7 +251,7 @@ func (r *Registry) Repository(ctx context.Context, name string) (registry.Reposi
 
 // newRepository creates a new Repository with the given name.
 func (r *Registry) newRepository(name string) (*Repository, error) {
-	ref := registry.Reference{
+	ref := properties.Reference{
 		Registry:   r.Reference.Registry,
 		Repository: name,
 	}
