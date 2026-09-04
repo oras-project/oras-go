@@ -119,7 +119,7 @@ function type explicit.
 | `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForHost(ctx, host)` |
 
 Scope hints are host-specific in v3. Pass the host of the registry request,
-normally from `registry.Reference.Host()`, to the replacement functions. The
+normally from `properties.Reference.Host()`, to the replacement functions. The
 host must match the request host; for example, a `docker.io` reference resolves
 to `registry-1.docker.io`.
 
