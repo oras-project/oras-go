@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/errdef"
 )
 
@@ -30,6 +31,12 @@ type ImageReference struct {
 	Scope string
 	// Reference is the full reference (e.g., "docker.io/library/nginx:latest")
 	Reference string
+	// Digest is the manifest digest the reference resolves to, if known.
+	// Signature-based requirements (signedBy, sigstoreSigned) verify
+	// signatures against the manifest digest, so callers that resolve a tag
+	// reference should set it before evaluating those requirements.
+	// When empty, verifiers fall back to extracting a digest from Reference.
+	Digest digest.Digest
 }
 
 // SignedByVerifier verifies GPG/simple signing signatures.
@@ -95,6 +102,12 @@ func NewEvaluator(policy *Policy, opts ...EvaluatorOption) (*Evaluator, error) {
 
 // IsImageAllowed determines if an image is allowed by the policy
 func (e *Evaluator) IsImageAllowed(ctx context.Context, image ImageReference) (bool, error) {
+	return e.isImageAllowed(ctx, image, nil)
+}
+
+// isImageAllowed evaluates policy requirements accepted by filter. A nil
+// filter evaluates every requirement.
+func (e *Evaluator) isImageAllowed(ctx context.Context, image ImageReference, filter func(PolicyRequirement) bool) (bool, error) {
 	reqs := e.policy.GetRequirementsForImage(image.Transport, image.Scope)
 
 	if len(reqs) == 0 {
@@ -104,6 +117,9 @@ func (e *Evaluator) IsImageAllowed(ctx context.Context, image ImageReference) (b
 
 	// All requirements must be satisfied
 	for _, req := range reqs {
+		if filter != nil && !filter(req) {
+			continue
+		}
 		allowed, err := e.evaluateRequirement(ctx, req, image)
 		if err != nil {
 			return false, fmt.Errorf("failed to evaluate requirement %s: %w", req.Type(), err)
@@ -114,6 +130,38 @@ func (e *Evaluator) IsImageAllowed(ctx context.Context, image ImageReference) (b
 	}
 
 	return true, nil
+}
+
+// IsReferenceAllowed determines if an image is allowed by the requirements
+// that can be decided from the reference alone, such as reject and
+// insecureAcceptAnything. Signature-based requirements (signedBy,
+// sigstoreSigned) are skipped: they verify signatures against a manifest
+// digest, which a tag reference or a reference-less operation does not
+// carry. Callers should evaluate them with IsResolvedImageAllowed once the
+// reference is resolved, setting ImageReference.Digest to the resolved
+// manifest digest.
+func (e *Evaluator) IsReferenceAllowed(ctx context.Context, image ImageReference) (bool, error) {
+	return e.isImageAllowed(ctx, image, func(req PolicyRequirement) bool {
+		return !requiresResolvedImage(req)
+	})
+}
+
+// IsResolvedImageAllowed determines if an image is allowed by requirements
+// that need its resolved manifest digest, such as signedBy and
+// sigstoreSigned. Reference-level requirements are skipped because callers
+// should evaluate them first with IsReferenceAllowed.
+func (e *Evaluator) IsResolvedImageAllowed(ctx context.Context, image ImageReference) (bool, error) {
+	return e.isImageAllowed(ctx, image, requiresResolvedImage)
+}
+
+// requiresResolvedImage reports whether the requirement needs the resolved
+// manifest digest of the image to be evaluated.
+func requiresResolvedImage(req PolicyRequirement) bool {
+	switch req.(type) {
+	case *PRSignedBy, *PRSigstoreSigned:
+		return true
+	}
+	return false
 }
 
 // evaluateRequirement evaluates a single policy requirement
