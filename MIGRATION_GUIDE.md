@@ -113,6 +113,15 @@ function type explicit.
 | `credentials.ServerAddressFromHostname` | `remote.ServerAddressFromHostname` |
 | `credentials.ServerAddressFromRegistry` | `remote.ServerAddressFromRegistry` |
 | `credentials.ErrClientTypeUnsupported` | `remote.ErrClientTypeUnsupported` |
+| `auth.WithScopes(ctx, scopes...)` | `auth.WithScopesForHost(ctx, host, scopes...)` |
+| `auth.AppendScopes(ctx, scopes...)` | `auth.AppendScopesForHost(ctx, host, scopes...)` |
+| `auth.GetScopes(ctx)` | `auth.GetScopesForHost(ctx, host)` |
+| `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForHost(ctx, host)` |
+
+Scope hints are host-specific in v3. Pass the host of the registry request,
+normally from `properties.Reference.Host()`, to the replacement functions. The
+host must match the request host; for example, a `docker.io` reference resolves
+to `registry-1.docker.io`.
 
 For example:
 
