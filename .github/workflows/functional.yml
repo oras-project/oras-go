@@ -1,0 +1,100 @@
+# Copyright The ORAS Authors.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: functional
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'test/functional/**'
+      - '.github/workflows/functional.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'test/functional/**'
+      - '.github/workflows/functional.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: functional-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  k8sfunctional:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          check-latest: true
+      - name: Create kind cluster
+        # Writes a kubeconfig to the default path (~/.kube/config), which the
+        # suite's buildKubeConfig() reads. TestMain deploys zot into the
+        # cluster from test/functional/testdata/k8s.
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+      - name: Run k8sfunctional tests
+        working-directory: test/functional
+        # The suite is behind the k8sfunctional build tag; without it go test
+        # compiles and runs nothing.
+        run: go test -tags k8sfunctional -v -timeout 25m ./...
+
+  functional:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The functional-tagged suite (config/mirror/policy/signature). Its
+    # TestMain deploys a primary + TLS mirror registry via setup.sh (not the
+    # k8s-manifest path used by the k8sfunctional job).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.25'
+          check-latest: true
+      - name: Create kind cluster
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+      - name: Deploy registries and run functional tests
+        working-directory: test/functional
+        # setup.sh backgrounds the port-forwards, so deploy and test share one
+        # step to keep them alive.
+        env:
+          # Turn the mirror tests' "not configured, skip" path into a hard
+          # failure. Without this a mis-wired environment leaves all six
+          # mirror tests skipped and the job still green.
+          FUNCTIONAL_TEST_REQUIRE_MIRROR: '1'
+        run: |
+          ./setup.sh
+          # setup.sh writes the endpoints and certs.d path it actually
+          # provisioned to this file. Source it rather than restating the
+          # defaults here, so a port change in setup.sh cannot silently
+          # desynchronise the suite's environment.
+          set -a
+          . /tmp/oras-functional-env
+          set +a
+          go test -tags functional -v -timeout 25m ./...
