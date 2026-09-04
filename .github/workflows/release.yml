@@ -31,6 +31,9 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.merge_commit_sha }}
+          # Must belong to an org owner so the protected-tag ruleset bypass applies.
+          # Rotate the repository secret before its PAT expires.
+          token: ${{ secrets.RELEASE_PAT }}
 
       - name: Set up Go
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
