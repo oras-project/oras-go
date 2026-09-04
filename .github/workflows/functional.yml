@@ -66,12 +66,9 @@ jobs:
   functional:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # BLOCKED: the functional-tagged suite (config/mirror/policy/signature)
-    # depends on the config (#1225), signature (#1279), and ClientBuilder
-    # packages, which are not yet on main. This job cannot pass until those
-    # land; it documents the intended end-state CI. Its TestMain deploys a
-    # primary + mirror registry via setup.sh (not the k8s-manifest path) and
-    # reads the endpoints from FUNCTIONAL_TEST_REGISTRY / _MIRROR.
+    # The functional-tagged suite (config/mirror/policy/signature). Its
+    # TestMain deploys a primary + TLS mirror registry via setup.sh (not the
+    # k8s-manifest path used by the k8sfunctional job).
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,10 +82,19 @@ jobs:
       - name: Deploy registries and run functional tests
         working-directory: test/functional
         # setup.sh backgrounds the port-forwards, so deploy and test share one
-        # step to keep them alive. Endpoints follow setup.sh's port defaults.
+        # step to keep them alive.
         env:
-          FUNCTIONAL_TEST_REGISTRY: localhost:5000
-          FUNCTIONAL_TEST_MIRROR: localhost:5001
+          # Turn the mirror tests' "not configured, skip" path into a hard
+          # failure. Without this a mis-wired environment leaves all six
+          # mirror tests skipped and the job still green.
+          FUNCTIONAL_TEST_REQUIRE_MIRROR: '1'
         run: |
           ./setup.sh
+          # setup.sh writes the endpoints and certs.d path it actually
+          # provisioned to this file. Source it rather than restating the
+          # defaults here, so a port change in setup.sh cannot silently
+          # desynchronise the suite's environment.
+          set -a
+          . /tmp/oras-functional-env
+          set +a
           go test -tags functional -v -timeout 25m ./...

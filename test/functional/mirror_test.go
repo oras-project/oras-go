@@ -29,16 +29,27 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
-// mirrorRegistryHost returns the mirror registry host from the environment,
-// skipping the test if it is not configured. When running via make
-// test-functional, setup.sh always sets FUNCTIONAL_TEST_MIRROR_REGISTRY so
-// mirror tests run automatically. The skip only fires when tests are run
-// by hand without the full setup.
+// mirrorRequired reports whether a missing mirror configuration is a hard
+// failure rather than a reason to skip. CI sets FUNCTIONAL_TEST_REQUIRE_MIRROR
+// so that a mis-wired environment fails loudly instead of leaving every mirror
+// test skipped and the job green.
+func mirrorRequired() bool {
+	return os.Getenv("FUNCTIONAL_TEST_REQUIRE_MIRROR") != ""
+}
+
+// mirrorRegistryHost returns the mirror registry host from the environment.
+// setup.sh writes FUNCTIONAL_TEST_MIRROR_REGISTRY to the env file it emits, so
+// a run that sources that file always has it. Absent it the test skips, unless
+// FUNCTIONAL_TEST_REQUIRE_MIRROR says the mirror was supposed to be there.
 func mirrorRegistryHost(t *testing.T) string {
 	t.Helper()
 	host := os.Getenv("FUNCTIONAL_TEST_MIRROR_REGISTRY")
 	if host == "" {
-		t.Skip("skipping mirror test: run 'make test-functional' or set FUNCTIONAL_TEST_MIRROR_REGISTRY")
+		const msg = "FUNCTIONAL_TEST_MIRROR_REGISTRY is not set: run ./setup.sh and source the env file it writes"
+		if mirrorRequired() {
+			t.Fatal(msg)
+		}
+		t.Skip("skipping mirror test: " + msg)
 	}
 	return host
 }
@@ -52,6 +63,14 @@ func mirrorTransport(t *testing.T, mirrorHost string) properties.Transport {
 	t.Helper()
 	certsDir := os.Getenv("FUNCTIONAL_TEST_CERTS_DIR")
 	if certsDir == "" {
+		// setup.sh serves the mirror over TLS, so an empty certs.d here means
+		// the environment is incomplete rather than plain-HTTP by design. Fall
+		// back only for ad-hoc runs against a plain-HTTP mirror; under
+		// FUNCTIONAL_TEST_REQUIRE_MIRROR treat it as the misconfiguration it is,
+		// since the fallback would otherwise fail as an opaque protocol error.
+		if mirrorRequired() {
+			t.Fatal("FUNCTIONAL_TEST_CERTS_DIR is not set: run ./setup.sh and source the env file it writes")
+		}
 		return properties.Transport{PlainHTTP: true}
 	}
 
