@@ -608,3 +608,77 @@ func createKeyFile(t *testing.T, entity *openpgp.Entity, path string) (string, e
 	}
 	return path, nil
 }
+
+func TestDefaultSignedByVerifier_Verify_ResolvedDigest(t *testing.T) {
+	// A tag reference paired with a resolved digest in ImageReference.Digest
+	// must verify without a digest embedded in the reference itself.
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
+
+	imgDigest := digest.FromString("test image content")
+	imgRef := "registry.example.com/repo:latest" // No digest in the reference.
+	scope := "registry.example.com/repo"
+
+	payload := NewSimpleSigningPayload(imgDigest, "registry.example.com/repo:latest")
+	payloadBytes, err := payload.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal() error: %v", err)
+	}
+	signedData, err := CreateOpenPGPSignature(payloadBytes, entity)
+	if err != nil {
+		t.Fatalf("CreateOpenPGPSignature() error: %v", err)
+	}
+
+	store := newMockStore()
+	store.addSignature(scope, imgDigest, signedData)
+
+	keyFile := t.TempDir() + "/test.gpg"
+	if _, err := createKeyFile(t, entity, keyFile); err != nil {
+		t.Fatalf("createKeyFile() error: %v", err)
+	}
+
+	verifier := NewSignedByVerifier(store)
+	req := &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: keyFile,
+	}
+	image := policy.ImageReference{
+		Transport: "docker",
+		Scope:     scope,
+		Reference: imgRef,
+		Digest:    imgDigest,
+	}
+
+	result, err := verifier.Verify(context.Background(), req, image)
+	if err != nil {
+		t.Fatalf("Verify() error: %v", err)
+	}
+	if !result {
+		t.Error("Verify() = false, want true")
+	}
+}
+
+func TestDefaultSignedByVerifier_Verify_InvalidResolvedDigest(t *testing.T) {
+	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	keyFile := t.TempDir() + "/test.gpg"
+	createKeyFile(t, entity, keyFile)
+
+	verifier := NewSignedByVerifier(newMockStore())
+	req := &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: keyFile,
+	}
+	image := policy.ImageReference{
+		Transport: "docker",
+		Scope:     "registry.example.com/repo",
+		Reference: "registry.example.com/repo:latest",
+		Digest:    "not-a-digest",
+	}
+
+	_, err := verifier.Verify(context.Background(), req, image)
+	if err == nil {
+		t.Fatal("Verify() should return error for invalid resolved digest")
+	}
+}

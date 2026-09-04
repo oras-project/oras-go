@@ -410,17 +410,17 @@ func withPolicyChecked(ctx context.Context) context.Context {
 	return context.WithValue(ctx, policyCheckedKey{}, true)
 }
 
-// checkPolicy validates the repository access against the configured policy.
-// If no policy is configured (Policy is nil), this is a no-op.
+// checkPolicy validates repository access before network I/O. It evaluates
+// reference-level requirements for every reference and digest-dependent
+// requirements when the reference already carries a digest. If no policy is
+// configured (Policy is nil), this is a no-op.
 //
-// Policy is enforced on all registry operations including:
-//   - Content operations: Fetch, Push, Resolve, FetchReference, PushReference
-//   - Metadata operations: Exists, Tags, Referrers, Predecessors
-//   - Mutating operations: Delete, Tag, Mount
-//
-// For signedBy/sigstoreSigned requirements, signature verification is
-// performed regardless of operation type. If this is too restrictive for
-// administrative operations, configure a separate policy scope.
+// Signature requirements (signedBy/sigstoreSigned) are otherwise evaluated
+// by checkPolicyResolved when an operation resolves or supplies a manifest
+// descriptor. Blob operations and operations without a manifest remain
+// reference-level only. Descriptor-based push operations verify the supplied
+// manifest before uploading it, so its signing material must be discoverable
+// by the configured verifier at that point.
 func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 	if ctx.Value(policyCheckedKey{}) != nil {
 		return nil
@@ -431,32 +431,122 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 		return nil
 	}
 
-	repoRef := r.Reference()
-	ref := repoRef.String()
-	if reference != "" {
-		ref = reference
-	}
-
-	imageRef := policy.ImageReference{
-		Transport: policy.TransportNameDocker,
-		Scope:     repoRef.Registry + "/" + repoRef.Repository,
-		Reference: ref,
-	}
-
-	allowed, err := pol.IsImageAllowed(ctx, imageRef)
+	imageRef := r.policyImageReference(reference)
+	allowed, err := pol.IsReferenceAllowed(ctx, imageRef)
 	if err != nil {
 		return fmt.Errorf("policy check failed: %w", err)
 	}
 	if !allowed {
-		return fmt.Errorf("access denied by policy for %s", ref)
+		return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
+	}
+	imageRef.Digest = r.policyDigest(reference)
+	if imageRef.Digest != "" {
+		allowed, err = pol.IsResolvedImageAllowed(withPolicyChecked(ctx), imageRef)
+		if err != nil {
+			return fmt.Errorf("policy check failed: %w", err)
+		}
+		if !allowed {
+			return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
+		}
 	}
 	return nil
+}
+
+// checkPolicyResolved validates the manifest descriptor a reference resolves
+// to against digest-dependent policy requirements. The caller's reference is
+// kept for signed identity matching while the resolved digest is used for
+// signature lookup and payload validation. Callers must first call checkPolicy
+// with the same reference because digest references are fully checked there.
+func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, desc ocispec.Descriptor) error {
+	if ctx.Value(policyCheckedKey{}) != nil {
+		return nil
+	}
+	// Digest references are fully evaluated by checkPolicy before any
+	// registry request is made.
+	if r.policyDigest(reference) != "" {
+		return nil
+	}
+
+	pol := r.policy()
+	if pol == nil {
+		return nil
+	}
+
+	policyReference := reference
+	if policyReference == "" {
+		policyReference = desc.Digest.String()
+	}
+	imageRef := r.policyImageReference(policyReference)
+	imageRef.Digest = desc.Digest
+
+	// Mark the context as checked so verifiers that call back into this
+	// repository (e.g. to fetch signature artifacts) do not recursively
+	// evaluate policy.
+	allowed, err := pol.IsResolvedImageAllowed(withPolicyChecked(ctx), imageRef)
+	if err != nil {
+		return fmt.Errorf("policy check failed: %w", err)
+	}
+	if !allowed {
+		return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
+	}
+	return nil
+}
+
+// checkManifestPolicy evaluates both policy phases for a known manifest.
+func (r *Repository) checkManifestPolicy(ctx context.Context, reference string, desc ocispec.Descriptor) error {
+	if err := r.checkPolicy(ctx, reference); err != nil {
+		return err
+	}
+	return r.checkPolicyResolved(ctx, reference, desc)
+}
+
+// checkDescriptorPolicy evaluates signature requirements only for manifests.
+func (r *Repository) checkDescriptorPolicy(ctx context.Context, desc ocispec.Descriptor) error {
+	if isManifest(r.manifestMediaTypes(), desc) {
+		return r.checkManifestPolicy(ctx, "", desc)
+	}
+	return r.checkPolicy(ctx, "")
+}
+
+// policyImageReference builds the policy image reference for the given
+// caller reference, falling back to the repository reference when empty.
+func (r *Repository) policyImageReference(reference string) policy.ImageReference {
+	repoRef := r.Reference()
+	ref := repoRef.String()
+	if reference != "" {
+		if parsed, err := r.ParseReference(reference); err == nil {
+			ref = parsed.String()
+		} else {
+			ref = reference
+		}
+	}
+	return policy.ImageReference{
+		Transport: policy.TransportNameDocker,
+		Scope:     repoRef.Registry + "/" + repoRef.Repository,
+		Reference: ref,
+	}
+}
+
+// policyDigest returns the digest carried by reference, if any.
+func (r *Repository) policyDigest(reference string) digest.Digest {
+	if reference == "" {
+		return ""
+	}
+	ref, err := r.ParseReference(reference)
+	if err != nil {
+		return ""
+	}
+	d, err := digest.Parse(ref.Reference)
+	if err != nil {
+		return ""
+	}
+	return d
 }
 
 // Fetch fetches the content identified by the descriptor.
 // If mirrors are configured, they are tried in order before the primary.
 func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	if err := r.checkPolicy(ctx, ""); err != nil {
+	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return nil, err
 	}
 	ctx = withPolicyChecked(ctx)
@@ -471,7 +561,7 @@ func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.R
 
 // Push pushes the content, matching the expected descriptor.
 func (r *Repository) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	if err := r.checkPolicy(ctx, ""); err != nil {
+	if err := r.checkDescriptorPolicy(ctx, expected); err != nil {
 		return err
 	}
 	return r.blobStore(expected).Push(withPolicyChecked(ctx), expected, content)
@@ -500,7 +590,7 @@ func (r *Repository) Mount(ctx context.Context, desc ocispec.Descriptor, fromRep
 // Exists returns true if the described content exists.
 // If mirrors are configured, they are tried in order before the primary.
 func (r *Repository) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	if err := r.checkPolicy(ctx, ""); err != nil {
+	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return false, err
 	}
 	ctx = withPolicyChecked(ctx)
@@ -515,7 +605,7 @@ func (r *Repository) Exists(ctx context.Context, target ocispec.Descriptor) (boo
 
 // Delete removes the content identified by the descriptor.
 func (r *Repository) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	if err := r.checkPolicy(ctx, ""); err != nil {
+	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return err
 	}
 	return r.blobStore(target).Delete(withPolicyChecked(ctx), target)
@@ -539,19 +629,29 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	ctx = withPolicyChecked(ctx)
+	resolveCtx := withPolicyChecked(ctx)
+	var desc ocispec.Descriptor
+	var err error
 	if len(r.mirrors) > 0 {
-		return withMirrorFallbackResolve(ctx, r.mirrors, r, reference,
+		desc, err = withMirrorFallbackResolve(resolveCtx, r.mirrors, r, reference,
 			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, error) {
 				return repo.Manifests().Resolve(ctx, ref)
 			})
+	} else {
+		desc, err = r.Manifests().Resolve(resolveCtx, reference)
 	}
-	return r.Manifests().Resolve(ctx, reference)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if err := r.checkPolicyResolved(ctx, reference, desc); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return desc, nil
 }
 
 // Tag tags a manifest descriptor with a reference string.
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	if err := r.checkPolicy(ctx, reference); err != nil {
+	if err := r.checkManifestPolicy(ctx, reference, desc); err != nil {
 		return err
 	}
 	return r.Manifests().Tag(withPolicyChecked(ctx), desc, reference)
@@ -577,7 +677,7 @@ func (r *Repository) Untag(ctx context.Context, reference string) error {
 
 // PushReference pushes the manifest with a reference tag.
 func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	if err := r.checkPolicy(ctx, reference); err != nil {
+	if err := r.checkManifestPolicy(ctx, reference, expected); err != nil {
 		return err
 	}
 	return r.Manifests().PushReference(withPolicyChecked(ctx), expected, content, reference)
@@ -590,14 +690,26 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	ctx = withPolicyChecked(ctx)
+	fetchCtx := withPolicyChecked(ctx)
+	var desc ocispec.Descriptor
+	var rc io.ReadCloser
+	var err error
 	if len(r.mirrors) > 0 {
-		return withMirrorFallbackFetchReference(ctx, r.mirrors, r, reference,
+		desc, rc, err = withMirrorFallbackFetchReference(fetchCtx, r.mirrors, r, reference,
 			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, io.ReadCloser, error) {
 				return repo.Manifests().FetchReference(ctx, ref)
 			})
+	} else {
+		desc, rc, err = r.Manifests().FetchReference(fetchCtx, reference)
 	}
-	return r.Manifests().FetchReference(ctx, reference)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	if err := r.checkPolicyResolved(ctx, reference, desc); err != nil {
+		rc.Close()
+		return ocispec.Descriptor{}, nil, err
+	}
+	return desc, rc, nil
 }
 
 // ParseReference resolves a tag or a digest reference to a fully qualified
@@ -1395,7 +1507,7 @@ type manifestStore struct {
 
 // Fetch fetches the content identified by the descriptor.
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
-	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
 		return nil, err
 	}
 	repoRef := s.repo.Reference()
@@ -1446,15 +1558,15 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 
 // Push pushes the content, matching the expected descriptor.
 func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, "", expected); err != nil {
 		return err
 	}
-	return s.pushWithIndexing(ctx, expected, content, expected.Digest.String())
+	return s.pushWithIndexing(withPolicyChecked(ctx), expected, content, expected.Digest.String())
 }
 
 // Exists returns true if the described content exists.
 func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
 		return false, err
 	}
 	_, err := s.Resolve(withPolicyChecked(ctx), target.Digest.String())
@@ -1469,10 +1581,10 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 
 // Delete removes the manifest content identified by the descriptor.
 func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
 		return err
 	}
-	return s.deleteWithIndexing(ctx, target)
+	return s.deleteWithIndexing(withPolicyChecked(ctx), target)
 }
 
 // deleteWithIndexing removes the manifest content identified by the descriptor,
@@ -1557,7 +1669,14 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return s.generateDescriptor(resp, ref, req.Method)
+		desc, err := s.generateDescriptor(resp, ref, req.Method)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		if err := s.repo.checkPolicyResolved(ctx, reference, desc); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		return desc, nil
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
@@ -1597,11 +1716,16 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	switch resp.StatusCode {
 	case http.StatusOK:
 		if resp.ContentLength == -1 {
-			desc, err = s.Resolve(ctx, reference)
+			// policy is evaluated below against the fetched descriptor, so
+			// skip the redundant evaluation in Resolve.
+			desc, err = s.Resolve(withPolicyChecked(ctx), reference)
 		} else {
 			desc, err = s.generateDescriptor(resp, ref, req.Method)
 		}
 		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		if err = s.repo.checkPolicyResolved(ctx, reference, desc); err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
 		return desc, resp.Body, nil
@@ -1614,9 +1738,10 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 // Tag tags a manifest descriptor with a reference string.
 func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	if err := s.repo.checkPolicy(ctx, reference); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, reference, desc); err != nil {
 		return err
 	}
+	ctx = withPolicyChecked(ctx)
 	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return err
@@ -1668,9 +1793,10 @@ func (s *manifestStore) Untag(ctx context.Context, reference string) error {
 
 // PushReference pushes the manifest with a reference tag.
 func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	if err := s.repo.checkPolicy(ctx, reference); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, reference, expected); err != nil {
 		return err
 	}
+	ctx = withPolicyChecked(ctx)
 	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return err
