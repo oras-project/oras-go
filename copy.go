@@ -263,8 +263,9 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 		successors = removeForeignLayers(successors)
 		for _, successor := range successors {
 			if err := validateSuccessor(successor); err != nil {
-				return fmt.Errorf("invalid successor descriptor for %s: successor media type: %s; successor size: %d; successor digest: %s: %w",
-					desc.Digest, successor.MediaType, successor.Size, successor.Digest, err)
+				return newCopyError("FindSuccessors", CopyErrorOriginSource, desc,
+					fmt.Errorf("invalid successor descriptor: successor media type: %s; successor size: %d; successor digest: %s: %w",
+						successor.MediaType, successor.Size, successor.Digest, err))
 			}
 		}
 
@@ -334,7 +335,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 // the next node in a content graph.
 func validateSuccessor(desc ocispec.Descriptor) error {
 	if err := desc.Digest.Validate(); err != nil {
-		return fmt.Errorf("invalid digest: %w", err)
+		return fmt.Errorf("invalid digest: %v: %w", err, errdef.ErrInvalidDigest)
 	}
 	if desc.Size < 0 {
 		return fmt.Errorf("invalid size %d", desc.Size)
