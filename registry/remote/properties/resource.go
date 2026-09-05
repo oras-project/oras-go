@@ -25,9 +25,9 @@ import (
 // Resource represents a registry host, optionally narrowed to a namespace or
 // repository. It never carries a tag or digest.
 type Resource struct {
-	// Host is the name of the registry, usually a domain name optionally with a
-	// port.
-	Host string
+	// Registry is the name of the registry, usually a domain name optionally
+	// with a port.
+	Registry string
 
 	// Path is the namespace or repository path, or empty for the whole registry.
 	Path string
@@ -54,7 +54,7 @@ func ParseResource(resource string) (Resource, error) {
 		return Resource{}, err
 	}
 	if path == "" {
-		return Resource{Host: host}, nil
+		return Resource{Registry: host}, nil
 	}
 	if strings.ContainsAny(path, ":@") {
 		return Resource{}, fmt.Errorf("%w: resource must not include a tag or digest", errdef.ErrInvalidReference)
@@ -62,5 +62,23 @@ func ParseResource(resource string) (Resource, error) {
 	if err := (Reference{Repository: path}).ValidateRepository(); err != nil {
 		return Resource{}, err
 	}
-	return Resource{Host: host, Path: path}, nil
+	return Resource{Registry: host, Path: path}, nil
+}
+
+// Host returns the host name of the registry.
+//
+// For docker.io, it returns registry-1.docker.io.
+func (r Resource) Host() string {
+	if r.Registry == "docker.io" {
+		return "registry-1.docker.io"
+	}
+	return r.Registry
+}
+
+// String returns the resource as a string.
+func (r Resource) String() string {
+	if r.Path == "" {
+		return r.Registry
+	}
+	return r.Registry + "/" + r.Path
 }

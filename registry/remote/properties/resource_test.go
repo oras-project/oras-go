@@ -26,13 +26,13 @@ func TestParseResource(t *testing.T) {
 		input string
 		want  Resource
 	}{
-		{name: "registry", input: "example.com", want: Resource{Host: "example.com"}},
-		{name: "namespace", input: "example.com/myspace", want: Resource{Host: "example.com", Path: "myspace"}},
-		{name: "repository", input: "example.com/myspace/app", want: Resource{Host: "example.com", Path: "myspace/app"}},
-		{name: "port", input: "localhost:5000/ns", want: Resource{Host: "localhost:5000", Path: "ns"}},
-		{name: "oci scheme", input: "oci://example.com/ns", want: Resource{Host: "example.com", Path: "ns"}},
-		{name: "http scheme", input: "http://example.com/ns", want: Resource{Host: "example.com", Path: "ns"}},
-		{name: "https scheme", input: "https://example.com/ns", want: Resource{Host: "example.com", Path: "ns"}},
+		{name: "registry", input: "example.com", want: Resource{Registry: "example.com"}},
+		{name: "namespace", input: "example.com/myspace", want: Resource{Registry: "example.com", Path: "myspace"}},
+		{name: "repository", input: "example.com/myspace/app", want: Resource{Registry: "example.com", Path: "myspace/app"}},
+		{name: "port", input: "localhost:5000/ns", want: Resource{Registry: "localhost:5000", Path: "ns"}},
+		{name: "oci scheme", input: "oci://example.com/ns", want: Resource{Registry: "example.com", Path: "ns"}},
+		{name: "http scheme", input: "http://example.com/ns", want: Resource{Registry: "example.com", Path: "ns"}},
+		{name: "https scheme", input: "https://example.com/ns", want: Resource{Registry: "example.com", Path: "ns"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -73,6 +73,44 @@ func TestParseResourceTagDigestError(t *testing.T) {
 			_, err := ParseResource(input)
 			if err == nil || !strings.Contains(err.Error(), "must not include a tag or digest") {
 				t.Fatalf("ParseResource(%q) error = %v, want tag/digest error", input, err)
+			}
+		})
+	}
+}
+
+func TestResourceHost(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource Resource
+		want     string
+	}{
+		{name: "docker hub", resource: Resource{Registry: "docker.io"}, want: "registry-1.docker.io"},
+		{name: "other registry", resource: Resource{Registry: "ghcr.io"}, want: "ghcr.io"},
+		{name: "registry port", resource: Resource{Registry: "localhost:5000"}, want: "localhost:5000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.resource.Host(); got != tt.want {
+				t.Errorf("Resource.Host() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResourceString(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource Resource
+		want     string
+	}{
+		{name: "registry", resource: Resource{Registry: "example.com"}, want: "example.com"},
+		{name: "namespace", resource: Resource{Registry: "example.com", Path: "myspace"}, want: "example.com/myspace"},
+		{name: "repository", resource: Resource{Registry: "example.com", Path: "myspace/app"}, want: "example.com/myspace/app"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.resource.String(); got != tt.want {
+				t.Errorf("Resource.String() = %q, want %q", got, tt.want)
 			}
 		})
 	}
