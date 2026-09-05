@@ -27,7 +27,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/oras-project/oras-go/v3/registry"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 func Test_isDigestReference(t *testing.T) {
@@ -141,7 +141,7 @@ func repoFromServer(t *testing.T, server *httptest.Server) *Repository {
 	return &Repository{
 		Registry: &Registry{
 			Client:    server.Client(),
-			Reference: registry.Reference{Registry: host},
+			Reference: properties.Reference{Registry: host},
 			PlainHTTP: true,
 		},
 		RepositoryName: "test/repo",

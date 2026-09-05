@@ -32,6 +32,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"github.com/oras-project/oras-go/v3/registry/remote/signature"
 )
 
@@ -50,7 +51,7 @@ func newRejectPolicyRepo(t *testing.T) *Repository {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
 	return &Repository{
@@ -72,7 +73,7 @@ func assertPolicyDenied(t *testing.T, err error, operation string) {
 
 func TestRepository_PolicyEnforcement(t *testing.T) {
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 	}
 	repo := &Repository{
 		Registry:       reg,
@@ -159,7 +160,7 @@ func TestRepository_PolicyScope(t *testing.T) {
 	}
 
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
 	repo := &Repository{
@@ -184,7 +185,7 @@ func TestRepository_Clone_Policy(t *testing.T) {
 	}
 
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
 	original := &Repository{
@@ -386,7 +387,7 @@ func TestRepository_ScopeSpecificPolicy(t *testing.T) {
 	}
 
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
 	repo := &Repository{
@@ -441,7 +442,7 @@ func newSignedByEvaluator(t *testing.T, verifier policy.SignedByVerifier) *polic
 func newSignedByPolicyRepo(t *testing.T, verifier policy.SignedByVerifier) *Repository {
 	t.Helper()
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    newSignedByEvaluator(t, verifier),
 	}
 	return &Repository{

@@ -39,7 +39,7 @@ type Registry struct {
 	Client Client
 
 	// Reference contains registry host information.
-	Reference registry.Reference
+	Reference properties.Reference
 
 	// PlainHTTP signals the transport to access the registry via HTTP
 	// instead of HTTPS.
@@ -113,7 +113,7 @@ func NewRegistry(name string) (*Registry, error) {
 		return nil, err
 	}
 	return &Registry{
-		Reference: registry.Reference{Registry: ref.Registry},
+		Reference: ref,
 	}, nil
 }
 
