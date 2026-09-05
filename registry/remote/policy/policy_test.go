@@ -1113,3 +1113,140 @@ func TestPolicy_FluentAPI_SaveAndLoad(t *testing.T) {
 		t.Error("loaded policy docker transport not correct")
 	}
 }
+
+func TestPolicy_GetRequirementsForImage_TaggedAndDigestedScopes(t *testing.T) {
+	const dgst = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	tests := []struct {
+		name      string
+		policy    *Policy
+		transport TransportName
+		scope     string
+		wantType  string
+	}{
+		{
+			name: "tagged scope matches the same tag",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox:v1": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v1",
+			wantType:  TypeReject,
+		},
+		{
+			name: "tagged scope does not match another tag",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox:v1": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v2",
+			wantType:  TypeInsecureAcceptAnything,
+		},
+		{
+			name: "digested scope matches the same digest",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox@" + dgst: PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox@" + dgst,
+			wantType:  TypeReject,
+		},
+		{
+			name: "repository entry still applies to a tagged image",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v1",
+			wantType:  TypeReject,
+		},
+		{
+			name: "namespace entry still applies to a tagged image",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v1",
+			wantType:  TypeReject,
+		},
+		{
+			name: "tagged entry wins over the repository entry",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox":    PolicyRequirements{&InsecureAcceptAnything{}},
+						"docker.io/library/busybox:v1": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v1",
+			wantType:  TypeReject,
+		},
+		{
+			name: "registry port is not mistaken for a tag",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"localhost:5000/busybox": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "localhost:5000/busybox",
+			wantType:  TypeReject,
+		},
+		{
+			name: "registry port with a tag falls back to the repository entry",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"localhost:5000/busybox": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "localhost:5000/busybox:v1",
+			wantType:  TypeReject,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqs := tt.policy.GetRequirementsForImage(tt.transport, tt.scope)
+			if len(reqs) != 1 {
+				t.Fatalf("GetRequirementsForImage() returned %d requirements, want 1", len(reqs))
+			}
+			if got := reqs[0].Type(); got != tt.wantType {
+				t.Errorf("GetRequirementsForImage() = %v, want %v", got, tt.wantType)
+			}
+		})
+	}
+}

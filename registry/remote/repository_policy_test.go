@@ -877,3 +877,65 @@ func TestRepository_PushReference_SignedByPolicy_Denied(t *testing.T) {
 	err := repo.PushReference(context.Background(), desc, strings.NewReader("test content"), "v1.0")
 	assertPolicyDenied(t, err, "PushReference()")
 }
+
+func TestRepository_PolicyScope_TaggedEntryApplies(t *testing.T) {
+	repoScope := testReference.Registry + "/" + testReference.Repository
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				repoScope + ":blocked": policy.PolicyRequirements{&policy.Reject{}},
+			},
+		},
+	}
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("failed to create evaluator: %v", err)
+	}
+	repo := &Repository{
+		Registry: &Registry{
+			Reference: registry.Reference{Registry: testReference.Registry},
+			Policy:    evaluator,
+		},
+		RepositoryName: testReference.Repository,
+	}
+
+	if err := repo.checkPolicy(context.Background(), "blocked"); err == nil {
+		t.Error("checkPolicy() on the tag named by the policy should be denied, got nil")
+	}
+	if err := repo.checkPolicy(context.Background(), "allowed"); err != nil {
+		t.Errorf("checkPolicy() on another tag should be allowed, got: %v", err)
+	}
+}
+
+func TestRepository_PolicyScope_DigestEntryApplies(t *testing.T) {
+	const blocked = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	const other = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	repoScope := testReference.Registry + "/" + testReference.Repository
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				repoScope + "@" + blocked: policy.PolicyRequirements{&policy.Reject{}},
+			},
+		},
+	}
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("failed to create evaluator: %v", err)
+	}
+	repo := &Repository{
+		Registry: &Registry{
+			Reference: registry.Reference{Registry: testReference.Registry},
+			Policy:    evaluator,
+		},
+		RepositoryName: testReference.Repository,
+	}
+
+	if err := repo.checkPolicy(context.Background(), blocked); err == nil {
+		t.Error("checkPolicy() on the digest named by the policy should be denied, got nil")
+	}
+	if err := repo.checkPolicy(context.Background(), other); err != nil {
+		t.Errorf("checkPolicy() on another digest should be allowed, got: %v", err)
+	}
+}
