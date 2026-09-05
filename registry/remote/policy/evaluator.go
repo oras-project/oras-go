@@ -18,6 +18,7 @@ package policy
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/errdef"
@@ -37,6 +38,21 @@ type ImageReference struct {
 	// reference should set it before evaluating those requirements.
 	// When empty, verifiers fall back to extracting a digest from Reference.
 	Digest digest.Digest
+}
+
+// policyScope returns the scope used to look up policy requirements. When the
+// reference carries a tag or digest, that fully qualified form is used, so a
+// containers-policy.json entry naming an exact tag or digest can match. Scope
+// itself stays the repository, which signature verifiers use as the store key.
+func (r ImageReference) policyScope() string {
+	if r.Scope == "" || r.Reference == "" {
+		return r.Scope
+	}
+	if rest, ok := strings.CutPrefix(r.Reference, r.Scope); ok &&
+		len(rest) > 1 && (rest[0] == ':' || rest[0] == '@') {
+		return r.Reference
+	}
+	return r.Scope
 }
 
 // SignedByVerifier verifies GPG/simple signing signatures.
@@ -108,7 +124,7 @@ func (e *Evaluator) IsImageAllowed(ctx context.Context, image ImageReference) (b
 // isImageAllowed evaluates policy requirements accepted by filter. A nil
 // filter evaluates every requirement.
 func (e *Evaluator) isImageAllowed(ctx context.Context, image ImageReference, filter func(PolicyRequirement) bool) (bool, error) {
-	reqs := e.policy.GetRequirementsForImage(image.Transport, image.Scope)
+	reqs := e.policy.GetRequirementsForImage(image.Transport, image.policyScope())
 
 	if len(reqs) == 0 {
 		// No requirements: treat as a policy error and reject by default for safety.

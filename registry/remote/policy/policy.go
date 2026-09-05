@@ -224,6 +224,19 @@ func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) 
 		return reqs
 	}
 
+	// A docker scope may name an exact tag or digest, which is the most
+	// specific form containers-policy.json allows. Namespace matching below
+	// runs on the repository part, so an entry for the repository still
+	// applies to a tagged or digested image.
+	if transport == TransportNameDocker {
+		if repoScope := trimScopeReference(scope); repoScope != scope {
+			if reqs, ok := transportScopes[repoScope]; ok {
+				return reqs
+			}
+			scope = repoScope
+		}
+	}
+
 	// For docker transport, try longest-prefix match and wildcard subdomain match
 	if transport == TransportNameDocker {
 		// Try longest-prefix match: the scope key is a prefix of the image
@@ -276,6 +289,19 @@ func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) 
 
 // isPathPrefix reports whether prefix is a prefix of s at a "/" boundary.
 // That is, prefix matches s if s == prefix or s starts with prefix + "/".
+// trimScopeReference drops a trailing tag or digest from a docker scope,
+// leaving the registry and repository. A ":" that belongs to a registry port
+// is kept, since the part after it still contains a "/".
+func trimScopeReference(scope string) string {
+	if i := strings.LastIndex(scope, "@"); i != -1 {
+		return scope[:i]
+	}
+	if i := strings.LastIndex(scope, ":"); i != -1 && !strings.Contains(scope[i+1:], "/") {
+		return scope[:i]
+	}
+	return scope
+}
+
 func isPathPrefix(prefix, s string) bool {
 	if s == prefix {
 		return true
