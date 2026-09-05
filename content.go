@@ -53,6 +53,24 @@ const (
 // DefaultTagNOptions provides the default TagNOptions.
 var DefaultTagNOptions TagNOptions
 
+// parseReferenceForScope parses a reference for the authentication API. The
+// legacy parser case keeps third-party targets using registry.Reference from
+// silently losing scope hints during the properties.Reference migration.
+func parseReferenceForScope(target any, reference string) (registry.Reference, bool, error) {
+	if parser, ok := target.(interfaces.ReferenceParser); ok {
+		ref, err := parser.ParseReference(reference)
+		return registry.Reference{
+			Registry:   ref.Registry,
+			Repository: ref.Repository,
+		}, true, err
+	}
+	if parser, ok := target.(interfaces.LegacyReferenceParser); ok {
+		ref, err := parser.ParseReference(reference)
+		return ref, true, err
+	}
+	return registry.Reference{}, false, nil
+}
+
 // TagNOptions contains parameters for [oras.TagN].
 type TagNOptions struct {
 	// Concurrency limits the maximum number of concurrent tag tasks.
@@ -84,9 +102,8 @@ func TagN(ctx context.Context, target Target, srcReference string, dstReferences
 	_, isRefFetcher := target.(registry.ReferenceFetcher)
 	_, isRefPusher := target.(registry.ReferencePusher)
 	if isRefFetcher && isRefPusher {
-		if repo, ok := target.(interfaces.ReferenceParser); ok {
+		if ref, ok, err := parseReferenceForScope(target, srcReference); ok {
 			// add scope hints to minimize the number of auth requests
-			ref, err := repo.ParseReference(srcReference)
 			if err != nil {
 				return ocispec.Descriptor{}, err
 			}
@@ -142,9 +159,8 @@ func Tag(ctx context.Context, target Target, src, dst string) (ocispec.Descripto
 	refFetcher, okFetch := target.(registry.ReferenceFetcher)
 	refPusher, okPush := target.(registry.ReferencePusher)
 	if okFetch && okPush {
-		if repo, ok := target.(interfaces.ReferenceParser); ok {
+		if ref, ok, err := parseReferenceForScope(target, src); ok {
 			// add scope hints to minimize the number of auth requests
-			ref, err := repo.ParseReference(src)
 			if err != nil {
 				return ocispec.Descriptor{}, err
 			}

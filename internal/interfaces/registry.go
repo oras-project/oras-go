@@ -15,10 +15,21 @@ limitations under the License.
 
 package interfaces
 
-import "github.com/oras-project/oras-go/v3/registry"
+import (
+	"github.com/oras-project/oras-go/v3/registry"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
+)
 
 // ReferenceParser provides reference parsing.
 type ReferenceParser interface {
+	// ParseReference parses a reference to a fully qualified reference.
+	ParseReference(reference string) (properties.Reference, error)
+}
+
+// LegacyReferenceParser provides reference parsing using the deprecated
+// registry.Reference type. It is retained so that third-party targets keep
+// receiving authentication scope hints while migrating to ReferenceParser.
+type LegacyReferenceParser interface {
 	// ParseReference parses a reference to a fully qualified reference.
 	ParseReference(reference string) (registry.Reference, error)
 }
