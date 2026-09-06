@@ -900,9 +900,7 @@ func TestRepository_PolicyScope_TaggedEntryApplies(t *testing.T) {
 		RepositoryName: testReference.Repository,
 	}
 
-	if err := repo.checkPolicy(context.Background(), "blocked"); err == nil {
-		t.Error("checkPolicy() on the tag named by the policy should be denied, got nil")
-	}
+	assertPolicyDenied(t, repo.checkPolicy(context.Background(), "blocked"), "checkPolicy() on the tag named by the policy")
 	if err := repo.checkPolicy(context.Background(), "allowed"); err != nil {
 		t.Errorf("checkPolicy() on another tag should be allowed, got: %v", err)
 	}
@@ -932,9 +930,7 @@ func TestRepository_PolicyScope_DigestEntryApplies(t *testing.T) {
 		RepositoryName: testReference.Repository,
 	}
 
-	if err := repo.checkPolicy(context.Background(), blocked); err == nil {
-		t.Error("checkPolicy() on the digest named by the policy should be denied, got nil")
-	}
+	assertPolicyDenied(t, repo.checkPolicy(context.Background(), blocked), "checkPolicy() on the digest named by the policy")
 	if err := repo.checkPolicy(context.Background(), other); err != nil {
 		t.Errorf("checkPolicy() on another digest should be allowed, got: %v", err)
 	}

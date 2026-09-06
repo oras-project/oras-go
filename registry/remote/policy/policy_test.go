@@ -1250,3 +1250,52 @@ func TestPolicy_GetRequirementsForImage_TaggedAndDigestedScopes(t *testing.T) {
 		})
 	}
 }
+
+// Regressions found in review of the tag/digest scope change.
+func TestGetRequirementsForImageScopeEdgeCases(t *testing.T) {
+	reject := PolicyRequirements{&Reject{}}
+	accept := PolicyRequirements{&InsecureAcceptAnything{}}
+
+	t.Run("registry port is not mistaken for a tag", func(t *testing.T) {
+		p := &Policy{
+			Default:    reject,
+			Transports: map[TransportName]TransportScopes{TransportNameDocker: {"example.com": accept}},
+		}
+		// "example.com:5000" is a different registry from "example.com".
+		got := p.GetRequirementsForImage(TransportNameDocker, "example.com:5000")
+		if len(got) != 1 {
+			t.Fatalf("got %d requirements, want 1", len(got))
+		}
+		if got[0].Type() != TypeReject {
+			t.Errorf("host:port scope matched the bare host, got %s, want %s", got[0].Type(), TypeReject)
+		}
+	})
+
+	t.Run("tag and digest together fall back to the repository", func(t *testing.T) {
+		p := &Policy{
+			Default:    reject,
+			Transports: map[TransportName]TransportScopes{TransportNameDocker: {"example.com/repo": accept}},
+		}
+		got := p.GetRequirementsForImage(TransportNameDocker, "example.com/repo:tag@sha256:0000000000000000000000000000000000000000000000000000000000000000")
+		if len(got) != 1 {
+			t.Fatalf("got %d requirements, want 1", len(got))
+		}
+		if got[0].Type() != TypeInsecureAcceptAnything {
+			t.Errorf("repo:tag@digest did not fall back to the repository entry, got %s", got[0].Type())
+		}
+	})
+
+	t.Run("non-docker transport still falls back from a tag", func(t *testing.T) {
+		p := &Policy{
+			Default:    accept,
+			Transports: map[TransportName]TransportScopes{"oci": {"/tmp/img": reject}},
+		}
+		got := p.GetRequirementsForImage("oci", "/tmp/img:latest")
+		if len(got) != 1 {
+			t.Fatalf("got %d requirements, want 1", len(got))
+		}
+		if got[0].Type() != TypeReject {
+			t.Errorf("oci tagged scope bypassed its reject entry, got %s, want %s", got[0].Type(), TypeReject)
+		}
+	})
+}

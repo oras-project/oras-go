@@ -224,17 +224,16 @@ func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) 
 		return reqs
 	}
 
-	// A docker scope may name an exact tag or digest, which is the most
-	// specific form containers-policy.json allows. Namespace matching below
-	// runs on the repository part, so an entry for the repository still
-	// applies to a tagged or digested image.
-	if transport == TransportNameDocker {
-		if repoScope := trimScopeReference(scope); repoScope != scope {
-			if reqs, ok := transportScopes[repoScope]; ok {
-				return reqs
-			}
-			scope = repoScope
+	// A scope may name an exact tag or digest, which is the most specific form
+	// containers-policy.json allows. An entry for the repository still applies
+	// to a tagged or digested image, so fall back to it. This is deliberately
+	// not limited to the docker transport: an oci scope is legitimately
+	// "/path/to/dir:tag", and gating it would let such an entry be skipped.
+	if repoScope := trimScopeReference(scope); repoScope != scope {
+		if reqs, ok := transportScopes[repoScope]; ok {
+			return reqs
 		}
+		scope = repoScope
 	}
 
 	// For docker transport, try longest-prefix match and wildcard subdomain match
@@ -287,21 +286,25 @@ func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) 
 	return p.Default
 }
 
-// isPathPrefix reports whether prefix is a prefix of s at a "/" boundary.
-// That is, prefix matches s if s == prefix or s starts with prefix + "/".
-// trimScopeReference drops a trailing tag or digest from a docker scope,
-// leaving the registry and repository. A ":" that belongs to a registry port
-// is kept, since the part after it still contains a "/".
+// trimScopeReference drops a trailing tag or digest from a scope, leaving the
+// registry and repository. A reference may carry both, as in
+// "example.com/repo:tag@sha256:...", so the digest is removed first and the
+// tag after it. A ":" that belongs to a registry port is kept: a port is only
+// a port when nothing after it and something before it contains a "/", which
+// distinguishes "example.com:5000" from "example.com/repo:tag".
 func trimScopeReference(scope string) string {
 	if i := strings.LastIndex(scope, "@"); i != -1 {
-		return scope[:i]
+		scope = scope[:i]
 	}
-	if i := strings.LastIndex(scope, ":"); i != -1 && !strings.Contains(scope[i+1:], "/") {
+	if i := strings.LastIndex(scope, ":"); i != -1 &&
+		!strings.Contains(scope[i+1:], "/") && strings.Contains(scope[:i], "/") {
 		return scope[:i]
 	}
 	return scope
 }
 
+// isPathPrefix reports whether prefix is a prefix of s at a "/" boundary.
+// That is, prefix matches s if s == prefix or s starts with prefix + "/".
 func isPathPrefix(prefix, s string) bool {
 	if s == prefix {
 		return true
