@@ -1,0 +1,181 @@
+# Copyright The ORAS Authors.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Opens the release pull request for the v2 branch on a roughly biweekly
+# cadence. It only proposes: owners review and merge, and the merge is what
+# triggers .github/workflows/release.yml on v2 to tag and publish.
+#
+# This file lives on the default branch because GitHub only runs scheduled
+# workflows from there. Everything it operates on is the v2 branch.
+
+name: release-propose
+
+on:
+  schedule:
+    # Weekly, but the job requires the previous v2 tag to be at least 14 days
+    # old before it proposes anything. Gating on tag age rather than week
+    # parity keeps the cadence self-correcting when a release is cut by hand.
+    - cron: '0 16 * * 2'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to propose, e.g. v2.6.3 (default: computed from the commits since the last tag)'
+        required: false
+        type: string
+      ignore_cadence:
+        description: 'Propose even if the last release is less than 14 days old'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  propose:
+    if: github.repository == 'oras-project/oras-go'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout v2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v2
+          fetch-depth: 0
+          # The branch and PR must be created by a real account: pull requests
+          # opened by GITHUB_TOKEN do not trigger other workflows, so the
+          # required DCO check would never report and the PR could not merge.
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Decide whether to propose a release
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          INPUT_VERSION: ${{ inputs.version }}
+          IGNORE_CADENCE: ${{ inputs.ignore_cadence }}
+          MIN_AGE_DAYS: '14'
+        run: |
+          set -euo pipefail
+
+          skip() {
+            echo "No release proposed: $1"
+            echo "propose=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          last_tag=$(git describe --tags --abbrev=0 --match 'v2.*' HEAD)
+          echo "Last v2 tag: $last_tag"
+
+          if [ "$(git rev-list --count "$last_tag"..HEAD)" -eq 0 ]; then
+            skip "no commits on v2 since $last_tag"
+          fi
+
+          age_days=$(( ( $(date +%s) - $(git log -1 --format=%ct "$last_tag") ) / 86400 ))
+          echo "Age of $last_tag: ${age_days}d"
+          if [ "$IGNORE_CADENCE" != "true" ] && [ "$age_days" -lt "$MIN_AGE_DAYS" ]; then
+            skip "$last_tag is only ${age_days}d old (minimum ${MIN_AGE_DAYS}d)"
+          fi
+
+          if [ "$(gh pr list --repo "$GITHUB_REPOSITORY" --base v2 --state open --label release --json number --jq 'length')" -ne 0 ]; then
+            skip "a release pull request is already open against v2"
+          fi
+
+          # Subjects of the unreleased commits, minus any leftover release
+          # marker commit from a previous cycle.
+          git log --no-merges --pretty=%s "$last_tag"..HEAD \
+            | grep -vE '^chore: release v[0-9]' > subjects.txt || true
+          if [ ! -s subjects.txt ]; then
+            skip "only release marker commits on v2 since $last_tag"
+          fi
+
+          if [ -n "$INPUT_VERSION" ]; then
+            version="$INPUT_VERSION"
+          else
+            base=${last_tag#v}
+            base=${base%%-*}
+            IFS=. read -r major minor patch <<< "$base"
+            if grep -qE '^feat(\(.+\))?!?:' subjects.txt; then
+              # A feature landed on v2, so this is not a patch release.
+              version="v${major}.$((minor + 1)).0"
+            else
+              version="v${major}.${minor}.$((patch + 1))"
+            fi
+          fi
+
+          if ! [[ "$version" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Error: '$version' is not a released semantic version (vX.Y.Z)."
+            echo "Pre-releases are cut by hand; see RELEASES.md."
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$version" > /dev/null; then
+            echo "Error: tag $version already exists"
+            exit 1
+          fi
+          echo "Proposing $version"
+
+          # The PR body is used verbatim as the GitHub Release body, so it
+          # carries release notes and nothing else.
+          notes="$RUNNER_TEMP/release-notes.md"
+          : > "$notes"
+          section() {
+            local heading="$1" pattern="$2"
+            local matches
+            matches=$(grep -E "$pattern" subjects.txt | sed 's/^/* /') || true
+            if [ -n "$matches" ]; then
+              printf '## %s\n\n%s\n\n' "$heading" "$matches" >> "$notes"
+            fi
+            grep -vE "$pattern" subjects.txt > remaining.txt || true
+            mv remaining.txt subjects.txt
+          }
+          section 'New Features' '^feat(\(.+\))?!?:'
+          section 'Bug Fixes' '^fix(\(.+\))?!?:'
+          section 'Documentation' '^docs(\(.+\))?!?:'
+          section 'Other Changes' '.'
+          printf '**Full Changelog**: https://github.com/%s/compare/%s...%s\n' \
+            "$GITHUB_REPOSITORY" "$last_tag" "$version" >> "$notes"
+          cat "$notes"
+
+          {
+            echo "propose=true"
+            echo "version=$version"
+            echo "notes=$notes"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open the release pull request
+        if: steps.decide.outputs.propose == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          VERSION: ${{ steps.decide.outputs.version }}
+          NOTES: ${{ steps.decide.outputs.notes }}
+        run: |
+          set -euo pipefail
+
+          branch="chore/release-$VERSION"
+
+          # Sign-off must match the commit author for the DCO check to pass, so
+          # take both from the account behind RELEASE_PAT.
+          user=$(gh api user)
+          git config user.name "$(jq -r '.name // .login' <<< "$user")"
+          git config user.email "$(jq -r '"\(.id)+\(.login)@users.noreply.github.com"' <<< "$user")"
+
+          # An empty commit so GitHub will open a pull request; the release
+          # itself tags the merge commit, which carries all the work on v2.
+          git commit --allow-empty -s -m "chore: release $VERSION"
+          git push origin "HEAD:refs/heads/$branch"
+
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base v2 \
+            --head "$branch" \
+            --title "release: $VERSION" \
+            --body-file "$NOTES" \
+            --label release
