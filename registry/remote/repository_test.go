@@ -7096,9 +7096,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 }
 
 func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
-	reference := registry.Reference{
+	reference := properties.Reference{
 		Registry:   "eastern.haan.com",
-		Reference:  "<calculate>",
 		Repository: "from25to220ce",
 	}
 
@@ -7112,7 +7111,13 @@ func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(
 		s := manifestStore{repo: repo}
 
 		for i, method := range []string{http.MethodGet, http.MethodHead} {
-			reference.Reference = dcdIOStruct.clientSuppliedReference
+			reference.Tag = ""
+			reference.Digest = ""
+			if dcdIOStruct.isTag {
+				reference.Tag = dcdIOStruct.clientSuppliedReference
+			} else {
+				reference.Digest = dcdIOStruct.clientSuppliedReference
+			}
 
 			resp := http.Response{
 				Header: http.Header{
@@ -7514,6 +7519,17 @@ func TestRepository_Tags_WithLastParam(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Errorf("Repository.Tags() error = %v", err)
+	}
+}
+
+func TestRepository_policyImageReference_LowerCasesHost(t *testing.T) {
+	repo, err := NewRepository("Quay.IO/secure/app")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	got := repo.policyImageReference("")
+	if want := "quay.io/secure/app"; got.Scope != want {
+		t.Errorf("policyImageReference().Scope = %q, want %q", got.Scope, want)
 	}
 }
 
@@ -8426,7 +8442,7 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 	tests := []struct {
 		name           string
 		resp           *http.Response
-		ref            registry.Reference
+		ref            properties.Reference
 		httpMethod     string
 		wantDescriptor ocispec.Descriptor
 		wantErr        bool
@@ -8444,10 +8460,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod: http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{
@@ -8470,10 +8486,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},
@@ -8492,10 +8508,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},
@@ -8514,10 +8530,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},
@@ -8536,10 +8552,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 				},
 				Body: io.NopCloser(bytes.NewReader(data)),
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod: http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{
@@ -8562,10 +8578,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 				},
 				Body: &badReader{},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},
@@ -8584,10 +8600,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  string(digest.FromBytes([]byte("whatever"))),
+				Digest:     string(digest.FromBytes([]byte("whatever"))),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},
