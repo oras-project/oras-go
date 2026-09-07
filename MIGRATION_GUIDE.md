@@ -212,6 +212,19 @@ fmt.Println(ref.Registry, ref.Repository, ref.Tag)
 
 The parsers also accept `oci://`, `http://`, and `https://` prefixes.
 
+The exported reference surfaces in `registry/remote` use the properties type:
+
+| Deprecated type | Replacement |
+| --- | --- |
+| `remote.Registry.Reference registry.Reference` | `remote.Registry.Reference properties.Reference` |
+| `remote.Repository.Reference() registry.Reference` | `remote.Repository.Reference() properties.Reference` |
+| `remote.Repository.ParseReference(string) (registry.Reference, error)` | `remote.Repository.ParseReference(string) (properties.Reference, error)` |
+
+Custom targets that expose a `ParseReference` method should update its return
+type to `properties.Reference`. ORAS temporarily recognizes the legacy method
+signature when adding authentication scope hints, so existing implementations
+retain that behavior during migration.
+
 ### Repository interfaces, predecessors, and untagging
 
 `registry.Repository` now embeds `content.PredecessorFinder`. Applications

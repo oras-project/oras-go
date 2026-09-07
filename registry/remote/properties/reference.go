@@ -89,6 +89,9 @@ type Reference struct {
 //	Form D: registry/repository               (no tag or digest)
 //
 // In Form B, both Tag and Digest fields are populated.
+//
+// The registry host is case-insensitive (DNS), so it is lower-cased during
+// parsing. Repository, tag and digest are preserved as written.
 func NewReference(artifact string) (Reference, error) {
 	// Strip URI schemes if present
 	artifact = strings.TrimPrefix(artifact, "oci://")
@@ -106,7 +109,7 @@ func NewReference(artifact string) (Reference, error) {
 	}
 
 	ref := Reference{
-		Registry:   registry,
+		Registry:   strings.ToLower(registry),
 		Repository: repository,
 		Tag:        tag,
 		Digest:     digestStr,

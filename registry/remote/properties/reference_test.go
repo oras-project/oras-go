@@ -96,6 +96,13 @@ func TestNewReference(t *testing.T) {
 			wantRepo: "library/alpine",
 		},
 		{
+			name:     "mixed-case registry host is lower-cased, tag preserved",
+			input:    "LocalHost:5000/repo:V1",
+			wantReg:  "localhost:5000",
+			wantRepo: "repo",
+			wantTag:  "V1",
+		},
+		{
 			name:    "invalid - missing repository",
 			input:   "docker.io",
 			wantErr: true,
