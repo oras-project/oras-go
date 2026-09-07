@@ -410,7 +410,11 @@ func (rc *RegistriesConfig) FindRegistry(ref string) *Registry {
 
 // matchesPrefix checks if the reference matches the given prefix.
 // Supports wildcard prefixes like "*.example.com".
+// The host part is compared case-insensitively on both sides, since the
+// prefix comes from user-authored TOML and the reference from the caller.
 func matchesPrefix(ref, prefix string) bool {
+	ref, prefix = lowerHost(ref), lowerHost(prefix)
+
 	// Handle wildcard prefix
 	if strings.HasPrefix(prefix, "*.") {
 		suffix := prefix[1:] // Remove the "*", keep the "."
@@ -461,6 +465,13 @@ func extractHost(ref string) string {
 	}
 
 	return ref
+}
+
+// lowerHost lower-cases the host part of a reference or prefix, leaving the
+// case-sensitive repository, tag and digest untouched.
+func lowerHost(ref string) string {
+	host := extractHost(ref)
+	return strings.ToLower(host) + ref[len(host):]
 }
 
 // ResolveAlias resolves a short name to a fully qualified reference.
@@ -514,8 +525,8 @@ func (rc *RegistriesConfig) RewriteReference(ref string) string {
 	}
 
 	// Replace prefix with location
-	if strings.HasPrefix(ref, prefix) {
-		return location + ref[len(prefix):]
+	if lref, lprefix := lowerHost(ref), lowerHost(prefix); strings.HasPrefix(lref, lprefix) {
+		return location + lref[len(lprefix):]
 	}
 
 	return ref
