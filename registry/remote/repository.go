@@ -1027,13 +1027,19 @@ func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Desc
 	if err != nil {
 		return err
 	}
-	_, referrers, err := r.referrersFromIndex(ctx, referrersTag)
+	indexDesc, referrers, err := r.referrersFromIndex(ctx, referrersTag)
 	if err != nil {
 		if errors.Is(err, errdef.ErrNotFound) {
 			// no referrers to the manifest
 			return nil
 		}
 		return err
+	}
+
+	// Some registries resolve the fallback tag to the subject itself. Its
+	// children are not referrers, and the tag schema requires an OCI index.
+	if indexDesc.MediaType != ocispec.MediaTypeImageIndex || indexDesc.Digest == desc.Digest {
+		return nil
 	}
 
 	filtered := filterReferrers(referrers, artifactType)
