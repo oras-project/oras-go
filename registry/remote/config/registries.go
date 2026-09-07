@@ -471,7 +471,11 @@ func extractHost(ref string) string {
 // case-sensitive repository, tag and digest untouched.
 func lowerHost(ref string) string {
 	host := extractHost(ref)
-	return strings.ToLower(host) + ref[len(host):]
+	// extractHost cannot tell a port from a tag in a slash-less reference, so
+	// it hands back "myimage:V1" whole. Fold only up to the ":" so a short-name
+	// tag survives; a port is digits, and folding it would be a no-op anyway.
+	name, _, _ := strings.Cut(host, ":")
+	return strings.ToLower(name) + ref[len(name):]
 }
 
 // ResolveAlias resolves a short name to a fully qualified reference.
