@@ -7522,6 +7522,17 @@ func TestRepository_Tags_WithLastParam(t *testing.T) {
 	}
 }
 
+func TestRepository_policyImageReference_LowerCasesHost(t *testing.T) {
+	repo, err := NewRepository("Quay.IO/secure/app")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	got := repo.policyImageReference("")
+	if want := "quay.io/secure/app"; got.Scope != want {
+		t.Errorf("policyImageReference().Scope = %q, want %q", got.Scope, want)
+	}
+}
+
 func TestRepository_ParseReference(t *testing.T) {
 	type args struct {
 		reference string
