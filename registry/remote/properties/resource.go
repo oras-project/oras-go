@@ -38,15 +38,16 @@ type Resource struct {
 // optional oci://, http://, or https:// scheme, and may be narrowed to a
 // namespace or repository path. Tags and digests are not accepted.
 func ParseResource(resource string) (Resource, error) {
-	resource = strings.TrimPrefix(resource, "oci://")
-	resource = strings.TrimPrefix(resource, "http://")
-	resource = strings.TrimPrefix(resource, "https://")
-	resource = strings.TrimSuffix(resource, "/")
-	if strings.HasSuffix(resource, "/") {
+	trimmed := strings.TrimPrefix(resource, "oci://")
+	trimmed = strings.TrimPrefix(trimmed, "http://")
+	trimmed = strings.TrimPrefix(trimmed, "https://")
+	// A single trailing slash is tolerated; more than one is not a valid path.
+	trimmed = strings.TrimSuffix(trimmed, "/")
+	if strings.HasSuffix(trimmed, "/") {
 		return Resource{}, fmt.Errorf("%w: invalid resource path %q", errdef.ErrInvalidReference, resource)
 	}
 
-	host, path := splitRegistry(resource)
+	host, path := splitRegistry(trimmed)
 	if host == "" {
 		return Resource{}, fmt.Errorf("%w: invalid registry resource %q", errdef.ErrInvalidReference, resource)
 	}
