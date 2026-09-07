@@ -25,8 +25,9 @@ import (
 // Resource represents a registry host, optionally narrowed to a namespace or
 // repository. It never carries a tag or digest.
 type Resource struct {
-	// Registry is the name of the registry, usually a domain name optionally
-	// with a port.
+	// Registry is the normalized name of the registry. The host portion is
+	// lowercase because registry hostnames are case-insensitive; a port, if
+	// present, is preserved.
 	Registry string
 
 	// Path is the namespace or repository path, or empty for the whole registry.
@@ -40,6 +41,7 @@ func ParseResource(resource string) (Resource, error) {
 	resource = strings.TrimPrefix(resource, "oci://")
 	resource = strings.TrimPrefix(resource, "http://")
 	resource = strings.TrimPrefix(resource, "https://")
+	resource = strings.TrimSuffix(resource, "/")
 	if strings.HasSuffix(resource, "/") {
 		return Resource{}, fmt.Errorf("%w: invalid resource path %q", errdef.ErrInvalidReference, resource)
 	}
@@ -48,6 +50,7 @@ func ParseResource(resource string) (Resource, error) {
 	if host == "" {
 		return Resource{}, fmt.Errorf("%w: invalid registry resource %q", errdef.ErrInvalidReference, resource)
 	}
+	host = strings.ToLower(host)
 
 	// Validate the host independently so a port is not mistaken for a tag.
 	if err := (Reference{Registry: host}).ValidateRegistry(); err != nil {

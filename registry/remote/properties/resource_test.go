@@ -16,8 +16,11 @@ limitations under the License.
 package properties
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/oras-project/oras-go/v3/errdef"
 )
 
 func TestParseResource(t *testing.T) {
@@ -33,6 +36,10 @@ func TestParseResource(t *testing.T) {
 		{name: "oci scheme", input: "oci://example.com/ns", want: Resource{Registry: "example.com", Path: "ns"}},
 		{name: "http scheme", input: "http://example.com/ns", want: Resource{Registry: "example.com", Path: "ns"}},
 		{name: "https scheme", input: "https://example.com/ns", want: Resource{Registry: "example.com", Path: "ns"}},
+		{name: "trailing slash", input: "https://example.com/", want: Resource{Registry: "example.com"}},
+		{name: "trailing slash on path", input: "example.com/myspace/app/", want: Resource{Registry: "example.com", Path: "myspace/app"}},
+		{name: "uppercase registry", input: "EXAMPLE.com/ns/app", want: Resource{Registry: "example.com", Path: "ns/app"}},
+		{name: "uppercase registry with port", input: "LOCALHOST:5000/ns", want: Resource{Registry: "localhost:5000", Path: "ns"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -51,7 +58,9 @@ func TestParseResourceRejectsReferencesAndInvalidPaths(t *testing.T) {
 	tests := []string{
 		"example.com/myspace:v1",
 		"example.com/myspace@sha256:deadbeef",
-		"example.com/",
+		"/",
+		"example.com//",
+		"example.com/myspace//",
 		"example.com/UPPER",
 		"example.com/a//b",
 		"example.com/a b",
@@ -62,6 +71,8 @@ func TestParseResourceRejectsReferencesAndInvalidPaths(t *testing.T) {
 		t.Run(strings.ReplaceAll(input, "/", "_"), func(t *testing.T) {
 			if _, err := ParseResource(input); err == nil {
 				t.Fatalf("ParseResource(%q) expected an error", input)
+			} else if !errors.Is(err, errdef.ErrInvalidReference) {
+				t.Errorf("ParseResource(%q) error = %v, want errors.Is(err, ErrInvalidReference)", input, err)
 			}
 		})
 	}
@@ -73,6 +84,9 @@ func TestParseResourceTagDigestError(t *testing.T) {
 			_, err := ParseResource(input)
 			if err == nil || !strings.Contains(err.Error(), "must not include a tag or digest") {
 				t.Fatalf("ParseResource(%q) error = %v, want tag/digest error", input, err)
+			}
+			if !errors.Is(err, errdef.ErrInvalidReference) {
+				t.Errorf("ParseResource(%q) error = %v, want errors.Is(err, ErrInvalidReference)", input, err)
 			}
 		})
 	}
