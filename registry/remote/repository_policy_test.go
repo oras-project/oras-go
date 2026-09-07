@@ -425,6 +425,29 @@ func (v *recordingSignedByVerifier) Verify(ctx context.Context, req *policy.PRSi
 	return v.allow, nil
 }
 
+func TestRepository_PolicyTagAndDigestReference(t *testing.T) {
+	d := digest.FromString("hello world")
+	for _, reference := range []string{
+		"signed@" + d.String(),
+		testReference.String() + ":signed@" + d.String(),
+	} {
+		t.Run(reference, func(t *testing.T) {
+			verifier := &recordingSignedByVerifier{allow: true}
+			repo := newSignedByPolicyRepo(t, verifier)
+			if err := repo.checkPolicy(context.Background(), reference); err != nil {
+				t.Fatal(err)
+			}
+			if len(verifier.seen) != 1 {
+				t.Fatalf("verifier called %d times, want 1", len(verifier.seen))
+			}
+			want := testReference.String() + "@" + d.String()
+			if got := verifier.seen[0]; got.Reference != want || got.Digest != d {
+				t.Errorf("verifier image = %+v, want reference %q and digest %q", got, want, d)
+			}
+		})
+	}
+}
+
 func newSignedByEvaluator(t *testing.T, verifier policy.SignedByVerifier) *policy.Evaluator {
 	t.Helper()
 	pol := &policy.Policy{

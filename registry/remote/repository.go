@@ -529,6 +529,10 @@ func (r *Repository) policyImageReference(reference string) policy.ImageReferenc
 	ref := repoRef.String()
 	if reference != "" {
 		if parsed, err := r.ParseReference(reference); err == nil {
+			// Policy verifiers historically receive the digest without a tag.
+			if parsed.Digest != "" {
+				parsed.Tag = ""
+			}
 			ref = parsed.String()
 		} else {
 			ref = reference
@@ -1783,8 +1787,11 @@ func (s *manifestStore) Untag(ctx context.Context, reference string) error {
 	if err != nil {
 		return err
 	}
-	if ref.Tag == "" || ref.Digest != "" {
+	if ref.Digest != "" {
 		return fmt.Errorf("%w: invalid tag %q", errdef.ErrInvalidReference, ref.GetReference())
+	}
+	if err := ref.ValidateTag(); err != nil {
+		return err
 	}
 	ctx = appendRepositoryScope(ctx, ref, auth.ActionDelete)
 	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
