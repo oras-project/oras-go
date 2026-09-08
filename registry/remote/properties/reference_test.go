@@ -16,7 +16,10 @@ limitations under the License.
 package properties
 
 import (
+	"errors"
 	"testing"
+
+	"github.com/oras-project/oras-go/v3/errdef"
 )
 
 func TestNewReference(t *testing.T) {
@@ -57,6 +60,13 @@ func TestNewReference(t *testing.T) {
 			wantReg:  "localhost:5000",
 			wantRepo: "repo",
 			wantTag:  "v1",
+		},
+		{
+			name:       "empty tag with digest",
+			input:      "docker.io/library/alpine:@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			wantReg:    "docker.io",
+			wantRepo:   "library/alpine",
+			wantDigest: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		},
 		{
 			name:     "oci scheme",
@@ -125,6 +135,24 @@ func TestNewReference(t *testing.T) {
 			}
 			if ref.Digest != tt.wantDigest {
 				t.Errorf("Digest = %q, want %q", ref.Digest, tt.wantDigest)
+			}
+		})
+	}
+}
+
+func TestNewReference_EmptyComponents(t *testing.T) {
+	for _, input := range []string{
+		"ghcr.io/repo:",
+		"ghcr.io/repo@",
+		"ghcr.io/repo:@",
+		"ghcr.io/repo:tag@",
+	} {
+		t.Run(input, func(t *testing.T) {
+			if _, err := NewReference(input); !errors.Is(err, errdef.ErrInvalidReference) {
+				t.Errorf("NewReference(%q) error = %v, want ErrInvalidReference", input, err)
+			}
+			if _, err := NewReferenceList(input); !errors.Is(err, errdef.ErrInvalidReference) {
+				t.Errorf("NewReferenceList(%q) error = %v, want ErrInvalidReference", input, err)
 			}
 		})
 	}
