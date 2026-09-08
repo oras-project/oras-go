@@ -51,7 +51,7 @@ func TestParseReferenceForScope(t *testing.T) {
 	tests := []struct {
 		name      string
 		parser    any
-		want      registry.Reference
+		want      properties.Reference
 		wantMatch bool
 		wantErr   error
 	}{
@@ -62,29 +62,32 @@ func TestParseReferenceForScope(t *testing.T) {
 				Repository: legacyRef.Repository,
 				Tag:        legacyRef.Reference,
 			}},
-			want: registry.Reference{
+			want: properties.Reference{
 				Registry:   legacyRef.Registry,
 				Repository: legacyRef.Repository,
 			},
 			wantMatch: true,
 		},
 		{
-			name:      "legacy reference parser",
-			parser:    legacyReferenceParser{ref: legacyRef},
-			want:      legacyRef,
+			name:   "legacy reference parser",
+			parser: legacyReferenceParser{ref: legacyRef},
+			want: properties.Reference{
+				Registry:   legacyRef.Registry,
+				Repository: legacyRef.Repository,
+			},
 			wantMatch: true,
 		},
 		{
 			name:      "parser error",
 			parser:    propertiesReferenceParser{err: errdefTest},
-			want:      registry.Reference{},
+			want:      properties.Reference{},
 			wantMatch: true,
 			wantErr:   errdefTest,
 		},
 		{
 			name:   "unsupported target",
 			parser: struct{}{},
-			want:   registry.Reference{},
+			want:   properties.Reference{},
 		},
 	}
 	for _, tt := range tests {

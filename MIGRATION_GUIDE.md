@@ -117,6 +117,7 @@ function type explicit.
 | `auth.AppendScopes(ctx, scopes...)` | `auth.AppendScopesForHost(ctx, host, scopes...)` |
 | `auth.GetScopes(ctx)` | `auth.GetScopesForHost(ctx, host)` |
 | `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForHost(ctx, host)` |
+| `auth.AppendRepositoryScope(ctx, registry.Reference, actions...)` | `auth.AppendRepositoryScope(ctx, properties.Reference, actions...)` |
 
 Scope hints are host-specific in v3. Pass the host of the registry request,
 normally from `properties.Reference.Host()`, to the replacement functions. The

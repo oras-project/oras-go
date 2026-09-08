@@ -32,6 +32,7 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/syncutil"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 const (
@@ -56,19 +57,22 @@ var DefaultTagNOptions TagNOptions
 // parseReferenceForScope parses a reference for the authentication API. The
 // legacy parser case keeps third-party targets using registry.Reference from
 // silently losing scope hints during the properties.Reference migration.
-func parseReferenceForScope(target any, reference string) (registry.Reference, bool, error) {
+func parseReferenceForScope(target any, reference string) (properties.Reference, bool, error) {
 	if parser, ok := target.(interfaces.ReferenceParser); ok {
 		ref, err := parser.ParseReference(reference)
-		return registry.Reference{
+		return properties.Reference{
 			Registry:   ref.Registry,
 			Repository: ref.Repository,
 		}, true, err
 	}
 	if parser, ok := target.(interfaces.LegacyReferenceParser); ok {
 		ref, err := parser.ParseReference(reference)
-		return ref, true, err
+		return properties.Reference{
+			Registry:   ref.Registry,
+			Repository: ref.Repository,
+		}, true, err
 	}
-	return registry.Reference{}, false, nil
+	return properties.Reference{}, false, nil
 }
 
 // TagNOptions contains parameters for [oras.TagN].
