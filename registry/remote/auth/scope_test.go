@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/oras-project/oras-go/v3/registry"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 func TestScopeRepository(t *testing.T) {
@@ -107,13 +107,13 @@ func TestScopeRepository(t *testing.T) {
 
 func TestAppendRepositoryScope(t *testing.T) {
 	ctx := context.Background()
-	ref1, err := registry.ParseReference("registry.example.com/foo")
+	ref1, err := properties.NewReference("registry.example.com/foo")
 	if err != nil {
-		t.Fatal("registry.ParseReference() error =", err)
+		t.Fatal("properties.NewReference() error =", err)
 	}
-	ref2, err := registry.ParseReference("docker.io/foo")
+	ref2, err := properties.NewReference("docker.io/foo")
 	if err != nil {
-		t.Fatal("registry.ParseReference() error =", err)
+		t.Fatal("properties.NewReference() error =", err)
 	}
 
 	// with single scope

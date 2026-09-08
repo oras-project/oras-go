@@ -183,7 +183,7 @@ type Repository struct {
 // carrying one is rejected with an error wrapping
 // [errdef.ErrInvalidReference].
 func NewRepository(reference string) (*Repository, error) {
-	ref, err := registry.ParseReference(reference)
+	ref, err := properties.NewReference(reference)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func NewRepository(reference string) (*Repository, error) {
 
 	// Create a default Registry
 	reg := &Registry{
-		Reference: registry.Reference{
+		Reference: properties.Reference{
 			Registry: ref.Registry,
 		},
 	}
@@ -213,41 +213,9 @@ func (r *Repository) reference() properties.Reference {
 	return ref
 }
 
-// toPropertiesReference converts a legacy registry reference at an exported
-// API boundary to the reference representation used internally by remote.
-func toPropertiesReference(ref registry.Reference) properties.Reference {
-	propertiesRef := properties.Reference{
-		Registry:   ref.Registry,
-		Repository: ref.Repository,
-		Tag:        ref.Tag,
-		Digest:     ref.Digest,
-	}
-	if propertiesRef.GetReference() == "" && ref.Reference != "" {
-		if d, err := digest.Parse(ref.Reference); err == nil {
-			propertiesRef.Digest = d.String()
-		} else {
-			propertiesRef.Tag = ref.Reference
-		}
-	}
-	return propertiesRef
-}
-
-// appendRepositoryScope adapts the internal reference representation to the
-// legacy authentication API.
-func appendRepositoryScope(ctx context.Context, ref properties.Reference, actions ...string) context.Context {
-	return auth.AppendRepositoryScope(ctx, registry.Reference{
-		Registry:   ref.Registry,
-		Repository: ref.Repository,
-	}, actions...)
-}
-
-// Reference returns the full registry.Reference for this repository.
-func (r *Repository) Reference() registry.Reference {
-	ref := r.reference()
-	return registry.Reference{
-		Registry:   ref.Registry,
-		Repository: ref.Repository,
-	}
+// Reference returns the full properties.Reference for this repository.
+func (r *Repository) Reference() properties.Reference {
+	return r.reference()
 }
 
 // clone makes a copy of the Repository being careful not to copy non-copyable fields (sync.Mutex and syncutil.Pool types)
@@ -552,6 +520,10 @@ func (r *Repository) policyImageReference(reference string) policy.ImageReferenc
 	ref := repoRef.String()
 	if reference != "" {
 		if parsed, err := r.ParseReference(reference); err == nil {
+			// Policy verifiers historically receive the digest without a tag.
+			if parsed.Digest != "" {
+				parsed.Tag = ""
+			}
 			ref = parsed.String()
 		} else {
 			ref = reference
@@ -573,7 +545,7 @@ func (r *Repository) policyDigest(reference string) digest.Digest {
 	if err != nil {
 		return ""
 	}
-	d, err := digest.Parse(ref.Reference)
+	d, err := digest.Parse(ref.GetReference())
 	if err != nil {
 		return ""
 	}
@@ -757,37 +729,40 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 // and returns the parsed reference. If the parsed reference does not share
 // the same base reference with the Repository r, ParseReference returns a
 // wrapped error ErrInvalidReference.
-func (r *Repository) ParseReference(reference string) (registry.Reference, error) {
+func (r *Repository) ParseReference(reference string) (properties.Reference, error) {
 	repoRef := r.reference()
-	ref, err := registry.ParseReference(reference)
+	ref, err := properties.NewReference(reference)
 	if err != nil {
-		ref = registry.Reference{
+		ref = properties.Reference{
 			Registry:   repoRef.Registry,
 			Repository: repoRef.Repository,
-			Reference:  reference,
 		}
 
 		// reference is not a FQDN
 		if index := strings.IndexByte(reference, '@'); index != -1 {
 			// `@` implies *digest*, so drop the *tag* (irrespective of what it is).
-			ref.Reference = reference[index+1:]
-			err = ref.ValidateReferenceAsDigest()
+			ref.Digest = reference[index+1:]
+			err = ref.ValidateDigest()
+		} else if d, digestErr := digest.Parse(reference); digestErr == nil {
+			ref.Digest = d.String()
+			err = nil
 		} else {
-			err = ref.ValidateReference()
+			ref.Tag = reference
+			err = ref.ValidateTag()
 		}
 
 		if err != nil {
-			return registry.Reference{}, err
+			return properties.Reference{}, err
 		}
 	} else if ref.Registry != repoRef.Registry || ref.Repository != repoRef.Repository {
-		return registry.Reference{}, fmt.Errorf(
+		return properties.Reference{}, fmt.Errorf(
 			"%w: mismatch between received %q and expected %q",
 			errdef.ErrInvalidReference, ref, repoRef,
 		)
 	}
 
-	if len(ref.Reference) == 0 {
-		return registry.Reference{}, errdef.ErrInvalidReference
+	if ref.GetReference() == "" {
+		return properties.Reference{}, errdef.ErrInvalidReference
 	}
 
 	return ref, nil
@@ -807,7 +782,7 @@ func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []strin
 		return err
 	}
 	repoRef := r.reference()
-	ctx = appendRepositoryScope(ctx, repoRef, auth.ActionPull)
+	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull)
 	url := buildRepositoryTagListURL(r.plainHTTP(), repoRef)
 	var err error
 	maxPages := r.tagListMaxPages()
@@ -931,7 +906,7 @@ func (r *Repository) referrersByAPI(ctx context.Context, desc ocispec.Descriptor
 	repoRef := r.reference()
 	ref := repoRef
 	ref.Digest = desc.Digest.String()
-	ctx = appendRepositoryScope(ctx, ref, auth.ActionPull)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
 
 	url := buildReferrersURL(r.plainHTTP(), ref, artifactType)
 	var err error
@@ -1088,7 +1063,7 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 	repoRef := r.reference()
 	ref := repoRef
 	ref.Digest = zeroDigest
-	ctx = appendRepositoryScope(ctx, ref, auth.ActionPull)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
 
 	url := buildReferrersURL(r.plainHTTP(), ref, "")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -1124,7 +1099,7 @@ func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isMa
 	repoRef := r.reference()
 	ref := repoRef
 	ref.Digest = target.Digest.String()
-	ctx = appendRepositoryScope(ctx, ref, auth.ActionDelete)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionDelete)
 	buildURL := buildRepositoryBlobURL
 	if isManifest {
 		buildURL = buildRepositoryManifestURL
@@ -1164,7 +1139,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 	repoRef := s.repo.reference()
 	ref := repoRef
 	ref.Digest = target.Digest.String()
-	ctx = appendRepositoryScope(ctx, ref, auth.ActionPull)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
 	url := buildRepositoryBlobURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -1213,12 +1188,12 @@ func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
 	repoRef := s.repo.reference()
-	ctx = appendRepositoryScope(ctx, repoRef, auth.ActionPull, auth.ActionPush)
+	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull, auth.ActionPush)
 
 	// We also need pull access to the source repo.
 	fromRef := repoRef
 	fromRef.Repository = fromRepo
-	ctx = appendRepositoryScope(ctx, fromRef, auth.ActionPull)
+	ctx = auth.AppendRepositoryScope(ctx, fromRef, auth.ActionPull)
 
 	url := buildRepositoryBlobMountURL(s.repo.plainHTTP(), repoRef, desc.Digest, fromRepo)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
@@ -1295,7 +1270,7 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
 	repoRef := s.repo.reference()
-	ctx = appendRepositoryScope(ctx, repoRef, auth.ActionPull, auth.ActionPush)
+	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull, auth.ActionPush)
 	url := buildRepositoryBlobUploadURL(s.repo.plainHTTP(), repoRef)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
@@ -1429,13 +1404,12 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	refDigest, err := ref.GetDigest()
+	refDigest, err := digest.Parse(ref.GetReference())
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	propertiesRef := toPropertiesReference(ref)
-	ctx = appendRepositoryScope(ctx, propertiesRef, auth.ActionPull)
-	url := buildRepositoryBlobURL(s.repo.plainHTTP(), propertiesRef)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
+	url := buildRepositoryBlobURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, err
@@ -1467,14 +1441,13 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	refDigest, err := ref.GetDigest()
+	refDigest, err := digest.Parse(ref.GetReference())
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	propertiesRef := toPropertiesReference(ref)
-	ctx = appendRepositoryScope(ctx, propertiesRef, auth.ActionPull)
-	url := buildRepositoryBlobURL(s.repo.plainHTTP(), propertiesRef)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
+	url := buildRepositoryBlobURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -1552,7 +1525,7 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	repoRef := s.repo.reference()
 	ref := repoRef
 	ref.Digest = target.Digest.String()
-	ctx = appendRepositoryScope(ctx, ref, auth.ActionPull)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
 	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -1639,7 +1612,7 @@ func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.D
 		if err := limitSize(target, s.repo.maxMetadataBytes()); err != nil {
 			return err
 		}
-		ctx = appendRepositoryScope(ctx, s.repo.reference(), auth.ActionPull, auth.ActionDelete)
+		ctx = auth.AppendRepositoryScope(ctx, s.repo.reference(), auth.ActionPull, auth.ActionDelete)
 		manifestJSON, err := content.FetchAll(ctx, s, target)
 		if err != nil {
 			return err
@@ -1692,9 +1665,8 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	propertiesRef := toPropertiesReference(ref)
-	ctx = appendRepositoryScope(ctx, propertiesRef, auth.ActionPull)
-	url := buildRepositoryManifestURL(s.repo.plainHTTP(), propertiesRef)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, err
@@ -1709,7 +1681,7 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		desc, err := s.generateDescriptor(resp, propertiesRef, req.Method)
+		desc, err := s.generateDescriptor(resp, ref, req.Method)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -1735,9 +1707,8 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	propertiesRef := toPropertiesReference(ref)
-	ctx = appendRepositoryScope(ctx, propertiesRef, auth.ActionPull)
-	url := buildRepositoryManifestURL(s.repo.plainHTTP(), propertiesRef)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -1761,7 +1732,7 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 			// skip the redundant evaluation in Resolve.
 			desc, err = s.Resolve(withPolicyChecked(ctx), reference)
 		} else {
-			desc, err = s.generateDescriptor(resp, propertiesRef, req.Method)
+			desc, err = s.generateDescriptor(resp, ref, req.Method)
 		}
 		if err != nil {
 			return ocispec.Descriptor{}, nil, err
@@ -1788,15 +1759,14 @@ func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, refere
 		return err
 	}
 
-	propertiesRef := toPropertiesReference(ref)
-	ctx = appendRepositoryScope(ctx, propertiesRef, auth.ActionPull, auth.ActionPush)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull, auth.ActionPush)
 	rc, err := s.Fetch(ctx, desc)
 	if err != nil {
 		return err
 	}
 	defer rc.Close()
 
-	return s.push(ctx, desc, rc, propertiesRef.GetReference())
+	return s.push(ctx, desc, rc, ref.GetReference())
 }
 
 // Untag removes the association between the given tag and the manifest it currently points to.
@@ -1808,12 +1778,14 @@ func (s *manifestStore) Untag(ctx context.Context, reference string) error {
 	if err != nil {
 		return err
 	}
-	if err := ref.ValidateReferenceAsTag(); err != nil {
+	if ref.Digest != "" {
+		return fmt.Errorf("%w: invalid tag %q", errdef.ErrInvalidReference, ref.GetReference())
+	}
+	if err := ref.ValidateTag(); err != nil {
 		return err
 	}
-	propertiesRef := toPropertiesReference(ref)
-	ctx = appendRepositoryScope(ctx, propertiesRef, auth.ActionDelete)
-	url := buildRepositoryManifestURL(s.repo.plainHTTP(), propertiesRef)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionDelete)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return err
@@ -1844,7 +1816,7 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 	if err != nil {
 		return err
 	}
-	return s.pushWithIndexing(ctx, expected, content, toPropertiesReference(ref).GetReference())
+	return s.pushWithIndexing(ctx, expected, content, ref.GetReference())
 }
 
 // push pushes the manifest content, matching the expected descriptor.
@@ -1858,7 +1830,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	}
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
-	ctx = appendRepositoryScope(ctx, ref, auth.ActionPull, auth.ActionPush)
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull, auth.ActionPush)
 	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	// unwrap the content for optimizations of built-in types.
 	body := ioutil.UnwrapNopCloser(content)
@@ -2089,7 +2061,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 }
 
 // ParseReference parses a reference to a fully qualified reference.
-func (s *manifestStore) ParseReference(reference string) (registry.Reference, error) {
+func (s *manifestStore) ParseReference(reference string) (properties.Reference, error) {
 	return s.repo.ParseReference(reference)
 }
 
