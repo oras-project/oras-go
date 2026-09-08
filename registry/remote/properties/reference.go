@@ -103,7 +103,10 @@ func NewReference(artifact string) (Reference, error) {
 		return Reference{}, fmt.Errorf("%w: missing registry or repository", errdef.ErrInvalidReference)
 	}
 
-	repository, digestStr, tag := splitRepository(path)
+	repository, digestStr, tag, err := splitRepository(path)
+	if err != nil {
+		return Reference{}, err
+	}
 
 	ref := Reference{
 		Registry:   strings.ToLower(registry),
@@ -156,7 +159,10 @@ func NewReferenceList(artifact string) ([]Reference, error) {
 		return nil, fmt.Errorf("%w: missing registry or repository", errdef.ErrInvalidReference)
 	}
 
-	repository, digestRef, tagRef := splitRepository(path)
+	repository, digestRef, tagRef, err := splitRepository(path)
+	if err != nil {
+		return nil, err
+	}
 
 	// Determine if we have tags or digests
 	references := tagRef
@@ -201,27 +207,26 @@ func NewReferenceList(artifact string) ([]Reference, error) {
 }
 
 // splitRepository splits the path into repository, digest, and tag.
-func splitRepository(path string) (repository, digestStr, tag string) {
+func splitRepository(path string) (repository, digestStr, tag string, err error) {
+	repository = path
 	if index := strings.Index(path, "@"); index != -1 {
-		// digest found; Valid Form A (if not B)
 		repository = path[:index]
 		digestStr = path[index+1:]
-
-		if index = strings.Index(repository, ":"); index != -1 {
-			// tag found since digest already present; Valid Form B
-			tag = repository[index+1:]
-			repository = repository[:index]
+		if digestStr == "" {
+			return "", "", "", fmt.Errorf("%w: missing digest", errdef.ErrInvalidReference)
 		}
-		return repository, digestStr, tag
 	}
 
-	if index := strings.Index(path, ":"); index != -1 {
-		// tag found; Valid Form C
-		return path[:index], "", path[index+1:]
+	if index := strings.Index(repository, ":"); index != -1 {
+		tag = repository[index+1:]
+		repository = repository[:index]
+		// A digest takes precedence over the tag, including an empty tag.
+		if tag == "" && digestStr == "" {
+			return "", "", "", fmt.Errorf("%w: missing tag", errdef.ErrInvalidReference)
+		}
 	}
 
-	// empty reference; Valid Form D
-	return path, "", ""
+	return repository, digestStr, tag, nil
 }
 
 func splitRegistry(artifact string) (string, string) {
