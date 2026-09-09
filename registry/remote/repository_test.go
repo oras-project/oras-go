@@ -2007,6 +2007,168 @@ func TestRepository_Referrers_TagSchemaFallback_ContentType(t *testing.T) {
 	}
 }
 
+func TestRepository_Referrers_TagSchemaFallback_ValidateIndex(t *testing.T) {
+	referrers := []ocispec.Descriptor{{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("child"),
+		Size:      5,
+	}}
+	for _, tt := range []struct {
+		name, mediaType string
+		isSubject       bool
+		wantReferrers   bool
+	}{
+		{"valid OCI index", ocispec.MediaTypeImageIndex, false, true},
+		{"Docker manifest list", "application/vnd.docker.distribution.manifest.list.v2+json", false, false},
+		{"Docker subject", "application/vnd.docker.distribution.manifest.list.v2+json", true, false},
+		{"OCI subject", ocispec.MediaTypeImageIndex, true, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			index := ocispec.Index{
+				Versioned: specs.Versioned{SchemaVersion: 2},
+				MediaType: tt.mediaType,
+				Manifests: referrers,
+			}
+			body, err := json.Marshal(index)
+			if err != nil {
+				t.Fatal(err)
+			}
+			indexDigest := digest.FromBytes(body)
+			subject := ocispec.Descriptor{Digest: digest.FromString("subject")}
+			if tt.isSubject {
+				subject.Digest = indexDigest
+			}
+			referrersTag := strings.Replace(subject.Digest.String(), ":", "-", 1)
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subject.Digest.String():
+					w.WriteHeader(http.StatusNotFound)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+					w.Header().Set("Content-Type", tt.mediaType)
+					w.Header().Set("Docker-Content-Digest", indexDigest.String())
+					w.Write(body)
+				default:
+					t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			repo, err := NewRepository(strings.TrimPrefix(ts.URL, "http://") + "/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo.Registry.PlainHTTP = true
+			var got []ocispec.Descriptor
+			if err := repo.Referrers(context.Background(), subject, "", func(page []ocispec.Descriptor) error {
+				got = append(got, page...)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			var want []ocispec.Descriptor
+			if tt.wantReferrers {
+				want = referrers
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("Repository.Referrers() = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestRepository_PushReference_TagSchemaFallback_ValidateIndex(t *testing.T) {
+	child := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageManifest, Digest: digest.FromString("child"), Size: 5}
+	for _, tt := range []struct {
+		name, mediaType  string
+		isSubject, valid bool
+	}{
+		{"valid OCI index", ocispec.MediaTypeImageIndex, false, true},
+		{"Docker manifest list", "application/vnd.docker.distribution.manifest.list.v2+json", false, false},
+		{"Docker subject", "application/vnd.docker.distribution.manifest.list.v2+json", true, false},
+		{"OCI subject", ocispec.MediaTypeImageIndex, true, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := json.Marshal(ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: tt.mediaType, Manifests: []ocispec.Descriptor{child}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldIndex := content.NewDescriptorFromBytes(tt.mediaType, body)
+			subject := ocispec.Descriptor{Digest: digest.FromString("subject")}
+			if tt.isSubject {
+				subject = oldIndex
+			}
+			referrersTag := strings.Replace(subject.Digest.String(), ":", "-", 1)
+			attachment, err := json.Marshal(ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: ocispec.MediaTypeImageIndex, Subject: &subject, Manifests: []ocispec.Descriptor{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			attachmentDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, attachment)
+			var updates, deletes atomic.Int32
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/attachment":
+					w.Header().Set("Docker-Content-Digest", attachmentDesc.Digest.String())
+					w.WriteHeader(http.StatusCreated)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+					w.Header().Set("Content-Type", tt.mediaType)
+					w.Header().Set("Docker-Content-Digest", oldIndex.Digest.String())
+					w.Write(body)
+				case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+					updated, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Error(err)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					var index ocispec.Index
+					if err := json.Unmarshal(updated, &index); err != nil {
+						t.Error(err)
+					}
+					want := []ocispec.Descriptor{attachmentDesc}
+					if tt.valid {
+						want = append([]ocispec.Descriptor{child}, want...)
+					}
+					if !reflect.DeepEqual(index.Manifests, want) {
+						t.Errorf("published referrers = %v, want %v", index.Manifests, want)
+					}
+					updates.Add(1)
+					w.Header().Set("Docker-Content-Digest", digest.FromBytes(updated).String())
+					w.WriteHeader(http.StatusCreated)
+				case r.Method == http.MethodDelete:
+					deletes.Add(1)
+					if !tt.valid || r.URL.Path != "/v2/test/manifests/"+oldIndex.Digest.String() {
+						t.Errorf("unexpected deletion: %s", r.URL.Path)
+					}
+					w.WriteHeader(http.StatusAccepted)
+				default:
+					t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			repo, err := NewRepository(strings.TrimPrefix(ts.URL, "http://") + "/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo.Registry.PlainHTTP = true
+			repo.SetReferrersCapability(false)
+			if err := repo.PushReference(context.Background(), attachmentDesc, bytes.NewReader(attachment), "attachment"); err != nil {
+				t.Fatal(err)
+			}
+			if updates.Load() != 1 {
+				t.Errorf("index updates = %d, want 1", updates.Load())
+			}
+			wantDeletes := int32(0)
+			if tt.valid {
+				wantDeletes = 1
+			}
+			if deletes.Load() != wantDeletes {
+				t.Errorf("deletions = %d, want %d", deletes.Load(), wantDeletes)
+			}
+		})
+	}
+}
+
 func TestRepository_Referrers_TagSchemaFallback_BadDigest(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
@@ -4486,6 +4648,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(emptyIndexJSON)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -4588,6 +4751,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -4658,6 +4822,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -4740,6 +4905,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", indexManifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -4924,6 +5090,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(emptyIndexJSON)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5018,6 +5185,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 			w.Header().Set("Docker-Content-Digest", indexManifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5451,6 +5619,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5529,6 +5698,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5603,6 +5773,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_3)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+indexDesc_3.Digest.String():
 			indexDeleted = true
@@ -5734,6 +5905,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_SkipReferrersGC(t *testin
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5806,6 +5978,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_SkipReferrersGC(t *testin
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -6887,6 +7060,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -6957,6 +7131,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -7040,6 +7215,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", indexManifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
