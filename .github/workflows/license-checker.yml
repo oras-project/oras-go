@@ -30,6 +30,11 @@ permissions:
 jobs:
   check-license:
     runs-on: ubuntu-latest
+    # skywalking-eyes pins its own Go 1.25 toolchain and exports
+    # GOTOOLCHAIN=local, so license-eye cannot resolve a module graph that
+    # requires a newer Go. Allow the required toolchain to be fetched.
+    env:
+      GOTOOLCHAIN: auto
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
