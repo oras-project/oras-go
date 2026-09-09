@@ -20,7 +20,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/oras-project/oras-go/v3/registry"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // Actions used in scopes.
@@ -70,7 +70,7 @@ func ScopeRepository(repository string, actions ...string) string {
 // [ActionPull] and [ActionPush] for the repository `hello-world`,
 // the auth client with cache is hinted to fetch a token via a single token
 // fetch request for all the HEAD, POST, PUT requests.
-func AppendRepositoryScope(ctx context.Context, ref registry.Reference, actions ...string) context.Context {
+func AppendRepositoryScope(ctx context.Context, ref properties.Reference, actions ...string) context.Context {
 	if len(actions) == 0 {
 		return ctx
 	}

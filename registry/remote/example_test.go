@@ -258,11 +258,10 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrerDigest) && m == http.MethodPut:
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrersTag) && m == http.MethodGet:
-			w.Write(referrerIndex)
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Header().Set("Content-Length", strconv.Itoa(len(referrerIndex)))
-			w.Header().Set("Docker-Content-Digest", digest.Digest(string(referrerIndex)).String())
-			w.WriteHeader(http.StatusCreated)
+			w.Header().Set("Docker-Content-Digest", digest.FromBytes(referrerIndex).String())
+			w.Write(referrerIndex)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrersTag) && m == http.MethodPut:
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrerIndexDigest) && m == http.MethodDelete:
