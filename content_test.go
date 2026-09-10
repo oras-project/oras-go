@@ -154,7 +154,7 @@ func TestTag_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
 	// test with manifest tag
@@ -419,7 +419,7 @@ func TestTagN_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
 	// test TagN with empty dstReferences
@@ -707,7 +707,7 @@ func TestResolve_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
 	// test Resolve with TargetPlatform
@@ -1027,7 +1027,7 @@ func TestFetch_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
 	// test Fetch with empty option by valid manifest tag
@@ -1458,7 +1458,7 @@ func TestFetchBytes_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
 	// test FetchBytes with empty option by valid manifest tag
@@ -1768,7 +1768,7 @@ func TestPushBytes_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
 	// test PushBytes with blob
@@ -2003,7 +2003,7 @@ func TestTagBytesN_Repository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 	ctx := context.Background()
 
 	// test TagBytesN with no reference

@@ -205,14 +205,14 @@ func Test_mapHostname(t *testing.T) {
 	}
 }
 
-func TestGetCredentialFunc_NilStore(t *testing.T) {
-	fn := GetCredentialFunc(nil)
+func TestNewCredentialFunc_NilStore(t *testing.T) {
+	fn := NewCredentialFunc(nil)
 	got, err := fn(context.Background(), "localhost:5000")
 	if err != nil {
-		t.Fatalf("GetCredentialFunc(nil) returned error: %v", err)
+		t.Fatalf("NewCredentialFunc(nil) returned error: %v", err)
 	}
 	if got != credentials.EmptyCredential {
-		t.Errorf("GetCredentialFunc(nil) = %v, want EmptyCredential", got)
+		t.Errorf("NewCredentialFunc(nil) = %v, want EmptyCredential", got)
 	}
 }
 
@@ -223,9 +223,9 @@ func TestCredential(t *testing.T) {
 		"localhost:2333":              {Username: "test_user", Password: "test_word"},
 		"https://index.docker.io/v1/": {Username: "user", Password: "word"},
 	}
-	// create a test client using GetCredentialFunc
+	// create a test client using NewCredentialFunc
 	testClient := &auth.Client{}
-	testClient.CredentialFunc = GetCredentialFunc(s)
+	testClient.CredentialFunc = NewCredentialFunc(s)
 	tests := []struct {
 		name           string
 		registry       string
@@ -259,7 +259,7 @@ func TestCredential(t *testing.T) {
 				t.Errorf("could not get credential: %v", err)
 			}
 			if !reflect.DeepEqual(got, tt.wantCredential) {
-				t.Errorf("GetCredentialFunc() = %v, want %v", got, tt.wantCredential)
+				t.Errorf("NewCredentialFunc() = %v, want %v", got, tt.wantCredential)
 			}
 		})
 	}

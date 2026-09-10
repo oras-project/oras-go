@@ -24,7 +24,7 @@ import (
 )
 
 func TestMemoryStore_Create_fromInvalidConfig(t *testing.T) {
-	f, err := os.ReadFile("../config/testdata/invalid_auths_entry_config.json")
+	f, err := os.ReadFile("testdata/invalid_auths_entry_config.json")
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestMemoryStore_Create_fromInvalidConfig(t *testing.T) {
 
 func TestMemoryStore_Get_validConfig(t *testing.T) {
 	ctx := context.Background()
-	f, err := os.ReadFile("../config/testdata/valid_auths_config.json")
+	f, err := os.ReadFile("testdata/valid_auths_config.json")
 	if err != nil {
 		t.Fatalf("failed to read file: %v", err)
 	}

@@ -322,7 +322,7 @@ func TestReferenceTarget_FetchReference(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create repository:", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 
 	// create cache
 	cache := memory.New()
@@ -441,7 +441,7 @@ func TestNew_WithReferenceFetcher(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create repository:", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 
 	// create cache
 	cache := memory.New()
@@ -571,7 +571,7 @@ func TestReferenceTarget_FetchReference_Error(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create repository:", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 
 	cache := memory.New()
 	ctx := context.Background()
@@ -740,7 +740,7 @@ func TestReferenceTarget_FetchReference_CacheFetchFailsFallsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to create repository:", err)
 	}
-	repo.PlainHTTP = true
+	repo.Registry.PlainHTTP = true
 
 	// Cache that always fails on Fetch — simulates a corrupt or unavailable cache.
 	// FetchReference should fall back to the source and succeed.

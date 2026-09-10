@@ -16,6 +16,10 @@ on:
   schedule:
     - cron: "40 10 * * *"
 
+permissions:
+  issues: write
+  pull-requests: write
+
 jobs:
   stale:
     runs-on: ubuntu-latest

@@ -53,12 +53,14 @@ type Registry struct {
 	Mirrors []Mirror `toml:"mirror"`
 	// MirrorByDigestOnly restricts mirrors to digest-based pulls only.
 	MirrorByDigestOnly bool `toml:"mirror-by-digest-only"`
-	// ForceBasicAuth forces HTTP Basic authentication regardless of what the
-	// registry advertises. When true, if the registry challenges with Bearer
-	// auth the client will use Basic auth instead. Requires the registry to
-	// also accept Basic auth credentials. This is an ORAS-specific field and
-	// may be ignored by other tools that parse registries.conf.
-	ForceBasicAuth bool `toml:"force-basic-auth"`
+	// TokenFlow selects how a bearer token is acquired for username/password
+	// credentials when the registry issues a Bearer challenge. Valid values:
+	// "oauth2" (default) and "distribution". Use "distribution" for registries
+	// that implement only the distribution-spec token endpoint and not the
+	// OAuth2 password grant, which is a Docker extension. This is an
+	// ORAS-specific field and may be ignored by other tools that parse
+	// registries.conf.
+	TokenFlow string `toml:"token-flow"`
 	// ReferrersAPI indicates whether the registry supports the OCI Referrers
 	// API. Valid values: "supported", "unsupported". An empty or unrecognized
 	// value defaults to auto-detection on first use. This is an ORAS-specific
@@ -408,7 +410,11 @@ func (rc *RegistriesConfig) FindRegistry(ref string) *Registry {
 
 // matchesPrefix checks if the reference matches the given prefix.
 // Supports wildcard prefixes like "*.example.com".
+// The host part is compared case-insensitively on both sides, since the
+// prefix comes from user-authored TOML and the reference from the caller.
 func matchesPrefix(ref, prefix string) bool {
+	ref, prefix = lowerHost(ref), lowerHost(prefix)
+
 	// Handle wildcard prefix
 	if strings.HasPrefix(prefix, "*.") {
 		suffix := prefix[1:] // Remove the "*", keep the "."
@@ -459,6 +465,17 @@ func extractHost(ref string) string {
 	}
 
 	return ref
+}
+
+// lowerHost lower-cases the host part of a reference or prefix, leaving the
+// case-sensitive repository, tag and digest untouched.
+func lowerHost(ref string) string {
+	host := extractHost(ref)
+	// extractHost cannot tell a port from a tag in a slash-less reference, so
+	// it hands back "myimage:V1" whole. Fold only up to the ":" so a short-name
+	// tag survives; a port is digits, and folding it would be a no-op anyway.
+	name, _, _ := strings.Cut(host, ":")
+	return strings.ToLower(name) + ref[len(name):]
 }
 
 // ResolveAlias resolves a short name to a fully qualified reference.
@@ -512,8 +529,8 @@ func (rc *RegistriesConfig) RewriteReference(ref string) string {
 	}
 
 	// Replace prefix with location
-	if strings.HasPrefix(ref, prefix) {
-		return location + ref[len(prefix):]
+	if lref, lprefix := lowerHost(ref), lowerHost(prefix); strings.HasPrefix(lref, lprefix) {
+		return location + lref[len(lprefix):]
 	}
 
 	return ref

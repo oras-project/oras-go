@@ -163,6 +163,8 @@ func TestMain(m *testing.M) {
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
+		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, exampleTag) && m == http.MethodDelete:
+			w.WriteHeader(http.StatusAccepted)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ManifestDigest) && m == "PUT":
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", exampleRepositoryName, ReferenceManifestDigest) && m == "PUT":
@@ -256,11 +258,10 @@ func TestMain(m *testing.M) {
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrerDigest) && m == http.MethodPut:
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrersTag) && m == http.MethodGet:
-			w.Write(referrerIndex)
 			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Header().Set("Content-Length", strconv.Itoa(len(referrerIndex)))
-			w.Header().Set("Docker-Content-Digest", digest.Digest(string(referrerIndex)).String())
-			w.WriteHeader(http.StatusCreated)
+			w.Header().Set("Docker-Content-Digest", digest.FromBytes(referrerIndex).String())
+			w.Write(referrerIndex)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrersTag) && m == http.MethodPut:
 			w.WriteHeader(http.StatusCreated)
 		case p == fmt.Sprintf("/v2/%s/manifests/%s", referrersAPIUnavailableRepositoryName, referrerIndexDigest) && m == http.MethodDelete:
@@ -685,6 +686,25 @@ func ExampleRepository_Tag() {
 	// Succeed
 }
 
+// ExampleRepository_Untag gives example snippets for removing a tag.
+func ExampleRepository_Untag() {
+	repo, err := remote.NewRepository(fmt.Sprintf("%s/%s", host, exampleRepositoryName))
+	if err != nil {
+		panic(err)
+	}
+	ctx := context.Background()
+
+	tag := "latest"
+	err = repo.Untag(ctx, tag)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Succeed")
+
+	// Output:
+	// Succeed
+}
+
 // ExampleRegistry_Repositories gives example snippets for listing respositories in a HTTPS registry with pagination.
 func ExampleRegistry_Repositories() {
 	reg, err := remote.NewRegistry(host)
@@ -774,9 +794,9 @@ func Example_handleWarning() {
 	if err != nil {
 		panic(err)
 	}
-	// 1. specify HandleWarning
-	repo.HandleWarning = func(warning remote.Warning) {
-		fmt.Printf("Warning from %s: %s\n", repo.Reference.Repository, warning.Text)
+	// 1. specify HandleWarning on the Registry
+	repo.Registry.HandleWarning = func(warning remote.Warning) {
+		fmt.Printf("Warning from %s: %s\n", repo.RepositoryName, warning.Text)
 	}
 
 	ctx := context.Background()

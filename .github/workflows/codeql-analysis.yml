@@ -35,7 +35,7 @@ jobs:
       security-events: write
     strategy:
       matrix:
-        go-version: ['1.25', '1.26']
+        go-version: ['1.26', '1.27']
       fail-fast: false
     steps:
       - name: Checkout repository
@@ -46,8 +46,8 @@ jobs:
           go-version: ${{ matrix.go-version }}
           check-latest: true
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: go
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9

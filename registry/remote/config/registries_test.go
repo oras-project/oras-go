@@ -170,10 +170,6 @@ location = "mirror.example.com"
 			name: "config with oras-specific attributes",
 			content: `
 [[registry]]
-prefix = "basic-auth.example.com"
-force-basic-auth = true
-
-[[registry]]
 prefix = "referrers-supported.example.com"
 referrers-api = "supported"
 
@@ -183,10 +179,6 @@ referrers-api = "unsupported"
 `,
 			want: &RegistriesConfig{
 				Registries: []Registry{
-					{
-						Prefix:         "basic-auth.example.com",
-						ForceBasicAuth: true,
-					},
 					{
 						Prefix:       "referrers-supported.example.com",
 						ReferrersAPI: "supported",
@@ -435,6 +427,16 @@ func TestRegistriesConfig_IsBlocked(t *testing.T) {
 			ref:  "unknown.registry.com/image:tag",
 			want: false,
 		},
+		{
+			name: "blocked registry mixed-case host",
+			ref:  "Blocked.Registry.COM/image:tag",
+			want: true,
+		},
+		{
+			name: "wildcard blocked mixed-case host",
+			ref:  "Sub.Blocked.Example.COM/image:tag",
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -536,6 +538,11 @@ func TestRegistriesConfig_RewriteReference(t *testing.T) {
 			ref:  "gcr.io/myproject/image:v1",
 			want: "gcr.io/myproject/image:v1",
 		},
+		{
+			name: "rewrite mixed-case host",
+			ref:  "Docker.IO/library/alpine:Latest",
+			want: "library-mirror.example.com/alpine:Latest",
+		},
 	}
 
 	for _, tt := range tests {
@@ -631,6 +638,30 @@ func TestMatchesPrefix(t *testing.T) {
 			prefix: "docker.io",
 			want:   false,
 		},
+		{
+			name:   "mixed-case ref host",
+			ref:    "Docker.IO/nginx",
+			prefix: "docker.io",
+			want:   true,
+		},
+		{
+			name:   "mixed-case prefix host",
+			ref:    "localhost:5000/nginx",
+			prefix: "LocalHost:5000",
+			want:   true,
+		},
+		{
+			name:   "wildcard mixed-case host",
+			ref:    "Sub.Example.COM/image",
+			prefix: "*.example.com",
+			want:   true,
+		},
+		{
+			name:   "tag case is significant",
+			ref:    "docker.io/nginx:Latest",
+			prefix: "docker.io/nginx:latest",
+			want:   false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -704,12 +735,12 @@ func TestMergeRegistriesConfig(t *testing.T) {
 		UnqualifiedSearchRegistries: []string{"quay.io", "docker.io"},
 		ShortNameMode:               "enforcing",
 		Registries: []Registry{
-			{Prefix: "quay.io", Insecure: true},               // Override
-			{Prefix: "gcr.io", Location: "mirror.gcr.io"},     // Add new
+			{Prefix: "quay.io", Insecure: true},           // Override
+			{Prefix: "gcr.io", Location: "mirror.gcr.io"}, // Add new
 		},
 		Aliases: map[string]string{
-			"nginx":  "quay.io/nginx/nginx",              // Override
-			"ubuntu": "docker.io/library/ubuntu",         // Add new
+			"nginx":  "quay.io/nginx/nginx",      // Override
+			"ubuntu": "docker.io/library/ubuntu", // Add new
 		},
 	}
 

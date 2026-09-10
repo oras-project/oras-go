@@ -33,7 +33,8 @@ var ErrClientTypeUnsupported = errors.New("client type not supported")
 // a client local to the function and will not modify the original client of
 // the registry.
 func Login(ctx context.Context, store credentials.Store, reg *Registry, cred credentials.Credential) error {
-	// create a clone of the original registry for login purpose
+	// Registry only contains copyable configuration. Make a local copy so
+	// authentication changes do not modify the caller's registry.
 	regClone := *reg
 	// we use the original client if applicable, otherwise use a default client
 	var authClient auth.Client
@@ -68,10 +69,10 @@ func Logout(ctx context.Context, store credentials.Store, registryName string) e
 	return nil
 }
 
-// GetCredentialFunc returns a CredentialFunc that retrieves credentials from
+// NewCredentialFunc returns a CredentialFunc that retrieves credentials from
 // the given store. If store is nil, the returned function always returns
 // EmptyCredential without error.
-func GetCredentialFunc(store credentials.Store) credentials.CredentialFunc {
+func NewCredentialFunc(store credentials.Store) credentials.CredentialFunc {
 	if store == nil {
 		return func(context.Context, string) (credentials.Credential, error) {
 			return credentials.EmptyCredential, nil

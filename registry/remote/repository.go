@@ -44,8 +44,9 @@ import (
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
-	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 const (
@@ -95,30 +96,27 @@ type Client interface {
 
 // Repository is an HTTP client to a remote repository.
 type Repository struct {
-	// Client is the underlying HTTP client used to access the remote registry.
-	// If nil, auth.DefaultClient is used.
-	Client Client
+	// Registry is the parent registry. Must not be nil.
+	// Registry holds shared configuration like Client, PlainHTTP, Policy, etc.
+	Registry *Registry
 
-	// Reference references the remote repository.
-	Reference registry.Reference
+	// RepositoryName is the name within the registry (e.g., "library/alpine").
+	RepositoryName string
 
-	// PlainHTTP signals the transport to access the remote repository via HTTP
-	// instead of HTTPS.
-	PlainHTTP bool
-
-	// ManifestMediaTypes is used in `Accept` header for resolving manifests
-	// from references. It is also used in identifying manifests and blobs from
-	// descriptors. If an empty list is present, default manifest media types
-	// are used.
+	// ManifestMediaTypes overrides Registry default if set.
+	// Used in `Accept` header for resolving manifests from references.
+	// It is also used in identifying manifests and blobs from descriptors.
+	// If an empty list is present, default manifest media types are used.
 	ManifestMediaTypes []string
 
-	// TagListPageSize specifies the page size when invoking the tag list API.
+	// TagListPageSize overrides Registry default if set.
+	// Specifies the page size when invoking the tag list API.
 	// If zero, the page size is determined by the remote registry.
 	// Reference: https://distribution.github.io/distribution/spec/api/#tags
 	TagListPageSize int
 
-	// ReferrerListPageSize specifies the page size when invoking the Referrers
-	// API.
+	// ReferrerListPageSize overrides Registry default if set.
+	// Specifies the page size when invoking the Referrers API.
 	// If zero, the page size is determined by the remote registry.
 	//
 	// NOTE: Pagination for the Referrers API is not defined in the distribution
@@ -128,25 +126,20 @@ type Repository struct {
 	// Reference: https://github.com/oras-project/oras-go/issues/841
 	ReferrerListPageSize int
 
-	// TagListMaxPages limits the total number of pages fetched during tag
-	// listing, bounding server-driven pagination so a malicious or misbehaving
-	// registry cannot force unbounded requests.
-	// If zero, tag listing is unlimited.
+	// TagListMaxPages overrides Registry default if > 0.
+	// Limits the total number of pages fetched during tag listing.
+	// If 0, Registry.TagListMaxPages is used. If that is also 0, there is no
+	// limit.
 	TagListMaxPages int
 
-	// ReferrerListMaxPages limits the total number of pages fetched during
-	// referrer listing, bounding server-driven pagination so a malicious or
-	// misbehaving registry cannot force unbounded requests.
-	// If zero, referrer listing is unlimited.
+	// ReferrerListMaxPages overrides Registry default if > 0.
+	// Limits the total number of pages fetched during referrer listing.
+	// Zero means to use Registry.ReferrerListMaxPages. Referrer listing is
+	// unlimited only if the effective Registry/default value is also zero.
 	ReferrerListMaxPages int
 
-	// MaxMetadataBytes specifies a limit on how many response bytes are allowed
-	// in the server's response to the metadata APIs, such as catalog list, tag
-	// list, and referrers list.
-	// If less than or equal to zero, a default (currently 4MiB) is used.
-	MaxMetadataBytes int64
-
-	// SkipReferrersGC specifies whether to delete the dangling referrers
+	// SkipReferrersGC overrides Registry default if set.
+	// Specifies whether to delete the dangling referrers
 	// index when referrers tag schema is utilized.
 	//  - If false, the old referrers index will be deleted after the new one
 	//    is successfully uploaded.
@@ -157,28 +150,20 @@ type Repository struct {
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-manifests
 	SkipReferrersGC bool
 
-	// HandleWarning handles the warning returned by the remote server.
-	// Callers SHOULD deduplicate warnings from multiple associated responses.
-	//
-	// References:
-	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#warnings
-	//   - https://www.rfc-editor.org/rfc/rfc7234#section-5.5
-	HandleWarning func(warning Warning)
-
-	// Policy is an optional policy evaluator for allow/deny decisions.
-	// If nil, no policy enforcement is performed.
-	// Policies can be loaded from a file via [policy.Load] or constructed
-	// programmatically via [policy.NewPolicy]. The default file-based loading
-	// ([policy.LoadDefault]) uses platform-specific paths; see the policy
-	// package documentation for cross-platform details.
-	// Reference: https://man.archlinux.org/man/containers-policy.json.5.en
-	Policy *policy.Evaluator
+	// mirrors is an ordered list of mirror repositories to try before the
+	// primary registry for read operations. When empty, all reads go directly
+	// to the primary. Mirrors are populated from a [properties.Registry] when a
+	// Repository is constructed via the ClientBuilder; a Repository created
+	// directly has no mirrors.
+	mirrors []mirrorRepository
 
 	// NOTE: Must keep fields in sync with clone().
 
-	// referrersState represents that if the repository supports Referrers API.
-	// default: referrersStateUnknown
-	referrersState referrersState
+	// referrersState indicates whether the repository supports the Referrers
+	// API. It stores a properties.ReferrersAPI value.
+	// default: properties.ReferrersAPIUnknown
+	// Must be accessed atomically.
+	referrersState int32
 
 	// referrersPingLock locks the pingReferrers() method and allows only
 	// one go-routine to send the request.
@@ -190,100 +175,217 @@ type Repository struct {
 }
 
 // NewRepository creates a client to the remote repository identified by a
-// reference.
+// reference. A default Registry is created internally.
 // Example: localhost:5000/hello-world
+//
+// The reference must not contain a tag or a digest, since a Repository
+// identifies a repository rather than a specific artifact. A reference
+// carrying one is rejected with an error wrapping
+// [errdef.ErrInvalidReference].
 func NewRepository(reference string) (*Repository, error) {
-	ref, err := registry.ParseReference(reference)
+	ref, err := properties.NewReference(reference)
 	if err != nil {
 		return nil, err
 	}
+	if ref.Tag != "" || ref.Digest != "" {
+		return nil, fmt.Errorf("%w: %q: expected a repository without a tag or digest", errdef.ErrInvalidReference, reference)
+	}
+
+	// Create a default Registry
+	reg := &Registry{
+		Reference: properties.Reference{
+			Registry: ref.Registry,
+		},
+	}
+
 	return &Repository{
-		Reference: ref,
+		Registry:       reg,
+		RepositoryName: ref.Repository,
 	}, nil
 }
 
-// newRepositoryWithOptions returns a Repository with the given Reference and
-// RepositoryOptions.
-//
-// RepositoryOptions are part of the Registry struct and set its defaults.
-// RepositoryOptions shares the same struct definition as Repository, which
-// contains unexported state that must not be copied to multiple Repositories.
-// To handle this we explicitly copy only the fields that we want to reproduce.
-func newRepositoryWithOptions(ref registry.Reference, opts *RepositoryOptions) (*Repository, error) {
-	if err := ref.ValidateRepository(); err != nil {
-		return nil, err
+// reference returns the properties reference for this repository.
+func (r *Repository) reference() properties.Reference {
+	ref := properties.Reference{Repository: r.RepositoryName}
+	if r.Registry != nil {
+		ref.Registry = r.Registry.Reference.Registry
 	}
-	repo := (*Repository)(opts).clone()
-	repo.Reference = ref
-	return repo, nil
+	return ref
+}
+
+// Reference returns the full properties.Reference for this repository.
+func (r *Repository) Reference() properties.Reference {
+	return r.reference()
 }
 
 // clone makes a copy of the Repository being careful not to copy non-copyable fields (sync.Mutex and syncutil.Pool types)
 func (r *Repository) clone() *Repository {
 	return &Repository{
-		Client:               r.Client,
-		Reference:            r.Reference,
-		PlainHTTP:            r.PlainHTTP,
+		Registry:             r.Registry,
+		RepositoryName:       r.RepositoryName,
 		ManifestMediaTypes:   slices.Clone(r.ManifestMediaTypes),
 		TagListPageSize:      r.TagListPageSize,
 		ReferrerListPageSize: r.ReferrerListPageSize,
 		TagListMaxPages:      r.TagListMaxPages,
 		ReferrerListMaxPages: r.ReferrerListMaxPages,
-		MaxMetadataBytes:     r.MaxMetadataBytes,
 		SkipReferrersGC:      r.SkipReferrersGC,
-		HandleWarning:        r.HandleWarning,
-		Policy:               r.Policy,
+		mirrors:              r.mirrors,
 	}
+}
+
+// client returns an HTTP client used to access the remote repository.
+// A default HTTP client is returned if the client is not configured.
+func (r *Repository) client() Client {
+	if r.Registry == nil || r.Registry.Client == nil {
+		return auth.DefaultClient
+	}
+	return r.Registry.Client
+}
+
+// plainHTTP returns whether plain HTTP should be used.
+func (r *Repository) plainHTTP() bool {
+	if r.Registry == nil {
+		return false
+	}
+	return r.Registry.PlainHTTP
+}
+
+// maxMetadataBytes returns the maximum metadata bytes limit.
+func (r *Repository) maxMetadataBytes() int64 {
+	if r.Registry == nil {
+		return 0
+	}
+	return r.Registry.MaxMetadataBytes
+}
+
+// handleWarning returns the warning handler function.
+func (r *Repository) handleWarning() func(warning Warning) {
+	if r.Registry == nil {
+		return nil
+	}
+	return r.Registry.HandleWarning
+}
+
+// policy returns the policy evaluator.
+func (r *Repository) policy() *policy.Evaluator {
+	if r.Registry == nil {
+		return nil
+	}
+	return r.Registry.Policy
+}
+
+// tagListPageSize returns the effective tag list page size.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) tagListPageSize() int {
+	if r.TagListPageSize > 0 {
+		return r.TagListPageSize
+	}
+	if r.Registry != nil {
+		return r.Registry.TagListPageSize
+	}
+	return 0
+}
+
+// referrerListPageSize returns the effective referrer list page size.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) referrerListPageSize() int {
+	if r.ReferrerListPageSize > 0 {
+		return r.ReferrerListPageSize
+	}
+	if r.Registry != nil {
+		return r.Registry.ReferrerListPageSize
+	}
+	return 0
+}
+
+// tagListMaxPages returns the effective maximum number of tag list pages.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) tagListMaxPages() int {
+	if r.TagListMaxPages > 0 {
+		return r.TagListMaxPages
+	}
+	if r.Registry != nil {
+		return r.Registry.TagListMaxPages
+	}
+	return 0
+}
+
+// referrerListMaxPages returns the effective maximum number of referrer list pages.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) referrerListMaxPages() int {
+	if r.ReferrerListMaxPages > 0 {
+		return r.ReferrerListMaxPages
+	}
+	if r.Registry != nil {
+		return r.Registry.ReferrerListMaxPages
+	}
+	return 0
+}
+
+// manifestMediaTypes returns the effective manifest media types.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) manifestMediaTypes() []string {
+	if len(r.ManifestMediaTypes) > 0 {
+		return r.ManifestMediaTypes
+	}
+	if r.Registry != nil {
+		return r.Registry.ManifestMediaTypes
+	}
+	return nil
+}
+
+// skipReferrersGC returns the effective skip referrers GC setting.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) skipReferrersGC() bool {
+	if r.SkipReferrersGC {
+		return true
+	}
+	if r.Registry != nil {
+		return r.Registry.SkipReferrersGC
+	}
+	return false
 }
 
 // SetReferrersCapability indicates the Referrers API capability of the remote
 // repository. true: capable; false: not capable.
 //
-// SetReferrersCapability is valid only when it is called for the first time.
-// SetReferrersCapability returns ErrReferrersCapabilityAlreadySet if the
-// Referrers API capability has been already set.
+// The capability is fixed once set; the first value set wins and conflicting
+// later calls are ignored. Callers can use ReferrersCapability to read back
+// the effective capability.
 //   - When the capability is set to true, the Referrers() function will always
 //     request the Referrers API. Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers
 //   - When the capability is set to false, the Referrers() function will always
 //     request the Referrers Tag. Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#referrers-tag-schema
 //   - When the capability is not set, the Referrers() function will automatically
 //     determine which API to use.
-func (r *Repository) SetReferrersCapability(capable bool) error {
-	var state referrersState
+func (r *Repository) SetReferrersCapability(capable bool) {
+	state := properties.ReferrersAPIUnsupported
 	if capable {
-		state = referrersStateSupported
-	} else {
-		state = referrersStateUnsupported
+		state = properties.ReferrersAPISupported
 	}
-	if swapped := atomic.CompareAndSwapInt32(&r.referrersState, referrersStateUnknown, state); !swapped {
-		if fact := r.loadReferrersState(); fact != state {
-			return fmt.Errorf("%w: current capability = %v, new capability = %v",
-				ErrReferrersCapabilityAlreadySet,
-				fact == referrersStateSupported,
-				capable)
-		}
-	}
-	return nil
+	// first value set wins; a conflicting later set is silently ignored.
+	atomic.CompareAndSwapInt32(&r.referrersState, int32(properties.ReferrersAPIUnknown), int32(state))
 }
 
-// setReferrersState atomically loads r.referrersState.
-func (r *Repository) loadReferrersState() referrersState {
-	return atomic.LoadInt32(&r.referrersState)
+// ReferrersCapability reports the repository's current Referrers API
+// capability. The value is either what was configured via
+// SetReferrersCapability / registry properties, or the result of
+// auto-detection performed during a Referrers call. It returns
+// properties.ReferrersAPIUnknown when the capability has not been determined.
+func (r *Repository) ReferrersCapability() properties.ReferrersAPI {
+	return r.loadReferrersState()
 }
 
-// client returns an HTTP client used to access the remote repository.
-// A default HTTP client is return if the client is not configured.
-func (r *Repository) client() Client {
-	if r.Client == nil {
-		return auth.DefaultClient
-	}
-	return r.Client
+// loadReferrersState atomically loads r.referrersState.
+func (r *Repository) loadReferrersState() properties.ReferrersAPI {
+	return properties.ReferrersAPI(atomic.LoadInt32(&r.referrersState))
 }
 
 // do sends an HTTP request and returns an HTTP response using the HTTP client
 // returned by r.client().
 func (r *Repository) do(req *http.Request) (*http.Response, error) {
-	if r.HandleWarning == nil {
+	handler := r.handleWarning()
+	if handler == nil {
 		return r.client().Do(req)
 	}
 
@@ -291,13 +393,13 @@ func (r *Repository) do(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	handleWarningHeaders(resp.Header.Values(headerWarning), r.HandleWarning)
+	handleWarningHeaders(resp.Header.Values(headerWarning), handler)
 	return resp, nil
 }
 
 // blobStore detects the blob store for the given descriptor.
 func (r *Repository) blobStore(desc ocispec.Descriptor) registry.BlobStore {
-	if isManifest(r.ManifestMediaTypes, desc) {
+	if isManifest(r.manifestMediaTypes(), desc) {
 		return r.Manifests()
 	}
 	return r.Blobs()
@@ -313,57 +415,162 @@ func withPolicyChecked(ctx context.Context) context.Context {
 	return context.WithValue(ctx, policyCheckedKey{}, true)
 }
 
-// checkPolicy validates the repository access against the configured policy.
-// If no policy is configured (Policy is nil), this is a no-op.
+// checkPolicy validates repository access before network I/O. It evaluates
+// reference-level requirements for every reference and digest-dependent
+// requirements when the reference already carries a digest. If no policy is
+// configured (Policy is nil), this is a no-op.
 //
-// Policy is enforced on all registry operations including:
-//   - Content operations: Fetch, Push, Resolve, FetchReference, PushReference
-//   - Metadata operations: Exists, Tags, Referrers, Predecessors
-//   - Mutating operations: Delete, Tag, Mount
-//
-// For signedBy/sigstoreSigned requirements, signature verification is
-// performed regardless of operation type. If this is too restrictive for
-// administrative operations, configure a separate policy scope.
+// Signature requirements (signedBy/sigstoreSigned) are otherwise evaluated
+// by checkPolicyResolved when an operation resolves or supplies a manifest
+// descriptor. Blob operations and operations without a manifest remain
+// reference-level only. Descriptor-based push operations verify the supplied
+// manifest before uploading it, so its signing material must be discoverable
+// by the configured verifier at that point.
 func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 	if ctx.Value(policyCheckedKey{}) != nil {
 		return nil
 	}
-	if r.Policy == nil {
+
+	pol := r.policy()
+	if pol == nil {
 		return nil
 	}
 
-	ref := r.Reference.String()
-	if reference != "" {
-		ref = reference
-	}
-
-	imageRef := policy.ImageReference{
-		Transport: policy.TransportNameDocker,
-		Scope:     r.Reference.Registry + "/" + r.Reference.Repository,
-		Reference: ref,
-	}
-
-	allowed, err := r.Policy.IsImageAllowed(ctx, imageRef)
+	imageRef := r.policyImageReference(reference)
+	allowed, err := pol.IsReferenceAllowed(ctx, imageRef)
 	if err != nil {
 		return fmt.Errorf("policy check failed: %w", err)
 	}
 	if !allowed {
-		return fmt.Errorf("access denied by policy for %s", ref)
+		return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
+	}
+	imageRef.Digest = r.policyDigest(reference)
+	if imageRef.Digest != "" {
+		allowed, err = pol.IsResolvedImageAllowed(withPolicyChecked(ctx), imageRef)
+		if err != nil {
+			return fmt.Errorf("policy check failed: %w", err)
+		}
+		if !allowed {
+			return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
+		}
 	}
 	return nil
 }
 
+// checkPolicyResolved validates the manifest descriptor a reference resolves
+// to against digest-dependent policy requirements. The caller's reference is
+// kept for signed identity matching while the resolved digest is used for
+// signature lookup and payload validation. Callers must first call checkPolicy
+// with the same reference because digest references are fully checked there.
+func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, desc ocispec.Descriptor) error {
+	if ctx.Value(policyCheckedKey{}) != nil {
+		return nil
+	}
+	// Digest references are fully evaluated by checkPolicy before any
+	// registry request is made.
+	if r.policyDigest(reference) != "" {
+		return nil
+	}
+
+	pol := r.policy()
+	if pol == nil {
+		return nil
+	}
+
+	policyReference := reference
+	if policyReference == "" {
+		policyReference = desc.Digest.String()
+	}
+	imageRef := r.policyImageReference(policyReference)
+	imageRef.Digest = desc.Digest
+
+	// Mark the context as checked so verifiers that call back into this
+	// repository (e.g. to fetch signature artifacts) do not recursively
+	// evaluate policy.
+	allowed, err := pol.IsResolvedImageAllowed(withPolicyChecked(ctx), imageRef)
+	if err != nil {
+		return fmt.Errorf("policy check failed: %w", err)
+	}
+	if !allowed {
+		return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
+	}
+	return nil
+}
+
+// checkManifestPolicy evaluates both policy phases for a known manifest.
+func (r *Repository) checkManifestPolicy(ctx context.Context, reference string, desc ocispec.Descriptor) error {
+	if err := r.checkPolicy(ctx, reference); err != nil {
+		return err
+	}
+	return r.checkPolicyResolved(ctx, reference, desc)
+}
+
+// checkDescriptorPolicy evaluates signature requirements only for manifests.
+func (r *Repository) checkDescriptorPolicy(ctx context.Context, desc ocispec.Descriptor) error {
+	if isManifest(r.manifestMediaTypes(), desc) {
+		return r.checkManifestPolicy(ctx, desc.Digest.String(), desc)
+	}
+	return r.checkPolicy(ctx, "")
+}
+
+// policyImageReference builds the policy image reference for the given
+// caller reference, falling back to the repository reference when empty.
+func (r *Repository) policyImageReference(reference string) policy.ImageReference {
+	repoRef := r.Reference()
+	ref := repoRef.String()
+	if reference != "" {
+		if parsed, err := r.ParseReference(reference); err == nil {
+			// Policy verifiers historically receive the digest without a tag.
+			if parsed.Digest != "" {
+				parsed.Tag = ""
+			}
+			ref = parsed.String()
+		} else {
+			ref = reference
+		}
+	}
+	return policy.ImageReference{
+		Transport: policy.TransportNameDocker,
+		Scope:     repoRef.Registry + "/" + repoRef.Repository,
+		Reference: ref,
+	}
+}
+
+// policyDigest returns the digest carried by reference, if any.
+func (r *Repository) policyDigest(reference string) digest.Digest {
+	if reference == "" {
+		return ""
+	}
+	ref, err := r.ParseReference(reference)
+	if err != nil {
+		return ""
+	}
+	d, err := digest.Parse(ref.GetReference())
+	if err != nil {
+		return ""
+	}
+	return d
+}
+
 // Fetch fetches the content identified by the descriptor.
+// If mirrors are configured, they are tried in order before the primary.
 func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	if err := r.checkPolicy(ctx, ""); err != nil {
+	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return nil, err
 	}
-	return r.blobStore(target).Fetch(withPolicyChecked(ctx), target)
+	ctx = withPolicyChecked(ctx)
+	if len(r.mirrors) > 0 {
+		return withMirrorFallbackFetch(ctx, r.mirrors, r, target,
+			func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (io.ReadCloser, error) {
+				return repo.blobStore(t).Fetch(ctx, t)
+			})
+	}
+	return r.blobStore(target).Fetch(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
 func (r *Repository) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	if err := r.checkPolicy(ctx, ""); err != nil {
+	if err := r.checkDescriptorPolicy(ctx, expected); err != nil {
 		return err
 	}
 	return r.blobStore(expected).Push(withPolicyChecked(ctx), expected, content)
@@ -382,20 +589,32 @@ func (r *Repository) Mount(ctx context.Context, desc ocispec.Descriptor, fromRep
 	if err := r.checkPolicy(ctx, ""); err != nil {
 		return err
 	}
-	return r.Blobs().(registry.Mounter).Mount(withPolicyChecked(ctx), desc, fromRepo, getContent)
+	mounter, ok := r.Blobs().(registry.Mounter)
+	if !ok {
+		return errors.New("blob store does not support mounting")
+	}
+	return mounter.Mount(withPolicyChecked(ctx), desc, fromRepo, getContent)
 }
 
 // Exists returns true if the described content exists.
+// If mirrors are configured, they are tried in order before the primary.
 func (r *Repository) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	if err := r.checkPolicy(ctx, ""); err != nil {
+	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return false, err
 	}
-	return r.blobStore(target).Exists(withPolicyChecked(ctx), target)
+	ctx = withPolicyChecked(ctx)
+	if len(r.mirrors) > 0 {
+		return withMirrorFallbackExists(ctx, r.mirrors, r, target,
+			func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (bool, error) {
+				return repo.blobStore(t).Exists(ctx, t)
+			})
+	}
+	return r.blobStore(target).Exists(ctx, target)
 }
 
 // Delete removes the content identified by the descriptor.
 func (r *Repository) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	if err := r.checkPolicy(ctx, ""); err != nil {
+	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return err
 	}
 	return r.blobStore(target).Delete(withPolicyChecked(ctx), target)
@@ -413,25 +632,61 @@ func (r *Repository) Manifests() registry.ManifestStore {
 }
 
 // Resolve resolves a reference to a manifest descriptor.
+// If mirrors are configured, they are tried in order before the primary.
 // See also `ManifestMediaTypes`.
 func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Descriptor, error) {
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	return r.Manifests().Resolve(withPolicyChecked(ctx), reference)
+	resolveCtx := withPolicyChecked(ctx)
+	var desc ocispec.Descriptor
+	var err error
+	if len(r.mirrors) > 0 {
+		desc, err = withMirrorFallbackResolve(resolveCtx, r.mirrors, r, reference,
+			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, error) {
+				return repo.Manifests().Resolve(ctx, ref)
+			})
+	} else {
+		desc, err = r.Manifests().Resolve(resolveCtx, reference)
+	}
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if err := r.checkPolicyResolved(ctx, reference, desc); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return desc, nil
 }
 
 // Tag tags a manifest descriptor with a reference string.
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	if err := r.checkPolicy(ctx, reference); err != nil {
+	if err := r.checkManifestPolicy(ctx, reference, desc); err != nil {
 		return err
 	}
 	return r.Manifests().Tag(withPolicyChecked(ctx), desc, reference)
 }
 
+// Untag removes the association between the given tag and the manifest it
+// currently points to. Only tags are accepted; to delete a manifest by
+// digest, use Delete.
+//
+// Tag deletion is an optional, loosely specified capability. Some registries
+// do not support it (returning 400 or 405, surfaced here as an error), and
+// some delete the underlying manifest — and thus every tag pointing to it —
+// rather than only the given tag. This differs from the local content/oci
+// store's Untag, which never deletes the underlying content.
+//
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-tags
+func (r *Repository) Untag(ctx context.Context, reference string) error {
+	if err := r.checkPolicy(ctx, reference); err != nil {
+		return err
+	}
+	return r.Manifests().Untag(withPolicyChecked(ctx), reference)
+}
+
 // PushReference pushes the manifest with a reference tag.
 func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	if err := r.checkPolicy(ctx, reference); err != nil {
+	if err := r.checkManifestPolicy(ctx, reference, expected); err != nil {
 		return err
 	}
 	return r.Manifests().PushReference(withPolicyChecked(ctx), expected, content, reference)
@@ -439,51 +694,75 @@ func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descrip
 
 // FetchReference fetches the manifest identified by the reference.
 // The reference can be a tag or digest.
+// If mirrors are configured, they are tried in order before the primary.
 func (r *Repository) FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error) {
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	return r.Manifests().FetchReference(withPolicyChecked(ctx), reference)
+	fetchCtx := withPolicyChecked(ctx)
+	var desc ocispec.Descriptor
+	var rc io.ReadCloser
+	var err error
+	if len(r.mirrors) > 0 {
+		desc, rc, err = withMirrorFallbackFetchReference(fetchCtx, r.mirrors, r, reference,
+			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, io.ReadCloser, error) {
+				return repo.Manifests().FetchReference(ctx, ref)
+			})
+	} else {
+		desc, rc, err = r.Manifests().FetchReference(fetchCtx, reference)
+	}
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	if err := r.checkPolicyResolved(ctx, reference, desc); err != nil {
+		rc.Close()
+		return ocispec.Descriptor{}, nil, err
+	}
+	return desc, rc, nil
 }
 
 // ParseReference resolves a tag or a digest reference to a fully qualified
-// reference from a base reference r.Reference.
+// reference from a base reference r.Reference().
 // Tag, digest, or fully qualified references are accepted as input.
 //
 // If reference is a fully qualified reference, then ParseReference parses it
 // and returns the parsed reference. If the parsed reference does not share
 // the same base reference with the Repository r, ParseReference returns a
 // wrapped error ErrInvalidReference.
-func (r *Repository) ParseReference(reference string) (registry.Reference, error) {
-	ref, err := registry.ParseReference(reference)
+func (r *Repository) ParseReference(reference string) (properties.Reference, error) {
+	repoRef := r.reference()
+	ref, err := properties.NewReference(reference)
 	if err != nil {
-		ref = registry.Reference{
-			Registry:   r.Reference.Registry,
-			Repository: r.Reference.Repository,
-			Reference:  reference,
+		ref = properties.Reference{
+			Registry:   repoRef.Registry,
+			Repository: repoRef.Repository,
 		}
 
 		// reference is not a FQDN
 		if index := strings.IndexByte(reference, '@'); index != -1 {
 			// `@` implies *digest*, so drop the *tag* (irrespective of what it is).
-			ref.Reference = reference[index+1:]
-			err = ref.ValidateReferenceAsDigest()
+			ref.Digest = reference[index+1:]
+			err = ref.ValidateDigest()
+		} else if d, digestErr := digest.Parse(reference); digestErr == nil {
+			ref.Digest = d.String()
+			err = nil
 		} else {
-			err = ref.ValidateReference()
+			ref.Tag = reference
+			err = ref.ValidateTag()
 		}
 
 		if err != nil {
-			return registry.Reference{}, err
+			return properties.Reference{}, err
 		}
-	} else if ref.Registry != r.Reference.Registry || ref.Repository != r.Reference.Repository {
-		return registry.Reference{}, fmt.Errorf(
+	} else if ref.Registry != repoRef.Registry || ref.Repository != repoRef.Repository {
+		return properties.Reference{}, fmt.Errorf(
 			"%w: mismatch between received %q and expected %q",
-			errdef.ErrInvalidReference, ref, r.Reference,
+			errdef.ErrInvalidReference, ref, repoRef,
 		)
 	}
 
-	if len(ref.Reference) == 0 {
-		return registry.Reference{}, errdef.ErrInvalidReference
+	if ref.GetReference() == "" {
+		return properties.Reference{}, errdef.ErrInvalidReference
 	}
 
 	return ref, nil
@@ -502,12 +781,14 @@ func (r *Repository) Tags(ctx context.Context, last string, fn func(tags []strin
 	if err := r.checkPolicy(ctx, ""); err != nil {
 		return err
 	}
-	ctx = auth.AppendRepositoryScope(ctx, r.Reference, auth.ActionPull)
-	url := buildRepositoryTagListURL(r.PlainHTTP, r.Reference)
+	repoRef := r.reference()
+	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull)
+	url := buildRepositoryTagListURL(r.plainHTTP(), repoRef)
 	var err error
+	maxPages := r.tagListMaxPages()
 	for page := 0; err == nil; page++ {
-		if r.TagListMaxPages > 0 && page >= r.TagListMaxPages {
-			return fmt.Errorf("tag listing exceeded %d pages: %w", r.TagListMaxPages, errdef.ErrTooManyPages)
+		if maxPages > 0 && page >= maxPages {
+			return fmt.Errorf("tag listing exceeded %d pages: %w", maxPages, errdef.ErrTooManyPages)
 		}
 		url, err = r.tags(ctx, last, fn, url)
 		// clear `last` for subsequent pages
@@ -525,10 +806,11 @@ func (r *Repository) tags(ctx context.Context, last string, fn func(tags []strin
 	if err != nil {
 		return "", err
 	}
-	if r.TagListPageSize > 0 || last != "" {
+	pageSize := r.tagListPageSize()
+	if pageSize > 0 || last != "" {
 		q := req.URL.Query()
-		if r.TagListPageSize > 0 {
-			q.Set("n", strconv.Itoa(r.TagListPageSize))
+		if pageSize > 0 {
+			q.Set("n", strconv.Itoa(pageSize))
 		}
 		if last != "" {
 			q.Set("last", last)
@@ -547,7 +829,7 @@ func (r *Repository) tags(ctx context.Context, last string, fn func(tags []strin
 	var page struct {
 		Tags []string `json:"tags"`
 	}
-	lr := limitReader(resp.Body, r.MaxMetadataBytes)
+	lr := limitReader(resp.Body, r.maxMetadataBytes())
 	if err := json.NewDecoder(lr).Decode(&page); err != nil {
 		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
@@ -566,6 +848,7 @@ func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) 
 	if err := r.checkPolicy(ctx, ""); err != nil {
 		return nil, err
 	}
+	ctx = withPolicyChecked(ctx)
 	var res []ocispec.Descriptor
 	if err := r.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
 		res = append(res, referrers...)
@@ -589,14 +872,14 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 		return err
 	}
 	state := r.loadReferrersState()
-	if state == referrersStateUnsupported {
+	if state == properties.ReferrersAPIUnsupported {
 		// The repository is known to not support Referrers API, fallback to
 		// referrers tag schema.
 		return r.referrersByTagSchema(ctx, desc, artifactType, fn)
 	}
 
 	err := r.referrersByAPI(ctx, desc, artifactType, fn)
-	if state == referrersStateSupported {
+	if state == properties.ReferrersAPISupported {
 		// The repository is known to support Referrers API, no fallback.
 		return err
 	}
@@ -620,15 +903,17 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 // fn is called for the referrers result. If artifactType is not empty,
 // only referrers of the same artifact type are fed to fn.
 func (r *Repository) referrersByAPI(ctx context.Context, desc ocispec.Descriptor, artifactType string, fn func(referrers []ocispec.Descriptor) error) error {
-	ref := r.Reference
-	ref.Reference = desc.Digest.String()
+	repoRef := r.reference()
+	ref := repoRef
+	ref.Digest = desc.Digest.String()
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
 
-	url := buildReferrersURL(r.PlainHTTP, ref, artifactType)
+	url := buildReferrersURL(r.plainHTTP(), ref, artifactType)
 	var err error
+	maxPages := r.referrerListMaxPages()
 	for page := 0; err == nil; page++ {
-		if r.ReferrerListMaxPages > 0 && page >= r.ReferrerListMaxPages {
-			return fmt.Errorf("referrer listing exceeded %d pages: %w", r.ReferrerListMaxPages, errdef.ErrTooManyPages)
+		if maxPages > 0 && page >= maxPages {
+			return fmt.Errorf("referrer listing exceeded %d pages: %w", maxPages, errdef.ErrTooManyPages)
 		}
 		url, err = r.referrersPageByAPI(ctx, artifactType, fn, url)
 	}
@@ -649,9 +934,10 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	if err != nil {
 		return "", err
 	}
-	if r.ReferrerListPageSize > 0 {
+	pageSize := r.referrerListPageSize()
+	if pageSize > 0 {
 		q := req.URL.Query()
-		q.Set("n", strconv.Itoa(r.ReferrerListPageSize))
+		q.Set("n", strconv.Itoa(pageSize))
 		req.URL.RawQuery = q.Encode()
 	}
 
@@ -680,7 +966,7 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	}
 
 	var index ocispec.Index
-	lr := limitReader(resp.Body, r.MaxMetadataBytes)
+	lr := limitReader(resp.Body, r.maxMetadataBytes())
 	if err := json.NewDecoder(lr).Decode(&index); err != nil {
 		return "", fmt.Errorf("%s %q: failed to decode response: %w", resp.Request.Method, resp.Request.URL, err)
 	}
@@ -716,7 +1002,7 @@ func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Desc
 	if err != nil {
 		return err
 	}
-	_, referrers, err := r.referrersFromIndex(ctx, referrersTag)
+	_, referrers, err := r.referrersFromIndex(ctx, referrersTag, desc)
 	if err != nil {
 		if errors.Is(err, errdef.ErrNotFound) {
 			// no referrers to the manifest
@@ -735,14 +1021,20 @@ func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Desc
 // referrersFromIndex queries the referrers index using the the given referrers
 // tag. If Succeeded, returns the descriptor of referrers index and the
 // referrers list.
-func (r *Repository) referrersFromIndex(ctx context.Context, referrersTag string) (ocispec.Descriptor, []ocispec.Descriptor, error) {
+func (r *Repository) referrersFromIndex(ctx context.Context, referrersTag string, subject ocispec.Descriptor) (ocispec.Descriptor, []ocispec.Descriptor, error) {
 	desc, rc, err := r.FetchReference(ctx, referrersTag)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 	defer rc.Close()
 
-	if err := limitSize(desc, r.MaxMetadataBytes); err != nil {
+	// Some registries resolve the fallback tag to the subject itself. Its
+	// children are not referrers, and the tag schema requires an OCI index.
+	if desc.MediaType != ocispec.MediaTypeImageIndex || desc.Digest == subject.Digest {
+		return ocispec.Descriptor{}, nil, fmt.Errorf("invalid referrers index from referrers tag %s: %w", referrersTag, errdef.ErrNotFound)
+	}
+
+	if err := limitSize(desc, r.maxMetadataBytes()); err != nil {
 		return ocispec.Descriptor{}, nil, fmt.Errorf("failed to read referrers index from referrers tag %s: %w", referrersTag, err)
 	}
 	var index ocispec.Index
@@ -756,9 +1048,9 @@ func (r *Repository) referrersFromIndex(ctx context.Context, referrersTag string
 // pingReferrers returns true if the Referrers API is available for r.
 func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 	switch r.loadReferrersState() {
-	case referrersStateSupported:
+	case properties.ReferrersAPISupported:
 		return true, nil
-	case referrersStateUnsupported:
+	case properties.ReferrersAPIUnsupported:
 		return false, nil
 	}
 
@@ -768,17 +1060,18 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 	defer r.referrersPingLock.Unlock()
 
 	switch r.loadReferrersState() {
-	case referrersStateSupported:
+	case properties.ReferrersAPISupported:
 		return true, nil
-	case referrersStateUnsupported:
+	case properties.ReferrersAPIUnsupported:
 		return false, nil
 	}
 
-	ref := r.Reference
-	ref.Reference = zeroDigest
+	repoRef := r.reference()
+	ref := repoRef
+	ref.Digest = zeroDigest
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
 
-	url := buildReferrersURL(r.PlainHTTP, ref, "")
+	url := buildReferrersURL(r.plainHTTP(), ref, "")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false, err
@@ -809,14 +1102,15 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 // delete removes the content identified by the descriptor in the entity "blobs"
 // or "manifests".
 func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isManifest bool) error {
-	ref := r.Reference
-	ref.Reference = target.Digest.String()
+	repoRef := r.reference()
+	ref := repoRef
+	ref.Digest = target.Digest.String()
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionDelete)
 	buildURL := buildRepositoryBlobURL
 	if isManifest {
 		buildURL = buildRepositoryManifestURL
 	}
-	url := buildURL(r.PlainHTTP, ref)
+	url := buildURL(r.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
 		return err
@@ -848,10 +1142,11 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
 		return nil, err
 	}
-	ref := s.repo.Reference
-	ref.Reference = target.Digest.String()
+	repoRef := s.repo.reference()
+	ref := repoRef
+	ref.Digest = target.Digest.String()
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
-	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
+	url := buildRepositoryBlobURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -898,14 +1193,15 @@ func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo
 	}
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
-	ctx = auth.AppendRepositoryScope(ctx, s.repo.Reference, auth.ActionPull, auth.ActionPush)
+	repoRef := s.repo.reference()
+	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull, auth.ActionPush)
 
 	// We also need pull access to the source repo.
-	fromRef := s.repo.Reference
+	fromRef := repoRef
 	fromRef.Repository = fromRepo
 	ctx = auth.AppendRepositoryScope(ctx, fromRef, auth.ActionPull)
 
-	url := buildRepositoryBlobMountURL(s.repo.PlainHTTP, s.repo.Reference, desc.Digest, fromRepo)
+	url := buildRepositoryBlobMountURL(s.repo.plainHTTP(), repoRef, desc.Digest, fromRepo)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return err
@@ -955,7 +1251,7 @@ func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo
 // registry.
 func (s *blobStore) sibling(otherRepoName string) *blobStore {
 	otherRepo := s.repo.clone()
-	otherRepo.Reference.Repository = otherRepoName
+	otherRepo.RepositoryName = otherRepoName
 	return &blobStore{
 		repo: otherRepo,
 	}
@@ -979,8 +1275,9 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	// start an upload
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
-	ctx = auth.AppendRepositoryScope(ctx, s.repo.Reference, auth.ActionPull, auth.ActionPush)
-	url := buildRepositoryBlobUploadURL(s.repo.PlainHTTP, s.repo.Reference)
+	repoRef := s.repo.reference()
+	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull, auth.ActionPush)
+	url := buildRepositoryBlobUploadURL(s.repo.plainHTTP(), repoRef)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return err
@@ -1113,12 +1410,12 @@ func (s *blobStore) Resolve(ctx context.Context, reference string) (ocispec.Desc
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	refDigest, err := ref.GetDigest()
+	refDigest, err := digest.Parse(ref.GetReference())
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
-	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
+	url := buildRepositoryBlobURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, err
@@ -1150,13 +1447,13 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	refDigest, err := ref.GetDigest()
+	refDigest, err := digest.Parse(ref.GetReference())
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
-	url := buildRepositoryBlobURL(s.repo.PlainHTTP, ref)
+	url := buildRepositoryBlobURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -1228,13 +1525,14 @@ type manifestStore struct {
 
 // Fetch fetches the content identified by the descriptor.
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
-	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
 		return nil, err
 	}
-	ref := s.repo.Reference
-	ref.Reference = target.Digest.String()
+	repoRef := s.repo.reference()
+	ref := repoRef
+	ref.Digest = target.Digest.String()
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
-	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -1278,15 +1576,15 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 
 // Push pushes the content, matching the expected descriptor.
 func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, "", expected); err != nil {
 		return err
 	}
-	return s.pushWithIndexing(ctx, expected, content, expected.Digest.String())
+	return s.pushWithIndexing(withPolicyChecked(ctx), expected, content, expected.Digest.String())
 }
 
 // Exists returns true if the described content exists.
 func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
 		return false, err
 	}
 	_, err := s.Resolve(withPolicyChecked(ctx), target.Digest.String())
@@ -1301,10 +1599,10 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 
 // Delete removes the manifest content identified by the descriptor.
 func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
 		return err
 	}
-	return s.deleteWithIndexing(ctx, target)
+	return s.deleteWithIndexing(withPolicyChecked(ctx), target)
 }
 
 // deleteWithIndexing removes the manifest content identified by the descriptor,
@@ -1312,15 +1610,15 @@ func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) e
 func (s *manifestStore) deleteWithIndexing(ctx context.Context, target ocispec.Descriptor) error {
 	switch target.MediaType {
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		if state := s.repo.loadReferrersState(); state == properties.ReferrersAPISupported {
 			// referrers API is available, no client-side indexing needed
 			return s.repo.delete(ctx, target, true)
 		}
 
-		if err := limitSize(target, s.repo.MaxMetadataBytes); err != nil {
+		if err := limitSize(target, s.repo.maxMetadataBytes()); err != nil {
 			return err
 		}
-		ctx = auth.AppendRepositoryScope(ctx, s.repo.Reference, auth.ActionPull, auth.ActionDelete)
+		ctx = auth.AppendRepositoryScope(ctx, s.repo.reference(), auth.ActionPull, auth.ActionDelete)
 		manifestJSON, err := content.FetchAll(ctx, s, target)
 		if err != nil {
 			return err
@@ -1374,12 +1672,12 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 		return ocispec.Descriptor{}, err
 	}
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
-	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	req.Header.Set("Accept", manifestAcceptHeader(s.repo.ManifestMediaTypes))
+	req.Header.Set("Accept", manifestAcceptHeader(s.repo.manifestMediaTypes()))
 
 	resp, err := s.repo.do(req)
 	if err != nil {
@@ -1389,7 +1687,14 @@ func (s *manifestStore) Resolve(ctx context.Context, reference string) (ocispec.
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return s.generateDescriptor(resp, ref, req.Method)
+		desc, err := s.generateDescriptor(resp, ref, req.Method)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		if err := s.repo.checkPolicyResolved(ctx, reference, desc); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		return desc, nil
 	case http.StatusNotFound:
 		return ocispec.Descriptor{}, fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
 	default:
@@ -1409,12 +1714,12 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	}
 
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
-	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	req.Header.Set("Accept", manifestAcceptHeader(s.repo.ManifestMediaTypes))
+	req.Header.Set("Accept", manifestAcceptHeader(s.repo.manifestMediaTypes()))
 
 	resp, err := s.repo.do(req)
 	if err != nil {
@@ -1429,11 +1734,16 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	switch resp.StatusCode {
 	case http.StatusOK:
 		if resp.ContentLength == -1 {
-			desc, err = s.Resolve(ctx, reference)
+			// policy is evaluated below against the fetched descriptor, so
+			// skip the redundant evaluation in Resolve.
+			desc, err = s.Resolve(withPolicyChecked(ctx), reference)
 		} else {
 			desc, err = s.generateDescriptor(resp, ref, req.Method)
 		}
 		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		if err = s.repo.checkPolicyResolved(ctx, reference, desc); err != nil {
 			return ocispec.Descriptor{}, nil, err
 		}
 		return desc, resp.Body, nil
@@ -1446,9 +1756,10 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 
 // Tag tags a manifest descriptor with a reference string.
 func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	if err := s.repo.checkPolicy(ctx, reference); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, reference, desc); err != nil {
 		return err
 	}
+	ctx = withPolicyChecked(ctx)
 	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return err
@@ -1461,29 +1772,72 @@ func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, refere
 	}
 	defer rc.Close()
 
-	return s.push(ctx, desc, rc, ref.Reference)
+	return s.push(ctx, desc, rc, ref.GetReference())
+}
+
+// Untag removes the association between the given tag and the manifest it currently points to.
+func (s *manifestStore) Untag(ctx context.Context, reference string) error {
+	if err := s.repo.checkPolicy(ctx, reference); err != nil {
+		return err
+	}
+	ref, err := s.ParseReference(reference)
+	if err != nil {
+		return err
+	}
+	if ref.Digest != "" {
+		return fmt.Errorf("%w: invalid tag %q", errdef.ErrInvalidReference, ref.GetReference())
+	}
+	if err := ref.ValidateTag(); err != nil {
+		return err
+	}
+	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionDelete)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := s.repo.do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusAccepted, http.StatusNoContent:
+		return nil
+	case http.StatusNotFound:
+		return fmt.Errorf("%s: %w", ref, errdef.ErrNotFound)
+	default:
+		return errutil.ParseErrorResponse(resp)
+	}
 }
 
 // PushReference pushes the manifest with a reference tag.
 func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	if err := s.repo.checkPolicy(ctx, reference); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, reference, expected); err != nil {
 		return err
 	}
+	ctx = withPolicyChecked(ctx)
 	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
 		return err
 	}
-	return s.pushWithIndexing(ctx, expected, content, ref.Reference)
+	return s.pushWithIndexing(ctx, expected, content, ref.GetReference())
 }
 
 // push pushes the manifest content, matching the expected descriptor.
 func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	ref := s.repo.Reference
-	ref.Reference = reference
+	repoRef := s.repo.reference()
+	ref := repoRef
+	if d, err := digest.Parse(reference); err == nil {
+		ref.Digest = d.String()
+	} else {
+		ref.Tag = reference
+	}
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull, auth.ActionPush)
-	url := buildRepositoryManifestURL(s.repo.PlainHTTP, ref)
+	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	// unwrap the content for optimizations of built-in types.
 	body := ioutil.UnwrapNopCloser(content)
 	if _, ok := body.(io.ReadCloser); ok {
@@ -1555,12 +1909,12 @@ func (s *manifestStore) checkOCISubjectHeader(resp *http.Response) {
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
 	switch expected.MediaType {
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		if state := s.repo.loadReferrersState(); state == properties.ReferrersAPISupported {
 			// referrers API is available, no client-side indexing needed
 			return s.push(ctx, expected, r, reference)
 		}
 
-		if err := limitSize(expected, s.repo.MaxMetadataBytes); err != nil {
+		if err := limitSize(expected, s.repo.maxMetadataBytes()); err != nil {
 			return err
 		}
 		manifestJSON, err := content.ReadAll(r, expected)
@@ -1571,7 +1925,7 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 			return err
 		}
 		// check referrers API availability again after push
-		if state := s.repo.loadReferrersState(); state == referrersStateSupported {
+		if state := s.repo.loadReferrersState(); state == properties.ReferrersAPISupported {
 			// the subject has been processed the registry, no client-side
 			// indexing needed
 			return nil
@@ -1655,7 +2009,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 	var oldReferrers []ocispec.Descriptor
 	prepare := func() error {
 		// 1. pull the original referrers list using the referrers tag schema
-		indexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
+		indexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag, subject)
 		if err != nil {
 			if errors.Is(err, errdef.ErrNotFound) {
 				// valid case: no old referrers index
@@ -1678,7 +2032,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		}
 
 		// 3. push the updated referrers list using referrers tag schema
-		if len(updatedReferrers) > 0 || s.repo.SkipReferrersGC {
+		if len(updatedReferrers) > 0 || s.repo.skipReferrersGC() {
 			// push a new index in either case:
 			// 1. the referrers list has been updated with a non-zero size
 			// 2. OR the updated referrers list is empty but referrers GC
@@ -1694,7 +2048,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 		}
 
 		// 4. delete the dangling original referrers index, if applicable
-		if s.repo.SkipReferrersGC || oldIndexDesc == nil {
+		if s.repo.skipReferrersGC() || oldIndexDesc == nil {
 			return nil
 		}
 		if err := s.repo.delete(ctx, *oldIndexDesc, true); err != nil {
@@ -1713,13 +2067,13 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 }
 
 // ParseReference parses a reference to a fully qualified reference.
-func (s *manifestStore) ParseReference(reference string) (registry.Reference, error) {
+func (s *manifestStore) ParseReference(reference string) (properties.Reference, error) {
 	return s.repo.ParseReference(reference)
 }
 
 // generateDescriptor returns a descriptor generated from the response.
 // See the truth table at the top of `repository_test.go`
-func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Reference, httpMethod string) (ocispec.Descriptor, error) {
+func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.Reference, httpMethod string) (ocispec.Descriptor, error) {
 	// 1. Validate Content-Type
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
@@ -1780,7 +2134,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref registry.Ref
 			// GET without server `Docker-Content-Digest` header forces the
 			// expensive calculation
 			var calculatedDigest digest.Digest
-			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.MaxMetadataBytes); err != nil {
+			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.maxMetadataBytes()); err != nil {
 				return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
 			}
 			contentDigest = calculatedDigest

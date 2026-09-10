@@ -24,9 +24,8 @@ import (
 	"reflect"
 	"testing"
 
-	_ "github.com/oras-project/oras-go/v3/registry/remote/config" // registers config loader
-	"github.com/oras-project/oras-go/v3/registry/remote/config/configtest"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configtest"
 )
 
 func TestNewFileStore_badPath(t *testing.T) {
@@ -67,17 +66,17 @@ func TestNewFileStore_badFormat(t *testing.T) {
 	}{
 		{
 			name:       "Bad JSON format",
-			configPath: "../config/testdata/bad_config",
+			configPath: "testdata/bad_config",
 			wantErr:    true,
 		},
 		{
 			name:       "Invalid auths format",
-			configPath: "../config/testdata/invalid_auths_config.json",
+			configPath: "testdata/invalid_auths_config.json",
 			wantErr:    true,
 		},
 		{
 			name:       "No auths field",
-			configPath: "../config/testdata/no_auths_config.json",
+			configPath: "testdata/no_auths_config.json",
 			wantErr:    false,
 		},
 	}
@@ -94,7 +93,7 @@ func TestNewFileStore_badFormat(t *testing.T) {
 
 func TestFileStore_Get_validConfig(t *testing.T) {
 	ctx := context.Background()
-	fs, err := credentials.NewFileStore("../config/testdata/valid_auths_config.json")
+	fs, err := credentials.NewFileStore("testdata/valid_auths_config.json")
 	if err != nil {
 		t.Fatal("NewFileStore() error =", err)
 	}
@@ -185,7 +184,7 @@ func TestFileStore_Get_validConfig(t *testing.T) {
 
 func TestFileStore_Get_invalidConfig(t *testing.T) {
 	ctx := context.Background()
-	fs, err := credentials.NewFileStore("../config/testdata/invalid_auths_entry_config.json")
+	fs, err := credentials.NewFileStore("testdata/invalid_auths_entry_config.json")
 	if err != nil {
 		t.Fatal("NewFileStore() error =", err)
 	}
@@ -231,7 +230,7 @@ func TestFileStore_Get_invalidConfig(t *testing.T) {
 
 func TestFileStore_Get_emptyConfig(t *testing.T) {
 	ctx := context.Background()
-	fs, err := credentials.NewFileStore("../config/testdata/empty.json")
+	fs, err := credentials.NewFileStore("testdata/empty.json")
 	if err != nil {
 		t.Fatal("NewFileStore() error =", err)
 	}

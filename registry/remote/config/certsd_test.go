@@ -24,6 +24,52 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
+func TestDefaultCertsDirPaths(t *testing.T) {
+	got := defaultCertsDirPaths()
+	want := defaultCertsDirPathsWithStrategy(StrategyContainersImage)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("defaultCertsDirPaths() = %v, want %v", got, want)
+	}
+}
+
+func TestLoadCertsDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	host := filepath.Base(home) + ".invalid"
+	hostDir := filepath.Join(home, ".config", "containers", "certs.d", host)
+	if err := os.MkdirAll(hostDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	caCertPath := filepath.Join(hostDir, "ca.crt")
+	clientCertPath := filepath.Join(hostDir, "client.cert")
+	clientKeyPath := filepath.Join(hostDir, "client.key")
+	for _, path := range []string{caCertPath, clientCertPath, clientKeyPath} {
+		if err := os.WriteFile(path, []byte("test data"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := LoadCertsDir(host)
+	if err != nil {
+		t.Fatalf("LoadCertsDir() error: %v", err)
+	}
+	want := &CertsDir{CACertPaths: []string{caCertPath}, ClientCert: clientCertPath, ClientKey: clientKeyPath}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("LoadCertsDir() = %v, want %v", got, want)
+	}
+
+	got, err = LoadCertsDir("unknown.invalid")
+	if err != nil {
+		t.Fatalf("LoadCertsDir() error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("LoadCertsDir() = %v, want nil", got)
+	}
+}
+
 func TestLoadCertsDirFromPaths_CACerts(t *testing.T) {
 	tmpDir := t.TempDir()
 	hostDir := filepath.Join(tmpDir, "example.com")

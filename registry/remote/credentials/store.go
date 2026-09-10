@@ -26,40 +26,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/oras-project/oras-go/v3/internal/syncutil"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configfile"
 )
 
 // ConfigFile is the interface for a Docker configuration file that provides
-// credential storage capabilities. This interface is implemented by
-// [config.Config] from the config package.
-type ConfigFile interface {
-	// GetAuthConfig returns the AuthConfig for the given server address using
-	// exact hostname matching (Docker config.json semantics).
-	GetAuthConfig(serverAddress string) (AuthConfig, error)
-	// GetAuthConfigHierarchical returns the AuthConfig for the given server
-	// address using longest-prefix namespace matching (containers-auth.json
-	// semantics).
-	GetAuthConfigHierarchical(serverAddress string) (AuthConfig, error)
-	// PutAuthConfig saves the AuthConfig for the given server address.
-	PutAuthConfig(serverAddress string, authCfg AuthConfig) error
-	// DeleteAuthConfig removes the AuthConfig for the given server address.
-	DeleteAuthConfig(serverAddress string) error
-	// GetCredentialHelper returns the credential helper configured for the server.
-	GetCredentialHelper(serverAddress string) string
-	// CredentialsStore returns the configured credentials store name.
-	CredentialsStore() string
-	// SetCredentialsStore sets the credentials store name.
-	SetCredentialsStore(credsStore string)
-	// IsAuthConfigured returns true if any authentication is configured.
-	IsAuthConfigured() bool
-	// Path returns the path to the config file.
-	Path() string
-	// Save saves the config file.
-	Save() error
-}
-
-// ConfigFileLoader is a function that loads a ConfigFile from a path.
-type ConfigFileLoader func(configPath string) (ConfigFile, error)
+// credential storage capabilities. It is implemented by [config.Config] from
+// the config package.
+type ConfigFile = configfile.ConfigFile
 
 const (
 	dockerConfigDirEnv   = "DOCKER_CONFIG"
@@ -83,7 +56,6 @@ type DynamicStore struct {
 	config             ConfigFile
 	options            StoreOptions
 	detectedCredsStore string
-	setCredsStoreOnce  syncutil.OnceOrRetry
 }
 
 // StoreOptions provides options for NewStore.
@@ -123,20 +95,6 @@ type StoreOptions struct {
 	Hierarchical bool
 }
 
-// defaultConfigLoader is set by the config package during init.
-// This allows the credentials package to load config files without importing config.
-var defaultConfigLoader ConfigFileLoader
-
-// ErrNoConfigLoader is returned when NewStore is called but no config loader
-// has been registered. This typically means the config package was not imported.
-var ErrNoConfigLoader = fmt.Errorf("no config loader registered; import the config package or use NewStoreFromConfig")
-
-// SetDefaultConfigLoader sets the default config file loader.
-// This is called by the config package during init to register itself.
-func SetDefaultConfigLoader(loader ConfigFileLoader) {
-	defaultConfigLoader = loader
-}
-
 // NewStoreFromConfig returns a Store based on the given ConfigFile.
 // This allows creating a store from an already-loaded config file.
 func NewStoreFromConfig(cfg ConfigFile, opts StoreOptions) *DynamicStore {
@@ -164,10 +122,7 @@ func NewStoreFromConfig(cfg ConfigFile, opts StoreOptions) *DynamicStore {
 //   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
 func NewStore(configPath string, opts StoreOptions) (*DynamicStore, error) {
-	if defaultConfigLoader == nil {
-		return nil, ErrNoConfigLoader
-	}
-	cfg, err := defaultConfigLoader(configPath)
+	cfg, err := configfile.Load(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -200,20 +155,15 @@ func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (Credenti
 // Put saves credentials into the store for the given server address.
 // Put returns ErrPlaintextPutDisabled if native store is not available and
 // [StoreOptions].AllowPlaintextPut is set to false.
+//
+// A detected native store is used for this store's own operations only; it is
+// deliberately not written back to the config file. Persisting it would edit a
+// file this library does not own — one shared with the Docker CLI and every
+// other tool that reads it — as a side effect of saving one credential, and
+// would change their behaviour too. Callers that want the setting recorded
+// should write it themselves.
 func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred Credential) error {
-	if err := ds.getStore(serverAddress).Put(ctx, serverAddress, cred); err != nil {
-		return err
-	}
-	// save the detected creds store back to the config file on first put
-	return ds.setCredsStoreOnce.Do(func() error {
-		if ds.detectedCredsStore != "" {
-			ds.config.SetCredentialsStore(ds.detectedCredsStore)
-			if err := ds.config.Save(); err != nil {
-				return fmt.Errorf("failed to save config with credsStore: %w", err)
-			}
-		}
-		return nil
-	})
+	return ds.getStore(serverAddress).Put(ctx, serverAddress, cred)
 }
 
 // Delete removes credentials from the store for the given server address.

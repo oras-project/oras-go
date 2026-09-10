@@ -454,7 +454,6 @@ func TestRequirementType_Constants(t *testing.T) {
 	}
 }
 
-
 // Test edge case: empty string fields
 func TestSignedIdentity_EmptyFields(t *testing.T) {
 	tests := []struct {
@@ -507,4 +506,3 @@ func TestSignedIdentity_EmptyFields(t *testing.T) {
 		})
 	}
 }
-

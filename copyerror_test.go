@@ -17,16 +17,31 @@ package oras
 
 import (
 	"errors"
+	"reflect"
 	"testing"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 var errTest error = errors.New("test error")
+
+// testDigest is the digest carried by descTest.
+const testDigest = "sha256:6ae8a75555209fd6c44157c0aed8016e763ff435a19cf186f76863140143ff72"
+
+// descTest is a non-zero descriptor used to verify that a CopyError
+// identifies the content it failed on.
+var descTest = ocispec.Descriptor{
+	MediaType: ocispec.MediaTypeImageLayer,
+	Digest:    testDigest,
+	Size:      12,
+}
 
 func TestNewCopyError(t *testing.T) {
 	tests := []struct {
 		name   string
 		op     string
 		origin CopyErrorOrigin
+		desc   ocispec.Descriptor
 		err    error
 		want   *CopyError
 	}{
@@ -39,6 +54,19 @@ func TestNewCopyError(t *testing.T) {
 				Op:     "pull",
 				Origin: CopyErrorOriginSource,
 				Err:    errTest,
+			},
+		},
+		{
+			name:   "source error with descriptor",
+			op:     "Fetch",
+			origin: CopyErrorOriginSource,
+			desc:   descTest,
+			err:    errTest,
+			want: &CopyError{
+				Op:         "Fetch",
+				Origin:     CopyErrorOriginSource,
+				Descriptor: descTest,
+				Err:        errTest,
 			},
 		},
 		{
@@ -74,7 +102,7 @@ func TestNewCopyError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := newCopyError(tt.op, tt.origin, tt.err)
+			err := newCopyError(tt.op, tt.origin, tt.desc, tt.err)
 			if tt.want == nil {
 				return
 			}
@@ -89,6 +117,10 @@ func TestNewCopyError(t *testing.T) {
 
 			if copyErr.Origin != tt.want.Origin {
 				t.Errorf("expected Origin %q, got %q", tt.want.Origin, copyErr.Origin)
+			}
+
+			if !reflect.DeepEqual(copyErr.Descriptor, tt.want.Descriptor) {
+				t.Errorf("expected Descriptor %v, got %v", tt.want.Descriptor, copyErr.Descriptor)
 			}
 
 			if !errors.Is(copyErr.Err, errTest) {
@@ -130,6 +162,36 @@ func TestCopyError_Error(t *testing.T) {
 				Err:    errTest,
 			},
 			want: `failed to perform "test": test error`,
+		},
+		{
+			name: "source error with descriptor",
+			copyErr: &CopyError{
+				Op:         "Fetch",
+				Origin:     CopyErrorOriginSource,
+				Descriptor: descTest,
+				Err:        errTest,
+			},
+			want: `failed to perform "Fetch" on source for ` + testDigest + `: test error`,
+		},
+		{
+			name: "destination error with descriptor",
+			copyErr: &CopyError{
+				Op:         "Push",
+				Origin:     CopyErrorOriginDestination,
+				Descriptor: descTest,
+				Err:        errTest,
+			},
+			want: `failed to perform "Push" on destination for ` + testDigest + `: test error`,
+		},
+		{
+			name: "undefined origin with descriptor",
+			copyErr: &CopyError{
+				Op:         "test",
+				Origin:     -1,
+				Descriptor: descTest,
+				Err:        errTest,
+			},
+			want: `failed to perform "test" for ` + testDigest + `: test error`,
 		},
 		{
 			name: "nil error",
@@ -238,4 +300,24 @@ func (e *customErr) Error() string {
 
 func (e *customErr) Unwrap() error {
 	return nil
+}
+
+// TestCopyError_Descriptor verifies that a CopyError recovered via errors.As
+// exposes the descriptor of the content that the operation failed on, and
+// that the zero value leaves the message unchanged.
+func TestCopyError_Descriptor(t *testing.T) {
+	err := newCopyError("Fetch", CopyErrorOriginSource, descTest, errTest)
+
+	var copyErr *CopyError
+	if !errors.As(err, &copyErr) {
+		t.Fatalf("expected %T, got %T", copyErr, err)
+	}
+	if !reflect.DeepEqual(copyErr.Descriptor, descTest) {
+		t.Errorf("expected Descriptor %v, got %v", descTest, copyErr.Descriptor)
+	}
+
+	zeroErr := newCopyError("Fetch", CopyErrorOriginSource, ocispec.Descriptor{}, errTest)
+	if want := `failed to perform "Fetch" on source: test error`; zeroErr.Error() != want {
+		t.Errorf("want %q, got %q", want, zeroErr.Error())
+	}
 }

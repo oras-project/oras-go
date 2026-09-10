@@ -230,7 +230,7 @@ func ExampleCredential() {
 	}
 
 	client := auth.DefaultClient
-	client.CredentialFunc = remote.GetCredentialFunc(store)
+	client.CredentialFunc = remote.NewCredentialFunc(store)
 
 	request, err := http.NewRequest(http.MethodGet, "localhost:5000", nil)
 	if err != nil {

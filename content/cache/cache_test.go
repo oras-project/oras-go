@@ -85,4 +85,3 @@ func TestCache_ReadOnlyTarget(t *testing.T) {
 		t.Error("ReadOnlyTarget() should return wrapped target")
 	}
 }
-
