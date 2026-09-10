@@ -287,18 +287,19 @@ func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) 
 }
 
 // trimScopeReference drops a trailing tag or digest from a scope, leaving the
-// registry and repository. A reference may carry both, as in
-// "example.com/repo:tag@sha256:...", so the digest is removed first and the
-// tag after it. A ":" that belongs to a registry port is kept: a port is only
-// a port when nothing after it and something before it contains a "/", which
-// distinguishes "example.com:5000" from "example.com/repo:tag".
+// registry and repository. A reference can only carry one in its last path
+// component, so the search starts after the last "/": that keeps a registry
+// port ("example.com:5000"), which has no "/" after it, and an "@" or ":"
+// inside an oci filesystem path ("/mnt/data@2024/img"). The first separator
+// wins, so "example.com/repo:tag@sha256:..." trims to "example.com/repo" in
+// one step.
 func trimScopeReference(scope string) string {
-	if i := strings.LastIndex(scope, "@"); i != -1 {
-		scope = scope[:i]
+	slash := strings.LastIndex(scope, "/")
+	if slash == -1 {
+		return scope
 	}
-	if i := strings.LastIndex(scope, ":"); i != -1 &&
-		!strings.Contains(scope[i+1:], "/") && strings.Contains(scope[:i], "/") {
-		return scope[:i]
+	if i := strings.IndexAny(scope[slash+1:], ":@"); i != -1 {
+		return scope[:slash+1+i]
 	}
 	return scope
 }

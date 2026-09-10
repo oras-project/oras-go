@@ -1285,6 +1285,21 @@ func TestGetRequirementsForImageScopeEdgeCases(t *testing.T) {
 		}
 	})
 
+	t.Run("oci path with an @ is not trimmed", func(t *testing.T) {
+		p := &Policy{
+			Default:    reject,
+			Transports: map[TransportName]TransportScopes{"oci": {"/mnt/data": accept}},
+		}
+		// The "@" is not in the last path component, so it is not a digest.
+		got := p.GetRequirementsForImage("oci", "/mnt/data@2024/img")
+		if len(got) != 1 {
+			t.Fatalf("got %d requirements, want 1", len(got))
+		}
+		if got[0].Type() != TypeReject {
+			t.Errorf("oci path @ matched an unrelated entry, got %s, want %s", got[0].Type(), TypeReject)
+		}
+	})
+
 	t.Run("non-docker transport still falls back from a tag", func(t *testing.T) {
 		p := &Policy{
 			Default:    accept,
