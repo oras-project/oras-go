@@ -508,7 +508,7 @@ func (r *Repository) checkManifestPolicy(ctx context.Context, reference string, 
 // checkDescriptorPolicy evaluates signature requirements only for manifests.
 func (r *Repository) checkDescriptorPolicy(ctx context.Context, desc ocispec.Descriptor) error {
 	if isManifest(r.manifestMediaTypes(), desc) {
-		return r.checkManifestPolicy(ctx, "", desc)
+		return r.checkManifestPolicy(ctx, desc.Digest.String(), desc)
 	}
 	return r.checkPolicy(ctx, "")
 }
