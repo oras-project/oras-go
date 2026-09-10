@@ -918,7 +918,7 @@ func TestRepository_PolicyScope_TaggedEntryApplies(t *testing.T) {
 	}
 	repo := &Repository{
 		Registry: &Registry{
-			Reference: registry.Reference{Registry: testReference.Registry},
+			Reference: properties.Reference{Registry: testReference.Registry},
 			Policy:    evaluator,
 		},
 		RepositoryName: testReference.Repository,
@@ -948,7 +948,7 @@ func TestRepository_PolicyScope_DigestEntryApplies(t *testing.T) {
 	}
 	repo := &Repository{
 		Registry: &Registry{
-			Reference: registry.Reference{Registry: testReference.Registry},
+			Reference: properties.Reference{Registry: testReference.Registry},
 			Policy:    evaluator,
 		},
 		RepositoryName: testReference.Repository,
