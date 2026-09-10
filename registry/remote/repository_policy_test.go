@@ -959,3 +959,35 @@ func TestRepository_PolicyScope_DigestEntryApplies(t *testing.T) {
 		t.Errorf("checkPolicy() on another digest should be allowed, got: %v", err)
 	}
 }
+
+func TestRepository_PolicyScope_DigestEntryAppliesToDescriptor(t *testing.T) {
+	const blocked = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	repoScope := testReference.Registry + "/" + testReference.Repository
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				repoScope + "@" + blocked: policy.PolicyRequirements{&policy.Reject{}},
+			},
+		},
+	}
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("failed to create evaluator: %v", err)
+	}
+	repo := &Repository{
+		Registry: &Registry{
+			Reference: properties.Reference{Registry: testReference.Registry},
+			Policy:    evaluator,
+		},
+		RepositoryName: testReference.Repository,
+	}
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    blocked,
+		Size:      2,
+	}
+
+	assertPolicyDenied(t, repo.checkDescriptorPolicy(context.Background(), desc),
+		"checkDescriptorPolicy() on the digest named by the policy")
+}
