@@ -275,10 +275,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	// attempt cached auth token
 	var attemptedKey string
 	cache := c.cache()
-	host := originalReq.Host
-	if host == "" {
-		host = originalReq.URL.Host
-	}
+	host := requestResource(originalReq).Registry
 	scheme, err := cache.GetScheme(ctx, host)
 	if err == nil {
 		switch scheme {
