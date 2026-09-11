@@ -1,0 +1,64 @@
+# Copyright The ORAS Authors.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The mirror-tls Secret (containing mirror.crt and mirror.key) must be
+# created by setup.sh before this manifest is applied.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mirror-registry
+  namespace: oras-functional-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mirror-registry
+  template:
+    metadata:
+      labels:
+        app: mirror-registry
+    spec:
+      containers:
+        - name: mirror-registry
+          image: registry:2
+          ports:
+            - containerPort: 5443
+          env:
+            - name: REGISTRY_HTTP_ADDR
+              value: "0.0.0.0:5443"
+            - name: REGISTRY_HTTP_TLS_CERTIFICATE
+              value: /certs/mirror.crt
+            - name: REGISTRY_HTTP_TLS_KEY
+              value: /certs/mirror.key
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: mirror-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mirror-registry
+  namespace: oras-functional-test
+spec:
+  selector:
+    app: mirror-registry
+  ports:
+    - port: 5443
+      targetPort: 5443
