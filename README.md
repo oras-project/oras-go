@@ -7,7 +7,7 @@
 `oras-go` is a Go library for managing OCI artifacts, compliant with the [OCI Image Format Specification](https://github.com/opencontainers/image-spec) and the [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec). It provides unified APIs for pushing, pulling, and managing artifacts across OCI-compliant registries, local file systems, and in-memory stores.
 
 > [!Note]
-> The `main` and `v2` branches follow [Go's Security Policy](https://github.com/golang/go/security/policy) and support the two latest versions of Go (currently `1.25` and `1.26`).
+> The `main` and `v2` branches follow [Go's Security Policy](https://github.com/golang/go/security/policy) and support the two latest versions of Go (currently `1.26` and `1.27`).
  
 ## Getting Started
 
@@ -42,6 +42,9 @@ This project follows [Semantic Versioning](https://semver.org/) (`MAJOR`.`MINOR`
 
 ## Branches
 
+- To migrate from `v2` to `v3`, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
+- To migrate from `v1` to `v2`, see the [`v2` branch migration guide](https://github.com/oras-project/oras-go/blob/v2/MIGRATION_GUIDE.md).
+
 ### main (v3 development)
 
 [![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=main)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Amain)
@@ -68,8 +71,6 @@ New features and bug fixes from `main` will be backported to `v2` if applicable.
 [![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go.svg)](https://pkg.go.dev/oras.land/oras-go)
 
 The [`v1`](https://github.com/oras-project/oras-go/tree/v1) branch is in maintenance mode and receives only dependency updates and security fixes. No new features are planned.
-
-To migrate from `v2` to `v3`, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
 
 ## Community
 

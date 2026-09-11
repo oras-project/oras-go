@@ -288,7 +288,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 				req.Header.Set(headerAuthorization, "Basic "+token)
 			}
 		case SchemeBearer:
-			scopes := GetAllScopesForHost(ctx, host)
+			scopes := GetScopesForHost(ctx, host)
 			attemptedKey = strings.Join(scopes, " ")
 			token, err := cache.GetToken(ctx, host, SchemeBearer, attemptedKey)
 			if err == nil {
@@ -331,7 +331,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	case SchemeBearer:
 		resp.Body.Close()
 
-		scopes := GetAllScopesForHost(ctx, host)
+		scopes := GetScopesForHost(ctx, host)
 		if paramScope := params["scope"]; paramScope != "" {
 			// merge hinted scopes with challenged scopes
 			scopes = append(scopes, strings.Split(paramScope, " ")...)

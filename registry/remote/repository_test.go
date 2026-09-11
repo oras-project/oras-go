@@ -149,6 +149,16 @@ func TestNewRepository(t *testing.T) {
 			wantErr:   errdef.ErrInvalidReference,
 		},
 		{
+			name:      "reference with tag",
+			reference: "localhost:5000/hello-world:v1",
+			wantErr:   errdef.ErrInvalidReference,
+		},
+		{
+			name:      "reference with digest",
+			reference: "localhost:5000/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			wantErr:   errdef.ErrInvalidReference,
+		},
+		{
 			name:      "empty reference",
 			reference: "",
 			wantErr:   errdef.ErrInvalidReference,
@@ -1994,6 +2004,168 @@ func TestRepository_Referrers_TagSchemaFallback_ContentType(t *testing.T) {
 	}
 	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnsupported {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnsupported)
+	}
+}
+
+func TestRepository_Referrers_TagSchemaFallback_ValidateIndex(t *testing.T) {
+	referrers := []ocispec.Descriptor{{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("child"),
+		Size:      5,
+	}}
+	for _, tt := range []struct {
+		name, mediaType string
+		isSubject       bool
+		wantReferrers   bool
+	}{
+		{"valid OCI index", ocispec.MediaTypeImageIndex, false, true},
+		{"Docker manifest list", "application/vnd.docker.distribution.manifest.list.v2+json", false, false},
+		{"Docker subject", "application/vnd.docker.distribution.manifest.list.v2+json", true, false},
+		{"OCI subject", ocispec.MediaTypeImageIndex, true, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			index := ocispec.Index{
+				Versioned: specs.Versioned{SchemaVersion: 2},
+				MediaType: tt.mediaType,
+				Manifests: referrers,
+			}
+			body, err := json.Marshal(index)
+			if err != nil {
+				t.Fatal(err)
+			}
+			indexDigest := digest.FromBytes(body)
+			subject := ocispec.Descriptor{Digest: digest.FromString("subject")}
+			if tt.isSubject {
+				subject.Digest = indexDigest
+			}
+			referrersTag := strings.Replace(subject.Digest.String(), ":", "-", 1)
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+subject.Digest.String():
+					w.WriteHeader(http.StatusNotFound)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+					w.Header().Set("Content-Type", tt.mediaType)
+					w.Header().Set("Docker-Content-Digest", indexDigest.String())
+					w.Write(body)
+				default:
+					t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			repo, err := NewRepository(strings.TrimPrefix(ts.URL, "http://") + "/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo.Registry.PlainHTTP = true
+			var got []ocispec.Descriptor
+			if err := repo.Referrers(context.Background(), subject, "", func(page []ocispec.Descriptor) error {
+				got = append(got, page...)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			var want []ocispec.Descriptor
+			if tt.wantReferrers {
+				want = referrers
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("Repository.Referrers() = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestRepository_PushReference_TagSchemaFallback_ValidateIndex(t *testing.T) {
+	child := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageManifest, Digest: digest.FromString("child"), Size: 5}
+	for _, tt := range []struct {
+		name, mediaType  string
+		isSubject, valid bool
+	}{
+		{"valid OCI index", ocispec.MediaTypeImageIndex, false, true},
+		{"Docker manifest list", "application/vnd.docker.distribution.manifest.list.v2+json", false, false},
+		{"Docker subject", "application/vnd.docker.distribution.manifest.list.v2+json", true, false},
+		{"OCI subject", ocispec.MediaTypeImageIndex, true, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := json.Marshal(ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: tt.mediaType, Manifests: []ocispec.Descriptor{child}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldIndex := content.NewDescriptorFromBytes(tt.mediaType, body)
+			subject := ocispec.Descriptor{Digest: digest.FromString("subject")}
+			if tt.isSubject {
+				subject = oldIndex
+			}
+			referrersTag := strings.Replace(subject.Digest.String(), ":", "-", 1)
+			attachment, err := json.Marshal(ocispec.Index{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: ocispec.MediaTypeImageIndex, Subject: &subject, Manifests: []ocispec.Descriptor{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			attachmentDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, attachment)
+			var updates, deletes atomic.Int32
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/attachment":
+					w.Header().Set("Docker-Content-Digest", attachmentDesc.Digest.String())
+					w.WriteHeader(http.StatusCreated)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+					w.Header().Set("Content-Type", tt.mediaType)
+					w.Header().Set("Docker-Content-Digest", oldIndex.Digest.String())
+					w.Write(body)
+				case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+					updated, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Error(err)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					var index ocispec.Index
+					if err := json.Unmarshal(updated, &index); err != nil {
+						t.Error(err)
+					}
+					want := []ocispec.Descriptor{attachmentDesc}
+					if tt.valid {
+						want = append([]ocispec.Descriptor{child}, want...)
+					}
+					if !reflect.DeepEqual(index.Manifests, want) {
+						t.Errorf("published referrers = %v, want %v", index.Manifests, want)
+					}
+					updates.Add(1)
+					w.Header().Set("Docker-Content-Digest", digest.FromBytes(updated).String())
+					w.WriteHeader(http.StatusCreated)
+				case r.Method == http.MethodDelete:
+					deletes.Add(1)
+					if !tt.valid || r.URL.Path != "/v2/test/manifests/"+oldIndex.Digest.String() {
+						t.Errorf("unexpected deletion: %s", r.URL.Path)
+					}
+					w.WriteHeader(http.StatusAccepted)
+				default:
+					t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			repo, err := NewRepository(strings.TrimPrefix(ts.URL, "http://") + "/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo.Registry.PlainHTTP = true
+			repo.SetReferrersCapability(false)
+			if err := repo.PushReference(context.Background(), attachmentDesc, bytes.NewReader(attachment), "attachment"); err != nil {
+				t.Fatal(err)
+			}
+			if updates.Load() != 1 {
+				t.Errorf("index updates = %d, want 1", updates.Load())
+			}
+			wantDeletes := int32(0)
+			if tt.valid {
+				wantDeletes = 1
+			}
+			if deletes.Load() != wantDeletes {
+				t.Errorf("deletions = %d, want %d", deletes.Load(), wantDeletes)
+			}
+		})
 	}
 }
 
@@ -4476,6 +4648,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(emptyIndexJSON)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -4578,6 +4751,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -4648,6 +4822,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -4730,6 +4905,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", indexManifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -4914,6 +5090,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(emptyIndexJSON)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5008,6 +5185,7 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SkipReferrersGC(t *testing.
 			w.Header().Set("Docker-Content-Digest", indexManifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5441,6 +5619,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5519,6 +5698,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5593,6 +5773,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_3)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/manifests/"+indexDesc_3.Digest.String():
 			indexDeleted = true
@@ -5724,6 +5905,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_SkipReferrersGC(t *testin
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -5796,6 +5978,7 @@ func Test_ManifestStore_Delete_ReferrersAPIUnavailable_SkipReferrersGC(t *testin
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
 			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -6877,6 +7060,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_1)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -6947,6 +7131,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", manifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -7030,6 +7215,7 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", indexManifestDesc.Digest.String())
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
 			w.Write(indexJSON_2)
 		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
 			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
@@ -7086,9 +7272,8 @@ func Test_ManifestStore_PushReference_ReferrersAPIUnavailable(t *testing.T) {
 }
 
 func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(t *testing.T) {
-	reference := registry.Reference{
+	reference := properties.Reference{
 		Registry:   "eastern.haan.com",
-		Reference:  "<calculate>",
 		Repository: "from25to220ce",
 	}
 
@@ -7102,7 +7287,13 @@ func Test_ManifestStore_generateDescriptorWithVariousDockerContentDigestHeaders(
 		s := manifestStore{repo: repo}
 
 		for i, method := range []string{http.MethodGet, http.MethodHead} {
-			reference.Reference = dcdIOStruct.clientSuppliedReference
+			reference.Tag = ""
+			reference.Digest = ""
+			if dcdIOStruct.isTag {
+				reference.Tag = dcdIOStruct.clientSuppliedReference
+			} else {
+				reference.Digest = dcdIOStruct.clientSuppliedReference
+			}
 
 			resp := http.Response{
 				Header: http.Header{
@@ -7507,112 +7698,120 @@ func TestRepository_Tags_WithLastParam(t *testing.T) {
 	}
 }
 
+func TestRepository_policyImageReference_LowerCasesHost(t *testing.T) {
+	repo, err := NewRepository("Quay.IO/secure/app")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	got := repo.policyImageReference("")
+	if want := "quay.io/secure/app"; got.Scope != want {
+		t.Errorf("policyImageReference().Scope = %q, want %q", got.Scope, want)
+	}
+}
+
 func TestRepository_ParseReference(t *testing.T) {
 	type args struct {
 		reference string
 	}
 	tests := []struct {
 		name    string
-		repoRef registry.Reference
+		repoRef properties.Reference
 		args    args
-		want    registry.Reference
+		want    properties.Reference
 		wantErr error
 	}{
 		{
 			name: "parse tag",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "foobar",
 			},
-			want: registry.Reference{
+			want: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  "foobar",
+				Tag:        "foobar",
 			},
 			wantErr: nil,
 		},
 		{
 			name: "parse digest",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
-			want: registry.Reference{
+			want: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+				Digest:     "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 			wantErr: nil,
 		},
 		{
 			name: "parse tag@digest",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
-			want: registry.Reference{
+			want: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+				Digest:     "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 			wantErr: nil,
 		},
 		{
 			name: "parse FQDN tag",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "registry.example.com/hello-world:foobar",
 			},
-			want: registry.Reference{
+			want: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  "foobar",
 				Tag:        "foobar",
 			},
 			wantErr: nil,
 		},
 		{
 			name: "parse FQDN digest",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "registry.example.com/hello-world@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
-			want: registry.Reference{
+			want: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 				Digest:     "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 			wantErr: nil,
 		},
 		{
 			name: "parse FQDN tag@digest",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "registry.example.com/hello-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
-			want: registry.Reference{
+			want: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 				Tag:        "foobar",
 				Digest:     "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
@@ -7620,131 +7819,131 @@ func TestRepository_ParseReference(t *testing.T) {
 		},
 		{
 			name: "empty reference",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name: "missing repository",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "myregistry.example.com:hello-world",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name: "missing reference",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "registry.example.com/hello-world",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name: "registry mismatch",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "myregistry.example.com/hello-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name: "repository mismatch",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "registry.example.com/goodbye-world:foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name: "digest posing as a tag",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "registry.example.com:5000/hello-world:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name: "missing reference after the at sign",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
 			},
 			args: args{
 				reference: "registry.example.com/hello-world@",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name: "missing reference after the colon",
-			repoRef: registry.Reference{
+			repoRef: properties.Reference{
 				Registry: "localhost",
 			},
 			args: args{
 				reference: "localhost:5000/hello:",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name:    "zero-size tag, zero-size digest",
-			repoRef: registry.Reference{},
+			repoRef: properties.Reference{},
 			args: args{
 				reference: "localhost:5000/hello:@",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name:    "zero-size tag with valid digest",
-			repoRef: registry.Reference{},
+			repoRef: properties.Reference{},
 			args: args{
 				reference: "localhost:5000/hello:@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
 			name:    "valid tag with zero-size digest",
-			repoRef: registry.Reference{},
+			repoRef: properties.Reference{},
 			args: args{
 				reference: "localhost:5000/hello:foobar@",
 			},
-			want:    registry.Reference{},
+			want:    properties.Reference{},
 			wantErr: errdef.ErrInvalidReference,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			reg := &Registry{
-				Reference: registry.Reference{Registry: tt.repoRef.Registry},
+				Reference: properties.Reference{Registry: tt.repoRef.Registry},
 			}
 			r := &Repository{
 				Registry:       reg,
@@ -8355,37 +8554,37 @@ func TestManifestStore_ParseReference(t *testing.T) {
 	tests := []struct {
 		name      string
 		reference string
-		want      registry.Reference
+		want      properties.Reference
 		wantErr   bool
 	}{
 		{
 			name:      "valid tag",
 			reference: "foobar",
-			want: registry.Reference{
-				Reference: "foobar",
+			want: properties.Reference{
+				Tag: "foobar",
 			},
 			wantErr: false,
 		},
 		{
 			name:      "valid digest",
 			reference: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: registry.Reference{
-				Reference: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			want: properties.Reference{
+				Digest: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 			wantErr: false,
 		},
 		{
 			name:      "valid tag@digest",
 			reference: "foobar@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
-			want: registry.Reference{
-				Reference: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			want: properties.Reference{
+				Digest: "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
 			},
 			wantErr: false,
 		},
 		{
 			name:      "invalid reference",
 			reference: "invalid@reference",
-			want:      registry.Reference{},
+			want:      properties.Reference{},
 			wantErr:   true,
 		},
 	}
@@ -8416,7 +8615,7 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 	tests := []struct {
 		name           string
 		resp           *http.Response
-		ref            registry.Reference
+		ref            properties.Reference
 		httpMethod     string
 		wantDescriptor ocispec.Descriptor
 		wantErr        bool
@@ -8434,10 +8633,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod: http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{
@@ -8460,10 +8659,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},
@@ -8482,10 +8681,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},
@@ -8504,10 +8703,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},
@@ -8526,10 +8725,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 				},
 				Body: io.NopCloser(bytes.NewReader(data)),
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod: http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{
@@ -8552,10 +8751,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 				},
 				Body: &badReader{},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  dataDigest.String(),
+				Digest:     dataDigest.String(),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},
@@ -8574,10 +8773,10 @@ func TestManifestStore_generateDescriptor(t *testing.T) {
 					URL:    &url.URL{Path: "/test"},
 				},
 			},
-			ref: registry.Reference{
+			ref: properties.Reference{
 				Registry:   "registry.example.com",
 				Repository: "hello-world",
-				Reference:  string(digest.FromBytes([]byte("whatever"))),
+				Digest:     string(digest.FromBytes([]byte("whatever"))),
 			},
 			httpMethod:     http.MethodGet,
 			wantDescriptor: ocispec.Descriptor{},

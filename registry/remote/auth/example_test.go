@@ -201,8 +201,8 @@ func ExampleClient_Do_clientConfigurations() {
 		"repository:dst:pull,push",
 		"repository:src:pull",
 	}
-	// WithScopes returns a context with scopes added.
-	ctx := WithScopes(context.Background(), scopes...)
+	// WithScopesForHost returns a context with scopes added for a registry host.
+	ctx := WithScopesForHost(context.Background(), expectedHostAddress, scopes...)
 
 	// clientConfigTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigTargetURL, nil)

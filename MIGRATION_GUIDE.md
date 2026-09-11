@@ -32,7 +32,7 @@ an application is migrated package by package.
 ### Registry and repository configuration
 
 In v2, `remote.Repository` duplicated configuration such as the HTTP client,
-plain-HTTP setting, warning handler, policy, and metadata limit. In v3, a
+plain-HTTP setting, warning handler, and metadata limit. In v3, a
 repository points to its parent `remote.Registry`, which owns those shared
 settings. Per-repository overrides such as media types and tag/referrer page
 sizes remain on `remote.Repository`.
@@ -44,7 +44,15 @@ sizes remain on `remote.Repository`.
 | `repo.MaxMetadataBytes` | `repo.Registry.MaxMetadataBytes` |
 | `repo.HandleWarning` | `repo.Registry.HandleWarning` |
 | `repo.Reference` | `repo.Reference()` |
+| `repo.Reference.Repository` | `repo.RepositoryName` |
+| `repo.Reference.Registry` | `repo.Registry.Reference.Registry` |
 | `remote.Registry.RepositoryOptions` | fields directly on `remote.Registry` |
+
+Note that `Reference()` is a read-only getter; the reference can no longer be
+set through it. The v2 struct-literal pattern
+`&remote.Repository{Reference: ref, Client: c}` does not compile in v3;
+construct the repository with `remote.NewRepository`, then configure its
+shared client through `repo.Registry.Client`, as shown below.
 
 For example:
 
@@ -72,6 +80,15 @@ repo.Registry.PlainHTTP = true
 ref := repo.Reference()
 ```
 
+`repo.Reference` → `repo.Reference()` is not a pure rename. In v2 the field
+held the full parsed reference, including any tag or digest passed to
+`remote.NewRepository`; in v3 a `remote.Repository` identifies a repository
+only, so `Reference()` returns just the registry and repository name, and
+`remote.NewRepository` rejects a reference carrying a tag or digest with an
+error wrapping `errdef.ErrInvalidReference`. Parse such input with
+`properties.NewReference` and keep the tag or digest for the operation that
+needs it.
+
 `remote.NewRegistryWithProperties` and
 `remote.NewRepositoryWithProperties` are the preferred constructors when
 configuration comes from `registries.conf`, Docker configuration, certificates,
@@ -93,6 +110,19 @@ function type explicit.
 | `auth.Client.Credential` | `auth.Client.CredentialFunc` |
 | `credentials.Credential(store)` | `remote.NewCredentialFunc(store)` |
 | `credentials.Login` / `credentials.Logout` | `remote.Login` / `remote.Logout` |
+| `credentials.ServerAddressFromHostname` | `remote.ServerAddressFromHostname` |
+| `credentials.ServerAddressFromRegistry` | `remote.ServerAddressFromRegistry` |
+| `credentials.ErrClientTypeUnsupported` | `remote.ErrClientTypeUnsupported` |
+| `auth.WithScopes(ctx, scopes...)` | `auth.WithScopesForHost(ctx, host, scopes...)` |
+| `auth.AppendScopes(ctx, scopes...)` | `auth.AppendScopesForHost(ctx, host, scopes...)` |
+| `auth.GetScopes(ctx)` | `auth.GetScopesForHost(ctx, host)` |
+| `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForHost(ctx, host)` |
+| `auth.AppendRepositoryScope(ctx, registry.Reference, actions...)` | `auth.AppendRepositoryScope(ctx, properties.Reference, actions...)` |
+
+Scope hints are host-specific in v3. Pass the host of the registry request,
+normally from `properties.Reference.Host()`, to the replacement functions. The
+host must match the request host; for example, a `docker.io` reference resolves
+to `registry-1.docker.io`.
 
 For example:
 
@@ -139,9 +169,7 @@ store, err := credentials.NewStore(path, credentials.StoreOptions{
 
 When a native store is detected, v3 uses it for the current `DynamicStore` but
 does not write the detected `credsStore` value back to the Docker configuration
-file. Accordingly, `SetCredentialsStore` and `Save` were removed from
-`credentials.ConfigFile`. Custom implementations of that interface no longer
-need to provide those two methods.
+file.
 
 ### Bearer token flow
 
@@ -168,8 +196,8 @@ When using `remote.ClientBuilder`, the same choice can be made through
 `registry.Reference` now records a tag and digest separately. This preserves
 both parts of a reference such as `repository:tag@digest` instead of dropping
 the tag. Its `Digest()` method was renamed to `GetDigest()` because `Digest` is
-now a field, and `GetReference()` returns the digest when present or the tag
-otherwise.
+now a field. For references produced by the parsers, `GetReference()` returns
+the digest when present or the tag otherwise.
 
 The legacy `registry.Reference` type and `registry.ParseReference` function are
 deprecated in v3. New code should use
@@ -184,6 +212,19 @@ fmt.Println(ref.Registry, ref.Repository, ref.Tag)
 ```
 
 The parsers also accept `oci://`, `http://`, and `https://` prefixes.
+
+The exported reference surfaces in `registry/remote` use the properties type:
+
+| Deprecated type | Replacement |
+| --- | --- |
+| `remote.Registry.Reference registry.Reference` | `remote.Registry.Reference properties.Reference` |
+| `remote.Repository.Reference() registry.Reference` | `remote.Repository.Reference() properties.Reference` |
+| `remote.Repository.ParseReference(string) (registry.Reference, error)` | `remote.Repository.ParseReference(string) (properties.Reference, error)` |
+
+Custom targets that expose a `ParseReference` method should update its return
+type to `properties.Reference`. ORAS temporarily recognizes the legacy method
+signature when adding authentication scope hints, so existing implementations
+retain that behavior during migration.
 
 ### Repository interfaces, predecessors, and untagging
 
@@ -213,7 +254,9 @@ the reference must be a tag.
 `remote.Repository.SetReferrersCapability` no longer returns an error. The
 first value wins and later conflicting calls are ignored. Code that inspected
 `remote.ErrReferrersCapabilityAlreadySet` should set the value and then read
-back the effective state:
+back the effective state with the new `ReferrersCapability()` getter, which
+returns a `properties.ReferrersAPI` (`ReferrersAPISupported`,
+`ReferrersAPIUnsupported`, or `ReferrersAPIUnknown`) rather than a `bool`:
 
 ```go
 repo.SetReferrersCapability(true)
@@ -231,6 +274,9 @@ changes:
   package now loads configuration directly.
 - Remove uses of `credentials.ConfigFileLoader` and
   `credentials.ErrNoConfigLoader`; neither has a replacement.
+- Remove the `SetCredentialsStore` and `Save` methods from custom
+  implementations of `credentials.ConfigFile` (an interface introduced during
+  v3 development); both were dropped from the interface.
 - Remove the `force-basic-auth` key from `registries.conf` and uses of
   `properties.Attributes.ForceBasicAuth`. The option was never consumed. The
   registry's `WWW-Authenticate` challenge selects the authentication scheme;
@@ -238,6 +284,10 @@ changes:
 
 ## Observable behavior changes
 
+- `remote.NewRepository` returns an error wrapping `errdef.ErrInvalidReference`
+  when the reference contains a tag or digest (e.g.
+  `localhost:5000/example:v1`). In v2 such a reference was accepted and the
+  tag or digest was kept on `repo.Reference`.
 - `oras.CopyError` includes a `Descriptor` when a copy operation had already
   selected content. Its error string includes the digest in those cases. Use
   `errors.As` and the structured fields rather than comparing error strings.
@@ -266,6 +316,9 @@ changes:
   signatures with `registries.d` lookaside storage.
 - **Content caching:** `content/cache.CacheReadOnlyTarget` wraps a read-only
   target with a content store. `content/cache.NewFromEnv` uses `ORAS_CACHE`.
+- **Hierarchical credential matching:** `credentials.StoreOptions.Hierarchical`
+  enables longest-prefix namespace matching when reading credentials from the
+  plaintext config file, as used by containers `auth.json` (Podman/Buildah).
 - **HTTP diagnostics:** `remote.NewLoggingTransport` adds `slog`-based debug
   logging with sensitive-header redaction and bounded response bodies.
 - **Tag deletion:** `remote.Repository.Untag` deletes a tag without deleting

@@ -261,6 +261,13 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 			return newCopyError("FindSuccessors", CopyErrorOriginSource, desc, err)
 		}
 		successors = removeForeignLayers(successors)
+		for _, successor := range successors {
+			if err := validateSuccessor(successor); err != nil {
+				return newCopyError("FindSuccessors", CopyErrorOriginSource, desc,
+					fmt.Errorf("invalid successor descriptor: successor media type: %s; successor size: %d; successor digest: %s: %w",
+						successor.MediaType, successor.Size, successor.Digest, err))
+			}
+		}
 
 		if len(successors) != 0 {
 			// for non-leaf nodes, process successors and wait for them to complete
@@ -322,6 +329,24 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 	}
 
 	return syncutil.Go(ctx, limiter, fn, root)
+}
+
+// validateSuccessor checks the descriptor fields needed to safely traverse to
+// the next node in a content graph.
+func validateSuccessor(desc ocispec.Descriptor) error {
+	if err := desc.Digest.Validate(); err != nil {
+		return fmt.Errorf("invalid digest: %v: %w", err, errdef.ErrInvalidDigest)
+	}
+	if desc.Size < 0 {
+		return fmt.Errorf("invalid size %d", desc.Size)
+	}
+	// A zero-byte blob is valid, but content described as a manifest must
+	// contain a document. A zero size here typically means the required size
+	// field was omitted when the manifest descriptor was decoded.
+	if desc.Size == 0 && descriptor.IsManifest(desc) {
+		return errors.New("manifest size must be greater than zero")
+	}
+	return nil
 }
 
 // isMissingReferencedContentError reports whether err indicates that a
