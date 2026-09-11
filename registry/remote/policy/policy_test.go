@@ -1113,3 +1113,204 @@ func TestPolicy_FluentAPI_SaveAndLoad(t *testing.T) {
 		t.Error("loaded policy docker transport not correct")
 	}
 }
+
+func TestPolicy_GetRequirementsForImage_TaggedAndDigestedScopes(t *testing.T) {
+	const dgst = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	tests := []struct {
+		name      string
+		policy    *Policy
+		transport TransportName
+		scope     string
+		wantType  string
+	}{
+		{
+			name: "tagged scope matches the same tag",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox:v1": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v1",
+			wantType:  TypeReject,
+		},
+		{
+			name: "tagged scope does not match another tag",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox:v1": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v2",
+			wantType:  TypeInsecureAcceptAnything,
+		},
+		{
+			name: "digested scope matches the same digest",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox@" + dgst: PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox@" + dgst,
+			wantType:  TypeReject,
+		},
+		{
+			name: "repository entry still applies to a tagged image",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v1",
+			wantType:  TypeReject,
+		},
+		{
+			name: "namespace entry still applies to a tagged image",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v1",
+			wantType:  TypeReject,
+		},
+		{
+			name: "tagged entry wins over the repository entry",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"docker.io/library/busybox":    PolicyRequirements{&InsecureAcceptAnything{}},
+						"docker.io/library/busybox:v1": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "docker.io/library/busybox:v1",
+			wantType:  TypeReject,
+		},
+		{
+			name: "registry port is not mistaken for a tag",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"localhost:5000/busybox": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "localhost:5000/busybox",
+			wantType:  TypeReject,
+		},
+		{
+			name: "registry port with a tag falls back to the repository entry",
+			policy: &Policy{
+				Default: PolicyRequirements{&InsecureAcceptAnything{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"localhost:5000/busybox": PolicyRequirements{&Reject{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "localhost:5000/busybox:v1",
+			wantType:  TypeReject,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqs := tt.policy.GetRequirementsForImage(tt.transport, tt.scope)
+			if len(reqs) != 1 {
+				t.Fatalf("GetRequirementsForImage() returned %d requirements, want 1", len(reqs))
+			}
+			if got := reqs[0].Type(); got != tt.wantType {
+				t.Errorf("GetRequirementsForImage() = %v, want %v", got, tt.wantType)
+			}
+		})
+	}
+}
+
+// Regressions found in review of the tag/digest scope change.
+func TestGetRequirementsForImageScopeEdgeCases(t *testing.T) {
+	reject := PolicyRequirements{&Reject{}}
+	accept := PolicyRequirements{&InsecureAcceptAnything{}}
+
+	t.Run("registry port is not mistaken for a tag", func(t *testing.T) {
+		p := &Policy{
+			Default:    reject,
+			Transports: map[TransportName]TransportScopes{TransportNameDocker: {"example.com": accept}},
+		}
+		// "example.com:5000" is a different registry from "example.com".
+		got := p.GetRequirementsForImage(TransportNameDocker, "example.com:5000")
+		if len(got) != 1 {
+			t.Fatalf("got %d requirements, want 1", len(got))
+		}
+		if got[0].Type() != TypeReject {
+			t.Errorf("host:port scope matched the bare host, got %s, want %s", got[0].Type(), TypeReject)
+		}
+	})
+
+	t.Run("tag and digest together fall back to the repository", func(t *testing.T) {
+		p := &Policy{
+			Default:    reject,
+			Transports: map[TransportName]TransportScopes{TransportNameDocker: {"example.com/repo": accept}},
+		}
+		got := p.GetRequirementsForImage(TransportNameDocker, "example.com/repo:tag@sha256:0000000000000000000000000000000000000000000000000000000000000000")
+		if len(got) != 1 {
+			t.Fatalf("got %d requirements, want 1", len(got))
+		}
+		if got[0].Type() != TypeInsecureAcceptAnything {
+			t.Errorf("repo:tag@digest did not fall back to the repository entry, got %s", got[0].Type())
+		}
+	})
+
+	t.Run("oci path with an @ is not trimmed", func(t *testing.T) {
+		p := &Policy{
+			Default:    reject,
+			Transports: map[TransportName]TransportScopes{"oci": {"/mnt/data": accept}},
+		}
+		// The "@" is not in the last path component, so it is not a digest.
+		got := p.GetRequirementsForImage("oci", "/mnt/data@2024/img")
+		if len(got) != 1 {
+			t.Fatalf("got %d requirements, want 1", len(got))
+		}
+		if got[0].Type() != TypeReject {
+			t.Errorf("oci path @ matched an unrelated entry, got %s, want %s", got[0].Type(), TypeReject)
+		}
+	})
+
+	t.Run("non-docker transport still falls back from a tag", func(t *testing.T) {
+		p := &Policy{
+			Default:    accept,
+			Transports: map[TransportName]TransportScopes{"oci": {"/tmp/img": reject}},
+		}
+		got := p.GetRequirementsForImage("oci", "/tmp/img:latest")
+		if len(got) != 1 {
+			t.Fatalf("got %d requirements, want 1", len(got))
+		}
+		if got[0].Type() != TypeReject {
+			t.Errorf("oci tagged scope bypassed its reject entry, got %s, want %s", got[0].Type(), TypeReject)
+		}
+	})
+}

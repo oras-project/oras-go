@@ -508,7 +508,7 @@ func (r *Repository) checkManifestPolicy(ctx context.Context, reference string, 
 // checkDescriptorPolicy evaluates signature requirements only for manifests.
 func (r *Repository) checkDescriptorPolicy(ctx context.Context, desc ocispec.Descriptor) error {
 	if isManifest(r.manifestMediaTypes(), desc) {
-		return r.checkManifestPolicy(ctx, "", desc)
+		return r.checkManifestPolicy(ctx, desc.Digest.String(), desc)
 	}
 	return r.checkPolicy(ctx, "")
 }
@@ -1002,7 +1002,7 @@ func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Desc
 	if err != nil {
 		return err
 	}
-	_, referrers, err := r.referrersFromIndex(ctx, referrersTag)
+	_, referrers, err := r.referrersFromIndex(ctx, referrersTag, desc)
 	if err != nil {
 		if errors.Is(err, errdef.ErrNotFound) {
 			// no referrers to the manifest
@@ -1021,12 +1021,18 @@ func (r *Repository) referrersByTagSchema(ctx context.Context, desc ocispec.Desc
 // referrersFromIndex queries the referrers index using the the given referrers
 // tag. If Succeeded, returns the descriptor of referrers index and the
 // referrers list.
-func (r *Repository) referrersFromIndex(ctx context.Context, referrersTag string) (ocispec.Descriptor, []ocispec.Descriptor, error) {
+func (r *Repository) referrersFromIndex(ctx context.Context, referrersTag string, subject ocispec.Descriptor) (ocispec.Descriptor, []ocispec.Descriptor, error) {
 	desc, rc, err := r.FetchReference(ctx, referrersTag)
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 	defer rc.Close()
+
+	// Some registries resolve the fallback tag to the subject itself. Its
+	// children are not referrers, and the tag schema requires an OCI index.
+	if desc.MediaType != ocispec.MediaTypeImageIndex || desc.Digest == subject.Digest {
+		return ocispec.Descriptor{}, nil, fmt.Errorf("invalid referrers index from referrers tag %s: %w", referrersTag, errdef.ErrNotFound)
+	}
 
 	if err := limitSize(desc, r.maxMetadataBytes()); err != nil {
 		return ocispec.Descriptor{}, nil, fmt.Errorf("failed to read referrers index from referrers tag %s: %w", referrersTag, err)
@@ -2003,7 +2009,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 	var oldReferrers []ocispec.Descriptor
 	prepare := func() error {
 		// 1. pull the original referrers list using the referrers tag schema
-		indexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag)
+		indexDesc, referrers, err := s.repo.referrersFromIndex(ctx, referrersTag, subject)
 		if err != nil {
 			if errors.Is(err, errdef.ErrNotFound) {
 				// valid case: no old referrers index

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/internal/ioutil"
 )
 
 // tarDirectory walks the directory specified by path, and tar those files with a new
@@ -104,7 +105,7 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, modTime
 				}
 			}()
 
-			if _, err := io.CopyBuffer(tw, fp, buf); err != nil {
+			if _, err := ioutil.CopyWithBuffer(tw, fp, buf); err != nil {
 				return fmt.Errorf("failed to copy to %s: %w", path, err)
 			}
 		}
@@ -362,6 +363,6 @@ func writeFile(path string, r io.Reader, perm os.FileMode, buf []byte) (err erro
 		}
 	}()
 
-	_, err = io.CopyBuffer(file, r, buf)
+	_, err = ioutil.CopyWithBuffer(file, r, buf)
 	return err
 }
