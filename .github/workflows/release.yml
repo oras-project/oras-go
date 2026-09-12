@@ -21,7 +21,10 @@ on:
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'release/') && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'release') &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,12 +44,17 @@ jobs:
           go-version-file: go.mod
           check-latest: true
 
-      - name: Extract version from branch name
+      - name: Extract version from PR title
         id: version
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
         run: |
-          BRANCH="${{ github.head_ref }}"
-          VERSION="${BRANCH#release/}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [[ ! "$TITLE" =~ ^release:[[:space:]]+(v[^[:space:]]+)[[:space:]]*$ ]]; then
+            echo "Error: PR is labelled 'release' but its title is not 'release: vX.Y.Z'"
+            echo "Title was: $TITLE"
+            exit 1
+          fi
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
 
       - name: Validate semantic version
         run: |
