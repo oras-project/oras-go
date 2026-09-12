@@ -3,11 +3,19 @@
   "pull_request": {
     "merged": true,
     "number": 999,
-    "title": "chore: prepare release v2.7.0",
+    "title": "release: v2.7.0",
     "body": "## New Features\n\n* Test feature\n\n## Bug Fixes\n\n* Test fix",
+    "labels": [
+      {
+        "name": "release"
+      }
+    ],
     "head": {
-      "ref": "release/v2.7.0",
-      "sha": "abc123def456"
+      "ref": "chore/release-v2.7.0",
+      "sha": "abc123def456",
+      "repo": {
+        "full_name": "oras-project/oras-go"
+      }
     },
     "base": {
       "ref": "v2"
