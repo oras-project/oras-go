@@ -27,7 +27,12 @@ import (
 
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
+
+func testRegistryResource(registry string) properties.Resource {
+	return properties.Resource{Registry: registry}
+}
 
 var testUsername = "username"
 var testPassword = "password"
@@ -207,7 +212,7 @@ func Test_mapHostname(t *testing.T) {
 
 func TestNewCredentialFunc_NilStore(t *testing.T) {
 	fn := NewCredentialFunc(nil)
-	got, err := fn(context.Background(), "localhost:5000")
+	got, err := fn(context.Background(), testRegistryResource("localhost:5000"))
 	if err != nil {
 		t.Fatalf("NewCredentialFunc(nil) returned error: %v", err)
 	}
@@ -254,7 +259,7 @@ func TestCredential(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := testClient.CredentialFunc(context.Background(), tt.registry)
+			got, err := testClient.CredentialFunc(context.Background(), testRegistryResource(tt.registry))
 			if err != nil {
 				t.Errorf("could not get credential: %v", err)
 			}

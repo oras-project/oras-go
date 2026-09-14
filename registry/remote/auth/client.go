@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
 )
 
@@ -191,11 +192,11 @@ func canonicalHost(u *url.URL) string {
 }
 
 // credential resolves the credential for the given registry.
-func (c *Client) credential(ctx context.Context, reg string) (credentials.Credential, error) {
+func (c *Client) credential(ctx context.Context, resource properties.Resource) (credentials.Credential, error) {
 	if c.CredentialFunc == nil {
 		return credentials.EmptyCredential, nil
 	}
-	return c.CredentialFunc(ctx, reg)
+	return c.CredentialFunc(ctx, resource)
 }
 
 // cache resolves the cache.
@@ -275,7 +276,8 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	// attempt cached auth token
 	var attemptedKey string
 	cache := c.cache()
-	host := requestResource(originalReq).Registry
+	resource := requestResource(originalReq)
+	host := resource.Registry
 	scheme, err := cache.GetScheme(ctx, host)
 	if err == nil {
 		switch scheme {
@@ -317,7 +319,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		resp.Body.Close()
 
 		token, err := cache.Set(ctx, host, SchemeBasic, "", func(ctx context.Context) (string, error) {
-			return c.fetchBasicAuth(ctx, host)
+			return c.fetchBasicAuth(ctx, resource)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
@@ -363,7 +365,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		}
 		service := params["service"]
 		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			return c.fetchBearerToken(ctx, host, realm, service, scopes)
+			return c.fetchBearerToken(ctx, resource, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
@@ -382,8 +384,8 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 }
 
 // fetchBasicAuth fetches a basic auth token for the basic challenge.
-func (c *Client) fetchBasicAuth(ctx context.Context, registry string) (string, error) {
-	cred, err := c.credential(ctx, registry)
+func (c *Client) fetchBasicAuth(ctx context.Context, resource properties.Resource) (string, error) {
+	cred, err := c.credential(ctx, resource)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve credential: %w", err)
 	}
@@ -402,8 +404,8 @@ func (c *Client) fetchBasicAuth(ctx context.Context, registry string) (string, e
 // The acquisition strategy is delegated to TokenFetcher. When none is
 // configured, a CompositeTokenFetcher is used: anonymous access goes through
 // the distribution spec token endpoint and credentialed access uses OAuth2.
-func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service string, scopes []string) (string, error) {
-	cred, err := c.credential(ctx, registry)
+func (c *Client) fetchBearerToken(ctx context.Context, resource properties.Resource, realm, service string, scopes []string) (string, error) {
+	cred, err := c.credential(ctx, resource)
 	if err != nil {
 		return "", err
 	}
@@ -413,7 +415,8 @@ func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service 
 		fetcher = NewCompositeTokenFetcher(c.Client, c.Header, c.ClientID, false)
 	}
 	params := TokenParams{
-		Registry: registry,
+		Resource: resource,
+		Registry: resource.Registry,
 		Realm:    realm,
 		Service:  service,
 		Scopes:   scopes,

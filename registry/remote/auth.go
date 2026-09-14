@@ -19,9 +19,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // ErrClientTypeUnsupported is thrown by Login() when the registry's client type
@@ -74,16 +76,19 @@ func Logout(ctx context.Context, store credentials.Store, registryName string) e
 // EmptyCredential without error.
 func NewCredentialFunc(store credentials.Store) credentials.CredentialFunc {
 	if store == nil {
-		return func(context.Context, string) (credentials.Credential, error) {
+		return func(context.Context, properties.Resource) (credentials.Credential, error) {
 			return credentials.EmptyCredential, nil
 		}
 	}
-	return func(ctx context.Context, hostport string) (credentials.Credential, error) {
-		hostport = ServerAddressFromHostname(hostport)
-		if hostport == "" {
+	return func(ctx context.Context, res properties.Resource) (credentials.Credential, error) {
+		lookup := ServerAddressFromHostname(res.Host())
+		if lookup == "" {
 			return credentials.EmptyCredential, nil
 		}
-		return store.Get(ctx, hostport)
+		if res.Path != "" {
+			lookup = strings.TrimSuffix(lookup, "/") + "/" + res.Path
+		}
+		return store.Get(ctx, lookup)
 	}
 }
 
