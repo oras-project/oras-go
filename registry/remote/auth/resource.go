@@ -38,6 +38,9 @@ var endpointSeparators = []string{
 // requestResource derives the registry resource addressed by req.
 // A URL that does not address a repository yields the whole registry.
 func requestResource(req *http.Request) properties.Resource {
+	if req.URL == nil {
+		return properties.Resource{Registry: req.Host}
+	}
 	host := req.Host
 	if host == "" {
 		host = req.URL.Host
