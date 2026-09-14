@@ -18,12 +18,62 @@ limitations under the License.
 package oci
 
 import (
+	"context"
+	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
+
+func TestStore_GC_UnremovableLeftover(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can remove files from a read-only directory")
+	}
+	dir := t.TempDir()
+	s := storeWithTaggedManifest(t, dir)
+	ingestRoot := s.storage.ingestRoot
+	if err := os.MkdirAll(ingestRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	held := filepath.Join(ingestRoot, "leftover")
+	metadata := filepath.Join(dir, ocispec.ImageIndexFile+"_"+rand.Text())
+	for _, path := range []string{held, metadata} {
+		if err := os.WriteFile(path, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-2 * leftoverExpiry)
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(ingestRoot, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(ingestRoot, 0700); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := os.Remove(held); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("expected removal permission failure, got %v", err)
+	}
+	if err := s.GC(context.Background()); err != nil {
+		t.Fatal("Store.GC() error =", err)
+	}
+	if _, err := os.Stat(held); err != nil {
+		t.Fatal("unremovable leftover was not retained:", err)
+	}
+	if _, err := os.Stat(metadata); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("metadata cleanup did not continue: %v", err)
+	}
+	if _, err := s.Resolve(context.Background(), "latest"); err != nil {
+		t.Fatal("GC lost the tagged manifest:", err)
+	}
+}
 
 // TestStore_MetadataFilePermission ensures that writing the metadata files
 // through a temporary file does not change the permission that os.WriteFile
@@ -118,7 +168,7 @@ func TestStore_MetadataFilePermission_Unwritable(t *testing.T) {
 				t.Fatal("error calling Chmod(), error =", err)
 			}
 
-			if err := writeFileAtomic(path, []byte(`{"replaced":true}`)); err != nil {
+			if err := writeFileAtomic(path, []byte(`{"replaced":true}`), false); err != nil {
 				t.Fatal("writeFileAtomic() error =", err)
 			}
 

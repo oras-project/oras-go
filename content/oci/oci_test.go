@@ -3048,7 +3048,7 @@ func TestStore_BadDigest(t *testing.T) {
 
 // storeWithTaggedManifest pushes a manifest and its config to a new store in
 // dir and tags it, so that the index of the store has content to lose.
-func storeWithTaggedManifest(t *testing.T, dir string) *Store {
+func storeWithTaggedManifest(t testing.TB, dir string) *Store {
 	t.Helper()
 
 	s, err := New(dir)
@@ -3158,7 +3158,7 @@ func TestStore_SaveIndex_WriteFailure(t *testing.T) {
 
 func Test_writeFileAtomic_CreateTempFileError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing", ocispec.ImageIndexFile)
-	if err := writeFileAtomic(path, []byte("{}")); err == nil {
+	if err := writeFileAtomic(path, []byte("{}"), false); err == nil {
 		t.Error("writeFileAtomic() error = nil, wantErr = true")
 	}
 }
@@ -3172,10 +3172,201 @@ func Test_writeFileAtomic_RenameError(t *testing.T) {
 		t.Fatal("error calling Mkdir(), error =", err)
 	}
 
-	if err := writeFileAtomic(path, []byte("{}")); err == nil {
+	if err := writeFileAtomic(path, []byte("{}"), false); err == nil {
 		t.Error("writeFileAtomic() error = nil, wantErr = true")
 	}
 	assertNoTempFiles(t, tempDir)
+}
+
+func TestStore_SyncIndex(t *testing.T) {
+	wantErr := errors.New("sync error")
+	original := fileSync
+	calls := 0
+	fileSync = func(*os.File) error {
+		calls++
+		return wantErr
+	}
+	t.Cleanup(func() {
+		fileSync = original
+	})
+
+	dir := t.TempDir()
+	s := storeWithTaggedManifest(t, dir)
+	if s.SyncIndex {
+		t.Fatal("SyncIndex = true, want false")
+	}
+	if err := s.SaveIndex(); err != nil {
+		t.Fatal("Store.SaveIndex() error =", err)
+	}
+	if calls != 0 {
+		t.Fatalf("default synchronization calls = %d, want 0", calls)
+	}
+	want, err := os.ReadFile(s.indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc, err := s.Resolve(context.Background(), "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s.SyncIndex = true
+	if err := s.Tag(context.Background(), desc, "another"); !errors.Is(err, wantErr) {
+		t.Fatalf("Store.Tag() error = %v, want %v", err, wantErr)
+	}
+	if err := s.SaveIndex(); !errors.Is(err, wantErr) {
+		t.Fatalf("Store.SaveIndex() error = %v, wantErr %v", err, wantErr)
+	}
+	if calls != 2 {
+		t.Fatalf("synchronization calls = %d, want 2", calls)
+	}
+	got, err := os.ReadFile(s.indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("failed synchronization changed the previous index")
+	}
+	assertNoTempFiles(t, dir)
+
+	fileSync = original
+	if err := s.SaveIndex(); err != nil {
+		t.Fatal("Store.SaveIndex() error =", err)
+	}
+	reopened, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.Resolve(context.Background(), "another"); err != nil {
+		t.Fatal("saved tag cannot be resolved:", err)
+	}
+	assertNoTempFiles(t, dir)
+}
+
+func BenchmarkStore_IndexWrites(b *testing.B) {
+	for _, sync := range []bool{false, true} {
+		for _, operation := range []string{"Tag", "SaveIndex"} {
+			b.Run("SyncIndex="+strconv.FormatBool(sync)+"/"+operation, func(b *testing.B) {
+				ctx := context.Background()
+				s := storeWithTaggedManifest(b, b.TempDir())
+				desc, err := s.Resolve(ctx, "latest")
+				if err != nil {
+					b.Fatal(err)
+				}
+				s.AutoSaveIndex = false
+				for i := range 99 {
+					if err := s.Tag(ctx, desc, strconv.Itoa(i)); err != nil {
+						b.Fatal(err)
+					}
+				}
+				if err := s.SaveIndex(); err != nil {
+					b.Fatal(err)
+				}
+				s.AutoSaveIndex = true
+				s.SyncIndex = sync
+				write := s.SaveIndex
+				if operation == "Tag" {
+					write = func() error { return s.Tag(ctx, desc, "latest") }
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					if err := write(); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func Test_writeFileAtomic_PartialWrite(t *testing.T) {
+	for _, sync := range []bool{false, true} {
+		t.Run(strconv.FormatBool(sync), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, ocispec.ImageIndexFile)
+			want := []byte(`{"original":true}`)
+			if err := os.WriteFile(path, want, 0600); err != nil {
+				t.Fatal(err)
+			}
+			wantErr := errors.New("no space left on device")
+			original := fileWrite
+			fileWrite = func(f *os.File, data []byte) (int, error) {
+				n, err := f.Write(data[:len(data)/2])
+				if err != nil {
+					t.Fatal(err)
+				}
+				return n, wantErr
+			}
+			t.Cleanup(func() { fileWrite = original })
+			if err := writeFileAtomic(path, []byte(`{"replacement":true}`), sync); !errors.Is(err, wantErr) {
+				t.Fatalf("writeFileAtomic() error = %v, want %v", err, wantErr)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatal("partial write changed the previous index")
+			}
+			assertNoTempFiles(t, dir)
+		})
+	}
+}
+
+func TestStore_PartialIndexFile(t *testing.T) {
+	dir := t.TempDir()
+	s := storeWithTaggedManifest(t, dir)
+	data, err := os.ReadFile(s.indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := data[:len(data)/2]
+	if err := os.WriteFile(s.indexPath, want, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(dir); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("New() error = %v, want %v", err, io.ErrUnexpectedEOF)
+	}
+	got, err := os.ReadFile(s.indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("partially written index was not preserved for inspection")
+	}
+}
+
+func Test_removeFiles_ContinuesAfterRemoveError(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first")
+	last := filepath.Join(dir, "last")
+	for _, path := range []string{first, last} {
+		if err := os.WriteFile(path, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removeFiles(dir, func(entry fs.DirEntry) bool {
+		if entry.Name() == "first" {
+			// Replace the listed file with a non-empty directory to force a
+			// removal failure on every platform, without permission assumptions.
+			if err := os.Remove(first); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(first, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(first, "keep"), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return true
+	})
+	if _, err := os.Stat(filepath.Join(first, "keep")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(last); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("later leftover was not removed: %v", err)
+	}
 }
 
 func Test_isTempFileOf(t *testing.T) {
@@ -3401,27 +3592,18 @@ func Test_removeFiles(t *testing.T) {
 		return func(entry fs.DirEntry) bool { return entry.Name() == want }
 	}
 
-	// a directory that does not exist holds no leftovers
-	if err := removeFiles(filepath.Join(tempDir, "missing"), all); err != nil {
-		t.Error("removeFiles() error =", err)
-	}
-	// a path that is not a directory cannot be listed
-	if err := removeFiles(notADir, all); err == nil {
-		t.Error("removeFiles() error = nil, wantErr = true")
-	}
+	// paths that cannot be listed are ignored
+	removeFiles(filepath.Join(tempDir, "missing"), all)
+	removeFiles(notADir, all)
 	// directories and unmatched files are left alone
-	if err := removeFiles(tempDir, named("dir")); err != nil {
-		t.Fatal("removeFiles() error =", err)
-	}
+	removeFiles(tempDir, named("dir"))
 	for _, path := range []string{notADir, subDir} {
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("error calling Stat() on %s, error = %v", path, err)
 		}
 	}
 	// matched files are removed
-	if err := removeFiles(tempDir, named("file")); err != nil {
-		t.Fatal("removeFiles() error =", err)
-	}
+	removeFiles(tempDir, named("file"))
 	if _, err := os.Stat(notADir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Stat() error = %v, want %v", err, os.ErrNotExist)
 	}

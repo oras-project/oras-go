@@ -55,7 +55,9 @@ type Store struct {
 	//      1. pushing a manifest
 	//      2. calling Tag() or Delete()
 	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
-	//     to manually call SaveIndex() when needed.
+	//     to manually call SaveIndex() when needed. Callers doing bulk work can
+	//     avoid rewriting the index after every operation by saving it once
+	//     after the work is complete.
 	//   - Default value: true.
 	AutoSaveIndex bool
 
@@ -65,6 +67,18 @@ type Store struct {
 	// Tagged manifests will not be deleted.
 	//   - Default value: true.
 	AutoGC bool
+
+	// SyncIndex controls whether writes to `index.json` are synchronized to
+	// stable storage before replacing the previous index. The containing
+	// directory is then synchronized on a best-effort basis; this is not
+	// supported on Windows. Synchronization can significantly increase latency.
+	// This applies to both automatic saves and SaveIndex, but does not flush
+	// blobs or metadata already written by New. Set it before using the store
+	// concurrently. Temporary-file replacement is used regardless of this value;
+	// without synchronization, delayed write failures and crash recovery are
+	// subject to the file system's writeback behavior.
+	//   - Default value: false.
+	SyncIndex bool
 
 	root        string
 	indexPath   string
@@ -84,8 +98,8 @@ type Store struct {
 
 // New creates a new OCI store with context.Background().
 //
-// If `index.json` is present but empty, which is what a write interrupted by a
-// full file system leaves behind, it is reinitialized rather than reported as
+// If `index.json` is present but empty, which a write interrupted by a
+// full file system can leave behind, it is reinitialized rather than reported as
 // an error. The blobs of the store are kept, but the tags recorded in the lost
 // index are not recoverable, and the blobs they referenced become unreferenced
 // and are removed by the next call to GC.
@@ -414,7 +428,7 @@ func writeOCILayoutFile(layoutFilePath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal OCI layout file: %w", err)
 	}
-	return writeFileAtomic(layoutFilePath, layoutJSON)
+	return writeFileAtomic(layoutFilePath, layoutJSON, false)
 }
 
 // isEmptyFile reports whether the open file is zero-length.
@@ -482,7 +496,9 @@ func (s *Store) resetIndexFile() error {
 //     the OCI store will automatically save the changes to `index.json`
 //     on Tag() and Delete() calls, and when pushing a manifest.
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
-//     to manually call this method when needed.
+//     to manually call this method when needed. Callers doing bulk work can
+//     avoid rewriting the index after every operation by saving it once after
+//     the work is complete.
 func (s *Store) SaveIndex() error {
 	s.sync.RLock()
 	defer s.sync.RUnlock()
@@ -529,7 +545,7 @@ func (s *Store) writeIndexFile() error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal index file: %w", err)
 	}
-	return writeFileAtomic(s.indexPath, indexJSON)
+	return writeFileAtomic(s.indexPath, indexJSON, s.SyncIndex)
 }
 
 // GC removes garbage from Store. Unsaved index will be lost. To prevent unexpected
@@ -590,10 +606,9 @@ func (s *Store) GC(ctx context.Context) error {
 	}
 
 	// Reclaiming leftovers is opportunistic: the collection above has already
-	// completed, so a temporary file that cannot be removed -- one held open by
-	// another process on Windows, say -- must not turn a successful GC into a
-	// failed one.
-	_ = s.gcLeftovers()
+	// completed, so a temporary file that cannot be removed must not turn a
+	// successful GC into a failed one.
+	s.gcLeftovers()
 	return nil
 }
 
@@ -606,7 +621,7 @@ const leftoverExpiry = time.Hour
 // behind: the ingest files of blob writes that did not complete, and the
 // temporary files of metadata writes that were never renamed into place.
 // Nothing else refers to them, and no other code path removes them.
-func (s *Store) gcLeftovers() error {
+func (s *Store) gcLeftovers() {
 	// A write removes its own temporary file when it fails, so anything still
 	// here is the residue of a process that died mid-write -- or a write that
 	// another Store on the same directory is performing right now, which the
@@ -615,12 +630,10 @@ func (s *Store) gcLeftovers() error {
 	// time of a write in progress keeps advancing.
 	stale := olderThan(leftoverExpiry)
 
-	if err := removeFiles(s.storage.ingestRoot, stale); err != nil {
-		return err
-	}
+	removeFiles(s.storage.ingestRoot, stale)
 	// the temporary files of metadata writes are created next to the file that
 	// they replace, in the root of the store.
-	return removeFiles(s.root, func(entry fs.DirEntry) bool {
+	removeFiles(s.root, func(entry fs.DirEntry) bool {
 		name := entry.Name()
 		if !isTempFileOf(name, ocispec.ImageIndexFile) && !isTempFileOf(name, ocispec.ImageLayoutFile) {
 			return false
@@ -643,27 +656,21 @@ func olderThan(d time.Duration) func(entry fs.DirEntry) bool {
 	}
 }
 
-// removeFiles removes the files in dir that are matched by match. Directories
-// and entries that are not matched are left alone, and a directory that does
-// not exist is not an error.
-func removeFiles(dir string, match func(entry fs.DirEntry) bool) error {
+// removeFiles removes the files in dir that are matched by match. Directories,
+// entries that are not matched, and entries that cannot be removed are left
+// alone.
+func removeFiles(dir string, match func(entry fs.DirEntry) bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return err
+		return
 	}
 
 	for _, entry := range entries {
 		if entry.IsDir() || !match(entry) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
+		_ = os.Remove(filepath.Join(dir, entry.Name()))
 	}
-	return nil
 }
 
 // gcIndex reloads the index and updates metadata. Information of untagged blobs

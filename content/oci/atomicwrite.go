@@ -38,8 +38,12 @@ const tempFileAttempts = 10
 // recognizable to a newer one.
 const tempFileSuffixMinLen = 26
 
-// fileWrite is the function used to write to a file, overridable in tests.
-var fileWrite = (*os.File).Write
+// fileWrite and fileSync are the functions used to write and synchronize a
+// file, overridable in tests.
+var (
+	fileWrite = (*os.File).Write
+	fileSync  = (*os.File).Sync
+)
 
 // createTempFile creates a new temporary file in dir whose name is base joined
 // with a random string, in the same manner as the ingest files created by
@@ -71,10 +75,10 @@ func createTempFile(dir, base string, perm os.FileMode) (*os.File, error) {
 // file empty, or holding only the part of the content that was written before
 // the failure.
 //
-// The content is flushed to stable storage before the file is renamed, so that
-// a write failure cannot make path visible with content that was never
-// written. The containing directory is flushed afterwards, on a best-effort
-// basis, so that the rename is not lost on a crash.
+// If sync is true, the content is flushed to stable storage before the file is
+// renamed, and the containing directory is flushed afterwards on a best-effort
+// basis. Without synchronization, delayed write failures and crash recovery
+// are subject to the file system's writeback behavior.
 //
 // The file is replaced rather than written through, which differs from
 // os.WriteFile in ways that matter only outside the layout of a content store.
@@ -83,7 +87,7 @@ func createTempFile(dir, base string, perm os.FileMode) (*os.File, error) {
 // access control lists and extended attributes of the file, are not carried
 // over; and on Windows the rename fails while any other process holds the file
 // open, where a write in place would have succeeded.
-func writeFileAtomic(path string, data []byte) (writeErr error) {
+func writeFileAtomic(path string, data []byte, sync bool) (writeErr error) {
 	// os.WriteFile applies its permission argument only when it creates the
 	// file, leaving the permission of an existing file unchanged. Reproduce
 	// both behaviors: a file that is being created is created with 0666, so
@@ -126,11 +130,13 @@ func writeFileAtomic(path string, data []byte) (writeErr error) {
 	if _, err := fileWrite(tempFile, data); err != nil {
 		return fmt.Errorf("failed to write temporary file: %w", err)
 	}
-	// flush the content before closing the file. With delayed allocation, a
-	// write can be accepted against space that is never allocated, and the
-	// resulting failure is reported neither by Write nor by Close.
-	if err := tempFile.Sync(); err != nil {
-		return fmt.Errorf("failed to sync temporary file: %w", err)
+	if sync {
+		// flush the content before closing the file. With delayed allocation, a
+		// write can be accepted against space that is never allocated, and the
+		// resulting failure is reported neither by Write nor by Close.
+		if err := fileSync(tempFile); err != nil {
+			return fmt.Errorf("failed to sync temporary file: %w", err)
+		}
 	}
 	if err := tempFile.Close(); err != nil {
 		return fmt.Errorf("failed to close temporary file: %w", err)
@@ -139,10 +145,12 @@ func writeFileAtomic(path string, data []byte) (writeErr error) {
 	if err := os.Rename(tempPath, path); err != nil {
 		return fmt.Errorf("failed to rename temporary file: %w", err)
 	}
-	// The rename has already made the content visible, so the durability of
-	// the directory entry is all that is left to gain here. Reporting a
-	// failure would describe an operation that did take effect.
-	syncDir(dir)
+	if sync {
+		// The rename has already made the content visible, so the durability of
+		// the directory entry is all that is left to gain here. Reporting a
+		// failure would describe an operation that did take effect.
+		syncDir(dir)
+	}
 	return nil
 }
 
