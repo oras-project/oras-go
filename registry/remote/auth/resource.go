@@ -46,7 +46,7 @@ func requestResource(req *http.Request) properties.Resource {
 		host = req.URL.Host
 	}
 	return properties.Resource{
-		Registry: host,
+		Registry: strings.ToLower(host),
 		Path:     repositoryFromPath(req.URL.Path),
 	}
 }
