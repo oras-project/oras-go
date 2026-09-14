@@ -89,6 +89,11 @@ type Store struct {
 // an error. The blobs of the store are kept, but the tags recorded in the lost
 // index are not recoverable, and the blobs they referenced become unreferenced
 // and are removed by the next call to GC.
+//
+// Only a zero-length file is recovered this way. A write interrupted part-way
+// can also leave a short, undecodable `index.json` behind, and that is still
+// reported as an error, since it may be corruption whose surviving tags are
+// worth keeping for inspection rather than discarding.
 func New(root string) (*Store, error) {
 	return NewWithContext(context.Background(), root)
 }
@@ -584,10 +589,11 @@ func (s *Store) GC(ctx context.Context) error {
 		}
 	}
 
-	// clean up the temporary files left behind by interrupted writes
-	if err := s.gcLeftovers(); err != nil {
-		return fmt.Errorf("unable to remove leftover temporary files: %w", err)
-	}
+	// Reclaiming leftovers is opportunistic: the collection above has already
+	// completed, so a temporary file that cannot be removed -- one held open by
+	// another process on Windows, say -- must not turn a successful GC into a
+	// failed one.
+	_ = s.gcLeftovers()
 	return nil
 }
 
