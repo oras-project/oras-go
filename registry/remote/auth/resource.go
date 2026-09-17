@@ -37,18 +37,26 @@ var endpointSeparators = []string{
 
 // requestResource derives the registry resource addressed by req.
 // A URL that does not address a repository yields the whole registry.
+//
+// Registry is the canonical registry name, not the host on the wire: a request
+// dialed at registry-1.docker.io derives docker.io, so that a derived Resource
+// compares equal to ParseResource("docker.io/..."). Callers that dial, or that
+// resolve credentials, must map it back with Host().
 func requestResource(req *http.Request) properties.Resource {
-	if req.URL == nil {
-		return properties.Resource{Registry: req.Host}
-	}
 	host := req.Host
-	if host == "" {
+	if host == "" && req.URL != nil {
 		host = req.URL.Host
 	}
-	return properties.Resource{
-		Registry: strings.ToLower(host),
-		Path:     repositoryFromPath(req.URL.Path),
+	host = strings.ToLower(host)
+	// Store the canonical name; Resource.Host() maps it back for dialing.
+	if host == "registry-1.docker.io" {
+		host = "docker.io"
 	}
+	resource := properties.Resource{Registry: host}
+	if req.URL != nil {
+		resource.Path = repositoryFromPath(req.URL.Path)
+	}
+	return resource
 }
 
 // repositoryFromPath returns the repository named by a distribution API path,
