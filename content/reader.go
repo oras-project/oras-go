@@ -145,7 +145,11 @@ func ReadAll(r io.Reader, desc ocispec.Descriptor) ([]byte, error) {
 	if initialCap > maxInitialBufferSize {
 		initialCap = maxInitialBufferSize
 	}
-	buf := bytes.NewBuffer(make([]byte, 0, initialCap))
+
+	// Add headroom for the final read: Buffer.ReadFrom requires bytes.MinRead of
+	// spare capacity before every read, so a buffer sized exactly to the content
+	// doubles and copies itself on the last iteration just to receive io.EOF.
+	buf := bytes.NewBuffer(make([]byte, 0, initialCap+bytes.MinRead))
 	if _, err := buf.ReadFrom(vr); err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) {
 			return nil, fmt.Errorf("read failed: expected content size of %d, got %d, for digest %s: %w", desc.Size, buf.Len(), desc.Digest.String(), err)
