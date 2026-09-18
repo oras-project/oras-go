@@ -46,6 +46,8 @@ its final form.
 
 ### 3. Get approvals
 
+The table below defines the policy for owner approvals; GitHub branch protection still enforces a single fixed approval count, so it cannot enforce these release-specific tiers.
+
 The number of approvals required from the owners listed in
 [OWNERS.md](OWNERS.md) depends on the kind of release:
 
