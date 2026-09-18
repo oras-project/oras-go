@@ -81,14 +81,31 @@ func NewCredentialFunc(store credentials.Store) credentials.CredentialFunc {
 		}
 	}
 	return func(ctx context.Context, res properties.Resource) (credentials.Credential, error) {
-		lookup := ServerAddressFromHostname(res.Host())
-		if lookup == "" {
+		host := ServerAddressFromHostname(res.Host())
+		if host == "" {
 			return credentials.EmptyCredential, nil
 		}
-		if res.Path != "" {
-			lookup = strings.TrimSuffix(lookup, "/") + "/" + res.Path
+		// ServerAddressFromHostname may map to a sentinel server address
+		// (docker.io), which is a store key rather than a path root.
+		if res.Path != "" && host == res.Host() {
+			// Most-specific to least-specific, so namespaced credentials
+			// resolve over any store, not only the hierarchical file store.
+			for path := res.Path; path != ""; {
+				cred, err := store.Get(ctx, host+"/"+path)
+				if err != nil {
+					return credentials.EmptyCredential, err
+				}
+				if cred != credentials.EmptyCredential {
+					return cred, nil
+				}
+				index := strings.LastIndex(path, "/")
+				if index < 0 {
+					break
+				}
+				path = path[:index]
+			}
 		}
-		return store.Get(ctx, lookup)
+		return store.Get(ctx, host)
 	}
 }
 

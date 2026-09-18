@@ -83,7 +83,7 @@ type Client struct {
 	Header http.Header
 
 	// CredentialFunc specifies the function for resolving the credential for the
-	// given registry (i.e. host:port).
+	// given registry resource.
 	// EmptyCredential is a valid return value and should not be considered as
 	// an error.
 	// If nil, the credential is always resolved to EmptyCredential.
@@ -191,7 +191,7 @@ func canonicalHost(u *url.URL) string {
 	return strings.ToLower(u.Hostname()) + ":" + port
 }
 
-// credential resolves the credential for the given registry.
+// credential resolves the credential for the given registry resource.
 func (c *Client) credential(ctx context.Context, resource properties.Resource) (credentials.Credential, error) {
 	if c.CredentialFunc == nil {
 		return credentials.EmptyCredential, nil
@@ -278,18 +278,22 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	cache := c.cache()
 	resource := requestResource(originalReq)
 	host := resource.Host()
-	scheme, err := cache.GetScheme(ctx, host)
+	// Credentials may be namespaced, so a token fetched for one repository
+	// path must not be replayed for another path on the same host. Scopes
+	// stay host-wide, as they describe the registry, not the credential.
+	cacheKey := resource.String()
+	scheme, err := cache.GetScheme(ctx, cacheKey)
 	if err == nil {
 		switch scheme {
 		case SchemeBasic:
-			token, err := cache.GetToken(ctx, host, SchemeBasic, "")
+			token, err := cache.GetToken(ctx, cacheKey, SchemeBasic, "")
 			if err == nil {
 				req.Header.Set(headerAuthorization, "Basic "+token)
 			}
 		case SchemeBearer:
 			scopes := GetScopesForHost(ctx, host)
 			attemptedKey = strings.Join(scopes, " ")
-			token, err := cache.GetToken(ctx, host, SchemeBearer, attemptedKey)
+			token, err := cache.GetToken(ctx, cacheKey, SchemeBearer, attemptedKey)
 			if err == nil {
 				req.Header.Set(headerAuthorization, "Bearer "+token)
 			}
@@ -318,7 +322,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	case SchemeBasic:
 		resp.Body.Close()
 
-		token, err := cache.Set(ctx, host, SchemeBasic, "", func(ctx context.Context) (string, error) {
+		token, err := cache.Set(ctx, cacheKey, SchemeBasic, "", func(ctx context.Context) (string, error) {
 			return c.fetchBasicAuth(ctx, resource)
 		})
 		if err != nil {
@@ -340,7 +344,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt the cache again if there is a scope change
 		if key != attemptedKey {
-			if token, err := cache.GetToken(ctx, host, SchemeBearer, key); err == nil {
+			if token, err := cache.GetToken(ctx, cacheKey, SchemeBearer, key); err == nil {
 				req = originalReq.Clone(ctx)
 				req.Header.Set(headerAuthorization, "Bearer "+token)
 				if err := rewindRequestBody(req); err != nil {
@@ -364,7 +368,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 		service := params["service"]
-		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
+		token, err := cache.Set(ctx, cacheKey, SchemeBearer, key, func(ctx context.Context) (string, error) {
 			return c.fetchBearerToken(ctx, resource, realm, service, scopes)
 		})
 		if err != nil {
@@ -416,7 +420,6 @@ func (c *Client) fetchBearerToken(ctx context.Context, resource properties.Resou
 	}
 	params := TokenParams{
 		Resource: resource,
-		Registry: resource.Registry,
 		Realm:    realm,
 		Service:  service,
 		Scopes:   scopes,

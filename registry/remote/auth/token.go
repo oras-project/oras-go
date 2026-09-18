@@ -35,9 +35,6 @@ type TokenParams struct {
 	// Resource is the registry resource being accessed, including any namespace
 	// or repository path when available.
 	Resource properties.Resource
-	// Registry is kept as a backwards-compatible alias for the host portion of
-	// the resource. Token fetchers should prefer Resource.
-	Registry string
 	// Realm is the token endpoint URL.
 	Realm string
 	// Service is the service parameter from the WWW-Authenticate header.

@@ -93,13 +93,14 @@ func TestStaticCredential_DockerIORedirect(t *testing.T) {
 		t.Errorf("StaticCredentialFunc() for registry-1.docker.io = %+v, want %+v", cred, expectedCred)
 	}
 
-	// Test that docker.io itself doesn't match (because it gets redirected)
+	// docker.io is the canonical form the client derives from a request, and
+	// Resource.Host() maps it back onto registry-1.docker.io.
 	cred, err = credFunc(ctx, testResource("docker.io"))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
-	if cred != EmptyCredential {
-		t.Errorf("StaticCredentialFunc() for docker.io = %+v, want %+v", cred, EmptyCredential)
+	if cred != expectedCred {
+		t.Errorf("StaticCredentialFunc() for docker.io = %+v, want %+v", cred, expectedCred)
 	}
 }
 

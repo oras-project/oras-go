@@ -29,6 +29,7 @@ type Credential = properties.Credential
 var EmptyCredential Credential
 
 // CredentialFunc represents a function that resolves the credential for the
+// given resource.
 //
 // [EmptyCredential] is a valid return value and should not be considered as
 // an error.
@@ -43,7 +44,7 @@ func StaticCredentialFunc(registry string, cred Credential) CredentialFunc {
 		registry = "registry-1.docker.io"
 	}
 	return func(_ context.Context, resource properties.Resource) (Credential, error) {
-		if resource.Registry == registry {
+		if resource.Host() == registry {
 			return cred, nil
 		}
 		return EmptyCredential, nil

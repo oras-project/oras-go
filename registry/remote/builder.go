@@ -255,7 +255,7 @@ func (b *ClientBuilder) buildCredentialFunc(props *properties.Registry) credenti
 
 		// Fall back to credential store if available
 		if b.CredentialStore != nil {
-			cred, err := b.CredentialStore.Get(ctx, resource.String())
+			cred, err := NewCredentialFunc(b.CredentialStore)(ctx, resource)
 			if err != nil {
 				return credentials.EmptyCredential, err
 			}
