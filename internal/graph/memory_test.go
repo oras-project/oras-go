@@ -21,10 +21,14 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
+	"strconv"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/internal/cas"
 )
 
@@ -595,6 +599,143 @@ func TestMemory_IndexAllAndPredecessors(t *testing.T) {
 	}
 	if !reflect.DeepEqual(predsE[0], descB) {
 		t.Errorf("incorrect predecessor result")
+	}
+}
+
+// TestMemory_IndexAllConcurrencyBound verifies that IndexAll bounds the
+// number of nodes it indexes concurrently to defaultIndexConcurrency,
+// instead of spawning one goroutine per node in the graph unconditionally.
+func TestMemory_IndexAllConcurrencyBound(t *testing.T) {
+	ctx := context.Background()
+	backing := cas.NewMemory()
+
+	// numChildren comfortably exceeds the concurrency limit, so an unbounded
+	// fan-out would push maxInFlight well past defaultIndexConcurrency.
+	numChildren := int(defaultIndexConcurrency) * 4
+
+	// root references numChildren direct successors, each itself a
+	// (childless) manifest, so indexing every one of them requires its own
+	// Fetch call and therefore its own goroutine dispatched by IndexAll.
+	var layers []ocispec.Descriptor
+	for i := 0; i < numChildren; i++ {
+		child := ocispec.Manifest{
+			Config:      ocispec.Descriptor{MediaType: "test config"},
+			Annotations: map[string]string{"child-index": strconv.Itoa(i)},
+		}
+		childJSON, err := json.Marshal(child)
+		if err != nil {
+			t.Fatal(err)
+		}
+		desc := ocispec.Descriptor{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Digest:    digest.FromBytes(childJSON),
+			Size:      int64(len(childJSON)),
+		}
+		if err := backing.Push(ctx, desc, bytes.NewReader(childJSON)); err != nil {
+			t.Fatal(err)
+		}
+		layers = append(layers, desc)
+	}
+
+	root := ocispec.Manifest{
+		Config: ocispec.Descriptor{MediaType: "test config"},
+		Layers: layers,
+	}
+	rootJSON, err := json.Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(rootJSON),
+		Size:      int64(len(rootJSON)),
+	}
+	if err := backing.Push(ctx, rootDesc, bytes.NewReader(rootJSON)); err != nil {
+		t.Fatal(err)
+	}
+
+	// tracking wraps backing.Fetch to record the highest number of
+	// concurrently in-flight Fetch calls IndexAll ever issues. A short sleep
+	// while "in flight" widens the window so concurrent goroutines overlap
+	// and get counted together, instead of racing through sequentially.
+	var inFlight, maxInFlight int64
+	tracking := content.FetcherFunc(func(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+		n := atomic.AddInt64(&inFlight, 1)
+		for {
+			cur := atomic.LoadInt64(&maxInFlight)
+			if n <= cur || atomic.CompareAndSwapInt64(&maxInFlight, cur, n) {
+				break
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+		atomic.AddInt64(&inFlight, -1)
+		return backing.Fetch(ctx, target)
+	})
+
+	testMemory := NewMemory()
+	if err := testMemory.IndexAll(ctx, tracking, rootDesc); err != nil {
+		t.Fatalf("IndexAll() error = %v", err)
+	}
+
+	if maxInFlight > defaultIndexConcurrency {
+		t.Errorf("IndexAll let %d fetches run concurrently, want <= %d (defaultIndexConcurrency)", maxInFlight, defaultIndexConcurrency)
+	}
+}
+
+// TestMemory_IndexAllDeepChainNoDeadlock verifies that IndexAll completes on
+// a chain deeper than defaultIndexConcurrency. A node that held its
+// concurrency slot while waiting on its successor, instead of releasing it
+// first, would deadlock here: every slot in the shared limiter would end up
+// held by a parent blocked on a child that can never acquire one itself.
+func TestMemory_IndexAllDeepChainNoDeadlock(t *testing.T) {
+	ctx := context.Background()
+	backing := cas.NewMemory()
+
+	// chainDepth exceeds defaultIndexConcurrency, so if slots aren't
+	// released before waiting on successors, the chain exhausts the limiter.
+	chainDepth := int(defaultIndexConcurrency) + 16
+
+	// build the chain bottom-up: child is index 0 (no successors), and each
+	// subsequent manifest's single layer points at the previous one, so the
+	// last manifest built is the root and references the whole chain below.
+	var child ocispec.Descriptor
+	var root ocispec.Descriptor
+	for i := 0; i < chainDepth; i++ {
+		m := ocispec.Manifest{
+			Config: ocispec.Descriptor{MediaType: "test config", Annotations: map[string]string{"i": strconv.Itoa(i)}},
+		}
+		if i > 0 {
+			m.Layers = []ocispec.Descriptor{child}
+		}
+		mJSON, err := json.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		desc := ocispec.Descriptor{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Digest:    digest.FromBytes(mJSON),
+			Size:      int64(len(mJSON)),
+		}
+		if err := backing.Push(ctx, desc, bytes.NewReader(mJSON)); err != nil {
+			t.Fatal(err)
+		}
+		child = desc
+		root = desc
+	}
+
+	testMemory := NewMemory()
+	done := make(chan error, 1)
+	go func() {
+		done <- testMemory.IndexAll(ctx, backing, root)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("IndexAll() error = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("IndexAll() did not return, likely deadlocked on the concurrency limiter")
 	}
 }
 

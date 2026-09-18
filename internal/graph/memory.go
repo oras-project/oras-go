@@ -27,7 +27,16 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/container/set"
 	"github.com/oras-project/oras-go/v3/internal/status"
 	"github.com/oras-project/oras-go/v3/internal/syncutil"
+	"golang.org/x/sync/semaphore"
 )
+
+// defaultIndexConcurrency is the default number of nodes that IndexAll will
+// index concurrently. Unlike CopyGraph's defaultConcurrency, this bounds
+// local, disk-bound work (opening and parsing files) rather than network
+// round trips, so a higher value is used. It exists to keep the number of
+// concurrently open file descriptors and in-flight goroutines bounded on
+// stores with large indexes, not to saturate any particular resource.
+const defaultIndexConcurrency int64 = 64
 
 // Memory is a memory based PredecessorFinder.
 type Memory struct {
@@ -53,6 +62,11 @@ type Memory struct {
 	successors map[digest.Digest]set.Set[digest.Digest]
 
 	lock sync.RWMutex
+
+	// indexLimiter bounds the number of nodes IndexAll indexes concurrently,
+	// so opening a store with a large index does not fan out an unbounded
+	// number of goroutines and file descriptors.
+	indexLimiter *semaphore.Weighted
 }
 
 // NewMemory creates a new memory PredecessorFinder.
@@ -61,6 +75,7 @@ func NewMemory() *Memory {
 		nodes:        make(map[digest.Digest]ocispec.Descriptor),
 		predecessors: make(map[digest.Digest]set.Set[digest.Digest]),
 		successors:   make(map[digest.Digest]set.Set[digest.Digest]),
+		indexLimiter: semaphore.NewWeighted(defaultIndexConcurrency),
 	}
 }
 
@@ -90,12 +105,18 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 			return err
 		}
 		if len(successors) > 0 {
-			// traverse and index successors
-			return syncutil.Go(ctx, nil, fn, successors...)
+			// release this node's slot before waiting on its successors,
+			// which acquire from the same limiter: holding it here would
+			// deadlock any chain deeper than defaultIndexConcurrency, since
+			// the parent would sit on a slot its own descendants need.
+			region.End()
+			// traverse and index successors, bounded by indexLimiter so a
+			// large fan-out does not spawn an unbounded number of goroutines
+			return syncutil.Go(ctx, m.indexLimiter, fn, successors...)
 		}
 		return nil
 	}
-	return syncutil.Go(ctx, nil, fn, node)
+	return syncutil.Go(ctx, m.indexLimiter, fn, node)
 }
 
 // Predecessors returns the nodes directly pointing to the current node.
