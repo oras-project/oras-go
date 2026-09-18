@@ -46,8 +46,16 @@ its final form.
 
 ### 3. Get approvals
 
-Branch protection on `main` requires approval from at least 3 of the 4 owners
-listed in [OWNERS.md](OWNERS.md). Reviewers should verify:
+The number of approvals required from the owners listed in
+[OWNERS.md](OWNERS.md) depends on the kind of release:
+
+| Release type | Approvals required |
+| --- | --- |
+| Patch (`vX.Y.Z` → `vX.Y.Z+1`) | 1 owner |
+| Minor (`vX.Y.Z` → `vX.Y+1.0`) | 2 owners |
+| Major (`vX.Y.Z` → `vX+1.0.0`) | super majority of owners (more than two thirds) |
+
+Reviewers should verify:
 
 - The target commit is correct
 - The release notes are accurate and complete
