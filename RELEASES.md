@@ -30,8 +30,15 @@ all prior work on the branch.
 ### 2. Open a pull request
 
 Open a PR titled `release: v2.7.0` targeting the `v2` branch and add the
-`release` label. Write the release notes directly in the PR description using
-the format from prior releases:
+`release` label **before merging** - the release workflow triggers on the pull
+request `closed` event, and that payload snapshots the labels as they were at
+merge time, so labelling afterwards does nothing.
+
+A release PR merged without the label tags nothing and cannot be re-triggered:
+recovery is a fresh release PR.
+
+Write the release notes directly in the PR description using the format from
+prior releases:
 
 ```markdown
 ## New Features
