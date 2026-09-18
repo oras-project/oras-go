@@ -49,7 +49,7 @@ jobs:
         env:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
-          if [[ ! "$TITLE" =~ ^release:[[:space:]]+(v[^[:space:]]+)[[:space:]]*$ ]]; then
+          if [[ ! "$TITLE" =~ ^release:[[:space:]]+(v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.[0-9]+)?)[[:space:]]*$ ]]; then
             echo "Error: PR is labelled 'release' but its title is not 'release: vX.Y.Z'"
             echo "Title was: $TITLE"
             exit 1
