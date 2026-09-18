@@ -224,6 +224,18 @@ func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) 
 		return reqs
 	}
 
+	// A scope may name an exact tag or digest, which is the most specific form
+	// containers-policy.json allows. An entry for the repository still applies
+	// to a tagged or digested image, so fall back to it. This is deliberately
+	// not limited to the docker transport: an oci scope is legitimately
+	// "/path/to/dir:tag", and gating it would let such an entry be skipped.
+	if repoScope := trimScopeReference(scope); repoScope != scope {
+		if reqs, ok := transportScopes[repoScope]; ok {
+			return reqs
+		}
+		scope = repoScope
+	}
+
 	// For docker transport, try longest-prefix match and wildcard subdomain match
 	if transport == TransportNameDocker {
 		// Try longest-prefix match: the scope key is a prefix of the image
@@ -272,6 +284,24 @@ func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) 
 
 	// Fall back to global default
 	return p.Default
+}
+
+// trimScopeReference drops a trailing tag or digest from a scope, leaving the
+// registry and repository. A reference can only carry one in its last path
+// component, so the search starts after the last "/": that keeps a registry
+// port ("example.com:5000"), which has no "/" after it, and an "@" or ":"
+// inside an oci filesystem path ("/mnt/data@2024/img"). The first separator
+// wins, so "example.com/repo:tag@sha256:..." trims to "example.com/repo" in
+// one step.
+func trimScopeReference(scope string) string {
+	slash := strings.LastIndex(scope, "/")
+	if slash == -1 {
+		return scope
+	}
+	if i := strings.IndexAny(scope[slash+1:], ":@"); i != -1 {
+		return scope[:slash+1+i]
+	}
+	return scope
 }
 
 // isPathPrefix reports whether prefix is a prefix of s at a "/" boundary.

@@ -25,7 +25,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
@@ -303,7 +302,7 @@ func NewRegistryWithProperties(props *properties.Registry, builder *ClientBuilde
 	// Create registry
 	reg := &Registry{
 		Client:    client,
-		Reference: registry.Reference{Registry: props.Reference.Registry},
+		Reference: properties.Reference{Registry: props.Reference.Registry},
 		PlainHTTP: props.Transport.PlainHTTP,
 		Policy:    builder.PolicyEvaluator,
 	}
@@ -385,7 +384,7 @@ func buildMirrorRepositories(props *properties.Registry, builder *ClientBuilder)
 
 		mirrorReg := &Registry{
 			Client:    mirrorClient,
-			Reference: registry.Reference{Registry: m.Location},
+			Reference: properties.Reference{Registry: m.Location},
 			PlainHTTP: m.Transport.PlainHTTP,
 		}
 		if logger := builder.warningLogger(); logger != nil {

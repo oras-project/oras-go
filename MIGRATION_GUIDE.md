@@ -117,6 +117,7 @@ function type explicit.
 | `auth.AppendScopes(ctx, scopes...)` | `auth.AppendScopesForHost(ctx, host, scopes...)` |
 | `auth.GetScopes(ctx)` | `auth.GetScopesForHost(ctx, host)` |
 | `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForHost(ctx, host)` |
+| `auth.AppendRepositoryScope(ctx, registry.Reference, actions...)` | `auth.AppendRepositoryScope(ctx, properties.Reference, actions...)` |
 
 Scope hints are host-specific in v3. Pass the host of the registry request,
 normally from `properties.Reference.Host()`, to the replacement functions. The
@@ -211,6 +212,19 @@ fmt.Println(ref.Registry, ref.Repository, ref.Tag)
 ```
 
 The parsers also accept `oci://`, `http://`, and `https://` prefixes.
+
+The exported reference surfaces in `registry/remote` use the properties type:
+
+| Deprecated type | Replacement |
+| --- | --- |
+| `remote.Registry.Reference registry.Reference` | `remote.Registry.Reference properties.Reference` |
+| `remote.Repository.Reference() registry.Reference` | `remote.Repository.Reference() properties.Reference` |
+| `remote.Repository.ParseReference(string) (registry.Reference, error)` | `remote.Repository.ParseReference(string) (properties.Reference, error)` |
+
+Custom targets that expose a `ParseReference` method should update its return
+type to `properties.Reference`. ORAS temporarily recognizes the legacy method
+signature when adding authentication scope hints, so existing implementations
+retain that behavior during migration.
 
 ### Repository interfaces, predecessors, and untagging
 

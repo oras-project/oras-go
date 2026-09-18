@@ -32,6 +32,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"github.com/oras-project/oras-go/v3/registry/remote/signature"
 )
 
@@ -50,7 +51,7 @@ func newRejectPolicyRepo(t *testing.T) *Repository {
 		t.Fatalf("failed to create evaluator: %v", err)
 	}
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
 	return &Repository{
@@ -72,7 +73,7 @@ func assertPolicyDenied(t *testing.T, err error, operation string) {
 
 func TestRepository_PolicyEnforcement(t *testing.T) {
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 	}
 	repo := &Repository{
 		Registry:       reg,
@@ -159,7 +160,7 @@ func TestRepository_PolicyScope(t *testing.T) {
 	}
 
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
 	repo := &Repository{
@@ -184,7 +185,7 @@ func TestRepository_Clone_Policy(t *testing.T) {
 	}
 
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
 	original := &Repository{
@@ -386,7 +387,7 @@ func TestRepository_ScopeSpecificPolicy(t *testing.T) {
 	}
 
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    evaluator,
 	}
 	repo := &Repository{
@@ -424,6 +425,29 @@ func (v *recordingSignedByVerifier) Verify(ctx context.Context, req *policy.PRSi
 	return v.allow, nil
 }
 
+func TestRepository_PolicyTagAndDigestReference(t *testing.T) {
+	d := digest.FromString("hello world")
+	for _, reference := range []string{
+		"signed@" + d.String(),
+		testReference.String() + ":signed@" + d.String(),
+	} {
+		t.Run(reference, func(t *testing.T) {
+			verifier := &recordingSignedByVerifier{allow: true}
+			repo := newSignedByPolicyRepo(t, verifier)
+			if err := repo.checkPolicy(context.Background(), reference); err != nil {
+				t.Fatal(err)
+			}
+			if len(verifier.seen) != 1 {
+				t.Fatalf("verifier called %d times, want 1", len(verifier.seen))
+			}
+			want := testReference.String() + "@" + d.String()
+			if got := verifier.seen[0]; got.Reference != want || got.Digest != d {
+				t.Errorf("verifier image = %+v, want reference %q and digest %q", got, want, d)
+			}
+		})
+	}
+}
+
 func newSignedByEvaluator(t *testing.T, verifier policy.SignedByVerifier) *policy.Evaluator {
 	t.Helper()
 	pol := &policy.Policy{
@@ -441,7 +465,7 @@ func newSignedByEvaluator(t *testing.T, verifier policy.SignedByVerifier) *polic
 func newSignedByPolicyRepo(t *testing.T, verifier policy.SignedByVerifier) *Repository {
 	t.Helper()
 	reg := &Registry{
-		Reference: registry.Reference{Registry: testReference.Registry},
+		Reference: properties.Reference{Registry: testReference.Registry},
 		Policy:    newSignedByEvaluator(t, verifier),
 	}
 	return &Repository{
@@ -876,4 +900,94 @@ func TestRepository_PushReference_SignedByPolicy_Denied(t *testing.T) {
 
 	err := repo.PushReference(context.Background(), desc, strings.NewReader("test content"), "v1.0")
 	assertPolicyDenied(t, err, "PushReference()")
+}
+
+func TestRepository_PolicyScope_TaggedEntryApplies(t *testing.T) {
+	repoScope := testReference.Registry + "/" + testReference.Repository
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				repoScope + ":blocked": policy.PolicyRequirements{&policy.Reject{}},
+			},
+		},
+	}
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("failed to create evaluator: %v", err)
+	}
+	repo := &Repository{
+		Registry: &Registry{
+			Reference: properties.Reference{Registry: testReference.Registry},
+			Policy:    evaluator,
+		},
+		RepositoryName: testReference.Repository,
+	}
+
+	assertPolicyDenied(t, repo.checkPolicy(context.Background(), "blocked"), "checkPolicy() on the tag named by the policy")
+	if err := repo.checkPolicy(context.Background(), "allowed"); err != nil {
+		t.Errorf("checkPolicy() on another tag should be allowed, got: %v", err)
+	}
+}
+
+func TestRepository_PolicyScope_DigestEntryApplies(t *testing.T) {
+	const blocked = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	const other = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	repoScope := testReference.Registry + "/" + testReference.Repository
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				repoScope + "@" + blocked: policy.PolicyRequirements{&policy.Reject{}},
+			},
+		},
+	}
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("failed to create evaluator: %v", err)
+	}
+	repo := &Repository{
+		Registry: &Registry{
+			Reference: properties.Reference{Registry: testReference.Registry},
+			Policy:    evaluator,
+		},
+		RepositoryName: testReference.Repository,
+	}
+
+	assertPolicyDenied(t, repo.checkPolicy(context.Background(), blocked), "checkPolicy() on the digest named by the policy")
+	if err := repo.checkPolicy(context.Background(), other); err != nil {
+		t.Errorf("checkPolicy() on another digest should be allowed, got: %v", err)
+	}
+}
+
+func TestRepository_PolicyScope_DigestEntryAppliesToDescriptor(t *testing.T) {
+	const blocked = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	repoScope := testReference.Registry + "/" + testReference.Repository
+	pol := &policy.Policy{
+		Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
+		Transports: map[policy.TransportName]policy.TransportScopes{
+			policy.TransportNameDocker: {
+				repoScope + "@" + blocked: policy.PolicyRequirements{&policy.Reject{}},
+			},
+		},
+	}
+	evaluator, err := policy.NewEvaluator(pol)
+	if err != nil {
+		t.Fatalf("failed to create evaluator: %v", err)
+	}
+	repo := &Repository{
+		Registry: &Registry{
+			Reference: properties.Reference{Registry: testReference.Registry},
+			Policy:    evaluator,
+		},
+		RepositoryName: testReference.Repository,
+	}
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    blocked,
+		Size:      2,
+	}
+
+	assertPolicyDenied(t, repo.checkDescriptorPolicy(context.Background(), desc),
+		"checkDescriptorPolicy() on the digest named by the policy")
 }

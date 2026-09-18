@@ -32,13 +32,25 @@ func (fn CloserFunc) Close() error {
 	return fn()
 }
 
+// CopyWithBuffer copies from src to dst through the provided buffer
+// until either EOF is reached on src, or an error occurs.
+//
+// io.CopyBuffer ignores the provided buffer whenever src implements
+// io.WriterTo or dst implements io.ReaderFrom, and falls back to an
+// internally allocated 32 KiB buffer. Both sides are therefore hidden behind
+// plain io.Reader and io.Writer wrappers so the caller's buffer is the one
+// that is used, the same technique as net/http.
+func CopyWithBuffer(dst io.Writer, src io.Reader, buf []byte) (int64, error) {
+	return io.CopyBuffer(struct{ io.Writer }{dst}, struct{ io.Reader }{src}, buf)
+}
+
 // CopyBuffer copies from src to dst through the provided buffer
 // until either EOF is reached on src, or an error occurs.
 // The copied content is verified against the size and the digest.
 func CopyBuffer(dst io.Writer, src io.Reader, buf []byte, desc ocispec.Descriptor) error {
 	// verify while copying
 	vr := content.NewVerifyReader(src, desc)
-	if _, err := io.CopyBuffer(dst, vr, buf); err != nil {
+	if _, err := CopyWithBuffer(dst, vr, buf); err != nil {
 		return fmt.Errorf("copy failed: %w", err)
 	}
 	return vr.Verify()
