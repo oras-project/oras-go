@@ -28,6 +28,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 )
 
 // chunkedUploadRegistry is a minimal in-memory registry that implements the OCI
@@ -52,6 +53,9 @@ type chunkedUploadRegistry struct {
 	rejectPOSTStatus int
 	// rejectPATCHStatus, when non-zero, is returned to the first PATCH.
 	rejectPATCHStatus int
+	// putDigestOverride, when non-empty, is returned as the PUT response
+	// Docker-Content-Digest header instead of the real digest.
+	putDigestOverride string
 }
 
 func (reg *chunkedUploadRegistry) handler() http.HandlerFunc {
@@ -95,8 +99,12 @@ func (reg *chunkedUploadRegistry) handler() http.HandlerFunc {
 			reg.mu.Lock()
 			reg.uploaded = append(reg.uploaded, body.Bytes()...)
 			reg.digestQuery = r.URL.Query().Get("digest")
+			returnedDigest := reg.digestQuery
+			if reg.putDigestOverride != "" {
+				returnedDigest = reg.putDigestOverride
+			}
 			reg.mu.Unlock()
-			w.Header().Set("Docker-Content-Digest", reg.digestQuery)
+			w.Header().Set("Docker-Content-Digest", returnedDigest)
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/v2/test/blobs/uploads/"):
 			// monolithic PUT (fallback path uses a different session location)
@@ -153,6 +161,9 @@ func newChunkedTestRepo(t *testing.T, srv *httptest.Server, maxChunkSize int64) 
 		t.Fatalf("NewRepository() error = %v", err)
 	}
 	repo.Registry.PlainHTTP = true
+	// Use a non-retrying client so error responses fail fast instead of
+	// exercising the default retry backoff.
+	repo.Registry.Client = &auth.Client{Client: &http.Client{}}
 	repo.MaxChunkSize = maxChunkSize
 	return repo
 }
@@ -379,6 +390,80 @@ func TestRepository_Push_ChunkPATCHRejectedAfterConsuming(t *testing.T) {
 	}
 	if !reg.cancelled {
 		t.Error("expected upload session to be cancelled after PATCH rejection")
+	}
+}
+
+func TestRepository_Push_ChunkedExactBoundary(t *testing.T) {
+	reg := &chunkedUploadRegistry{t: t}
+	srv := httptest.NewServer(reg.handler())
+	defer srv.Close()
+
+	blob := []byte("abcd") // 4 bytes, an exact multiple of the 2-byte chunk
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	repo := newChunkedTestRepo(t, srv, 2)
+	if err := repo.Blobs().Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+	// Two full chunks, no trailing empty PATCH: ranges 0-1 and 2-3.
+	wantRanges := []string{"0-1", "2-3"}
+	if got := reg.contentRanges; !equalStrings(got, wantRanges) {
+		t.Errorf("content ranges = %v, want %v", got, wantRanges)
+	}
+	if !bytes.Equal(reg.uploaded, blob) {
+		t.Errorf("uploaded = %q, want %q", reg.uploaded, blob)
+	}
+}
+
+func TestRepository_Push_ChunkedRegistryDigestMismatch(t *testing.T) {
+	reg := &chunkedUploadRegistry{t: t, putDigestOverride: digest.FromBytes([]byte("wrong")).String()}
+	srv := httptest.NewServer(reg.handler())
+	defer srv.Close()
+
+	blob := []byte("hello")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	repo := newChunkedTestRepo(t, srv, 2)
+	err := repo.Blobs().Push(context.Background(), desc, bytes.NewReader(blob))
+	if err == nil {
+		t.Fatal("expected error when registry returns a mismatching digest, got nil")
+	}
+	if !strings.Contains(err.Error(), "registry returned digest") {
+		t.Errorf("error = %v, want registry digest mismatch", err)
+	}
+}
+
+func TestRepository_Push_ChunkedViaRepositoryPush(t *testing.T) {
+	// Exercise the top-level Repository.Push entrypoint (not repo.Blobs()) that
+	// real callers use, ensuring MaxChunkSize flows through to the blob store.
+	reg := &chunkedUploadRegistry{t: t}
+	srv := httptest.NewServer(reg.handler())
+	defer srv.Close()
+
+	blob := []byte("hello")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	repo := newChunkedTestRepo(t, srv, 2)
+	if err := repo.Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+	if reg.patchCount() == 0 {
+		t.Error("expected chunked push via Repository.Push, got no PATCH")
+	}
+	if !bytes.Equal(reg.uploaded, blob) {
+		t.Errorf("uploaded = %q, want %q", reg.uploaded, blob)
 	}
 }
 
