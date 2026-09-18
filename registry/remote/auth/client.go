@@ -277,7 +277,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	var attemptedKey string
 	cache := c.cache()
 	resource := requestResource(originalReq)
-	host := resource.Registry
+	host := resource.Host()
 	scheme, err := cache.GetScheme(ctx, host)
 	if err == nil {
 		switch scheme {
