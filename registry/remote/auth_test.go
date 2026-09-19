@@ -269,3 +269,100 @@ func TestCredential(t *testing.T) {
 		})
 	}
 }
+
+// errorStore is a credential store whose Get always fails.
+type errorStore struct {
+	testStore
+	err error
+}
+
+func (s *errorStore) Get(context.Context, string) (credentials.Credential, error) {
+	return credentials.EmptyCredential, s.err
+}
+
+func TestNewCredentialFunc_NamespacedResource(t *testing.T) {
+	repoCred := credentials.Credential{Username: "repo", Password: "repo_pass"}
+	nsCred := credentials.Credential{Username: "ns", Password: "ns_pass"}
+	hostCred := credentials.Credential{Username: "host", Password: "host_pass"}
+	dockerCred := credentials.Credential{Username: "docker", Password: "docker_pass"}
+	s := &testStore{storage: map[string]credentials.Credential{
+		"localhost:5000/team/app":     repoCred,
+		"localhost:5000/team":         nsCred,
+		"localhost:5000":              hostCred,
+		"https://index.docker.io/v1/": dockerCred,
+	}}
+	fn := NewCredentialFunc(s)
+
+	tests := []struct {
+		name     string
+		resource properties.Resource
+		want     credentials.Credential
+	}{
+		{
+			name:     "exact repository match",
+			resource: properties.Resource{Registry: "localhost:5000", Path: "team/app"},
+			want:     repoCred,
+		},
+		{
+			name:     "falls back to namespace",
+			resource: properties.Resource{Registry: "localhost:5000", Path: "team/other"},
+			want:     nsCred,
+		},
+		{
+			name:     "falls back to namespace for nested repository",
+			resource: properties.Resource{Registry: "localhost:5000", Path: "team/sub/app"},
+			want:     nsCred,
+		},
+		{
+			name:     "falls back to host",
+			resource: properties.Resource{Registry: "localhost:5000", Path: "other/app"},
+			want:     hostCred,
+		},
+		{
+			name:     "single segment path falls back to host",
+			resource: properties.Resource{Registry: "localhost:5000", Path: "app"},
+			want:     hostCred,
+		},
+		{
+			name:     "docker.io uses the server address without the path",
+			resource: properties.Resource{Registry: "docker.io", Path: "library/alpine"},
+			want:     dockerCred,
+		},
+		{
+			name:     "unknown host",
+			resource: properties.Resource{Registry: "localhost:6666", Path: "team/app"},
+			want:     credentials.EmptyCredential,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fn(context.Background(), tt.resource)
+			if err != nil {
+				t.Fatalf("NewCredentialFunc() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("NewCredentialFunc() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewCredentialFunc_StoreError(t *testing.T) {
+	wantErr := errors.New("store failure")
+	fn := NewCredentialFunc(&errorStore{err: wantErr})
+
+	for _, resource := range []properties.Resource{
+		{Registry: "localhost:5000", Path: "team/app"},
+		{Registry: "localhost:5000"},
+	} {
+		t.Run(resource.String(), func(t *testing.T) {
+			got, err := fn(context.Background(), resource)
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("NewCredentialFunc() error = %v, want %v", err, wantErr)
+			}
+			if got != credentials.EmptyCredential {
+				t.Errorf("NewCredentialFunc() = %v, want EmptyCredential", got)
+			}
+		})
+	}
+}
