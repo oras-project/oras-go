@@ -247,15 +247,15 @@ func (b *ClientBuilder) buildCredentialFunc(props *properties.Registry) credenti
 	// the request host.
 	host := props.Reference.Host()
 
-	return func(ctx context.Context, reg string) (credentials.Credential, error) {
+	return func(ctx context.Context, resource properties.Resource) (credentials.Credential, error) {
 		// Credential specified in properties, for its own registry only.
-		if props.Credential != credentials.EmptyCredential && strings.EqualFold(reg, host) {
+		if props.Credential != credentials.EmptyCredential && strings.EqualFold(resource.Host(), host) {
 			return props.Credential, nil
 		}
 
 		// Fall back to credential store if available
 		if b.CredentialStore != nil {
-			cred, err := b.CredentialStore.Get(ctx, reg)
+			cred, err := NewCredentialFunc(b.CredentialStore)(ctx, resource)
 			if err != nil {
 				return credentials.EmptyCredential, err
 			}

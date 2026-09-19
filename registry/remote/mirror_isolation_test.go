@@ -153,7 +153,7 @@ func Test_buildCredentialFunc_scopedToItsOwnRegistry(t *testing.T) {
 
 	credFunc := builder.buildCredentialFunc(props)
 
-	got, err := credFunc(context.Background(), "registry.example.com")
+	got, err := credFunc(context.Background(), testRegistryResource("registry.example.com"))
 	if err != nil {
 		t.Fatalf("own registry: unexpected error %v", err)
 	}
@@ -162,7 +162,7 @@ func Test_buildCredentialFunc_scopedToItsOwnRegistry(t *testing.T) {
 	}
 
 	for _, other := range []string{"mirror.internal", "registry.example.com.evil.test", "evil.test"} {
-		got, err := credFunc(context.Background(), other)
+		got, err := credFunc(context.Background(), testRegistryResource(other))
 		if err != nil {
 			t.Fatalf("%s: unexpected error %v", other, err)
 		}
@@ -183,7 +183,7 @@ func Test_buildCredentialFunc_dockerIOAlias(t *testing.T) {
 		Credential: cred,
 	}
 
-	got, err := builder.buildCredentialFunc(props)(context.Background(), "registry-1.docker.io")
+	got, err := builder.buildCredentialFunc(props)(context.Background(), testRegistryResource("registry-1.docker.io"))
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
@@ -217,7 +217,7 @@ func Test_buildMirrorRepositories_doesNotShareCredential(t *testing.T) {
 	if !ok {
 		t.Fatalf("mirror client is %T, want *auth.Client", mirrors[0].Registry.Client)
 	}
-	got, err := authClient.CredentialFunc(context.Background(), "mirror.internal")
+	got, err := authClient.CredentialFunc(context.Background(), testRegistryResource("mirror.internal"))
 	if err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}

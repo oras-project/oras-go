@@ -19,9 +19,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // ErrClientTypeUnsupported is thrown by Login() when the registry's client type
@@ -74,16 +76,36 @@ func Logout(ctx context.Context, store credentials.Store, registryName string) e
 // EmptyCredential without error.
 func NewCredentialFunc(store credentials.Store) credentials.CredentialFunc {
 	if store == nil {
-		return func(context.Context, string) (credentials.Credential, error) {
+		return func(context.Context, properties.Resource) (credentials.Credential, error) {
 			return credentials.EmptyCredential, nil
 		}
 	}
-	return func(ctx context.Context, hostport string) (credentials.Credential, error) {
-		hostport = ServerAddressFromHostname(hostport)
-		if hostport == "" {
+	return func(ctx context.Context, res properties.Resource) (credentials.Credential, error) {
+		host := ServerAddressFromHostname(res.Host())
+		if host == "" {
 			return credentials.EmptyCredential, nil
 		}
-		return store.Get(ctx, hostport)
+		// ServerAddressFromHostname may map to a sentinel server address
+		// (docker.io), which is a store key rather than a path root.
+		if res.Path != "" && host == res.Host() {
+			// Most-specific to least-specific, so namespaced credentials
+			// resolve over any store, not only the hierarchical file store.
+			for path := res.Path; path != ""; {
+				cred, err := store.Get(ctx, host+"/"+path)
+				if err != nil {
+					return credentials.EmptyCredential, err
+				}
+				if cred != credentials.EmptyCredential {
+					return cred, nil
+				}
+				index := strings.LastIndex(path, "/")
+				if index < 0 {
+					break
+				}
+				path = path[:index]
+			}
+		}
+		return store.Get(ctx, host)
 	}
 }
 
