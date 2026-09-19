@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -55,6 +56,8 @@ type chunkedUpload struct {
 	consumed bool
 	// digester computes the digest of the streamed content.
 	digester digest.Digester
+	// auth is the Authorization header reused across requests in the session.
+	auth string
 }
 
 // pushChunked uploads expected in chunks per the OCI Distribution Spec: it opens
@@ -75,7 +78,22 @@ func (s *blobStore) pushChunked(ctx context.Context, expected ocispec.Descriptor
 		return fmt.Errorf("%w: %w", errChunkedUploadNotStarted, err)
 	}
 
-	if err := s.uploadChunks(ctx, up, content); err != nil {
+	// Digest with the descriptor's own algorithm, not the canonical one.
+	algo := expected.Digest.Algorithm()
+	if !algo.Available() {
+		s.cancelUpload(ctx, up.location)
+		return fmt.Errorf("chunked blob push: unsupported digest algorithm %q", algo)
+	}
+	up.digester = algo.Digester()
+
+	// Never buffer more than the blob itself, whatever the registry advertised.
+	if up.chunk > expected.Size {
+		up.chunk = expected.Size
+	}
+
+	// Bound the read at the declared size so an over-long reader cannot push
+	// more bytes than the descriptor claims.
+	if err := s.uploadChunks(ctx, up, io.LimitReader(content, expected.Size)); err != nil {
 		return err
 	}
 
@@ -92,9 +110,8 @@ func (s *blobStore) pushChunked(ctx context.Context, expected ocispec.Descriptor
 }
 
 // openUploadSession performs the POST that starts a blob upload and returns the
-// initialised session state. A non-sha256 expected digest advertises its
-// algorithm via the digest-algorithm query parameter. The returned session has
-// its chunk size raised to any registry-advertised OCI-Chunk-Min-Length.
+// initialised session state. The returned session has its chunk size raised to
+// any registry-advertised OCI-Chunk-Min-Length.
 func (s *blobStore) openUploadSession(ctx context.Context, chunkSize int64) (*chunkedUpload, error) {
 	url := buildRepositoryBlobUploadURL(s.repo.plainHTTP(), s.repo.reference())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, http.NoBody)
@@ -118,10 +135,14 @@ func (s *blobStore) openUploadSession(ctx context.Context, chunkSize int64) (*ch
 	if minLen := parseChunkMinLength(resp); minLen > chunkSize {
 		chunkSize = minLen
 	}
+	var authHeader string
+	if resp.Request != nil {
+		authHeader = resp.Request.Header.Get("Authorization")
+	}
 	return &chunkedUpload{
 		location: location,
 		chunk:    chunkSize,
-		digester: digest.Canonical.Digester(),
+		auth:     authHeader,
 	}, nil
 }
 
@@ -156,6 +177,9 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 			}
 			return fmt.Errorf("chunked blob push: failed to build PATCH request: %w", err)
 		}
+		if up.auth != "" {
+			req.Header.Set("Authorization", up.auth)
+		}
 		req.Header.Set("Content-Type", "application/octet-stream")
 		req.Header.Set("Content-Range", fmt.Sprintf("%d-%d", up.offset, up.offset+int64(n)-1))
 		req.ContentLength = int64(n)
@@ -163,6 +187,7 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 
 		resp, err := s.repo.do(req)
 		if err != nil {
+			s.cancelUpload(ctx, up.location)
 			return fmt.Errorf("chunked blob push: PATCH failed after %d bytes: %w", up.offset, err)
 		}
 		if resp.StatusCode != http.StatusAccepted {
@@ -170,6 +195,11 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 			resp.Body.Close()
 			s.cancelUpload(ctx, up.location)
 			return fmt.Errorf("chunked blob push: unexpected PATCH status %d after %d bytes: %w", resp.StatusCode, up.offset, respErr)
+		}
+		if resp.Request != nil {
+			if auth := resp.Request.Header.Get("Authorization"); auth != "" {
+				up.auth = auth
+			}
 		}
 		next, err := resolveUploadLocation(resp, req)
 		resp.Body.Close()
@@ -194,6 +224,9 @@ func (s *blobStore) closeUploadSession(ctx context.Context, up *chunkedUpload, f
 		s.cancelUpload(ctx, up.location)
 		return fmt.Errorf("chunked blob push: failed to build PUT request: %w", err)
 	}
+	if up.auth != "" {
+		req.Header.Set("Authorization", up.auth)
+	}
 	req.ContentLength = 0
 	req.Header.Set("Content-Type", "application/octet-stream")
 
@@ -215,6 +248,10 @@ func (s *blobStore) closeUploadSession(ctx context.Context, up *chunkedUpload, f
 // session. Per the OCI spec, clients SHOULD ignore any failures.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#canceling-a-blob-upload
 func (s *blobStore) cancelUpload(ctx context.Context, location *url.URL) {
+	// Detach from ctx: cancellation or deadline expiry is exactly when the
+	// session most needs releasing.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, location.String(), http.NoBody)
 	if err != nil {
 		return
