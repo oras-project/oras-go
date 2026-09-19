@@ -31,6 +31,7 @@ import (
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 func TestClient_SetUserAgent(t *testing.T) {
@@ -101,8 +102,8 @@ func TestClient_Do_Basic_Auth(t *testing.T) {
 	}
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -182,8 +183,8 @@ func TestClient_Do_Basic_Auth_Cached(t *testing.T) {
 	}
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -291,8 +292,8 @@ func TestClient_Do_Bearer_AccessToken(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -378,8 +379,8 @@ func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -715,8 +716,8 @@ func TestClient_Do_Bearer_Auth(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -842,8 +843,8 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -1306,8 +1307,8 @@ func TestClient_Do_Bearer_OAuth2_Password(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -1452,8 +1453,8 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -1943,8 +1944,8 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -2081,8 +2082,8 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -2554,8 +2555,8 @@ func TestClient_Do_Token_Expire(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -2960,8 +2961,8 @@ func TestClient_Do_Scope_Hint_Mismatch(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -3336,8 +3337,8 @@ func TestClient_Do_Invalid_Credential_Basic(t *testing.T) {
 	}
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -3422,8 +3423,8 @@ func TestClient_Do_Invalid_Credential_Bearer(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -3607,8 +3608,8 @@ func TestClient_Do_Scheme_Change(t *testing.T) {
 	service = uri.Host
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != uri.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != uri.Host {
 				err := fmt.Errorf("registry mismatch: got %v, want %v", reg, uri.Host)
 				t.Error(err)
 				return credentials.EmptyCredential, err
@@ -3729,7 +3730,7 @@ func TestStaticCredential(t *testing.T) {
 				CredentialFunc: credentials.StaticCredentialFunc(tt.registry, tt.cred),
 			}
 			ctx := context.Background()
-			got, err := client.CredentialFunc(ctx, tt.target)
+			got, err := client.CredentialFunc(ctx, properties.Resource{Registry: tt.target})
 			if err != nil {
 				t.Fatal("Client.CredentialFunc() error =", err)
 			}
@@ -3969,11 +3970,11 @@ func TestClient_StaticCredential_withRefreshToken(t *testing.T) {
 
 func TestClient_fetchBasicAuth(t *testing.T) {
 	c := &Client{
-		CredentialFunc: func(ctx context.Context, registry string) (credentials.Credential, error) {
+		CredentialFunc: func(ctx context.Context, registry properties.Resource) (credentials.Credential, error) {
 			return credentials.EmptyCredential, nil
 		},
 	}
-	_, err := c.fetchBasicAuth(context.Background(), "")
+	_, err := c.fetchBasicAuth(context.Background(), properties.Resource{})
 	if err != ErrBasicCredentialNotFound {
 		t.Errorf("incorrect error: %v, expected %v", err, ErrBasicCredentialNotFound)
 	}
@@ -4013,7 +4014,7 @@ func TestClient_Do_Bearer_CustomTokenFetcher(t *testing.T) {
 	customFetcher := &mockTokenFetcherForClient{token: wantToken}
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
 			return credentials.Credential{
 				Username: "user",
 				Password: "pass",
@@ -4064,7 +4065,7 @@ func TestClient_Do_Bearer_CustomTokenFetcher_Error(t *testing.T) {
 
 	fetcherErr := errors.New("custom fetcher error")
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
 			return credentials.Credential{
 				Username: "user",
 				Password: "pass",
@@ -4137,8 +4138,8 @@ func TestClient_Do_Basic_Auth_RedirectAfterAuth(t *testing.T) {
 	}
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != originURL.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != originURL.Host {
 				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, originURL.Host)
 			}
 			return credentials.Credential{Username: username, Password: password}, nil
@@ -4192,8 +4193,8 @@ func TestClient_Do_Basic_Auth_RedirectBeforeAuth(t *testing.T) {
 	}
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != originURL.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != originURL.Host {
 				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, originURL.Host)
 			}
 			return credentials.Credential{Username: username, Password: password}, nil
@@ -4250,8 +4251,8 @@ func TestClient_Do_Basic_Auth_SameOriginRedirect(t *testing.T) {
 	}
 
 	client := &Client{
-		CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
-			if reg != tsURL.Host {
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != tsURL.Host {
 				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, tsURL.Host)
 			}
 			return credentials.Credential{Username: username, Password: password}, nil
@@ -4433,7 +4434,7 @@ func TestClient_Do_Bearer_TokenFlowSelection(t *testing.T) {
 			service = uri.Host
 
 			client := &Client{
-				CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+				CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
 					return credentials.Credential{
 						Username: "test_user",
 						Password: "test_password",
@@ -4538,7 +4539,7 @@ func TestClient_fetchBearerToken_RealmRedirect(t *testing.T) {
 			service = uri.Host
 
 			client := &Client{
-				CredentialFunc: func(ctx context.Context, reg string) (credentials.Credential, error) {
+				CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
 					return credentials.Credential{Username: username, Password: password}, nil
 				},
 			}

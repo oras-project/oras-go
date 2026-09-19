@@ -18,7 +18,13 @@ package credentials
 import (
 	"context"
 	"testing"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
+
+func testResource(registry string) properties.Resource {
+	return properties.Resource{Registry: registry}
+}
 
 func TestStaticCredential_BasicAuth(t *testing.T) {
 	ctx := context.Background()
@@ -31,7 +37,7 @@ func TestStaticCredential_BasicAuth(t *testing.T) {
 	credFunc := StaticCredentialFunc(registry, expectedCred)
 
 	// Test matching registry
-	cred, err := credFunc(ctx, registry)
+	cred, err := credFunc(ctx, testResource(registry))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
@@ -40,7 +46,7 @@ func TestStaticCredential_BasicAuth(t *testing.T) {
 	}
 
 	// Test non-matching registry
-	cred, err = credFunc(ctx, "different.com:5000")
+	cred, err = credFunc(ctx, testResource("different.com:5000"))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
@@ -59,7 +65,7 @@ func TestStaticCredential_BearerToken(t *testing.T) {
 
 	credFunc := StaticCredentialFunc(registry, expectedCred)
 
-	cred, err := credFunc(ctx, registry)
+	cred, err := credFunc(ctx, testResource(registry))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
@@ -79,7 +85,7 @@ func TestStaticCredential_DockerIORedirect(t *testing.T) {
 	credFunc := StaticCredentialFunc("docker.io", expectedCred)
 
 	// Test that docker.io is redirected to registry-1.docker.io
-	cred, err := credFunc(ctx, "registry-1.docker.io")
+	cred, err := credFunc(ctx, testResource("registry-1.docker.io"))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
@@ -87,13 +93,14 @@ func TestStaticCredential_DockerIORedirect(t *testing.T) {
 		t.Errorf("StaticCredentialFunc() for registry-1.docker.io = %+v, want %+v", cred, expectedCred)
 	}
 
-	// Test that docker.io itself doesn't match (because it gets redirected)
-	cred, err = credFunc(ctx, "docker.io")
+	// docker.io is the canonical form the client derives from a request, and
+	// Resource.Host() maps it back onto registry-1.docker.io.
+	cred, err = credFunc(ctx, testResource("docker.io"))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
-	if cred != EmptyCredential {
-		t.Errorf("StaticCredentialFunc() for docker.io = %+v, want %+v", cred, EmptyCredential)
+	if cred != expectedCred {
+		t.Errorf("StaticCredentialFunc() for docker.io = %+v, want %+v", cred, expectedCred)
 	}
 }
 
@@ -103,7 +110,7 @@ func TestStaticCredential_EmptyCredential(t *testing.T) {
 
 	credFunc := StaticCredentialFunc(registry, EmptyCredential)
 
-	cred, err := credFunc(ctx, registry)
+	cred, err := credFunc(ctx, testResource(registry))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
@@ -122,7 +129,7 @@ func TestStaticCredential_MixedCredential(t *testing.T) {
 
 	credFunc := StaticCredentialFunc(registry, expectedCred)
 
-	cred, err := credFunc(ctx, registry)
+	cred, err := credFunc(ctx, testResource(registry))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
@@ -142,7 +149,7 @@ func TestStaticCredential_CaseSensitive(t *testing.T) {
 	credFunc := StaticCredentialFunc(registry, expectedCred)
 
 	// Test exact match (case-sensitive)
-	cred, err := credFunc(ctx, registry)
+	cred, err := credFunc(ctx, testResource(registry))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
@@ -151,7 +158,7 @@ func TestStaticCredential_CaseSensitive(t *testing.T) {
 	}
 
 	// Test different case should not match
-	cred, err = credFunc(ctx, "example.com:5000")
+	cred, err = credFunc(ctx, testResource("example.com:5000"))
 	if err != nil {
 		t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 	}
@@ -203,7 +210,7 @@ func TestStaticCredential_WithPort(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			credFunc := StaticCredentialFunc(tt.registry, expectedCred)
-			cred, err := credFunc(ctx, tt.hostport)
+			cred, err := credFunc(ctx, testResource(tt.hostport))
 			if err != nil {
 				t.Fatalf("StaticCredentialFunc() error = %v, want nil", err)
 			}
@@ -223,12 +230,12 @@ func TestStaticCredential_WithPort(t *testing.T) {
 
 func TestCredentialFunc_Interface(t *testing.T) {
 	// Test that CredentialFunc is a valid function type
-	var credFunc CredentialFunc = func(ctx context.Context, hostport string) (Credential, error) {
+	var credFunc CredentialFunc = func(ctx context.Context, hostport properties.Resource) (Credential, error) {
 		return EmptyCredential, nil
 	}
 
 	ctx := context.Background()
-	cred, err := credFunc(ctx, "test.example.com")
+	cred, err := credFunc(ctx, testResource("test.example.com"))
 	if err != nil {
 		t.Fatalf("CredentialFunc() error = %v, want nil", err)
 	}
