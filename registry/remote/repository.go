@@ -1567,8 +1567,8 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	// Content-Length is not validated here because some registries (e.g. Harbor)
 	// return different values between HEAD (used by Resolve) and GET responses,
 	// typically due to transparent compression. Integrity is guaranteed by
-	// verifyContentDigest below.
-	if err := verifyContentDigest(resp, target.Digest); err != nil {
+	// digest verification below.
+	if err := s.verifyPullContentDigest(resp, target.Digest); err != nil {
 		return nil, err
 	}
 	return resp.Body, nil
@@ -1737,6 +1737,9 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 			// policy is evaluated below against the fetched descriptor, so
 			// skip the redundant evaluation in Resolve.
 			desc, err = s.Resolve(withPolicyChecked(ctx), reference)
+			if err == nil {
+				err = s.verifyPullContentDigest(resp, desc.Digest)
+			}
 		} else {
 			desc, err = s.generateDescriptor(resp, ref, req.Method)
 		}
@@ -2143,6 +2146,16 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 		contentDigest = serverHeaderDigest
 	}
 
+	if len(refDigest) > 0 && len(serverHeaderDigest) > 0 && contentDigest.Algorithm() != refDigest.Algorithm() {
+		// A registry may report a canonical digest using a different algorithm.
+		// Preserve the requested identity, verifying it against the body for GET.
+		if httpMethod == http.MethodGet {
+			if err := s.verifyPullContentDigest(resp, refDigest); err != nil {
+				return ocispec.Descriptor{}, err
+			}
+		}
+		contentDigest = refDigest
+	}
 	if len(refDigest) > 0 && refDigest != contentDigest {
 		return ocispec.Descriptor{}, fmt.Errorf(
 			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
@@ -2158,6 +2171,26 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 		Digest:    contentDigest,
 		Size:      resp.ContentLength,
 	}, nil
+}
+
+// verifyPullContentDigest permits a different canonical digest algorithm on
+// manifest pulls, but verifies the returned bytes against the requested digest.
+// Pushes deliberately continue to use verifyContentDigest's strict comparison.
+func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
+	canonical, err := digest.Parse(resp.Header.Get(headerDockerContentDigest))
+	if err != nil || canonical.Algorithm() == expected.Algorithm() {
+		return verifyContentDigest(resp, expected)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(limitReader(resp.Body, s.repo.maxMetadataBytes()))
+	if err != nil {
+		return err
+	}
+	if expected.Algorithm().FromBytes(body) != expected {
+		return fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, content.ErrMismatchedDigest)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	return nil
 }
 
 // calculateDigestFromResponse calculates the actual digest of the response body
