@@ -2137,7 +2137,11 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 			// GET without server `Docker-Content-Digest` header forces the
 			// expensive calculation
 			var calculatedDigest digest.Digest
-			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.maxMetadataBytes()); err != nil {
+			algorithm := digest.Canonical
+			if len(refDigest) > 0 {
+				algorithm = refDigest.Algorithm()
+			}
+			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.maxMetadataBytes(), algorithm); err != nil {
 				return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
 			}
 			contentDigest = calculatedDigest
@@ -2178,7 +2182,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // Pushes deliberately continue to use verifyContentDigest's strict comparison.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
 	canonical, err := digest.Parse(resp.Header.Get(headerDockerContentDigest))
-	if err != nil || canonical.Algorithm() == expected.Algorithm() {
+	if err != nil || !expected.Algorithm().Available() || canonical.Algorithm() == expected.Algorithm() {
 		return verifyContentDigest(resp, expected)
 	}
 	defer resp.Body.Close()
@@ -2186,8 +2190,9 @@ func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected di
 	if err != nil {
 		return err
 	}
-	if expected.Algorithm().FromBytes(body) != expected {
-		return fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, content.ErrMismatchedDigest)
+	if actual := expected.Algorithm().FromBytes(body); actual != expected {
+		return fmt.Errorf("%s %q: invalid response; content digest mismatch: received %q when expecting %q; %w",
+			resp.Request.Method, resp.Request.URL, actual, expected, content.ErrMismatchedDigest)
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	return nil
@@ -2195,7 +2200,7 @@ func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected di
 
 // calculateDigestFromResponse calculates the actual digest of the response body
 // taking care not to destroy it in the process.
-func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (digest.Digest, error) {
+func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64, algorithm digest.Algorithm) (digest.Digest, error) {
 	defer resp.Body.Close()
 
 	body := limitReader(resp.Body, maxMetadataBytes)
@@ -2205,7 +2210,7 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (d
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(content))
 
-	return digest.FromBytes(content), nil
+	return algorithm.FromBytes(content), nil
 }
 
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.

@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	_ "crypto/sha512"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/content"
 )
 
 func TestManifestPullDigestValidation(t *testing.T) {
@@ -56,6 +58,11 @@ func TestManifestPullDigestValidation(t *testing.T) {
 			defer func() { resp.Body.Close() }()
 			if err := store.verifyPullContentDigest(resp, expected); (err != nil) != tt.wantErr {
 				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
+			} else if tt.name == "corrupted body" {
+				actual := expected.Algorithm().FromBytes(tt.body)
+				if !errors.Is(err, content.ErrMismatchedDigest) || !strings.Contains(err.Error(), actual.String()) || !strings.Contains(err.Error(), expected.String()) {
+					t.Fatalf("missing digest mismatch context: %v", err)
+				}
 			}
 		})
 	}
@@ -67,6 +74,33 @@ func TestManifestPullDigestValidation(t *testing.T) {
 			t.Fatal("push accepted a different digest")
 		}
 	})
+}
+
+func TestManifestPullUnavailableDigestAlgorithm(t *testing.T) {
+	manifest := []byte(`{"schemaVersion":2,"manifests":[]}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+		w.Header().Set("Docker-Content-Digest", digest.SHA256.FromBytes(manifest).String())
+		_, _ = w.Write(manifest)
+	}))
+	defer server.Close()
+	repo, err := NewRepository(strings.TrimPrefix(server.URL, "http://") + "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.Registry.PlainHTTP = true
+	target := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    digest.Digest("unknown:" + strings.Repeat("a", 64)),
+		Size:      int64(len(manifest)),
+	}
+	r, err := repo.Fetch(context.Background(), target)
+	if r != nil {
+		r.Close()
+	}
+	if err == nil {
+		t.Fatal("Fetch accepted an unavailable digest algorithm")
+	}
 }
 
 func TestManifestPullDifferentDigestAlgorithm(t *testing.T) {
@@ -160,4 +194,68 @@ func TestManifestPullDifferentDigestAlgorithm(t *testing.T) {
 			t.Fatalf("unexpected body: %s", body)
 		}
 	})
+}
+
+func TestManifestPullWithoutDigestHeader(t *testing.T) {
+	manifest := []byte(`{"schemaVersion":2,"manifests":[]}`)
+	for _, corrupted := range []bool{false, true} {
+		t.Run(strconv.FormatBool(corrupted), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+				body := manifest
+				if corrupted {
+					body = []byte("corrupted")
+				}
+				_, _ = w.Write(body)
+			}))
+			defer server.Close()
+			repo, err := NewRepository(strings.TrimPrefix(server.URL, "http://") + "/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo.Registry.PlainHTTP = true
+			expected := digest.SHA512.FromBytes(manifest)
+			desc, r, err := repo.FetchReference(context.Background(), expected.String())
+			if r != nil {
+				defer r.Close()
+			}
+			if (err != nil) != corrupted {
+				t.Fatalf("error = %v, want error %v", err, corrupted)
+			}
+			if !corrupted {
+				body, err := io.ReadAll(r)
+				if err != nil || !bytes.Equal(body, manifest) || desc.Digest != expected {
+					t.Fatalf("unexpected descriptor/body: %v, %s, %v", desc, body, err)
+				}
+			}
+		})
+	}
+}
+
+func TestManifestPullChunkedTagChanged(t *testing.T) {
+	manifest := []byte(`{"schemaVersion":2,"manifests":[]}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Length", strconv.Itoa(len(manifest)))
+			w.Header().Set("Docker-Content-Digest", digest.FromString("changed").String())
+			return
+		}
+		w.Header().Set("Docker-Content-Digest", digest.FromBytes(manifest).String())
+		w.(http.Flusher).Flush()
+		_, _ = w.Write(manifest)
+	}))
+	defer server.Close()
+	repo, err := NewRepository(strings.TrimPrefix(server.URL, "http://") + "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.Registry.PlainHTTP = true
+	_, r, err := repo.FetchReference(context.Background(), "latest")
+	if r != nil {
+		r.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("expected digest mismatch after tag changed, got %v", err)
+	}
 }
