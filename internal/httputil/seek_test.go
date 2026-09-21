@@ -208,3 +208,111 @@ func Test_readSeekCloser_Seek(t *testing.T) {
 		t.Errorf("readSeekCloser.Seek() error = %v, wantErr %v", err, true)
 	}
 }
+
+type countingClient struct {
+	client   Client
+	requests int
+}
+
+func (c *countingClient) Do(req *http.Request) (*http.Response, error) {
+	c.requests++
+	return c.client.Do(req)
+}
+
+func Test_readSeekCloser_Seek_RequestCount(t *testing.T) {
+	content := []byte("hello world")
+	path := "/testpath"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		rangeHeader := r.Header.Get("Range")
+		if rangeHeader == "" {
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write(content); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+			return
+		}
+		var start, end int
+		_, err := fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end)
+		if err != nil {
+			t.Errorf("invalid range header: %s", rangeHeader)
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		if start < 0 || start > end || start >= len(content) {
+			t.Errorf("invalid range: %s", rangeHeader)
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		end = min(end+1, len(content))
+		w.WriteHeader(http.StatusPartialContent)
+		if _, err := w.Write(content[start:end]); err != nil {
+			t.Errorf("failed to write %q: %v", r.URL, err)
+		}
+	}))
+	defer ts.Close()
+
+	// Seek reconnects eagerly: a seek that changes position sends a Range
+	// request, while seeking to the current offset or past the end sends none.
+	tests := []struct {
+		name         string
+		seeks        []int64
+		wantRequests int
+		want         []byte
+	}{
+		{
+			name:         "three distinct seeks",
+			seeks:        []int64{3, 7, 2},
+			wantRequests: 3,
+			want:         content[2:],
+		},
+		{
+			name:         "seek to current offset",
+			seeks:        []int64{0},
+			wantRequests: 0,
+			want:         content,
+		},
+		{
+			name:         "seek past end",
+			seeks:        []int64{11},
+			wantRequests: 0,
+			want:         nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := ts.Client()
+			resp, err := client.Get(ts.URL + path)
+			if err != nil {
+				t.Fatalf("failed to do request: %v", err)
+			}
+			counter := countingClient{
+				client: client,
+			}
+			rsc := NewReadSeekCloser(&counter, resp.Request, resp.Body, int64(len(content)))
+			defer rsc.Close()
+
+			for _, offset := range tt.seeks {
+				_, err := rsc.Seek(offset, io.SeekStart)
+				if err != nil {
+					t.Errorf("readSeekCloser.Seek() error = %v", err)
+				}
+			}
+
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(rsc); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			if got := buf.Bytes(); !bytes.Equal(got, tt.want) {
+				t.Errorf("readSeekCloser.Read() = %v, want %v", got, tt.want)
+			}
+			if counter.requests != tt.wantRequests {
+				t.Errorf("readSeekCloser.Seek() sent %v requests, want %v", counter.requests, tt.wantRequests)
+			}
+		})
+	}
+}
