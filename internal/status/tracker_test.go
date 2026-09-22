@@ -16,8 +16,10 @@ limitations under the License.
 package status
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -67,5 +69,44 @@ func TestTracker_TryCommit(t *testing.T) {
 	case <-done2:
 	default:
 		t.Fatalf("unexpected in progress")
+	}
+}
+
+// BenchmarkTracker_TryCommit_Hit measures the case where the descriptor is
+// already committed, so the call should not allocate a channel that is
+// immediately thrown away. This is the shape of copyGraph's wait loop in
+// copy.go, which calls TryCommit on every already-committed successor purely
+// to fetch its notification channel.
+func BenchmarkTracker_TryCommit_Hit(b *testing.B) {
+	tracker := NewTracker()
+	var desc ocispec.Descriptor
+	if _, committed := tracker.TryCommit(desc); !committed {
+		b.Fatal("TryCommit() first call should commit")
+	}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, committed := tracker.TryCommit(desc); committed {
+			b.Fatal("TryCommit() should not commit on an already-committed descriptor")
+		}
+	}
+}
+
+// BenchmarkTracker_TryCommit_Miss measures the case where each descriptor is
+// new, so a channel allocation is required. This is the legitimate
+// allocation the fix must not remove.
+func BenchmarkTracker_TryCommit_Miss(b *testing.B) {
+	tracker := NewTracker()
+	descs := make([]ocispec.Descriptor, b.N)
+	for i := range descs {
+		descs[i] = ocispec.Descriptor{Digest: digest.Digest(fmt.Sprintf("sha256:%064d", i))}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, committed := tracker.TryCommit(descs[i]); !committed {
+			b.Fatal("TryCommit() should commit on a new descriptor")
+		}
 	}
 }
