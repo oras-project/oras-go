@@ -16,16 +16,19 @@ limitations under the License.
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -4562,5 +4565,166 @@ func TestClient_fetchBearerToken_RealmRedirect(t *testing.T) {
 				t.Errorf("redirect target received Authorization %q, want %q", got, tt.wantSinkAuth)
 			}
 		})
+	}
+}
+
+// TestClient_send_ConcurrentFirstUse sends the first batch of requests
+// through a single, freshly-constructed *Client from many goroutines at
+// once, so the lazy construction of the cached redirect-safe client races
+// across all of them. Run with -race, this catches a data race in the
+// caching added to send/cachedRedirectSafeClient; without -race it still
+// catches a wrong or nil client being handed to any goroutine.
+func TestClient_send_ConcurrentFirstUse(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	c := &Client{}
+	const goroutines = 64
+
+	var wg sync.WaitGroup
+	errs := make([]error, goroutines)
+	wg.Add(goroutines)
+	for i := range goroutines {
+		go func() {
+			defer wg.Done()
+			req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+			if err != nil {
+				errs[i] = fmt.Errorf("failed to create test request: %w", err)
+				return
+			}
+			resp, err := c.send(req)
+			if err != nil {
+				errs[i] = fmt.Errorf("Client.send() error = %w", err)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				errs[i] = fmt.Errorf("Client.send() = %v, want %v", resp.StatusCode, http.StatusOK)
+			}
+		}()
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: %v", i, err)
+		}
+	}
+
+	// Every goroutine must have observed the same cached wrapper: exactly one
+	// should have been built.
+	if c.redirectSafeClientValue == nil {
+		t.Fatal("cachedRedirectSafeClient was never built")
+	}
+	if got := c.cachedRedirectSafeClient(); got != c.redirectSafeClientValue {
+		t.Errorf("cachedRedirectSafeClient() built a second wrapper after concurrent first use")
+	}
+}
+
+// TestClient_Clone verifies that Clone copies a Client's exported
+// configuration but not its internal, once-only cache state, and that the
+// clone is independent of the original: mutating the clone's fields must not
+// affect the original, which is the property Login relies on.
+func TestClient_Clone(t *testing.T) {
+	original := &Client{
+		Client:   &http.Client{Timeout: 5},
+		Header:   http.Header{"X-Test": {"v"}},
+		Cache:    DefaultCache,
+		ClientID: "original-id",
+	}
+	original.CredentialFunc = func(ctx context.Context, res properties.Resource) (credentials.Credential, error) {
+		return credentials.Credential{Username: "original"}, nil
+	}
+
+	clone := original.Clone()
+	if clone == original {
+		t.Fatal("Clone() returned the same pointer as the original")
+	}
+	if clone.Client != original.Client {
+		t.Error("Clone() did not copy Client")
+	}
+	if !reflect.DeepEqual(clone.Header, original.Header) {
+		t.Error("Clone() did not copy Header")
+	}
+	if clone.Cache != original.Cache {
+		t.Error("Clone() did not copy Cache")
+	}
+	if clone.ClientID != original.ClientID {
+		t.Error("Clone() did not copy ClientID")
+	}
+
+	// Mutating the clone's CredentialFunc, exactly what Login does, must not
+	// affect the original.
+	clone.CredentialFunc = func(ctx context.Context, res properties.Resource) (credentials.Credential, error) {
+		return credentials.Credential{Username: "clone"}, nil
+	}
+	cred, err := original.credential(context.Background(), properties.Resource{})
+	if err != nil {
+		t.Fatalf("original.credential() error = %v", err)
+	}
+	if cred.Username != "original" {
+		t.Errorf("original.CredentialFunc was mutated by Clone(); got username %q, want %q", cred.Username, "original")
+	}
+
+	// The clone must build its own cached redirect-safe client rather than
+	// inheriting the original's, even if the original already sent a
+	// request.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	original.Client = ts.Client()
+	req, err := http.NewRequest(http.MethodGet, ts.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	if _, err := original.send(req); err != nil {
+		t.Fatalf("original.send() error = %v", err)
+	}
+	if original.redirectSafeClientValue == nil {
+		t.Fatal("original did not build its cached redirect-safe client")
+	}
+
+	freshClone := original.Clone()
+	if freshClone.redirectSafeClientValue != nil {
+		t.Error("Clone() copied the original's cached redirect-safe client instead of leaving it unbuilt")
+	}
+}
+
+// noopRoundTripper returns a canned 200 response without touching the
+// network, so benchmarks measure send()'s own overhead rather than transport
+// or loopback cost.
+type noopRoundTripper struct{}
+
+func (noopRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(nil)),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
+}
+
+// BenchmarkClient_send measures the per-call overhead of send, which wraps
+// the underlying *http.Client with a redirect-safe CheckRedirect on every
+// invocation. In real usage, a single *Client sends many requests over its
+// lifetime (one Do call issues up to three sends, and a copy operation issues
+// many Do calls), so the wrapper should only need to be built once.
+func BenchmarkClient_send(b *testing.B) {
+	c := &Client{Client: &http.Client{Transport: noopRoundTripper{}}}
+	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	if err != nil {
+		b.Fatalf("failed to create test request: %v", err)
+	}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		resp, err := c.send(req)
+		if err != nil {
+			b.Fatalf("Client.send() error = %v", err)
+		}
+		resp.Body.Close()
 	}
 }

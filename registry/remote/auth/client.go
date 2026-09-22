@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
@@ -77,6 +78,10 @@ type Client struct {
 	// is already available in the DefaultClient.
 	// It is also possible to use a custom client. For example, github.com/hashicorp/go-retryablehttp
 	// is a popular HTTP client that supports retries.
+	//
+	// Client is read once, on the first request sent through this Client, to
+	// build the redirect-safe wrapper used for every subsequent request.
+	// Changing Client after the first request has no effect.
 	Client *http.Client
 
 	// Header contains the custom headers to be added to each request.
@@ -118,6 +123,36 @@ type Client struct {
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
 	TokenFetcher TokenFetcher
+
+	// redirectSafeClientOnce guards the lazy construction of
+	// redirectSafeClientValue below.
+	redirectSafeClientOnce sync.Once
+
+	// redirectSafeClientValue caches the client returned by
+	// redirectSafeClient(c.client()). The wrapper is stateless with respect
+	// to the request being sent, so it only needs to be built once per
+	// Client rather than on every send.
+	redirectSafeClientValue *http.Client
+}
+
+// Clone returns a shallow copy of c's exported configuration, safe to modify
+// independently of c — for example to attach a different CredentialFunc
+// before use.
+//
+// The clone does not inherit c's cached, lazily-built redirect-safe client;
+// it builds and caches its own the first time it sends a request. This makes
+// Clone the supported way to derive an independent Client: assigning a
+// Client value directly (dst := *c) also copies its internal
+// synchronization state and is unsafe once c has sent a request.
+func (c *Client) Clone() *Client {
+	return &Client{
+		Client:         c.Client,
+		Header:         c.Header,
+		CredentialFunc: c.CredentialFunc,
+		Cache:          c.Cache,
+		ClientID:       c.ClientID,
+		TokenFetcher:   c.TokenFetcher,
+	}
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -129,12 +164,22 @@ func (c *Client) client() *http.Client {
 	return c.Client
 }
 
+// cachedRedirectSafeClient returns the redirect-safe wrapper around c.client(),
+// building it on the first call and reusing it for every subsequent call. Safe
+// for concurrent use.
+func (c *Client) cachedRedirectSafeClient() *http.Client {
+	c.redirectSafeClientOnce.Do(func() {
+		c.redirectSafeClientValue = redirectSafeClient(c.client())
+	})
+	return c.redirectSafeClientValue
+}
+
 // send adds headers to the request and sends the request to the remote server.
 func (c *Client) send(req *http.Request) (*http.Response, error) {
 	for key, values := range c.Header {
 		req.Header[key] = append(req.Header[key], values...)
 	}
-	return redirectSafeClient(c.client()).Do(req)
+	return c.cachedRedirectSafeClient().Do(req)
 }
 
 // redirectSafeClient returns a shallow copy of client whose CheckRedirect drops
