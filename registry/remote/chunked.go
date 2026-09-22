@@ -177,15 +177,20 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 			}
 			return fmt.Errorf("chunked blob push: failed to build PATCH request: %w", err)
 		}
-		if up.auth != "" {
-			req.Header.Set("Authorization", up.auth)
-		}
 		req.Header.Set("Content-Type", "application/octet-stream")
 		req.Header.Set("Content-Range", fmt.Sprintf("%d-%d", up.offset, up.offset+int64(n)-1))
 		req.ContentLength = int64(n)
 		up.consumed = true
-
-		resp, err := s.repo.do(req)
+		resp, err := s.sendChunkRequest(up, req, func() (*http.Request, error) {
+			retry, rerr := http.NewRequestWithContext(ctx, http.MethodPatch, up.location.String(), bytes.NewReader(buf[:n]))
+			if rerr != nil {
+				return nil, rerr
+			}
+			retry.Header.Set("Content-Type", "application/octet-stream")
+			retry.Header.Set("Content-Range", fmt.Sprintf("%d-%d", up.offset, up.offset+int64(n)-1))
+			retry.ContentLength = int64(n)
+			return retry, nil
+		})
 		if err != nil {
 			s.cancelUpload(ctx, up.location)
 			return fmt.Errorf("chunked blob push: PATCH failed after %d bytes: %w", up.offset, err)
@@ -196,11 +201,6 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 			s.cancelUpload(ctx, up.location)
 			return fmt.Errorf("chunked blob push: unexpected PATCH status %d after %d bytes: %w", resp.StatusCode, up.offset, respErr)
 		}
-		if resp.Request != nil {
-			if auth := resp.Request.Header.Get("Authorization"); auth != "" {
-				up.auth = auth
-			}
-		}
 		next, err := resolveUploadLocation(resp, req)
 		resp.Body.Close()
 		if err != nil {
@@ -210,6 +210,45 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 		up.location = next
 		up.offset += int64(n)
 	}
+}
+
+// sendChunkRequest sends req, reusing the session Authorization header when set.
+// A cached header lets auth.Client.Do skip its challenge round trip, but it also
+// suppresses token refresh (auth/client.go returns early when Authorization is
+// present). Registry tokens routinely expire mid-upload, so on a 401 the header
+// is dropped and the request is rebuilt and retried once, letting the auth
+// client re-authenticate. The refreshed token is captured back into up.auth for
+// the remaining requests. rebuild must return an equivalent request carrying no
+// Authorization header (the body is re-supplied from the caller's buffer).
+func (s *blobStore) sendChunkRequest(up *chunkedUpload, req *http.Request, rebuild func() (*http.Request, error)) (*http.Response, error) {
+	if up.auth != "" {
+		req.Header.Set("Authorization", up.auth)
+	}
+	resp, err := s.repo.do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized && up.auth != "" {
+		// The cached token was rejected; drop it and let the auth client
+		// re-authenticate on a fresh request.
+		resp.Body.Close()
+		up.auth = ""
+		retry, rerr := rebuild()
+		if rerr != nil {
+			return nil, rerr
+		}
+		resp, err = s.repo.do(retry)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Carry the (possibly refreshed) Authorization header forward.
+	if resp.Request != nil {
+		if auth := resp.Request.Header.Get("Authorization"); auth != "" {
+			up.auth = auth
+		}
+	}
+	return resp, nil
 }
 
 // closeUploadSession issues the final PUT that commits the blob under
@@ -224,13 +263,18 @@ func (s *blobStore) closeUploadSession(ctx context.Context, up *chunkedUpload, f
 		s.cancelUpload(ctx, up.location)
 		return fmt.Errorf("chunked blob push: failed to build PUT request: %w", err)
 	}
-	if up.auth != "" {
-		req.Header.Set("Authorization", up.auth)
-	}
 	req.ContentLength = 0
 	req.Header.Set("Content-Type", "application/octet-stream")
 
-	resp, err := s.repo.do(req)
+	resp, err := s.sendChunkRequest(up, req, func() (*http.Request, error) {
+		retry, rerr := http.NewRequestWithContext(ctx, http.MethodPut, up.location.String(), http.NoBody)
+		if rerr != nil {
+			return nil, rerr
+		}
+		retry.ContentLength = 0
+		retry.Header.Set("Content-Type", "application/octet-stream")
+		return retry, nil
+	})
 	if err != nil {
 		return fmt.Errorf("chunked blob push: PUT failed: %w", err)
 	}

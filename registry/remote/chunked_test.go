@@ -1011,3 +1011,84 @@ func TestRepository_Push_ChunkedSessionPOSTTransportErrorFallsBack(t *testing.T)
 		t.Errorf("expected monolithic push (0 PATCH), got %d", reg.patchCount())
 	}
 }
+
+// TestRepository_Push_ChunkedReauthenticatesOnTokenRotation reproduces a
+// registry whose bearer token expires mid-upload. The session POST authenticates
+// with the first token, which the chunked path caches on up.auth. Before the
+// first PATCH the registry rotates its token, so the cached credential is
+// rejected with 401. The push must drop the stale token, let auth.Client
+// re-authenticate against the token endpoint, retry the chunk, and finish under
+// the refreshed token. Without the 401 retry the PATCH would fail outright,
+// because a set Authorization header makes auth.Client.Do skip token refresh.
+func TestRepository_Push_ChunkedReauthenticatesOnTokenRotation(t *testing.T) {
+	const service = "test-service"
+
+	var mu sync.Mutex
+	issued := 0
+	validToken := ""
+	rotateOnNextPatch := true
+
+	authSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		issued++
+		validToken = fmt.Sprintf("session-%d", issued)
+		token := validToken
+		mu.Unlock()
+		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, token); err != nil {
+			t.Errorf("failed to write token response: %v", err)
+		}
+	}))
+	defer authSrv.Close()
+
+	reg := &chunkedUploadRegistry{t: t}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		challenge := func() {
+			c := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", authSrv.URL, service, "repository:test:push,pull")
+			w.Header().Set("Www-Authenticate", c)
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+		got := r.Header.Get("Authorization")
+		mu.Lock()
+		want := "Bearer " + validToken
+		// Rotate the token exactly once, just before the first PATCH is served,
+		// so the credential cached from the POST is stale on that PATCH.
+		if r.Method == http.MethodPatch && rotateOnNextPatch {
+			rotateOnNextPatch = false
+			validToken = ""
+			want = ""
+		}
+		mu.Unlock()
+		if validToken == "" || got != want {
+			challenge()
+			return
+		}
+		reg.handler().ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	blob := []byte("hello") // 5 bytes -> chunks 2+2+1
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	repo := newChunkedTestRepo(t, srv, 2)
+	if err := repo.Blobs().Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+
+	if !bytes.Equal(reg.uploaded, blob) {
+		t.Errorf("uploaded = %q, want %q", reg.uploaded, blob)
+	}
+	wantRanges := []string{"0-1", "2-3", "4-4"}
+	if got := reg.contentRanges; !equalStrings(got, wantRanges) {
+		t.Errorf("content ranges = %v, want %v", got, wantRanges)
+	}
+	if reg.digestQuery != desc.Digest.String() {
+		t.Errorf("PUT digest = %q, want %q", reg.digestQuery, desc.Digest.String())
+	}
+	if reg.cancelled {
+		t.Error("session was cancelled; re-auth retry should have recovered the upload")
+	}
+}
