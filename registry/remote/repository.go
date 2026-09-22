@@ -2150,7 +2150,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 		contentDigest = serverHeaderDigest
 	}
 
-	if len(refDigest) > 0 && len(serverHeaderDigest) > 0 && contentDigest.Algorithm() != refDigest.Algorithm() {
+	if httpMethod == http.MethodGet && len(refDigest) > 0 && len(serverHeaderDigest) > 0 && contentDigest.Algorithm() != refDigest.Algorithm() {
 		// A registry may report a canonical digest using a different algorithm.
 		// Preserve the requested identity, verifying it against the body for GET.
 		if httpMethod == http.MethodGet {
@@ -2180,15 +2180,24 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // verifyPullContentDigest permits a different canonical digest algorithm on
 // manifest pulls, but verifies the returned bytes against the requested digest.
 // Pushes deliberately continue to use verifyContentDigest's strict comparison.
+// Alternate algorithms and headerless chunked responses buffer at most
+// MaxMetadataBytes before returning the verified body to the caller.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
 	canonical, err := digest.Parse(resp.Header.Get(headerDockerContentDigest))
-	if err != nil || !expected.Algorithm().Available() || canonical.Algorithm() == expected.Algorithm() {
+	headerlessChunked := resp.Header.Get(headerDockerContentDigest) == "" && resp.ContentLength == -1
+	if !expected.Algorithm().Available() || (!headerlessChunked && (err != nil || canonical.Algorithm() == expected.Algorithm())) {
 		return verifyContentDigest(resp, expected)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(limitReader(resp.Body, s.repo.maxMetadataBytes()))
 	if err != nil {
-		return err
+		return fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	var extra [1]byte
+	if n, err := io.ReadFull(resp.Body, extra[:]); n > 0 {
+		return fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, errdef.ErrSizeExceedsLimit)
+	} else if err != nil && err != io.EOF {
+		return fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	if actual := expected.Algorithm().FromBytes(body); actual != expected {
 		return fmt.Errorf("%s %q: invalid response; content digest mismatch: received %q when expecting %q; %w",
