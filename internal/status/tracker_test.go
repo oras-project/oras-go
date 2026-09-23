@@ -16,10 +16,8 @@ limitations under the License.
 package status
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
