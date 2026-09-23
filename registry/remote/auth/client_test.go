@@ -4693,6 +4693,40 @@ func TestClient_Clone(t *testing.T) {
 	}
 }
 
+// TestClient_Clone_copiesEveryExportedField fails when an exported field is
+// added to Client but not to Clone, which would otherwise be a silent drop:
+// Login would quietly stop carrying that field onto its local client. It sets
+// every exported field to a non-zero value, clones, and asserts none came back
+// zero.
+func TestClient_Clone_copiesEveryExportedField(t *testing.T) {
+	original := &Client{
+		Client: &http.Client{},
+		Header: http.Header{"X-Test": {"v"}},
+		CredentialFunc: func(context.Context, properties.Resource) (credentials.Credential, error) {
+			return credentials.EmptyCredential, nil
+		},
+		Cache:        DefaultCache,
+		ClientID:     "original-id",
+		TokenFetcher: NewCompositeTokenFetcher(nil, nil, "", false),
+	}
+
+	originalValue := reflect.ValueOf(original).Elem()
+	cloneValue := reflect.ValueOf(original.Clone()).Elem()
+	clientType := originalValue.Type()
+	for i := range clientType.NumField() {
+		field := clientType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		if originalValue.Field(i).IsZero() {
+			t.Fatalf("test needs updating: original.%s is zero, so Clone cannot be checked for it", field.Name)
+		}
+		if cloneValue.Field(i).IsZero() {
+			t.Errorf("Clone() did not copy exported field %s", field.Name)
+		}
+	}
+}
+
 // noopRoundTripper returns a canned 200 response without touching the
 // network, so benchmarks measure send()'s own overhead rather than transport
 // or loopback cost.
