@@ -1,0 +1,8 @@
+default-docker:
+  lookaside: https://sigstore.example.com
+docker:
+  registry.example.com:
+    lookaside: https://sigstore.example.com/registry
+  registry.example.com/namespace:
+    lookaside: https://sigstore.example.com/namespace
+    lookaside-staging: https://sigstore-staging.example.com/namespace

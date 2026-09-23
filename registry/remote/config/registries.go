@@ -1,0 +1,546 @@
+/*
+Copyright The ORAS Authors.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/BurntSushi/toml"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
+)
+
+// RegistriesConfig represents a registries.conf configuration file.
+// Reference: https://github.com/containers/image/blob/main/docs/containers-registries.conf.5.md
+type RegistriesConfig struct {
+	// UnqualifiedSearchRegistries is the list of registries to try when pulling unqualified images.
+	UnqualifiedSearchRegistries []string `toml:"unqualified-search-registries"`
+	// ShortNameMode controls short-name lookup behavior: "enforcing", "permissive", or "disabled".
+	ShortNameMode string `toml:"short-name-mode"`
+	// Registries is a list of registry configurations.
+	Registries []Registry `toml:"registry"`
+	// Aliases maps short names to fully qualified references.
+	Aliases map[string]string `toml:"aliases"`
+}
+
+// Registry represents configuration for a specific registry namespace.
+type Registry struct {
+	// Prefix identifies which images match this configuration (e.g., "docker.io", "*.example.com").
+	Prefix string `toml:"prefix"`
+	// Location is the actual registry location (defaults to Prefix if empty).
+	Location string `toml:"location"`
+	// Insecure allows HTTP or unverified HTTPS.
+	Insecure bool `toml:"insecure"`
+	// Blocked prevents pulling from this registry.
+	Blocked bool `toml:"blocked"`
+	// Mirrors is a list of mirror configurations.
+	Mirrors []Mirror `toml:"mirror"`
+	// MirrorByDigestOnly restricts mirrors to digest-based pulls only.
+	MirrorByDigestOnly bool `toml:"mirror-by-digest-only"`
+	// TokenFlow selects how a bearer token is acquired for username/password
+	// credentials when the registry issues a Bearer challenge. Valid values:
+	// "oauth2" (default) and "distribution". Use "distribution" for registries
+	// that implement only the distribution-spec token endpoint and not the
+	// OAuth2 password grant, which is a Docker extension. This is an
+	// ORAS-specific field and may be ignored by other tools that parse
+	// registries.conf.
+	TokenFlow string `toml:"token-flow"`
+	// ReferrersAPI indicates whether the registry supports the OCI Referrers
+	// API. Valid values: "supported", "unsupported". An empty or unrecognized
+	// value defaults to auto-detection on first use. This is an ORAS-specific
+	// field and may be ignored by other tools that parse registries.conf.
+	ReferrersAPI string `toml:"referrers-api"`
+}
+
+// Mirror represents a registry mirror configuration.
+type Mirror struct {
+	// Location is the mirror's address.
+	Location string `toml:"location"`
+	// Insecure allows HTTP or unverified HTTPS for this mirror.
+	Insecure bool `toml:"insecure"`
+	// PullFromMirror controls when to use this mirror: "all", "digest-only", or "tag-only".
+	PullFromMirror string `toml:"pull-from-mirror"`
+}
+
+// ErrRegistriesConfigNotFound is returned when no registries.conf file is found.
+var ErrRegistriesConfigNotFound = fmt.Errorf("registries.conf not found")
+
+// Default system paths for registries.conf.
+var (
+	systemRegistriesConfPath    = "/etc/containers/registries.conf"
+	systemRegistriesConfDirPath = "/etc/containers/registries.conf.d"
+)
+
+// LoadRegistriesConfig loads a registries.conf file from the given path.
+func LoadRegistriesConfig(path string) (*RegistriesConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read registries config at %s: %w", path, err)
+	}
+
+	var config RegistriesConfig
+	if err := toml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse registries config at %s: %w", path, err)
+	}
+
+	// Initialize maps if nil
+	if config.Aliases == nil {
+		config.Aliases = make(map[string]string)
+	}
+
+	return &config, nil
+}
+
+// LoadSystemRegistriesConfig loads registries.conf from system default locations.
+// Load order (each layer overrides the previous):
+//  1. /etc/containers/registries.conf (or platform equivalent)
+//  2. /etc/containers/registries.conf.d/*.conf (alpha-numerical order)
+//  3. $HOME/.config/containers/registries.conf
+//  4. $HOME/.config/containers/registries.conf.d/*.conf (alpha-numerical order)
+func LoadSystemRegistriesConfig() (*RegistriesConfig, error) {
+	var config *RegistriesConfig
+
+	// 1. Load system config.
+	if _, err := os.Stat(systemRegistriesConfPath); err == nil {
+		cfg, err := LoadRegistriesConfig(systemRegistriesConfPath)
+		if err != nil {
+			return nil, err
+		}
+		config = cfg
+	}
+
+	// 2. Load and merge system drop-in configs.
+	config, err := loadDropInConfigs(config, systemRegistriesConfDirPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Load and merge user config.
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		userConfigPath := filepath.Join(homeDir, ".config", "containers", "registries.conf")
+		if cfg, err := LoadRegistriesConfig(userConfigPath); err == nil {
+			if config == nil {
+				config = cfg
+			} else {
+				config = mergeRegistriesConfig(config, cfg)
+			}
+		}
+
+		// 4. Load and merge user drop-in configs.
+		userDropInPath := filepath.Join(homeDir, ".config", "containers", "registries.conf.d")
+		config, err = loadDropInConfigs(config, userDropInPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if config == nil {
+		return nil, ErrRegistriesConfigNotFound
+	}
+
+	return config, nil
+}
+
+// LoadSystemRegistriesConfigWithStrategy loads registries.conf using the
+// specified path resolution strategy.
+//
+// With [StrategyContainersImage] (default), all tiers are merged:
+//  1. System registries.conf (e.g., /etc/containers/registries.conf)
+//  2. System drop-ins (e.g., /etc/containers/registries.conf.d/*.conf)
+//  3. User registries.conf (e.g., $HOME/.config/containers/registries.conf)
+//  4. User drop-ins (e.g., $HOME/.config/containers/registries.conf.d/*.conf)
+//
+// With [StrategyUAPI] (EXPERIMENTAL), the first main config found wins
+// (user → system → vendor), but drop-ins from all tiers are always merged.
+func LoadSystemRegistriesConfigWithStrategy(strategy Strategy) (*RegistriesConfig, error) {
+	resolver := configpaths.NewResolver(configpaths.Strategy(strategy))
+	return loadRegistriesConfigFromResolver(resolver)
+}
+
+// loadRegistriesConfigFromResolver loads registries.conf using the given
+// path resolver.
+func loadRegistriesConfigFromResolver(resolver configpaths.PathResolver) (*RegistriesConfig, error) {
+	var config *RegistriesConfig
+
+	mainPaths := resolver.MainConfigPaths("registries")
+	dropInDirs := resolver.DropInDirs("registries")
+
+	switch resolver.MergeStrategy() {
+	case configpaths.FirstFoundWins:
+		// UAPI: use the first main config found.
+		for _, path := range mainPaths {
+			if _, err := os.Stat(path); err == nil {
+				cfg, err := LoadRegistriesConfig(path)
+				if err != nil {
+					return nil, err
+				}
+				config = cfg
+				break
+			}
+		}
+		// Drop-ins: merge from all tiers with same-filename replacement.
+		var err error
+		config, err = loadDropInConfigsUAPI(config, dropInDirs)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		// MergeAll: merge all main configs and drop-ins in order.
+		for _, path := range mainPaths {
+			if _, err := os.Stat(path); err == nil {
+				cfg, err := LoadRegistriesConfig(path)
+				if err != nil {
+					return nil, err
+				}
+				if config == nil {
+					config = cfg
+				} else {
+					config = mergeRegistriesConfig(config, cfg)
+				}
+			}
+		}
+		for _, dir := range dropInDirs {
+			var err error
+			config, err = loadDropInConfigs(config, dir)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if config == nil {
+		return nil, ErrRegistriesConfigNotFound
+	}
+
+	return config, nil
+}
+
+// loadDropInConfigs loads and merges all .conf files from the given directory.
+func loadDropInConfigs(config *RegistriesConfig, dirPath string) (*RegistriesConfig, error) {
+	if _, err := os.Stat(dirPath); err != nil {
+		return config, nil
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read drop-in directory %s: %w", dirPath, err)
+	}
+
+	// Sort entries for alpha-numerical ordering
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".conf") {
+			continue
+		}
+
+		confPath := filepath.Join(dirPath, entry.Name())
+		dropInConfig, err := LoadRegistriesConfig(confPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load drop-in config %s: %w", confPath, err)
+		}
+
+		if config == nil {
+			config = dropInConfig
+		} else {
+			config = mergeRegistriesConfig(config, dropInConfig)
+		}
+	}
+
+	return config, nil
+}
+
+// loadDropInConfigsUAPI loads drop-in configs from multiple directories using
+// UAPI semantics: if a file with the same name exists in a later directory,
+// it replaces the one from the earlier directory. After deduplication, files
+// are sorted lexicographically and merged in order.
+func loadDropInConfigsUAPI(config *RegistriesConfig, dirs []string) (*RegistriesConfig, error) {
+	// Collect all .conf files across all directories. Later directories
+	// override earlier ones when filenames collide.
+	type dropInEntry struct {
+		name string
+		path string
+	}
+	seen := make(map[string]int) // filename → index in entries
+	var entries []dropInEntry
+
+	for _, dirPath := range dirs {
+		if _, err := os.Stat(dirPath); err != nil {
+			continue
+		}
+		dirEntries, err := os.ReadDir(dirPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read drop-in directory %s: %w", dirPath, err)
+		}
+		for _, e := range dirEntries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+				continue
+			}
+			if idx, ok := seen[e.Name()]; ok {
+				// Replace earlier entry with same filename.
+				entries[idx] = dropInEntry{name: e.Name(), path: filepath.Join(dirPath, e.Name())}
+			} else {
+				seen[e.Name()] = len(entries)
+				entries = append(entries, dropInEntry{name: e.Name(), path: filepath.Join(dirPath, e.Name())})
+			}
+		}
+	}
+
+	// Sort lexicographically by filename.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].name < entries[j].name
+	})
+
+	// Load and merge in order.
+	for _, entry := range entries {
+		dropInConfig, err := LoadRegistriesConfig(entry.path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load drop-in config %s: %w", entry.path, err)
+		}
+		if config == nil {
+			config = dropInConfig
+		} else {
+			config = mergeRegistriesConfig(config, dropInConfig)
+		}
+	}
+
+	return config, nil
+}
+
+// mergeRegistriesConfig merges the drop-in config into the base config.
+// Drop-in configs override or extend the base configuration.
+func mergeRegistriesConfig(base, dropIn *RegistriesConfig) *RegistriesConfig {
+	result := &RegistriesConfig{
+		UnqualifiedSearchRegistries: base.UnqualifiedSearchRegistries,
+		ShortNameMode:               base.ShortNameMode,
+		Registries:                  make([]Registry, len(base.Registries)),
+		Aliases:                     make(map[string]string),
+	}
+
+	// Copy base registries
+	copy(result.Registries, base.Registries)
+
+	// Copy base aliases
+	for k, v := range base.Aliases {
+		result.Aliases[k] = v
+	}
+
+	// Override with drop-in values
+	if len(dropIn.UnqualifiedSearchRegistries) > 0 {
+		result.UnqualifiedSearchRegistries = dropIn.UnqualifiedSearchRegistries
+	}
+	if dropIn.ShortNameMode != "" {
+		result.ShortNameMode = dropIn.ShortNameMode
+	}
+
+	// Merge registries (drop-in registries with same prefix override base)
+	for _, dropInReg := range dropIn.Registries {
+		found := false
+		for i, baseReg := range result.Registries {
+			if baseReg.Prefix == dropInReg.Prefix {
+				result.Registries[i] = dropInReg
+				found = true
+				break
+			}
+		}
+		if !found {
+			result.Registries = append(result.Registries, dropInReg)
+		}
+	}
+
+	// Merge aliases (drop-in aliases override base)
+	for k, v := range dropIn.Aliases {
+		result.Aliases[k] = v
+	}
+
+	return result
+}
+
+// FindRegistry finds the best matching registry configuration for the given image reference.
+// It matches by longest prefix first and supports wildcard prefixes like "*.example.com".
+func (rc *RegistriesConfig) FindRegistry(ref string) *Registry {
+	if rc == nil {
+		return nil
+	}
+
+	var bestMatch *Registry
+	bestMatchLen := -1
+
+	for i := range rc.Registries {
+		reg := &rc.Registries[i]
+		prefix := reg.Prefix
+		if prefix == "" {
+			continue
+		}
+
+		if matchesPrefix(ref, prefix) {
+			matchLen := len(prefix)
+			// For wildcard prefixes, use the non-wildcard part length
+			if strings.HasPrefix(prefix, "*.") {
+				matchLen = len(prefix) - 1 // Account for the wildcard
+			}
+
+			if matchLen > bestMatchLen {
+				bestMatch = reg
+				bestMatchLen = matchLen
+			}
+		}
+	}
+
+	return bestMatch
+}
+
+// matchesPrefix checks if the reference matches the given prefix.
+// Supports wildcard prefixes like "*.example.com".
+// The host part is compared case-insensitively on both sides, since the
+// prefix comes from user-authored TOML and the reference from the caller.
+func matchesPrefix(ref, prefix string) bool {
+	ref, prefix = lowerHost(ref), lowerHost(prefix)
+
+	// Handle wildcard prefix
+	if strings.HasPrefix(prefix, "*.") {
+		suffix := prefix[1:] // Remove the "*", keep the "."
+		// Check if ref ends with the suffix or if the ref's host part matches
+		refHost := extractHost(ref)
+		return strings.HasSuffix(refHost, suffix)
+	}
+
+	// Exact prefix match or ref starts with prefix followed by "/" or ":"
+	if ref == prefix {
+		return true
+	}
+	if strings.HasPrefix(ref, prefix+"/") {
+		return true
+	}
+	if strings.HasPrefix(ref, prefix+":") {
+		return true
+	}
+	// Check if prefix matches the registry host
+	if strings.HasPrefix(ref, prefix) && (len(ref) == len(prefix) || ref[len(prefix)] == '/' || ref[len(prefix)] == ':') {
+		return true
+	}
+
+	return false
+}
+
+// extractHost extracts the host part from a reference.
+func extractHost(ref string) string {
+	// Remove any tag or digest suffix first
+	if idx := strings.Index(ref, "@"); idx != -1 {
+		ref = ref[:idx]
+	}
+	if idx := strings.Index(ref, ":"); idx != -1 {
+		// Check if this is a port number or tag
+		rest := ref[idx+1:]
+		if strings.Contains(rest, "/") {
+			// This is a port number, keep looking
+		} else if !strings.Contains(ref[:idx], "/") {
+			// No slash before colon and no slash after, this is host:port or host:tag
+			// If there's no slash at all, treat the whole thing as the host
+			return ref
+		}
+	}
+
+	// Get the first path component
+	if idx := strings.Index(ref, "/"); idx != -1 {
+		return ref[:idx]
+	}
+
+	return ref
+}
+
+// lowerHost lower-cases the host part of a reference or prefix, leaving the
+// case-sensitive repository, tag and digest untouched.
+func lowerHost(ref string) string {
+	host := extractHost(ref)
+	// extractHost cannot tell a port from a tag in a slash-less reference, so
+	// it hands back "myimage:V1" whole. Fold only up to the ":" so a short-name
+	// tag survives; a port is digits, and folding it would be a no-op anyway.
+	name, _, _ := strings.Cut(host, ":")
+	return strings.ToLower(name) + ref[len(name):]
+}
+
+// ResolveAlias resolves a short name to a fully qualified reference.
+func (rc *RegistriesConfig) ResolveAlias(shortName string) (string, bool) {
+	if rc == nil || rc.Aliases == nil {
+		return "", false
+	}
+
+	resolved, ok := rc.Aliases[shortName]
+	return resolved, ok
+}
+
+// IsBlocked returns true if the given reference is blocked.
+func (rc *RegistriesConfig) IsBlocked(ref string) bool {
+	reg := rc.FindRegistry(ref)
+	if reg == nil {
+		return false
+	}
+	return reg.Blocked
+}
+
+// GetMirrors returns the mirrors for the given reference, in order of preference.
+func (rc *RegistriesConfig) GetMirrors(ref string) []Mirror {
+	reg := rc.FindRegistry(ref)
+	if reg == nil {
+		return nil
+	}
+	return reg.Mirrors
+}
+
+// RewriteReference rewrites a reference to its actual location.
+// If the registry has a Location specified, the prefix is replaced with it.
+func (rc *RegistriesConfig) RewriteReference(ref string) string {
+	reg := rc.FindRegistry(ref)
+	if reg == nil {
+		return ref
+	}
+
+	// If no location specified, return the original reference
+	if reg.Location == "" {
+		return ref
+	}
+
+	prefix := reg.Prefix
+	location := reg.Location
+
+	// Handle wildcard prefixes
+	if strings.HasPrefix(prefix, "*.") {
+		// For wildcard prefixes, we don't rewrite
+		return ref
+	}
+
+	// Replace prefix with location
+	if lref, lprefix := lowerHost(ref), lowerHost(prefix); strings.HasPrefix(lref, lprefix) {
+		return location + lref[len(lprefix):]
+	}
+
+	return ref
+}
+
+// GetLocation returns the effective location for a registry.
+// If Location is empty, returns the Prefix.
+func (r *Registry) GetLocation() string {
+	if r.Location != "" {
+		return r.Location
+	}
+	return r.Prefix
+}
