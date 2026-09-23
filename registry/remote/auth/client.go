@@ -79,9 +79,13 @@ type Client struct {
 	// It is also possible to use a custom client. For example, github.com/hashicorp/go-retryablehttp
 	// is a popular HTTP client that supports retries.
 	//
-	// Client is read once, on the first request sent through this Client, to
-	// build the redirect-safe wrapper used for every subsequent request.
-	// Changing Client after the first request has no effect.
+	// The Client field and the *http.Client it points to are both read once,
+	// on the first request sent through this Client, to build the
+	// redirect-safe wrapper used for every subsequent request. After that
+	// first request, neither reassigning Client nor mutating the fields of
+	// the http.Client it points to (Transport, Timeout, Jar, CheckRedirect)
+	// has any effect. Configure the client fully before first use, or derive
+	// a separately-configured one with Clone.
 	Client *http.Client
 
 	// Header contains the custom headers to be added to each request.
