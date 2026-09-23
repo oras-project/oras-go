@@ -139,9 +139,11 @@ type Client struct {
 	redirectSafeClientValue *http.Client
 }
 
-// Clone returns a shallow copy of c's exported configuration, safe to modify
-// independently of c — for example to attach a different CredentialFunc
-// before use.
+// Clone returns a shallow copy of c's exported configuration. Assigning to the
+// clone's fields does not affect c — for example to attach a different
+// CredentialFunc before use — but the Header map and the Cache and Client
+// values it references are shared with c, so mutating those through the clone
+// is visible to c as well.
 //
 // The clone does not inherit c's cached, lazily-built redirect-safe client;
 // it builds and caches its own the first time it sends a request. This makes
