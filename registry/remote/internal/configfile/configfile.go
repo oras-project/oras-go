@@ -153,11 +153,21 @@ func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
 		// can be stored as "https://registry.example.com/".
 		var matched bool
 		for addr, auth := range cfg.authsCache {
-			if ToHostname(addr) == serverAddress {
-				matched = true
-				authCfgBytes = auth
-				break
+			if ToHostname(addr) != serverAddress {
+				continue
 			}
+			// Ensure the match is for a scheme-prefixed key only, not a
+			// namespaced key that happens to share the same hostname.
+			// e.g., "https://example.com/" matches "example.com", but
+			// "example.com/team-a" must not match "example.com".
+			schemeStripped := strings.TrimPrefix(addr, "http://")
+			schemeStripped = strings.TrimPrefix(schemeStripped, "https://")
+			if strings.ContainsRune(schemeStripped, '/') {
+				continue
+			}
+			matched = true
+			authCfgBytes = auth
+			break
 		}
 		if !matched {
 			return AuthConfig{}, nil
