@@ -39,16 +39,16 @@ func Login(ctx context.Context, store credentials.Store, reg *Registry, cred cre
 	// authentication changes do not modify the caller's registry.
 	regClone := *reg
 	// we use the original client if applicable, otherwise use a default client
-	var authClient auth.Client
+	var authClient *auth.Client
 	if reg.Client == nil {
-		authClient = *auth.DefaultClient
+		authClient = auth.DefaultClient.Clone()
 		authClient.Cache = nil // no cache
 	} else if client, ok := reg.Client.(*auth.Client); ok {
-		authClient = *client
+		authClient = client.Clone()
 	} else {
 		return ErrClientTypeUnsupported
 	}
-	regClone.Client = &authClient
+	regClone.Client = authClient
 	// update credentials with the client
 	authClient.CredentialFunc = credentials.StaticCredentialFunc(reg.Reference.Registry, cred)
 	// validate and store the credential
