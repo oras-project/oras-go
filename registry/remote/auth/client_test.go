@@ -4629,7 +4629,7 @@ func TestClient_send_ConcurrentFirstUse(t *testing.T) {
 // affect the original, which is the property Login relies on.
 func TestClient_Clone(t *testing.T) {
 	original := &Client{
-		Client:   &http.Client{Timeout: 5},
+		Client:   &http.Client{},
 		Header:   http.Header{"X-Test": {"v"}},
 		Cache:    DefaultCache,
 		ClientID: "original-id",
