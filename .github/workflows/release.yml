@@ -57,11 +57,14 @@ jobs:
           echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
+        env:
+          MERGE_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ steps.version.outputs.version }} ${{ github.event.pull_request.merge_commit_sha }}
-          git push origin ${{ steps.version.outputs.version }}
+          git tag "$VERSION" "$MERGE_COMMIT"
+          git push origin "$VERSION"
 
       - name: Write release notes from PR body
         env:
