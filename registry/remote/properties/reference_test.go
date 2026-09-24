@@ -204,6 +204,18 @@ func TestNewReferenceList(t *testing.T) {
 			wantDigests: []string{"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
 		},
 		{
+			name:        "tag with spaces and digest",
+			input:       "localhost:5000/repo: v1 @sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			wantCount:   1,
+			wantTags:    []string{"v1"},
+			wantDigests: []string{"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+		},
+		{
+			name:    "invalid tag with digest",
+			input:   "localhost:5000/repo:bad tag@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			wantErr: true,
+		},
+		{
 			name:    "tags with digest",
 			input:   "localhost:5000/repo:v1,v2@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 			wantErr: true,

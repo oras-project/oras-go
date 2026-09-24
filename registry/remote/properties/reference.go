@@ -149,7 +149,8 @@ func NewReference(artifact string) (Reference, error) {
 //
 // All references in the list must be of the same type (either all tags or all digests),
 // so a tag list followed by a digest, such as "repository:tag1,tag2@digest", is rejected.
-// A single "repository:tag@digest" is returned as one reference, as NewReference parses it.
+// A single "repository:tag@digest" is returned as one reference with both the tag and
+// the digest, and its tag is trimmed and validated like the tags in a list.
 func NewReferenceList(artifact string) ([]Reference, error) {
 	// Strip URI schemes if present
 	artifact = strings.TrimPrefix(artifact, "oci://")
@@ -166,13 +167,16 @@ func NewReferenceList(artifact string) ([]Reference, error) {
 		return nil, err
 	}
 	if tagRef != "" && digestRef != "" {
-		// A single tag with a digest is one reference, parsed as NewReference
-		// does. A list of tags cannot share a digest.
+		// A single tag with a digest is one reference; a list cannot share one.
 		if strings.Contains(tagRef, ",") {
 			return nil, fmt.Errorf("%w: a list of tags cannot be combined with a digest", errdef.ErrInvalidReference)
 		}
-		ref, err := NewReference(artifact)
+		tag := strings.TrimSpace(tagRef)
+		ref, err := NewReference(registry + "/" + repository + ":" + tag + "@" + digestRef)
 		if err != nil {
+			return nil, err
+		}
+		if err := ref.ValidateTag(); err != nil {
 			return nil, err
 		}
 		return []Reference{ref}, nil
