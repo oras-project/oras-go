@@ -122,6 +122,61 @@ func TestLogin(t *testing.T) {
 	}
 }
 
+// TestLogin_customClientNotMutated exercises the branch of Login that reuses
+// an existing *auth.Client (reg.Client set to a non-nil *auth.Client), and
+// verifies that Login's local client is independent of the original: the
+// original's CredentialFunc must be unchanged after Login runs, matching
+// Login's documented "will not modify the original client" contract.
+func TestLogin_customClientNotMutated(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wantedAuthHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(testUsername+":"+testPassword))
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != wantedAuthHeader {
+			w.Header().Set("Www-Authenticate", `Basic realm="Test Server"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer ts.Close()
+	uri, _ := url.Parse(ts.URL)
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		t.Fatalf("cannot create test registry: %v", err)
+	}
+	reg.PlainHTTP = true
+
+	originalCredentialFunc := func(context.Context, properties.Resource) (credentials.Credential, error) {
+		return credentials.EmptyCredential, nil
+	}
+	customClient := &auth.Client{
+		Header:         http.Header{"X-Test": {"v"}},
+		CredentialFunc: originalCredentialFunc,
+	}
+	reg.Client = customClient
+
+	s := &testStore{}
+	cred := credentials.Credential{Username: testUsername, Password: testPassword}
+	if err := Login(context.Background(), s, reg, cred); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	if got := s.storage[reg.Reference.Registry]; !reflect.DeepEqual(got, cred) {
+		t.Fatalf("Stored credential = %v, want %v", got, cred)
+	}
+	// The registry's client must be unchanged, and its CredentialFunc must
+	// still be the one set before Login, not the login credential Login
+	// attached to its own local clone.
+	if reg.Client != customClient {
+		t.Fatal("Login replaced reg.Client instead of leaving it untouched")
+	}
+	gotCred, err := customClient.CredentialFunc(context.Background(), properties.Resource{})
+	if err != nil {
+		t.Fatalf("customClient.CredentialFunc() error = %v", err)
+	}
+	if gotCred != credentials.EmptyCredential {
+		t.Error("Login mutated the original client's CredentialFunc")
+	}
+}
+
 func TestLogin_unsupportedClient(t *testing.T) {
 	var testClient http.Client
 	reg, err := NewRegistry("whatever")
