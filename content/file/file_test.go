@@ -1582,6 +1582,86 @@ func TestStore_File_Push_RestoreDuplicates(t *testing.T) {
 	}
 }
 
+func TestStore_File_Push_RestoreDuplicates_IgnoreNoName(t *testing.T) {
+	mediaType := "test"
+	content := []byte("hello world")
+	desc1 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob1",
+		},
+	}
+	desc2 := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "blob2",
+		},
+	}
+	config := []byte("{}")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	manifest := ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{desc1, desc2},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifestJSON),
+		Size:      int64(len(manifestJSON)),
+	}
+
+	for _, forceCAS := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ForceCAS=%v", forceCAS), func(t *testing.T) {
+			s, err := New(t.TempDir())
+			if err != nil {
+				t.Fatal("Store.New() error =", err)
+			}
+			defer s.Close()
+			s.IgnoreNoName = true
+			s.ForceCAS = forceCAS
+			ctx := context.Background()
+
+			// push blob1
+			if err := s.Push(ctx, desc1, bytes.NewReader(content)); err != nil {
+				t.Fatal("Store.Push() error =", err)
+			}
+			// push the unnamed manifest, which is discarded
+			if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+				t.Fatal("Store.Push() error =", err)
+			}
+
+			// verify blob2 is restored unless ForceCAS is set
+			exists, err := s.Exists(ctx, desc2)
+			if err != nil {
+				t.Fatal("Store.Exists() error =", err)
+			}
+			if want := !forceCAS; exists != want {
+				t.Errorf("Store.Exists(blob2) = %v, want %v", exists, want)
+			}
+			// verify the manifest is still not saved
+			exists, err = s.Exists(ctx, manifestDesc)
+			if err != nil {
+				t.Fatal("Store.Exists() error =", err)
+			}
+			if exists {
+				t.Error("Unnamed manifest is saved in file store")
+			}
+		})
+	}
+}
+
 func TestStore_File_Push_RestoreDuplicates_NotFound(t *testing.T) {
 	mediaType := "test"
 	content := []byte("hello world")
@@ -1748,6 +1828,12 @@ func TestStore_File_Push_RestoreDuplicates_Failure(t *testing.T) {
 		}
 		return nil
 	}
+	// the manifest is discarded with IgnoreNoName, and the error is still returned
+	s.IgnoreNoName = true
+	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, wantErr) {
+		t.Fatalf("Store.Push() error = %v, wantErr %v", err, wantErr)
+	}
+	s.IgnoreNoName = false
 	if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, wantErr) {
 		t.Fatalf("Store.Push() error = %v, wantErr %v", err, wantErr)
 	}
