@@ -300,6 +300,35 @@ func TestLogout(t *testing.T) {
 	}
 }
 
+func TestLogout_InvalidResource(t *testing.T) {
+	stored := credentials.Credential{Username: "test_user", Password: "test_word"}
+	s := &testStore{storage: map[string]credentials.Credential{
+		"example.com/team/app": stored,
+	}}
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "uppercase repository is rejected", path: "Team/App"},
+		{name: "empty repository segment is rejected", path: "team//app"},
+		{name: "trailing repository slash is rejected", path: "team/app/"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Logout(context.Background(), s, properties.Resource{
+				Registry: "example.com",
+				Path:     tt.path,
+			})
+			if !errors.Is(err, errdef.ErrInvalidReference) {
+				t.Fatalf("Logout() error = %v, want %v", err, errdef.ErrInvalidReference)
+			}
+			if s.storage["example.com/team/app"] != stored {
+				t.Error("Logout removed a credential stored under a different key")
+			}
+		})
+	}
+}
+
 func Test_mapHostname(t *testing.T) {
 	tests := []struct {
 		name string

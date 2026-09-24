@@ -43,11 +43,6 @@ func Login(ctx context.Context, store credentials.Store, reg *Registry, cred cre
 	if reg.Reference.Tag != "" || reg.Reference.Digest != "" {
 		return fmt.Errorf("%w: login target must not include a tag or digest", errdef.ErrInvalidReference)
 	}
-	if reg.Reference.Repository != "" {
-		if err := reg.Reference.ValidateRepository(); err != nil {
-			return err
-		}
-	}
 	resource := properties.Resource{
 		Registry: reg.Reference.Registry,
 		Path:     reg.Reference.Repository,
@@ -99,6 +94,11 @@ func serverAddressFromResource(resource properties.Resource) (string, error) {
 	serverAddress := ServerAddressFromRegistry(resource.Registry)
 	if resource.Path == "" {
 		return serverAddress, nil
+	}
+	// Reject a path the read side could never produce, so a credential is
+	// never stored under, or deleted by, an unreachable key.
+	if err := (properties.Reference{Repository: resource.Path}).ValidateRepository(); err != nil {
+		return "", err
 	}
 	if serverAddress != resource.Host() {
 		return "", fmt.Errorf("%w: registry %q does not support path-scoped credentials", errdef.ErrUnsupported, resource.Registry)
