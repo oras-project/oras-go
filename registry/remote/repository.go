@@ -163,6 +163,10 @@ type Repository struct {
 	// does not support it), the push transparently falls back to a monolithic
 	// upload before any content is consumed.
 	//
+	// MaxChunkSize applies to [Repository.Push] only. Blob mount falls back to a
+	// monolithic upload when the registry does not implement the mount endpoint,
+	// regardless of this setting.
+	//
 	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pushing-a-blob-in-chunks
 	MaxChunkSize int64
 

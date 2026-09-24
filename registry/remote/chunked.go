@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/opencontainers/go-digest"
@@ -202,10 +203,24 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 			return fmt.Errorf("chunked blob push: unexpected PATCH status %d after %d bytes: %w", resp.StatusCode, up.offset, respErr)
 		}
 		next, err := resolveUploadLocation(resp, req)
+		rangeHeader := resp.Header.Get("Range")
 		resp.Body.Close()
 		if err != nil {
 			s.cancelUpload(ctx, up.location)
 			return fmt.Errorf("chunked blob push: invalid PATCH location after %d bytes: %w", up.offset, err)
+		}
+		// The registry echoes the total range it has stored so far as
+		// "Range: 0-<end>" (some registries emit the HTTP "bytes=0-<end>"
+		// form). When present and parsable, its end must match the last byte
+		// we just sent; a mismatch means the registry stored a different amount
+		// than we streamed and every later Content-Range would drift. Fail fast
+		// naming both offsets. An absent or unparsable header is tolerated,
+		// leaving behavior as it was before this check.
+		if end, ok := parseRangeEnd(rangeHeader); ok {
+			if want := up.offset + int64(n) - 1; end != want {
+				s.cancelUpload(ctx, next)
+				return fmt.Errorf("chunked blob push: registry stored up to byte %d, expected %d after %d bytes", end, want, up.offset)
+			}
 		}
 		up.location = next
 		up.offset += int64(n)
@@ -254,13 +269,17 @@ func (s *blobStore) sendChunkRequest(up *chunkedUpload, req *http.Request, rebui
 // closeUploadSession issues the final PUT that commits the blob under
 // finalDigest and verifies the registry-reported digest when present.
 func (s *blobStore) closeUploadSession(ctx context.Context, up *chunkedUpload, finalDigest digest.Digest) error {
+	// Keep the bare session URL for cancellation: the commit URL below carries
+	// the digest query, which has no meaning on a DELETE.
+	sessionURL := *up.location
+
 	q := up.location.Query()
 	q.Set("digest", finalDigest.String())
 	up.location.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, up.location.String(), http.NoBody)
 	if err != nil {
-		s.cancelUpload(ctx, up.location)
+		s.cancelUpload(ctx, &sessionURL)
 		return fmt.Errorf("chunked blob push: failed to build PUT request: %w", err)
 	}
 	req.ContentLength = 0
@@ -276,16 +295,18 @@ func (s *blobStore) closeUploadSession(ctx context.Context, up *chunkedUpload, f
 		return retry, nil
 	})
 	if err != nil {
+		s.cancelUpload(ctx, &sessionURL)
 		return fmt.Errorf("chunked blob push: PUT failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("chunked blob push: unexpected PUT status %d: %w", resp.StatusCode, errutil.ParseErrorResponse(resp))
+		respErr := errutil.ParseErrorResponse(resp)
+		s.cancelUpload(ctx, &sessionURL)
+		return fmt.Errorf("chunked blob push: unexpected PUT status %d: %w", resp.StatusCode, respErr)
 	}
-	if returned := resp.Header.Get("Docker-Content-Digest"); returned != "" && returned != finalDigest.String() {
-		return fmt.Errorf("chunked blob push: registry returned digest %q, expected %q", returned, finalDigest.String())
-	}
-	return nil
+	// The blob is committed once the PUT returns 201; the session is gone, so a
+	// digest mismatch here needs no cancellation.
+	return verifyContentDigest(resp, finalDigest)
 }
 
 // cancelUpload issues a best-effort DELETE to release an in-progress upload
@@ -319,4 +340,26 @@ func parseChunkMinLength(resp *http.Response) int64 {
 		return 0
 	}
 	return n
+}
+
+// parseRangeEnd reads the inclusive end byte from a registry's Range header on a
+// chunked-upload 202 response. The OCI Distribution Spec uses "0-<end>"; some
+// registries emit the HTTP-conventional "bytes=0-<end>". It returns ok=false
+// when the header is absent or cannot be parsed, so callers treat an
+// unparsable Range as absent rather than fatal.
+func parseRangeEnd(v string) (int64, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, false
+	}
+	v = strings.TrimPrefix(v, "bytes=")
+	dash := strings.LastIndex(v, "-")
+	if dash < 0 {
+		return 0, false
+	}
+	end, err := strconv.ParseInt(strings.TrimSpace(v[dash+1:]), 10, 64)
+	if err != nil || end < 0 {
+		return 0, false
+	}
+	return end, true
 }

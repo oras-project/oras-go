@@ -63,6 +63,12 @@ type chunkedUploadRegistry struct {
 	// putDigestOverride, when non-empty, is returned as the PUT response
 	// Docker-Content-Digest header instead of the real digest.
 	putDigestOverride string
+	// patchRangeOverride, when non-empty, is returned as the Range header on
+	// every PATCH 202 response instead of no Range header.
+	patchRangeOverride string
+	// echoRange, when true, emits a truthful cumulative "Range: 0-<end>" header
+	// on each PATCH 202 reflecting all bytes stored so far.
+	echoRange bool
 }
 
 func (reg *chunkedUploadRegistry) handler() http.HandlerFunc {
@@ -96,12 +102,18 @@ func (reg *chunkedUploadRegistry) handler() http.HandlerFunc {
 			reg.mu.Lock()
 			reg.contentRanges = append(reg.contentRanges, r.Header.Get("Content-Range"))
 			reg.uploaded = append(reg.uploaded, body.Bytes()...)
+			storedEnd := int64(len(reg.uploaded)) - 1
 			reg.mu.Unlock()
 			loc := sessionPath
 			if reg.patchLocationOverride != "" {
 				loc = reg.patchLocationOverride
 			}
 			w.Header().Set("Location", loc)
+			if reg.echoRange {
+				w.Header().Set("Range", fmt.Sprintf("bytes=0-%d", storedEnd))
+			} else if reg.patchRangeOverride != "" {
+				w.Header().Set("Range", reg.patchRangeOverride)
+			}
 			w.WriteHeader(http.StatusAccepted)
 		case r.Method == http.MethodPut && r.URL.Path == sessionPath:
 			if reg.rejectPUTStatus != 0 {
@@ -460,7 +472,7 @@ func TestRepository_Push_ChunkedRegistryDigestMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when registry returns a mismatching digest, got nil")
 	}
-	if !strings.Contains(err.Error(), "registry returned digest") {
+	if !strings.Contains(err.Error(), "digest mismatch in Docker-Content-Digest") {
 		t.Errorf("error = %v, want registry digest mismatch", err)
 	}
 }
@@ -813,6 +825,88 @@ func TestParseChunkMinLength(t *testing.T) {
 	}
 }
 
+func TestParseRangeEnd(t *testing.T) {
+	tests := []struct {
+		name    string
+		header  string
+		wantEnd int64
+		wantOK  bool
+	}{
+		{"absent", "", 0, false},
+		{"spec form", "0-1023", 1023, true},
+		{"bytes prefix", "bytes=0-1023", 1023, true},
+		{"whitespace", " 0-1023 ", 1023, true},
+		{"no dash", "1023", 0, false},
+		{"empty end", "0-", 0, false},
+		{"non-numeric end", "0-abc", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			end, ok := parseRangeEnd(tt.header)
+			if ok != tt.wantOK || end != tt.wantEnd {
+				t.Errorf("parseRangeEnd(%q) = (%d, %t), want (%d, %t)", tt.header, end, ok, tt.wantEnd, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestRepository_Push_ChunkedRangeEchoAccepted(t *testing.T) {
+	// A registry that truthfully echoes the cumulative stored range on each
+	// PATCH (in the HTTP "bytes=" form, to prove tolerance) must not disturb
+	// the upload.
+	reg := &chunkedUploadRegistry{t: t, echoRange: true}
+	srv := httptest.NewServer(reg.handler())
+	defer srv.Close()
+
+	blob := []byte("hello")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	// Chunk size 2 => ranges 0-1, 2-3, 4-4; the registry echoes 0-1, 0-3, 0-4.
+	repo := newChunkedTestRepo(t, srv, 2)
+	if err := repo.Blobs().Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+	if reg.cancelled {
+		t.Error("session was cancelled despite a matching Range echo")
+	}
+}
+
+func TestRepository_Push_ChunkedRangeDriftFailsFast(t *testing.T) {
+	// A registry that reports storing fewer bytes than were sent must abort the
+	// upload immediately with an offset-drift error and cancel the session,
+	// rather than streaming the whole blob and failing at the closing PUT.
+	reg := &chunkedUploadRegistry{t: t, patchRangeOverride: "0-0"}
+	srv := httptest.NewServer(reg.handler())
+	defer srv.Close()
+
+	blob := []byte("hello")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	// Chunk size 2 => first PATCH sends 0-1, but the registry reports 0-0.
+	repo := newChunkedTestRepo(t, srv, 2)
+	err := repo.Blobs().Push(context.Background(), desc, bytes.NewReader(blob))
+	if err == nil {
+		t.Fatal("expected offset-drift error, got nil")
+	}
+	if !strings.Contains(err.Error(), "registry stored up to byte 0, expected 1") {
+		t.Errorf("error = %v, want offset-drift error", err)
+	}
+	if got := reg.patchCount(); got != 1 {
+		t.Errorf("PATCH count = %d, want 1 (upload must stop at first drift)", got)
+	}
+	if !reg.cancelled {
+		t.Error("expected session to be cancelled on offset drift")
+	}
+}
+
 func TestResolveUploadLocation(t *testing.T) {
 	reqURL, err := url.Parse("https://registry.example.com/v2/test/blobs/uploads/")
 	if err != nil {
@@ -915,6 +1009,9 @@ func TestRepository_Push_ChunkedPUTStatusError(t *testing.T) {
 	if !strings.Contains(err.Error(), "unexpected PUT status 500") {
 		t.Errorf("error = %v, want unexpected PUT status 500", err)
 	}
+	if !reg.cancelled {
+		t.Error("expected upload session to be cancelled after PUT status error")
+	}
 }
 
 func TestRepository_Push_ChunkedPUTTransportError(t *testing.T) {
@@ -947,6 +1044,9 @@ func TestRepository_Push_ChunkedPUTTransportError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "simulated PUT failure") {
 		t.Errorf("error = %v, want simulated PUT failure", err)
+	}
+	if !reg.cancelled {
+		t.Error("expected upload session to be cancelled after PUT transport error")
 	}
 }
 
