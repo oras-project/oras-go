@@ -2180,12 +2180,25 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // verifyPullContentDigest permits a different canonical digest algorithm on
 // manifest pulls, but verifies the returned bytes against the requested digest.
 // Pushes deliberately continue to use verifyContentDigest's strict comparison.
-// Alternate algorithms and headerless chunked responses buffer at most
-// MaxMetadataBytes before returning the verified body to the caller.
+// Alternate algorithms buffer at most MaxMetadataBytes before returning the
+// verified body to the caller. Headerless chunked responses stream verification
+// as the body is read. Resolve and Exists use HEAD, so remain strict.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
-	canonical, err := digest.Parse(resp.Header.Get(headerDockerContentDigest))
-	headerlessChunked := resp.Header.Get(headerDockerContentDigest) == "" && resp.ContentLength == -1
-	if !expected.Algorithm().Available() || (!headerlessChunked && (err != nil || canonical.Algorithm() == expected.Algorithm())) {
+	headerStr := resp.Header.Get(headerDockerContentDigest)
+	if !expected.Algorithm().Available() {
+		return verifyContentDigest(resp, expected)
+	}
+	if headerStr == "" {
+		if resp.ContentLength != -1 {
+			return verifyContentDigest(resp, expected)
+		}
+		// Manifests fetched without a header were never bounded by
+		// MaxMetadataBytes. Verify the chunked body as the caller reads it.
+		resp.Body = newVerifyReadCloser(resp.Body, expected, resp.Request.Method, resp.Request.URL)
+		return nil
+	}
+	canonical, err := digest.Parse(headerStr)
+	if err != nil || canonical.Algorithm() == expected.Algorithm() {
 		return verifyContentDigest(resp, expected)
 	}
 	defer resp.Body.Close()
@@ -2205,6 +2218,43 @@ func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected di
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	return nil
+}
+
+// verifyReadCloser checks the digest at EOF without buffering the response.
+type verifyReadCloser struct {
+	io.ReadCloser
+	verifier digest.Verifier
+	expected digest.Digest
+	method   string
+	url      *url.URL
+	checked  bool
+}
+
+func newVerifyReadCloser(rc io.ReadCloser, expected digest.Digest, method string, url *url.URL) io.ReadCloser {
+	return &verifyReadCloser{
+		ReadCloser: rc,
+		verifier:   expected.Verifier(),
+		expected:   expected,
+		method:     method,
+		url:        url,
+	}
+}
+
+func (v *verifyReadCloser) Read(p []byte) (int, error) {
+	n, err := v.ReadCloser.Read(p)
+	if n > 0 {
+		if _, werr := v.verifier.Write(p[:n]); werr != nil {
+			return n, werr
+		}
+	}
+	if err == io.EOF && !v.checked {
+		v.checked = true
+		if !v.verifier.Verified() {
+			return n, fmt.Errorf("%s %q: invalid response; content digest mismatch: expecting %q; %w",
+				v.method, v.url, v.expected, content.ErrMismatchedDigest)
+		}
+	}
+	return n, err
 }
 
 // calculateDigestFromResponse calculates the actual digest of the response body

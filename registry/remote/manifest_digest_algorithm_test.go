@@ -105,11 +105,48 @@ func TestManifestPullBodyLimits(t *testing.T) {
 			defer func() { resp.Body.Close() }()
 			resp.Header.Set("Docker-Content-Digest", tt.header)
 			err = (&manifestStore{repo: repo}).verifyPullContentDigest(resp, digest.SHA512.FromBytes(body))
+			if err == nil && tt.header == "" {
+				_, err = io.ReadAll(resp.Body)
+			}
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
 			if tt.want == errdef.ErrSizeExceedsLimit && errors.Is(err, content.ErrMismatchedDigest) {
 				t.Fatal("size limit misreported as corruption")
+			}
+		})
+	}
+}
+
+func TestManifestPullHeaderlessChunkedStreamsPastMetadataLimit(t *testing.T) {
+	body := bytes.Repeat([]byte("manifest"), 700000)
+	for _, tt := range []struct {
+		name    string
+		payload []byte
+		wantErr error
+	}{
+		{"valid", body, nil},
+		{"corrupt", append(bytes.Clone(body[:len(body)-1]), 'x'), content.ErrMismatchedDigest},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, err := NewRepository("example.com/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo.Registry.MaxMetadataBytes = 8
+			resp := &http.Response{
+				Request:       httptest.NewRequest(http.MethodGet, "http://example.com/v2/test/manifests/latest", nil),
+				Header:        http.Header{},
+				ContentLength: -1,
+				Body:          io.NopCloser(bytes.NewReader(tt.payload)),
+			}
+			defer resp.Body.Close()
+			if err := (&manifestStore{repo: repo}).verifyPullContentDigest(resp, digest.SHA256.FromBytes(body)); err != nil {
+				t.Fatalf("verification setup: %v", err)
+			}
+			got, err := io.ReadAll(resp.Body)
+			if !bytes.Equal(got, tt.payload) || !errors.Is(err, tt.wantErr) {
+				t.Fatalf("read len=%d, error=%v; want len=%d, error=%v", len(got), err, len(tt.payload), tt.wantErr)
 			}
 		})
 	}
