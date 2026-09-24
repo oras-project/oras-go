@@ -25,6 +25,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
@@ -79,17 +80,25 @@ func TestLogin(t *testing.T) {
 	// create a test store
 	s := &testStore{}
 	tests := []struct {
-		name     string
-		ctx      context.Context
-		registry *Registry
-		cred     credentials.Credential
-		wantErr  bool
+		name       string
+		ctx        context.Context
+		repository string
+		cred       credentials.Credential
+		wantKey    string
+		wantErr    bool
 	}{
 		{
-			name:    "login succeeds",
+			name:    "registry login succeeds",
 			ctx:     context.Background(),
 			cred:    credentials.Credential{Username: testUsername, Password: testPassword},
-			wantErr: false,
+			wantKey: uri.Host,
+		},
+		{
+			name:       "repository login succeeds",
+			ctx:        context.Background(),
+			repository: "team/app",
+			cred:       credentials.Credential{Username: testUsername, Password: testPassword},
+			wantKey:    uri.Host + "/team/app",
 		},
 		{
 			name:    "login fails (incorrect password)",
@@ -106,6 +115,7 @@ func TestLogin(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			reg.Reference.Repository = tt.repository
 			// login to test registry
 			err := Login(tt.ctx, s, reg, tt.cred)
 			if (err != nil) != tt.wantErr {
@@ -114,10 +124,63 @@ func TestLogin(t *testing.T) {
 			if err != nil {
 				return
 			}
-			if got := s.storage[reg.Reference.Registry]; !reflect.DeepEqual(got, tt.cred) {
+			if got := s.storage[tt.wantKey]; !reflect.DeepEqual(got, tt.cred) {
 				t.Fatalf("Stored credential = %v, want %v", got, tt.cred)
 			}
-			s.Delete(tt.ctx, reg.Reference.Registry)
+			s.Delete(tt.ctx, tt.wantKey)
+		})
+	}
+}
+
+func TestLogin_InvalidResource(t *testing.T) {
+	tests := []struct {
+		name    string
+		ref     properties.Reference
+		wantErr error
+	}{
+		{
+			name:    "tag is rejected",
+			ref:     properties.Reference{Registry: "example.com", Repository: "team/app", Tag: "latest"},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name:    "digest is rejected",
+			ref:     properties.Reference{Registry: "example.com", Repository: "team/app", Digest: "sha256:abcd"},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name:    "uppercase repository is rejected",
+			ref:     properties.Reference{Registry: "example.com", Repository: "Team/App"},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name:    "empty repository segment is rejected",
+			ref:     properties.Reference{Registry: "example.com", Repository: "team//app"},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name:    "trailing repository slash is rejected",
+			ref:     properties.Reference{Registry: "example.com", Repository: "team/app/"},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
+			name:    "docker.io path is rejected",
+			ref:     properties.Reference{Registry: "docker.io", Repository: "library/alpine"},
+			wantErr: errdef.ErrUnsupported,
+		},
+		{
+			name:    "registry-1.docker.io path is rejected",
+			ref:     properties.Reference{Registry: "registry-1.docker.io", Repository: "library/alpine"},
+			wantErr: errdef.ErrUnsupported,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := &Registry{Reference: tt.ref}
+			err := Login(context.Background(), &testStore{}, reg, credentials.EmptyCredential)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Login() error = %v, want %v", err, tt.wantErr)
+			}
 		})
 	}
 }
@@ -199,35 +262,38 @@ func TestLogout(t *testing.T) {
 	// create a test store
 	s := &testStore{}
 	s.storage = map[string]credentials.Credential{
-		"localhost:2333":              {Username: "test_user", Password: "test_word"},
+		"localhost:2333/team/app":     {Username: "test_user", Password: "test_word"},
 		"https://index.docker.io/v1/": {Username: "user", Password: "word"},
 	}
 	tests := []struct {
-		name         string
-		ctx          context.Context
-		store        credentials.Store
-		registryName string
-		wantErr      bool
+		name     string
+		resource properties.Resource
+		wantKey  string
+		wantErr  error
 	}{
 		{
-			name:         "logout of regular registry",
-			ctx:          context.Background(),
-			registryName: "localhost:2333",
-			wantErr:      false,
+			name:     "logout of repository",
+			resource: properties.Resource{Registry: "localhost:2333", Path: "team/app"},
+			wantKey:  "localhost:2333/team/app",
 		},
 		{
-			name:         "logout of docker.io",
-			ctx:          context.Background(),
-			registryName: "docker.io",
-			wantErr:      false,
+			name:     "logout of docker.io",
+			resource: properties.Resource{Registry: "docker.io"},
+			wantKey:  "https://index.docker.io/v1/",
+		},
+		{
+			name:     "docker.io path is rejected",
+			resource: properties.Resource{Registry: "docker.io", Path: "library/alpine"},
+			wantErr:  errdef.ErrUnsupported,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Logout(tt.ctx, s, tt.registryName); (err != nil) != tt.wantErr {
+			err := Logout(context.Background(), s, tt.resource)
+			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Logout() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if s.storage[tt.registryName] != credentials.EmptyCredential {
+			if err == nil && s.storage[tt.wantKey] != credentials.EmptyCredential {
 				t.Error("Credentials are not deleted")
 			}
 		})
