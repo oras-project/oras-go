@@ -18,15 +18,20 @@ package remote
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configtest"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
@@ -402,6 +407,154 @@ func TestNewCredentialFunc_NamespacedResource(t *testing.T) {
 	}
 }
 
+// matchingStore is a credential store that performs its own longest-prefix
+// namespace matching, as the hierarchical file store does. It records the keys
+// it was asked for.
+type matchingStore struct {
+	testStore
+	queried []string
+}
+
+func (s *matchingStore) Get(_ context.Context, serverAddress string) (credentials.Credential, error) {
+	s.queried = append(s.queried, serverAddress)
+	var bestMatch string
+	var found bool
+	for addr := range s.storage {
+		if addr != serverAddress &&
+			(!strings.HasPrefix(serverAddress, addr) || serverAddress[len(addr)] != '/') {
+			continue
+		}
+		if !found || len(addr) > len(bestMatch) {
+			bestMatch, found = addr, true
+		}
+	}
+	if !found {
+		return credentials.EmptyCredential, nil
+	}
+	return s.storage[bestMatch], nil
+}
+
+func (s *matchingStore) MatchesNamespace(string) bool {
+	return true
+}
+
+func TestNewCredentialFunc_NamespaceMatchingStore(t *testing.T) {
+	hostCred := credentials.Credential{Username: "host", Password: "host_pass"}
+	nsCred := credentials.Credential{Username: "ns", Password: "ns_pass"}
+
+	tests := []struct {
+		name        string
+		storage     map[string]credentials.Credential
+		resource    properties.Resource
+		want        credentials.Credential
+		wantQueried []string
+	}{
+		{
+			// The store owns the walk, so an entry that is present but holds
+			// no credential means anonymous access for that namespace instead
+			// of falling back to the host.
+			name: "empty namespace entry wins over the host credential",
+			storage: map[string]credentials.Credential{
+				"localhost:5000":        hostCred,
+				"localhost:5000/public": credentials.EmptyCredential,
+			},
+			resource:    properties.Resource{Registry: "localhost:5000", Path: "public/img"},
+			want:        credentials.EmptyCredential,
+			wantQueried: []string{"localhost:5000/public/img"},
+		},
+		{
+			name: "namespace credential is matched by the store in one lookup",
+			storage: map[string]credentials.Credential{
+				"localhost:5000":      hostCred,
+				"localhost:5000/team": nsCred,
+			},
+			resource:    properties.Resource{Registry: "localhost:5000", Path: "team/app"},
+			want:        nsCred,
+			wantQueried: []string{"localhost:5000/team/app"},
+		},
+		{
+			name: "host credential is matched by the store in one lookup",
+			storage: map[string]credentials.Credential{
+				"localhost:5000": hostCred,
+			},
+			resource:    properties.Resource{Registry: "localhost:5000", Path: "team/app"},
+			want:        hostCred,
+			wantQueried: []string{"localhost:5000/team/app"},
+		},
+		{
+			// Without a path there is no namespace to match, so the host is
+			// used as the key directly.
+			name: "resource without a path uses the host key",
+			storage: map[string]credentials.Credential{
+				"localhost:5000": hostCred,
+			},
+			resource:    properties.Resource{Registry: "localhost:5000"},
+			want:        hostCred,
+			wantQueried: []string{"localhost:5000"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &matchingStore{testStore: testStore{storage: tt.storage}}
+			got, err := NewCredentialFunc(s)(context.Background(), tt.resource)
+			if err != nil {
+				t.Fatalf("NewCredentialFunc() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("NewCredentialFunc() = %v, want %v", got, tt.want)
+			}
+			if !reflect.DeepEqual(s.queried, tt.wantQueried) {
+				t.Errorf("store queried for %v, want %v", s.queried, tt.wantQueried)
+			}
+		})
+	}
+}
+
+// nonMatchingStore reports that it does not match namespaces, so the caller
+// walks on its behalf.
+type nonMatchingStore struct {
+	testStore
+	queried []string
+}
+
+func (s *nonMatchingStore) Get(_ context.Context, serverAddress string) (credentials.Credential, error) {
+	s.queried = append(s.queried, serverAddress)
+	return s.storage[serverAddress], nil
+}
+
+func (s *nonMatchingStore) MatchesNamespace(string) bool {
+	return false
+}
+
+func TestNewCredentialFunc_NonMatchingStoreWalks(t *testing.T) {
+	hostCred := credentials.Credential{Username: "host", Password: "host_pass"}
+	s := &nonMatchingStore{testStore: testStore{storage: map[string]credentials.Credential{
+		"localhost:5000":        hostCred,
+		"localhost:5000/public": credentials.EmptyCredential,
+	}}}
+
+	// An empty entry is indistinguishable from an absent one here, so the walk
+	// continues past it to the host.
+	got, err := NewCredentialFunc(s)(context.Background(), properties.Resource{
+		Registry: "localhost:5000",
+		Path:     "public/img",
+	})
+	if err != nil {
+		t.Fatalf("NewCredentialFunc() error = %v", err)
+	}
+	if got != hostCred {
+		t.Errorf("NewCredentialFunc() = %v, want %v", got, hostCred)
+	}
+	wantQueried := []string{
+		"localhost:5000/public/img",
+		"localhost:5000/public",
+		"localhost:5000",
+	}
+	if !reflect.DeepEqual(s.queried, wantQueried) {
+		t.Errorf("store queried for %v, want %v", s.queried, wantQueried)
+	}
+}
+
 func TestNewCredentialFunc_StoreError(t *testing.T) {
 	wantErr := errors.New("store failure")
 	fn := NewCredentialFunc(&errorStore{err: wantErr})
@@ -417,6 +570,80 @@ func TestNewCredentialFunc_StoreError(t *testing.T) {
 			}
 			if got != credentials.EmptyCredential {
 				t.Errorf("NewCredentialFunc() = %v, want EmptyCredential", got)
+			}
+		})
+	}
+}
+
+// TestNewCredentialFunc_HierarchicalDynamicStore exercises the layered rule
+// end to end against a real hierarchical DynamicStore, which is the case the
+// rule exists for: the store owns the namespace walk, so an entry that is
+// present but carries no credential means anonymous access for that namespace
+// rather than a fallback to the host credential.
+func TestNewCredentialFunc_HierarchicalDynamicStore(t *testing.T) {
+	cfg := configtest.Config{
+		AuthConfigs: map[string]configtest.AuthConfig{
+			"localhost:5000": {
+				// base64("host:host_pass")
+				Auth: "aG9zdDpob3N0X3Bhc3M=",
+			},
+			// Present but carrying no credential: anonymous for this
+			// namespace.
+			"localhost:5000/public": {},
+			"localhost:5000/team": {
+				// base64("team:team_pass")
+				Auth: "dGVhbTp0ZWFtX3Bhc3M=",
+			},
+		},
+	}
+	jsonStr, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, jsonStr, 0666); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+	store, err := credentials.NewStore(configPath, credentials.StoreOptions{
+		Hierarchical: true,
+		// Keep the plaintext file store in play regardless of the platform
+		// default native store.
+		IgnoreDefaultNativeStore: true,
+	})
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	fn := NewCredentialFunc(store)
+
+	tests := []struct {
+		name     string
+		resource properties.Resource
+		want     credentials.Credential
+	}{
+		{
+			name:     "empty namespace entry means anonymous, not the host credential",
+			resource: properties.Resource{Registry: "localhost:5000", Path: "public/img"},
+			want:     credentials.EmptyCredential,
+		},
+		{
+			name:     "namespace credential is used for a repository under it",
+			resource: properties.Resource{Registry: "localhost:5000", Path: "team/app"},
+			want:     credentials.Credential{Username: "team", Password: "team_pass"},
+		},
+		{
+			name:     "unmatched namespace falls back to the host credential",
+			resource: properties.Resource{Registry: "localhost:5000", Path: "other/app"},
+			want:     credentials.Credential{Username: "host", Password: "host_pass"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fn(context.Background(), tt.resource)
+			if err != nil {
+				t.Fatalf("NewCredentialFunc() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("NewCredentialFunc() = %v, want %v", got, tt.want)
 			}
 		})
 	}

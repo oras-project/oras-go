@@ -50,6 +50,32 @@ type Store interface {
 	Delete(ctx context.Context, serverAddress string) error
 }
 
+// NamespaceMatcher is an optional interface that a [Store] may implement to
+// report that its Get already performs most-specific-first namespace matching
+// for a server address.
+//
+// Resolving the credential for a namespaced resource walks that resource's
+// namespaces from most specific to least specific. A store that matches
+// namespaces itself is asked once, with the full namespaced key, and its
+// answer is final; a store that does not is asked for each namespace in turn,
+// stopping at the first non-empty credential.
+//
+// The distinction matters only for a key that is present but holds no
+// credential. A matching store can tell that entry apart from an absent one
+// and treats it as anonymous access for that namespace, as
+// containers-auth.json does. A non-matching store cannot, because
+// [Store.Get] reports both as [EmptyCredential] with a nil error, so the walk
+// continues past it.
+//
+// A store that does not implement this interface is treated as not matching.
+type NamespaceMatcher interface {
+	Store
+
+	// MatchesNamespace reports whether Get performs most-specific-first
+	// namespace matching for serverAddress.
+	MatchesNamespace(serverAddress string) bool
+}
+
 // DynamicStore dynamically determines which store to use based on the settings
 // in the config file.
 type DynamicStore struct {
@@ -92,6 +118,11 @@ type StoreOptions struct {
 	//
 	// This only affects the plaintext file store; credential helpers and
 	// native stores are always keyed by the exact server address.
+	//
+	// It also makes the store authoritative for namespace matching, reported
+	// through [NamespaceMatcher]: a key that is present but holds no
+	// credential means anonymous access for that namespace, rather than a
+	// miss that falls back to the parent namespace.
 	Hierarchical bool
 }
 
@@ -150,6 +181,18 @@ func NewStoreFromDocker(opt StoreOptions) (*DynamicStore, error) {
 // Get retrieves credentials from the store for the given server address.
 func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (Credential, error) {
 	return ds.getStore(serverAddress).Get(ctx, serverAddress)
+}
+
+// MatchesNamespace reports whether Get performs most-specific-first namespace
+// matching for serverAddress. It does when [StoreOptions].Hierarchical is set
+// and the store selected for serverAddress is the plaintext config file; a
+// native store or credential helper is always keyed by the exact server
+// address.
+//
+// MatchesNamespace implements [NamespaceMatcher].
+func (ds *DynamicStore) MatchesNamespace(serverAddress string) bool {
+	matcher, ok := ds.getStore(serverAddress).(NamespaceMatcher)
+	return ok && matcher.MatchesNamespace(serverAddress)
 }
 
 // Put saves credentials into the store for the given server address.
@@ -263,6 +306,22 @@ func (sf *storeWithFallbacks) Get(ctx context.Context, serverAddress string) (Cr
 		}
 	}
 	return EmptyCredential, nil
+}
+
+// MatchesNamespace reports whether Get performs most-specific-first namespace
+// matching for serverAddress. It does only when every store in the chain does,
+// since a store that does not has to be walked namespace by namespace, and the
+// chain cannot walk one store without walking them all.
+//
+// MatchesNamespace implements [NamespaceMatcher].
+func (sf *storeWithFallbacks) MatchesNamespace(serverAddress string) bool {
+	for _, s := range sf.stores {
+		matcher, ok := s.(NamespaceMatcher)
+		if !ok || !matcher.MatchesNamespace(serverAddress) {
+			return false
+		}
+	}
+	return true
 }
 
 // Put saves credentials into the StoreWithFallbacks. It puts

@@ -1024,3 +1024,108 @@ func TestNewStoreFromDocker(t *testing.T) {
 		t.Errorf("DynamicStore.Get() = %v, want %v", got, want)
 	}
 }
+
+func TestDynamicStore_MatchesNamespace(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  configtest.Config
+		opts StoreOptions
+		want bool
+	}{
+		{
+			name: "hierarchical file store matches namespaces",
+			cfg: configtest.Config{
+				AuthConfigs: map[string]configtest.AuthConfig{
+					"test.example.com": {},
+				},
+			},
+			opts: StoreOptions{Hierarchical: true},
+			want: true,
+		},
+		{
+			name: "file store without Hierarchical does not match namespaces",
+			cfg: configtest.Config{
+				AuthConfigs: map[string]configtest.AuthConfig{
+					"test.example.com": {},
+				},
+			},
+			opts: StoreOptions{},
+			want: false,
+		},
+		{
+			// A native store is always keyed by the exact server address, so
+			// Hierarchical cannot make it match namespaces.
+			name: "native store does not match namespaces even when Hierarchical",
+			cfg: configtest.Config{
+				CredentialsStore: "teststore",
+			},
+			opts: StoreOptions{Hierarchical: true},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			jsonStr, err := json.Marshal(tt.cfg)
+			if err != nil {
+				t.Fatalf("failed to marshal config: %v", err)
+			}
+			if err := os.WriteFile(configPath, jsonStr, 0666); err != nil {
+				t.Fatalf("failed to write config file: %v", err)
+			}
+
+			ds, err := NewStore(configPath, tt.opts)
+			if err != nil {
+				t.Fatal("NewStore() error =", err)
+			}
+			if got := ds.MatchesNamespace("test.example.com/team/app"); got != tt.want {
+				t.Errorf("DynamicStore.MatchesNamespace() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStoreWithFallbacks_MatchesNamespace(t *testing.T) {
+	matching := &FileStore{Hierarchical: true}
+	nonMatching := &FileStore{}
+
+	tests := []struct {
+		name      string
+		primary   Store
+		fallbacks []Store
+		want      bool
+	}{
+		{
+			name:      "all stores match namespaces",
+			primary:   matching,
+			fallbacks: []Store{matching},
+			want:      true,
+		},
+		{
+			name:      "a fallback that does not match disables matching",
+			primary:   matching,
+			fallbacks: []Store{nonMatching},
+			want:      false,
+		},
+		{
+			// A store that does not implement NamespaceMatcher at all is
+			// treated as not matching.
+			name:      "a store that is not a NamespaceMatcher disables matching",
+			primary:   matching,
+			fallbacks: []Store{&testStore{}},
+			want:      false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewStoreWithFallbacks(tt.primary, tt.fallbacks...)
+			matcher, ok := s.(NamespaceMatcher)
+			if !ok {
+				t.Fatal("NewStoreWithFallbacks() does not implement NamespaceMatcher")
+			}
+			if got := matcher.MatchesNamespace("test.example.com/team/app"); got != tt.want {
+				t.Errorf("MatchesNamespace() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

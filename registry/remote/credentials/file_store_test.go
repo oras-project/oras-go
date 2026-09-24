@@ -877,3 +877,12 @@ func TestFileStore_Delete_notExistConfig(t *testing.T) {
 		t.Errorf("Stat(%s) error = %v, wantErr %v", configPath, err, wantErr)
 	}
 }
+
+func TestFileStore_MatchesNamespace(t *testing.T) {
+	if got := (&credentials.FileStore{Hierarchical: true}).MatchesNamespace("test.example.com/team/app"); !got {
+		t.Error("FileStore{Hierarchical: true}.MatchesNamespace() = false, want true")
+	}
+	if got := (&credentials.FileStore{}).MatchesNamespace("test.example.com/team/app"); got {
+		t.Error("FileStore{}.MatchesNamespace() = true, want false")
+	}
+}

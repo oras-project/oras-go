@@ -74,6 +74,36 @@ func Logout(ctx context.Context, store credentials.Store, registryName string) e
 // NewCredentialFunc returns a CredentialFunc that retrieves credentials from
 // the given store. If store is nil, the returned function always returns
 // EmptyCredential without error.
+//
+// # Lookup order
+//
+// The resource's namespaces are considered from most specific to least
+// specific, following containers-auth.json. For
+// "my-registry.local/namespace/user/image" that is:
+//
+//   - my-registry.local/namespace/user/image
+//   - my-registry.local/namespace/user
+//   - my-registry.local/namespace
+//   - my-registry.local
+//
+// Which namespace wins when a more specific one is present but holds no
+// credential depends on whether the store matches namespaces itself, reported
+// through [credentials.NamespaceMatcher]:
+//
+//   - A matching store, such as a [credentials.DynamicStore] with
+//     [credentials.StoreOptions].Hierarchical set, is asked once with the full
+//     namespaced key and its answer is final, empty included. A present but
+//     empty entry therefore means anonymous access for that namespace, and the
+//     walk is left to the store rather than repeated over the same keys here.
+//   - Any other store is asked for each namespace in turn and the first
+//     non-empty credential wins. [credentials.Store.Get] reports an absent key
+//     and a key holding no credential alike, as
+//     [credentials.EmptyCredential] with a nil error, so an empty result
+//     cannot be read as a deliberate anonymous entry and the walk continues to
+//     the parent namespace.
+//
+// Credentials for "docker.io" are keyed by a sentinel server address that is
+// not a path root, so namespaces are not considered for it.
 func NewCredentialFunc(store credentials.Store) credentials.CredentialFunc {
 	if store == nil {
 		return func(context.Context, properties.Resource) (credentials.Credential, error) {
@@ -87,23 +117,33 @@ func NewCredentialFunc(store credentials.Store) credentials.CredentialFunc {
 		}
 		// ServerAddressFromHostname may map to a sentinel server address
 		// (docker.io), which is a store key rather than a path root.
-		if res.Path != "" && host == res.Host() {
-			// Most-specific to least-specific, so namespaced credentials
-			// resolve over any store, not only the hierarchical file store.
-			for path := res.Path; path != ""; {
-				cred, err := store.Get(ctx, host+"/"+path)
-				if err != nil {
-					return credentials.EmptyCredential, err
-				}
-				if cred != credentials.EmptyCredential {
-					return cred, nil
-				}
-				index := strings.LastIndex(path, "/")
-				if index < 0 {
-					break
-				}
-				path = path[:index]
+		if res.Path == "" || host != res.Host() {
+			return store.Get(ctx, host)
+		}
+
+		key := host + "/" + res.Path
+		if matcher, ok := store.(credentials.NamespaceMatcher); ok && matcher.MatchesNamespace(key) {
+			// The store matches namespaces itself. Walking here as well would
+			// repeat its work over the same keys and, by treating an empty
+			// result as a miss, override the anonymous entry it just matched.
+			return store.Get(ctx, key)
+		}
+
+		// Most-specific to least-specific, so namespaced credentials resolve
+		// over any store, not only the hierarchical file store.
+		for path := res.Path; path != ""; {
+			cred, err := store.Get(ctx, host+"/"+path)
+			if err != nil {
+				return credentials.EmptyCredential, err
 			}
+			if cred != credentials.EmptyCredential {
+				return cred, nil
+			}
+			index := strings.LastIndex(path, "/")
+			if index < 0 {
+				break
+			}
+			path = path[:index]
 		}
 		return store.Get(ctx, host)
 	}
