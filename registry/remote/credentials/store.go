@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configfile"
 )
@@ -233,9 +234,18 @@ func (ds *DynamicStore) ConfigPath() string {
 // getHelperSuffix returns the credential helper suffix for the given server
 // address.
 func (ds *DynamicStore) getHelperSuffix(serverAddress string) string {
-	// 1. Look for a server-specific credential helper first
-	if helper := ds.config.GetCredentialHelper(serverAddress); helper != "" {
-		return helper
+	// 1. Look for a server-specific credential helper first. "credHelpers" is
+	// keyed by registry host, so a namespaced address ("host/path") uses the
+	// helper of its nearest configured parent, down to the bare host.
+	for key := serverAddress; ; {
+		if helper := ds.config.GetCredentialHelper(key); helper != "" {
+			return helper
+		}
+		i := strings.LastIndex(key, "/")
+		if i <= 0 {
+			break
+		}
+		key = key[:i]
 	}
 	// 2. Then look for the configured native store
 	if credsStore := ds.config.CredentialsStore(); credsStore != "" {

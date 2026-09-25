@@ -629,6 +629,36 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 			serverAddress: "whatever.example.com",
 			want:          "teststore",
 		},
+		{
+			name:          "Namespaced address uses the cred helper of its host",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry1.example.com/team/app",
+			want:          "registry1-helper",
+		},
+		{
+			name:          "Namespaced address with an empty cred helper for its host",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry3.example.com/team/app",
+			want:          "",
+		},
+		{
+			name:          "Namespaced address without a cred helper falls back to creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "whatever.example.com/team/app",
+			want:          "teststore",
+		},
+		{
+			name:          "Namespaced address prefers its host's cred helper over creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "test.example.com/team/app",
+			want:          "test-helper",
+		},
+		{
+			name:          "Host is not matched by prefix",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry1.example.com.evil/team",
+			want:          "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -681,6 +711,11 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 			name:          "No cred helper configured, use creds store",
 			configPath:    "testdata/credsStore_config.json",
 			serverAddress: "whaterver.example.com",
+		},
+		{
+			name:          "Cred helper configured for the host of a namespaced address",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry1.example.com/team/app",
 		},
 	}
 	for _, tt := range tests {
