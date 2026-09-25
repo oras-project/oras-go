@@ -558,14 +558,14 @@ func (s *Store) gcIndex(ctx context.Context) error {
 		// check if the referrers manifest can traverse to the existing graph
 		subject := &desc
 		for {
-			subject, err := manifestutil.Subject(ctx, s.storage, *subject)
+			next, err := manifestutil.Subject(ctx, s.storage, *subject)
 			if err != nil {
 				return err
 			}
-			if subject == nil {
+			if next == nil {
 				break
 			}
-			if graph.Exists(*subject) {
+			if graph.Exists(*next) {
 				if err := tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
 					return err
 				}
@@ -575,6 +575,7 @@ func (s *Store) gcIndex(ctx context.Context) error {
 				}
 				break
 			}
+			subject = next
 		}
 	}
 	s.tagResolver = tagResolver
