@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
@@ -30,45 +31,79 @@ import (
 // is not supported.
 var ErrClientTypeUnsupported = errors.New("client type not supported")
 
-// Login provides the login functionality with the given credentials. The target
-// registry's client should be nil or of type *auth.Client. Login uses
-// a client local to the function and will not modify the original client of
-// the registry.
+// Login provides the login functionality with the given credentials. The
+// target registry reference may be narrowed to a namespace or repository, but
+// must not contain a tag or digest. The target registry's client should be nil
+// or of type *auth.Client. Login uses a client local to the function and will
+// not modify the original client of the registry.
+//
+// Login validates the credentials against the registry, but does not prove
+// access to the target namespace or repository.
 func Login(ctx context.Context, store credentials.Store, reg *Registry, cred credentials.Credential) error {
+	if reg.Reference.Tag != "" || reg.Reference.Digest != "" {
+		return fmt.Errorf("%w: login target must not include a tag or digest", errdef.ErrInvalidReference)
+	}
+	resource := properties.Resource{
+		Registry: reg.Reference.Registry,
+		Path:     reg.Reference.Repository,
+	}
+	serverAddress, err := serverAddressFromResource(resource)
+	if err != nil {
+		return err
+	}
+
 	// Registry only contains copyable configuration. Make a local copy so
 	// authentication changes do not modify the caller's registry.
 	regClone := *reg
 	// we use the original client if applicable, otherwise use a default client
-	var authClient auth.Client
+	var authClient *auth.Client
 	if reg.Client == nil {
-		authClient = *auth.DefaultClient
+		authClient = auth.DefaultClient.Clone()
 		authClient.Cache = nil // no cache
 	} else if client, ok := reg.Client.(*auth.Client); ok {
-		authClient = *client
+		authClient = client.Clone()
 	} else {
 		return ErrClientTypeUnsupported
 	}
-	regClone.Client = &authClient
+	regClone.Client = authClient
 	// update credentials with the client
 	authClient.CredentialFunc = credentials.StaticCredentialFunc(reg.Reference.Registry, cred)
 	// validate and store the credential
 	if err := regClone.Ping(ctx); err != nil {
-		return fmt.Errorf("failed to validate the credentials for %s: %w", regClone.Reference.Registry, err)
+		return fmt.Errorf("failed to validate the credentials for %s: %w", resource, err)
 	}
-	hostname := ServerAddressFromRegistry(regClone.Reference.Registry)
-	if err := store.Put(ctx, hostname, cred); err != nil {
-		return fmt.Errorf("failed to store the credentials for %s: %w", hostname, err)
+	if err := store.Put(ctx, serverAddress, cred); err != nil {
+		return fmt.Errorf("failed to store the credentials for %s: %w", serverAddress, err)
 	}
 	return nil
 }
 
-// Logout provides the logout functionality given the registry name.
-func Logout(ctx context.Context, store credentials.Store, registryName string) error {
-	registryName = ServerAddressFromRegistry(registryName)
-	if err := store.Delete(ctx, registryName); err != nil {
-		return fmt.Errorf("failed to delete the credential for %s: %w", registryName, err)
+// Logout provides the logout functionality for the given registry resource.
+func Logout(ctx context.Context, store credentials.Store, resource properties.Resource) error {
+	serverAddress, err := serverAddressFromResource(resource)
+	if err != nil {
+		return err
+	}
+	if err := store.Delete(ctx, serverAddress); err != nil {
+		return fmt.Errorf("failed to delete the credential for %s: %w", serverAddress, err)
 	}
 	return nil
+}
+
+func serverAddressFromResource(resource properties.Resource) (string, error) {
+	serverAddress := ServerAddressFromRegistry(resource.Registry)
+	if resource.Path == "" {
+		return serverAddress, nil
+	}
+	// Reject a path the read side could never produce, so a credential is
+	// never stored under, or deleted by, an unreachable key.
+	if err := (properties.Reference{Repository: resource.Path}).ValidateRepository(); err != nil {
+		return "", err
+	}
+	if serverAddress != resource.Host() {
+		return "", fmt.Errorf("%w: registry %q does not support path-scoped credentials", errdef.ErrUnsupported, resource.Registry)
+	}
+	return serverAddress + "/" + resource.Path, nil
 }
 
 // NewCredentialFunc returns a CredentialFunc that retrieves credentials from

@@ -238,8 +238,13 @@ func TestConfig_GetAuthConfig_legacyConfig(t *testing.T) {
 			},
 		},
 		{
-			name:          "Address with https prefix and path suffix matched",
+			name:          "Address with https prefix and path suffix unmatched",
 			serverAddress: "registry6.example.com",
+			want:          AuthConfig{},
+		},
+		{
+			name:          "Address with path matched exactly",
+			serverAddress: "https://registry6.example.com/path/",
 			want: AuthConfig{
 				Auth: "dXNlcm5hbWU2OnBhc3N3b3JkNg==",
 			},

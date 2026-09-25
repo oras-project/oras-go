@@ -153,7 +153,10 @@ func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
 		// can be stored as "https://registry.example.com/".
 		var matched bool
 		for addr, auth := range cfg.authsCache {
-			if ToHostname(addr) == serverAddress {
+			legacyAddress := strings.TrimPrefix(addr, "http://")
+			legacyAddress = strings.TrimPrefix(legacyAddress, "https://")
+			legacyAddress = strings.TrimSuffix(legacyAddress, "/")
+			if legacyAddress == serverAddress {
 				matched = true
 				authCfgBytes = auth
 				break

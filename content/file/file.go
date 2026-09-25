@@ -241,14 +241,22 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 	}
 
 	if err := s.push(ctx, expected, content); err != nil {
-		if errors.Is(err, errSkipUnnamed) {
-			return nil
+		if !errors.Is(err, errSkipUnnamed) {
+			return err
 		}
-		return err
+		// The unnamed node is discarded, but the named successors of a
+		// manifest that were deduped by content must still be restored. The
+		// manifest is not stored, so it is read from the pushed content.
+		if !s.ForceCAS {
+			if err := s.restoreDuplicates(ctx, readerFetcher(content), expected); err != nil {
+				return fmt.Errorf("failed to restore duplicated file: %w", err)
+			}
+		}
+		return nil
 	}
 
 	if !s.ForceCAS {
-		if err := s.restoreDuplicates(ctx, expected); err != nil {
+		if err := s.restoreDuplicates(ctx, s, expected); err != nil {
 			return fmt.Errorf("failed to restore duplicated file: %w", err)
 		}
 	}
@@ -298,10 +306,10 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 }
 
 // restoreDuplicates restores successor files with same content but different
-// names.
+// names. The content of desc is fetched from fetcher.
 // See Store.ForceCAS for more info.
-func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) error {
-	successors, err := content.Successors(ctx, s, desc)
+func (s *Store) restoreDuplicates(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) error {
+	successors, err := content.Successors(ctx, fetcher, desc)
 	if err != nil {
 		return err
 	}
@@ -338,6 +346,14 @@ func (s *Store) restoreDuplicates(ctx context.Context, desc ocispec.Descriptor) 
 		}
 	}
 	return nil
+}
+
+// readerFetcher returns a fetcher that reads the content of a node being
+// pushed from r.
+func readerFetcher(r io.Reader) content.Fetcher {
+	return content.FetcherFunc(func(context.Context, ocispec.Descriptor) (io.ReadCloser, error) {
+		return io.NopCloser(r), nil
+	})
 }
 
 // Exists returns true if the described content exists.
@@ -490,7 +506,15 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 		return fmt.Errorf("failed to create file %s: %w", target, err)
 	}
 
-	return s.saveFile(fp, expected, content)
+	if err := s.saveFile(fp, expected, content); err != nil {
+		// Do not leave content that failed verification, or was only partly
+		// written, at the target path, where it looks like a pulled file.
+		if removeErr := os.Remove(target); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return errors.Join(err, fmt.Errorf("failed to remove %s: %w", target, removeErr))
+		}
+		return err
+	}
+	return nil
 }
 
 // pushDir saves content matching the descriptor to the target directory.
