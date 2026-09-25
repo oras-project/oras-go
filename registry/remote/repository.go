@@ -150,6 +150,26 @@ type Repository struct {
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-manifests
 	SkipReferrersGC bool
 
+	// MaxChunkSize specifies the target size in bytes for each PATCH chunk when
+	// pushing a blob in chunks.
+	//
+	// If zero or negative (the default), blobs are pushed monolithically in a
+	// single request, preserving the previous behavior. If positive, a blob
+	// larger than the effective chunk size is uploaded in chunks per the OCI
+	// Distribution Spec: an upload session is opened, the content is streamed in
+	// PATCH requests, and the session is closed with a final PUT. A
+	// registry-advertised OCI-Chunk-Min-Length raises this floor for all but the
+	// final chunk. If the chunked upload cannot be started (e.g. the registry
+	// does not support it), the push transparently falls back to a monolithic
+	// upload before any content is consumed.
+	//
+	// MaxChunkSize applies to [Repository.Push] only. Blob mount falls back to a
+	// monolithic upload when the registry does not implement the mount endpoint,
+	// regardless of this setting.
+	//
+	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pushing-a-blob-in-chunks
+	MaxChunkSize int64
+
 	// mirrors is an ordered list of mirror repositories to try before the
 	// primary registry for read operations. When empty, all reads go directly
 	// to the primary. Mirrors are populated from a [properties.Registry] when a
@@ -229,6 +249,7 @@ func (r *Repository) clone() *Repository {
 		TagListMaxPages:      r.TagListMaxPages,
 		ReferrerListMaxPages: r.ReferrerListMaxPages,
 		SkipReferrersGC:      r.SkipReferrersGC,
+		MaxChunkSize:         r.MaxChunkSize,
 		mirrors:              r.mirrors,
 	}
 }
@@ -256,6 +277,12 @@ func (r *Repository) maxMetadataBytes() int64 {
 		return 0
 	}
 	return r.Registry.MaxMetadataBytes
+}
+
+// maxChunkSize returns the target chunk size in bytes for chunked blob upload.
+// A value <= 0 disables chunking.
+func (r *Repository) maxChunkSize() int64 {
+	return r.MaxChunkSize
 }
 
 // handleWarning returns the warning handler function.
@@ -1277,6 +1304,24 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
 	repoRef := s.repo.reference()
 	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull, auth.ActionPush)
+
+	// Push in chunks when configured and the blob is larger than a single chunk.
+	// A blob that fits in one chunk is pushed monolithically, since a lone PATCH
+	// plus the closing PUT is strictly worse than a monolithic POST/PUT. If the
+	// chunked upload cannot be started before any content is consumed, fall back
+	// to the monolithic path so no registry regresses.
+	if chunkSize := s.repo.maxChunkSize(); chunkSize > 0 && expected.Size > chunkSize {
+		err := s.pushChunked(ctx, expected, content, chunkSize)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, errChunkedUploadNotStarted) {
+			return err
+		}
+		// Pre-consumption failure: no bytes were read from content, so a
+		// monolithic upload can safely take over.
+	}
+
 	url := buildRepositoryBlobUploadURL(s.repo.plainHTTP(), repoRef)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
@@ -1315,36 +1360,44 @@ func sameUploadHost(location, reqURL *url.URL) bool {
 	return canonicalPort(location) == canonicalPort(reqURL)
 }
 
-// completePushAfterInitialPost implements step 2 of the push protocol. This can be invoked either by
-// Push or by Mount when the receiving repository does not implement the
-// mount endpoint.
-func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.Request, resp *http.Response, expected ocispec.Descriptor, content io.Reader) error {
-	reqHostname := req.URL.Hostname()
-	reqPort := req.URL.Port()
-	// monolithic upload
+// resolveUploadLocation extracts the next blob-upload Location from resp,
+// resolved against the request URL. It applies the port-443 work-around and
+// rejects cross-host redirects and https scheme downgrades that could forward
+// credentials to an attacker-controlled endpoint.
+// Reference: https://github.com/oras-project/oras-go/issues/177
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-jxpm-75mh-9fp7
+func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, error) {
 	location, err := resp.Location()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// work-around solution for https://github.com/oras-project/oras-go/issues/177
 	// For some registries, if the port 443 is explicitly set to the hostname
 	// like registry.wabbit-networks.io:443/myrepo, blob push will fail since
 	// the hostname of the Location header in the response is set to
 	// registry.wabbit-networks.io instead of registry.wabbit-networks.io:443.
-	locationHostname := location.Hostname()
-	locationPort := location.Port()
-	// if location port 443 is missing, add it back
-	if reqPort == "443" && locationHostname == reqHostname && locationPort == "" {
-		location.Host = locationHostname + ":" + reqPort
+	if req.URL.Port() == "443" && location.Hostname() == req.URL.Hostname() && location.Port() == "" {
+		location.Host = location.Hostname() + ":443"
 	}
 	// Validate the Location stays on the same host to prevent credentials from
 	// being forwarded to an attacker-controlled endpoint.
-	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-jxpm-75mh-9fp7
 	if !sameUploadHost(location, req.URL) {
-		return fmt.Errorf("blob upload Location %q is on a different host than the registry %q", location.Host, req.URL.Host)
+		return nil, fmt.Errorf("blob upload Location %q is on a different host than the registry %q", location.Host, req.URL.Host)
 	}
 	if req.URL.Scheme == "https" && location.Scheme != "https" {
-		return fmt.Errorf("blob upload Location %q downgrades scheme from https", location.Host)
+		return nil, fmt.Errorf("blob upload Location %q downgrades scheme from https", location.Host)
+	}
+	return location, nil
+}
+
+// completePushAfterInitialPost implements step 2 of the push protocol. This can be invoked either by
+// Push or by Mount when the receiving repository does not implement the
+// mount endpoint.
+func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.Request, resp *http.Response, expected ocispec.Descriptor, content io.Reader) error {
+	// monolithic upload
+	location, err := resolveUploadLocation(resp, req)
+	if err != nil {
+		return err
 	}
 	url := location.String()
 	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, content)
