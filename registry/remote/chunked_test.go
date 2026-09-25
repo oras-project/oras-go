@@ -575,8 +575,10 @@ func TestRepository_Push_ChunkedUnsupportedDigestAlgorithm(t *testing.T) {
 
 func TestRepository_Push_ChunkedMinLengthHuge(t *testing.T) {
 	// A registry response with OCI-Chunk-Min-Length larger than the blob itself
-	// (or even 1<<62) must not panic with 'makeslice: len out of range'.
-	// It should cap chunk size to expected.Size.
+	// (or even 1<<62) must not panic with 'makeslice: len out of range'. Because
+	// the effective chunk size then reaches the whole blob, the push releases
+	// the session and falls back to a monolithic upload instead of issuing one
+	// unbounded PATCH.
 	reg := &chunkedUploadRegistry{t: t, minChunkLength: 1 << 62}
 	srv := httptest.NewServer(reg.handler())
 	defer srv.Close()
@@ -594,6 +596,12 @@ func TestRepository_Push_ChunkedMinLengthHuge(t *testing.T) {
 	}
 	if !bytes.Equal(reg.uploaded, blob) {
 		t.Errorf("uploaded = %q, want %q", reg.uploaded, blob)
+	}
+	if got := reg.patchCount(); got != 0 {
+		t.Errorf("PATCH count = %d, want 0 (must fall back, not send one huge PATCH)", got)
+	}
+	if !reg.cancelled {
+		t.Error("expected the opened chunked session to be released before fallback")
 	}
 }
 
@@ -749,6 +757,36 @@ func TestRepository_Push_ChunkedReaderError(t *testing.T) {
 	}
 	if !reg.cancelled {
 		t.Error("expected session to be cancelled on read error after consumption")
+	}
+}
+
+func TestRepository_Push_ChunkedReaderErrorOnFirstRead(t *testing.T) {
+	// The session is already open when uploadChunks runs, so a reader that
+	// errors on its very first Read (before any PATCH) must still release the
+	// session. This is the case the removed `consumed` guard used to leak.
+	reg := &chunkedUploadRegistry{t: t}
+	srv := httptest.NewServer(reg.handler())
+	defer srv.Close()
+
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes([]byte("hello world")),
+		Size:      11,
+	}
+
+	repo := newChunkedTestRepo(t, srv, 2)
+	err := repo.Blobs().Push(context.Background(), desc, &errReader{err: errors.New("first read boom")})
+	if err == nil {
+		t.Fatal("expected reader error, got nil")
+	}
+	if !strings.Contains(err.Error(), "first read boom") {
+		t.Errorf("error = %v, want first read boom", err)
+	}
+	if got := reg.patchCount(); got != 0 {
+		t.Errorf("PATCH count = %d, want 0 (reader errored before any PATCH)", got)
+	}
+	if !reg.cancelled {
+		t.Error("expected the open session to be cancelled on a first-read error")
 	}
 }
 

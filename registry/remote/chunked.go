@@ -52,9 +52,6 @@ type chunkedUpload struct {
 	// offset is the number of bytes uploaded so far (the next Content-Range
 	// start).
 	offset int64
-	// consumed reports whether at least one PATCH has been issued; after that
-	// the reader cannot be rewound, so a monolithic fallback is impossible.
-	consumed bool
 	// digester computes the digest of the streamed content.
 	digester digest.Digester
 	// auth is the Authorization header reused across requests in the session.
@@ -87,9 +84,13 @@ func (s *blobStore) pushChunked(ctx context.Context, expected ocispec.Descriptor
 	}
 	up.digester = algo.Digester()
 
-	// Never buffer more than the blob itself, whatever the registry advertised.
-	if up.chunk > expected.Size {
-		up.chunk = expected.Size
+	// A chunk at least as large as the blob means a lone PATCH plus the closing
+	// PUT, which is strictly worse than a monolithic POST/PUT, and it would size
+	// the read buffer at the whole blob however large the registry's advertised
+	// minimum. Nothing is consumed yet, so release the session and fall back.
+	if up.chunk >= expected.Size {
+		s.cancelUpload(ctx, up.location)
+		return fmt.Errorf("%w: effective chunk size %d is not smaller than blob size %d", errChunkedUploadNotStarted, up.chunk, expected.Size)
 	}
 
 	// Bound the read at the declared size so an over-long reader cannot push
@@ -148,9 +149,8 @@ func (s *blobStore) openUploadSession(ctx context.Context, chunkSize int64) (*ch
 }
 
 // uploadChunks streams content in PATCH requests of up.chunk bytes, updating the
-// running digest, byte offset, and push location as it goes. It sets
-// up.consumed once the first PATCH is issued; after that point failures cancel
-// the session.
+// running digest, byte offset, and push location as it goes. The session is
+// already open on entry, so every failure path cancels it.
 func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content io.Reader) error {
 	hasher := up.digester.Hash()
 	buf := make([]byte, up.chunk)
@@ -161,9 +161,7 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 			return nil
 		}
 		if readErr != nil && readErr != io.ErrUnexpectedEOF {
-			if up.consumed {
-				s.cancelUpload(ctx, up.location)
-			}
+			s.cancelUpload(ctx, up.location)
 			return fmt.Errorf("chunked blob push: failed to read content after %d bytes: %w", up.offset, readErr)
 		}
 		if n == 0 {
@@ -173,15 +171,12 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPatch, up.location.String(), bytes.NewReader(buf[:n]))
 		if err != nil {
-			if up.consumed {
-				s.cancelUpload(ctx, up.location)
-			}
+			s.cancelUpload(ctx, up.location)
 			return fmt.Errorf("chunked blob push: failed to build PATCH request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/octet-stream")
 		req.Header.Set("Content-Range", fmt.Sprintf("%d-%d", up.offset, up.offset+int64(n)-1))
 		req.ContentLength = int64(n)
-		up.consumed = true
 		resp, err := s.sendChunkRequest(up, req, func() (*http.Request, error) {
 			retry, rerr := http.NewRequestWithContext(ctx, http.MethodPatch, up.location.String(), bytes.NewReader(buf[:n]))
 			if rerr != nil {
