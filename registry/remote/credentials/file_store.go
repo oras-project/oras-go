@@ -81,6 +81,14 @@ func (fs *FileStore) Get(_ context.Context, serverAddress string) (Credential, e
 	return NewCredential(authCfg)
 }
 
+// MatchesNamespace reports whether Get performs most-specific-first namespace
+// matching for serverAddress. It does when fs.Hierarchical is set.
+//
+// MatchesNamespace implements [NamespaceMatcher].
+func (fs *FileStore) MatchesNamespace(string) bool {
+	return fs.Hierarchical
+}
+
 // Put saves credentials into the store for the given server address.
 // Returns ErrPlaintextPutDisabled if fs.DisablePut is set to true.
 func (fs *FileStore) Put(_ context.Context, serverAddress string, cred Credential) error {
