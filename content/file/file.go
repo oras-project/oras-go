@@ -495,7 +495,15 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 		return fmt.Errorf("failed to create file %s: %w", target, err)
 	}
 
-	return s.saveFile(fp, expected, content)
+	if err := s.saveFile(fp, expected, content); err != nil {
+		// Do not leave content that failed verification, or was only partly
+		// written, at the target path, where it looks like a pulled file.
+		if removeErr := os.Remove(target); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return errors.Join(err, fmt.Errorf("failed to remove %s: %w", target, removeErr))
+		}
+		return err
+	}
+	return nil
 }
 
 // pushDir saves content matching the descriptor to the target directory.

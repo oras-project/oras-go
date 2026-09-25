@@ -2062,6 +2062,78 @@ func TestStore_File_Push_Overwrite(t *testing.T) {
 
 }
 
+func TestStore_File_Push_VerificationFailure_RemovesFile(t *testing.T) {
+	name := "test.txt"
+	blob := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: name,
+		},
+	}
+
+	tests := []struct {
+		name    string
+		content []byte
+		wantErr error
+	}{
+		{
+			name:    "mismatched digest",
+			content: []byte("hello wOrld"),
+			wantErr: content.ErrMismatchedDigest,
+		},
+		{
+			name:    "truncated content",
+			content: []byte("hello"),
+			wantErr: io.ErrUnexpectedEOF,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			s, err := New(tempDir)
+			if err != nil {
+				t.Fatal("Store.New() error =", err)
+			}
+			defer s.Close()
+			ctx := context.Background()
+
+			err = s.Push(ctx, desc, bytes.NewReader(tt.content))
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Store.Push() error = %v, want %v", err, tt.wantErr)
+			}
+
+			path := filepath.Join(tempDir, name)
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				got, _ := os.ReadFile(path)
+				t.Fatalf("%s left behind after a failed push (stat error %v), content %q", path, err, got)
+			}
+
+			exists, err := s.Exists(ctx, desc)
+			if err != nil {
+				t.Fatal("Store.Exists() error =", err)
+			}
+			if exists {
+				t.Errorf("Store.Exists() = %v, want %v", exists, false)
+			}
+
+			// the name is still free, so the right content can be pushed
+			if err := s.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+				t.Fatal("Store.Push() of the right content error =", err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal("ReadFile() error =", err)
+			}
+			if !bytes.Equal(got, blob) {
+				t.Errorf("file content = %q, want %q", got, blob)
+			}
+		})
+	}
+}
+
 func TestStore_File_Push_DisableOverwrite(t *testing.T) {
 	content := []byte("hello world")
 	name := "test.txt"
