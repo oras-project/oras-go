@@ -117,8 +117,10 @@ type StoreOptions struct {
 	// containers-auth.json (Podman/Buildah). When false (default), exact
 	// hostname matching is used, as in Docker config.json.
 	//
-	// This only affects the plaintext file store; credential helpers and
-	// native stores are always keyed by the exact server address.
+	// This only affects credential lookup in the plaintext file store. A
+	// credential helper is always selected by nearest configured parent, and
+	// the selected helper and native stores are always keyed by the exact
+	// server address, regardless of this option.
 	//
 	// It also makes the store authoritative for namespace matching, reported
 	// through [NamespaceMatcher]: a key that is present but holds no
@@ -233,11 +235,18 @@ func (ds *DynamicStore) ConfigPath() string {
 
 // getHelperSuffix returns the credential helper suffix for the given server
 // address.
+//
+// "credHelpers" is keyed by registry host, so a namespaced address
+// ("host/path") resolves to the helper configured for its nearest parent,
+// down to the bare host. The resolved helper is queried with the full address,
+// path included. Note that containers/image queries the helper with the host
+// alone, so a credential stored here under a namespaced key is not visible to
+// Podman or the Docker CLI.
 func (ds *DynamicStore) getHelperSuffix(serverAddress string) string {
-	// 1. Look for a server-specific credential helper first. "credHelpers" is
-	// keyed by registry host, so a namespaced address ("host/path") uses the
-	// helper of its nearest configured parent, down to the bare host.
-	for key := serverAddress; ; {
+	// 1. Look for a server-specific credential helper, then for the helper of
+	// each parent namespace.
+	key := serverAddress
+	for {
 		if helper := ds.config.GetCredentialHelper(key); helper != "" {
 			return helper
 		}
