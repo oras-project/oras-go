@@ -28,6 +28,18 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configtest"
 )
 
+// Interface assertions
+var (
+	_ Getter           = (Store)(nil)
+	_ Putter           = (Store)(nil)
+	_ Deleter          = (Store)(nil)
+	_ Getter           = (NamespaceMatcher)(nil)
+	_ Store            = (*DynamicStore)(nil)
+	_ Store            = (*storeWithFallbacks)(nil)
+	_ NamespaceMatcher = (*DynamicStore)(nil)
+	_ NamespaceMatcher = (*storeWithFallbacks)(nil)
+)
+
 // testStore implements the Store interface, used for testing purpose.
 type testStore struct {
 	storage map[string]Credential
