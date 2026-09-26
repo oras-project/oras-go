@@ -605,6 +605,83 @@ func TestRepository_Push_ChunkedMinLengthHuge(t *testing.T) {
 	}
 }
 
+// zeroReader yields n zero bytes without materializing them.
+type zeroReader struct {
+	n int64
+}
+
+func (r *zeroReader) Read(p []byte) (int, error) {
+	if r.n <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > r.n {
+		p = p[:r.n]
+	}
+	clear(p)
+	r.n -= int64(len(p))
+	return len(p), nil
+}
+
+func TestRepository_Push_ChunkedMinLengthAboveCeiling(t *testing.T) {
+	// A registry advertising an OCI-Chunk-Min-Length above maxChunkMinLength but
+	// below the blob size must not raise the chunk size to it, since each chunk
+	// is buffered in memory. The push releases the session and falls back to a
+	// monolithic upload, which streams the content without buffering.
+	const sessionPath = "/v2/test/blobs/uploads/session"
+	minLen := maxChunkMinLength + 1
+	size := maxChunkMinLength + 2
+
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+			w.Header().Set(headerOCIChunkMinLength, fmt.Sprintf("%d", minLen))
+			w.Header().Set("Location", sessionPath)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodPatch && r.URL.Path == sessionPath:
+			if _, err := io.Copy(io.Discard, r.Body); err != nil {
+				t.Errorf("failed to read PATCH body: %v", err)
+			}
+			w.Header().Set("Location", sessionPath)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodPut && r.URL.Path == sessionPath:
+			if _, err := io.Copy(io.Discard, r.Body); err != nil {
+				t.Errorf("failed to read PUT body: %v", err)
+			}
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodDelete && r.URL.Path == sessionPath:
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	d := digest.Canonical.Digester()
+	if _, err := io.Copy(d.Hash(), &zeroReader{n: size}); err != nil {
+		t.Fatalf("failed to digest content: %v", err)
+	}
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    d.Digest(),
+		Size:      size,
+	}
+
+	repo := newChunkedTestRepo(t, srv, 2)
+	if err := repo.Blobs().Push(context.Background(), desc, &zeroReader{n: size}); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+
+	// The chunked session POST is released by DELETE before the monolithic POST/PUT.
+	want := []string{http.MethodPost, http.MethodDelete, http.MethodPost, http.MethodPut}
+	if !equalStrings(methods, want) {
+		t.Errorf("methods = %v, want %v (must release the session and fall back, not raise the chunk size)", methods, want)
+	}
+}
+
 func TestRepository_Push_ChunkedOverlongReader(t *testing.T) {
 	// A reader that produces more bytes than declared in expected.Size must be
 	// bounded at expected.Size and not upload extra trailing bytes.
