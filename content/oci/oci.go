@@ -23,11 +23,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -53,7 +55,9 @@ type Store struct {
 	//      1. pushing a manifest
 	//      2. calling Tag() or Delete()
 	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
-	//     to manually call SaveIndex() when needed.
+	//     to manually call SaveIndex() when needed. Callers doing bulk work can
+	//     avoid rewriting the index after every operation by saving it once
+	//     after the work is complete.
 	//   - Default value: true.
 	AutoSaveIndex bool
 
@@ -63,6 +67,18 @@ type Store struct {
 	// Tagged manifests will not be deleted.
 	//   - Default value: true.
 	AutoGC bool
+
+	// SyncIndex controls whether writes to `index.json` are synchronized to
+	// stable storage before replacing the previous index. The containing
+	// directory is then synchronized on a best-effort basis; this is not
+	// supported on Windows. Synchronization can significantly increase latency.
+	// This applies to both automatic saves and SaveIndex, but does not flush
+	// blobs or metadata already written by New. Set it before using the store
+	// concurrently. Temporary-file replacement is used regardless of this value;
+	// without synchronization, delayed write failures and crash recovery are
+	// subject to the file system's writeback behavior.
+	//   - Default value: false.
+	SyncIndex bool
 
 	root        string
 	indexPath   string
@@ -81,11 +97,24 @@ type Store struct {
 }
 
 // New creates a new OCI store with context.Background().
+//
+// If `index.json` is present but empty, which a write interrupted by a
+// full file system can leave behind, it is reinitialized rather than reported as
+// an error. The blobs of the store are kept, but the tags recorded in the lost
+// index are not recoverable, and the blobs they referenced become unreferenced
+// and are removed by the next call to GC.
+//
+// Only a zero-length file is recovered this way. A write interrupted part-way
+// can also leave a short, undecodable `index.json` behind, and that is still
+// reported as an error, since it may be corruption whose surviving tags are
+// worth keeping for inspection rather than discarding.
 func New(root string) (*Store, error) {
 	return NewWithContext(context.Background(), root)
 }
 
 // NewWithContext creates a new OCI store.
+//
+// See New for the handling of an empty `index.json`.
 func NewWithContext(ctx context.Context, root string) (*Store, error) {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
@@ -362,24 +391,53 @@ func (s *Store) ensureOCILayoutFile() error {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to open OCI layout file: %w", err)
 		}
-
-		layout := ocispec.ImageLayout{
-			Version: ocispec.ImageLayoutVersion,
-		}
-		layoutJSON, err := json.Marshal(layout)
-		if err != nil {
-			return fmt.Errorf("failed to marshal OCI layout file: %w", err)
-		}
-		return os.WriteFile(layoutFilePath, layoutJSON, 0666)
+		return writeOCILayoutFile(layoutFilePath)
 	}
 	defer layoutFile.Close()
 
-	var layout ocispec.ImageLayout
-	err = json.NewDecoder(layoutFile).Decode(&layout)
+	// An empty file is what an interrupted write leaves behind. It carries no
+	// information, and it describes the same state as a missing file, so it is
+	// treated in the same way and rewritten, rather than failing the store for
+	// as long as it is there.
+	empty, err := isEmptyFile(layoutFile)
 	if err != nil {
+		return fmt.Errorf("failed to stat OCI layout file: %w", err)
+	}
+	if empty {
+		// the file is closed before it is replaced, since on Windows a file
+		// cannot be renamed over while it is open.
+		if err := layoutFile.Close(); err != nil {
+			return fmt.Errorf("failed to close OCI layout file: %w", err)
+		}
+		return writeOCILayoutFile(layoutFilePath)
+	}
+
+	var layout ocispec.ImageLayout
+	if err := json.NewDecoder(layoutFile).Decode(&layout); err != nil {
 		return fmt.Errorf("failed to decode OCI layout file: %w", err)
 	}
 	return validateOCILayout(&layout)
+}
+
+// writeOCILayoutFile writes the `oci-layout` file at the given path.
+func writeOCILayoutFile(layoutFilePath string) error {
+	layout := ocispec.ImageLayout{
+		Version: ocispec.ImageLayoutVersion,
+	}
+	layoutJSON, err := json.Marshal(layout)
+	if err != nil {
+		return fmt.Errorf("failed to marshal OCI layout file: %w", err)
+	}
+	return writeFileAtomic(layoutFilePath, layoutJSON, false)
+}
+
+// isEmptyFile reports whether the open file is zero-length.
+func isEmptyFile(file *os.File) (bool, error) {
+	fi, err := file.Stat()
+	if err != nil {
+		return false, err
+	}
+	return fi.Size() == 0, nil
 }
 
 // loadIndexFile reads index.json from the file system.
@@ -392,16 +450,25 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 		}
 
 		// write index.json if it does not exist
-		s.index = &ocispec.Index{
-			Versioned: specs.Versioned{
-				SchemaVersion: 2, // historical value
-			},
-			MediaType: ocispec.MediaTypeImageIndex,
-			Manifests: []ocispec.Descriptor{},
-		}
-		return s.writeIndexFile()
+		return s.resetIndexFile()
 	}
 	defer indexFile.Close()
+
+	// An empty file is what an interrupted write leaves behind. It is not a
+	// valid index, and it describes the same state as a missing index file, so
+	// it is treated in the same way and rewritten.
+	empty, err := isEmptyFile(indexFile)
+	if err != nil {
+		return fmt.Errorf("failed to stat index file: %w", err)
+	}
+	if empty {
+		// the file is closed before it is replaced, since on Windows a file
+		// cannot be renamed over while it is open.
+		if err := indexFile.Close(); err != nil {
+			return fmt.Errorf("failed to close index file: %w", err)
+		}
+		return s.resetIndexFile()
+	}
 
 	var index ocispec.Index
 	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
@@ -411,12 +478,27 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 	return loadIndex(ctx, s.index, s.storage, s.tagResolver, s.graph)
 }
 
+// resetIndexFile sets the index to an empty index and writes it to the file
+// system, replacing the `index.json` file if it is already present.
+func (s *Store) resetIndexFile() error {
+	s.index = &ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value
+		},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: []ocispec.Descriptor{},
+	}
+	return s.writeIndexFile()
+}
+
 // SaveIndex writes the `index.json` file to the file system.
 //   - If AutoSaveIndex is set to true (default value),
 //     the OCI store will automatically save the changes to `index.json`
 //     on Tag() and Delete() calls, and when pushing a manifest.
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
-//     to manually call this method when needed.
+//     to manually call this method when needed. Callers doing bulk work can
+//     avoid rewriting the index after every operation by saving it once after
+//     the work is complete.
 func (s *Store) SaveIndex() error {
 	s.sync.RLock()
 	defer s.sync.RUnlock()
@@ -463,7 +545,7 @@ func (s *Store) writeIndexFile() error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal index file: %w", err)
 	}
-	return os.WriteFile(s.indexPath, indexJSON, 0666)
+	return writeFileAtomic(s.indexPath, indexJSON, s.SyncIndex)
 }
 
 // GC removes garbage from Store. Unsaved index will be lost. To prevent unexpected
@@ -471,6 +553,7 @@ func (s *Store) writeIndexFile() error {
 // The garbage to be cleaned are:
 //   - unreferenced (dangling) blobs in Store which have no predecessors
 //   - garbage blobs in the storage whose metadata is not stored in Store
+//   - temporary files left behind by interrupted blob and metadata writes
 func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
@@ -521,7 +604,73 @@ func (s *Store) GC(ctx context.Context) error {
 			}
 		}
 	}
+
+	// Reclaiming leftovers is opportunistic: the collection above has already
+	// completed, so a temporary file that cannot be removed must not turn a
+	// successful GC into a failed one.
+	s.gcLeftovers()
 	return nil
+}
+
+// leftoverExpiry is how long a temporary file must have been untouched before
+// GC reclaims it, so that a write in progress -- possibly by another Store on
+// the same directory -- is never reclaimed from underneath.
+const leftoverExpiry = time.Hour
+
+// gcLeftovers removes the temporary files that interrupted writes leave
+// behind: the ingest files of blob writes that did not complete, and the
+// temporary files of metadata writes that were never renamed into place.
+// Nothing else refers to them, and no other code path removes them.
+func (s *Store) gcLeftovers() {
+	// A write removes its own temporary file when it fails, so anything still
+	// here is the residue of a process that died mid-write -- or a write that
+	// another Store on the same directory is performing right now, which the
+	// lock of this Store does not serialize against. Only entries that have
+	// not been touched for leftoverExpiry are reclaimed, since the modification
+	// time of a write in progress keeps advancing.
+	stale := olderThan(leftoverExpiry)
+
+	removeFiles(s.storage.ingestRoot, stale)
+	// the temporary files of metadata writes are created next to the file that
+	// they replace, in the root of the store.
+	removeFiles(s.root, func(entry fs.DirEntry) bool {
+		name := entry.Name()
+		if !isTempFileOf(name, ocispec.ImageIndexFile) && !isTempFileOf(name, ocispec.ImageLayoutFile) {
+			return false
+		}
+		return stale(entry)
+	})
+}
+
+// olderThan returns a matcher accepting the directory entries that have not
+// been modified for at least d. An entry whose information cannot be read is
+// not matched: it has either just been removed by someone else, or it is not
+// ours to reason about.
+func olderThan(d time.Duration) func(entry fs.DirEntry) bool {
+	return func(entry fs.DirEntry) bool {
+		fi, err := entry.Info()
+		if err != nil {
+			return false
+		}
+		return time.Since(fi.ModTime()) >= d
+	}
+}
+
+// removeFiles removes the files in dir that are matched by match. Directories,
+// entries that are not matched, and entries that cannot be removed are left
+// alone.
+func removeFiles(dir string, match func(entry fs.DirEntry) bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !match(entry) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, entry.Name()))
+	}
 }
 
 // gcIndex reloads the index and updates metadata. Information of untagged blobs
