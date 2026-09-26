@@ -96,6 +96,11 @@ type Registry struct {
 	// during referrer listing. Zero means unlimited.
 	ReferrerListMaxPages int
 
+	// MaxChunkSize is the default target size in bytes for each PATCH chunk
+	// when pushing blobs to repositories. If less than or equal to zero,
+	// blobs are pushed monolithically unless a repository overrides it.
+	MaxChunkSize int64
+
 	// SkipReferrersGC is the default for repositories.
 	// If false, the old referrers index will be deleted after the new one
 	// is successfully uploaded.

@@ -503,6 +503,73 @@ func TestRepository_Push_ChunkedViaRepositoryPush(t *testing.T) {
 	}
 }
 
+func TestRegistry_Repository_Push_ChunkedDefault(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		defaultMax int64
+		override   int64
+		wantPatch  int
+	}{
+		{name: "registry default", defaultMax: 2, wantPatch: 3},
+		{name: "repository override", defaultMax: 2, override: 3, wantPatch: 2},
+		{name: "monolithic default", wantPatch: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := &chunkedUploadRegistry{t: t}
+			srv := httptest.NewServer(reg.handler())
+			defer srv.Close()
+
+			uri, err := url.Parse(srv.URL)
+			if err != nil {
+				t.Fatalf("invalid test server URL: %v", err)
+			}
+			registry, err := NewRegistry(uri.Host)
+			if err != nil {
+				t.Fatalf("NewRegistry() error = %v", err)
+			}
+			registry.PlainHTTP = true
+			registry.Client = &auth.Client{Client: &http.Client{}}
+			registry.MaxChunkSize = tt.defaultMax
+			target, err := registry.Repository(context.Background(), "test")
+			if err != nil {
+				t.Fatalf("Registry.Repository() error = %v", err)
+			}
+			repo, ok := target.(*Repository)
+			if !ok {
+				t.Fatalf("repository type = %T, want *Repository", target)
+			}
+			repo.MaxChunkSize = tt.override
+
+			blob := []byte("hello")
+			desc := ocispec.Descriptor{
+				MediaType: "application/octet-stream",
+				Digest:    digest.FromBytes(blob),
+				Size:      int64(len(blob)),
+			}
+			if err := repo.Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+				t.Fatalf("Push() error = %v", err)
+			}
+			if got := reg.patchCount(); got != tt.wantPatch {
+				t.Errorf("PATCH count = %d, want %d", got, tt.wantPatch)
+			}
+			if !bytes.Equal(reg.uploaded, blob) {
+				t.Errorf("uploaded = %q, want %q", reg.uploaded, blob)
+			}
+		})
+	}
+}
+
+func TestRepository_MaxChunkSizeWithoutRegistry(t *testing.T) {
+	repo := &Repository{}
+	if got := repo.maxChunkSize(); got != 0 {
+		t.Errorf("maxChunkSize() = %d, want 0", got)
+	}
+	repo.MaxChunkSize = 4
+	if got := repo.maxChunkSize(); got != 4 {
+		t.Errorf("maxChunkSize() = %d, want 4", got)
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
