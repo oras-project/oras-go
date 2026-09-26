@@ -666,7 +666,7 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 			if err != nil {
 				t.Fatal("NewStore() error =", err)
 			}
-			if got := ds.getHelperSuffix(tt.serverAddress); got != tt.want {
+			if got, _ := ds.getHelperSuffix(tt.serverAddress); got != tt.want {
 				t.Errorf("DynamicStore.getHelperSuffix() = %v, want %v", got, tt.want)
 			}
 		})
@@ -725,6 +725,9 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 				t.Fatal("NewStore() error =", err)
 			}
 			gotStore := ds.getStore(tt.serverAddress)
+			if inherited, ok := gotStore.(inheritedHelperStore); ok {
+				gotStore = inherited.Store
+			}
 			if _, ok := gotStore.(*nativeStore); !ok {
 				t.Errorf("gotStore is not a native store")
 			}
@@ -1162,5 +1165,23 @@ func TestStoreWithFallbacks_MatchesNamespace(t *testing.T) {
 				t.Errorf("MatchesNamespace() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_inheritedHelperStore_Get_helperError(t *testing.T) {
+	store := inheritedHelperStore{&nativeStore{&testExecuter{}}}
+	got, err := store.Get(context.Background(), exeErrorHost)
+	if err != nil {
+		t.Fatal("inheritedHelperStore.Get() error =", err)
+	}
+	if got != EmptyCredential {
+		t.Errorf("inheritedHelperStore.Get() = %v, want %v", got, EmptyCredential)
+	}
+}
+
+func Test_inheritedHelperStore_Put_helperError(t *testing.T) {
+	store := inheritedHelperStore{&nativeStore{&testExecuter{}}}
+	if err := store.Put(context.Background(), "localhost:500/unknown", Credential{}); err == nil {
+		t.Error("inheritedHelperStore.Put() error = nil, want error")
 	}
 }
