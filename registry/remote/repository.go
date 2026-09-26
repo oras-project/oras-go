@@ -581,6 +581,9 @@ func (r *Repository) policyDigest(reference string) digest.Digest {
 
 // Fetch fetches the content identified by the descriptor.
 // If mirrors are configured, they are tried in order before the primary.
+// Manifest responses with a different Docker-Content-Digest algorithm are
+// verified and buffered up to MaxMetadataBytes before the reader is returned.
+// Each such in-flight fetch may hold that much data in memory.
 func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
 	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return nil, err
@@ -1577,6 +1580,9 @@ type manifestStore struct {
 }
 
 // Fetch fetches the content identified by the descriptor.
+// If the manifest's Docker-Content-Digest uses a different algorithm, the
+// response is verified and buffered up to MaxMetadataBytes before return.
+// Each such in-flight fetch may hold that much data in memory.
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
 		return nil, err
@@ -1620,8 +1626,8 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	// Content-Length is not validated here because some registries (e.g. Harbor)
 	// return different values between HEAD (used by Resolve) and GET responses,
 	// typically due to transparent compression. Integrity is guaranteed by
-	// verifyContentDigest below.
-	if err := verifyContentDigest(resp, target.Digest); err != nil {
+	// digest verification below.
+	if err := s.verifyPullContentDigest(resp, target.Digest); err != nil {
 		return nil, err
 	}
 	return resp.Body, nil
@@ -1790,6 +1796,9 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 			// policy is evaluated below against the fetched descriptor, so
 			// skip the redundant evaluation in Resolve.
 			desc, err = s.Resolve(withPolicyChecked(ctx), reference)
+			if err == nil {
+				err = s.verifyPullContentDigest(resp, desc.Digest)
+			}
 		} else {
 			desc, err = s.generateDescriptor(resp, ref, req.Method)
 		}
@@ -2187,7 +2196,11 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 			// GET without server `Docker-Content-Digest` header forces the
 			// expensive calculation
 			var calculatedDigest digest.Digest
-			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.maxMetadataBytes()); err != nil {
+			algorithm := digest.Canonical
+			if len(refDigest) > 0 {
+				algorithm = refDigest.Algorithm()
+			}
+			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.maxMetadataBytes(), algorithm); err != nil {
 				return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
 			}
 			contentDigest = calculatedDigest
@@ -2196,6 +2209,16 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 		contentDigest = serverHeaderDigest
 	}
 
+	if httpMethod == http.MethodGet && len(refDigest) > 0 && len(serverHeaderDigest) > 0 && contentDigest.Algorithm() != refDigest.Algorithm() {
+		// A registry may report a canonical digest using a different algorithm.
+		// Preserve the requested identity, verifying it against the body for GET.
+		if httpMethod == http.MethodGet {
+			if err := s.verifyPullContentDigest(resp, refDigest); err != nil {
+				return ocispec.Descriptor{}, err
+			}
+		}
+		contentDigest = refDigest
+	}
 	if len(refDigest) > 0 && refDigest != contentDigest {
 		return ocispec.Descriptor{}, fmt.Errorf(
 			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
@@ -2213,9 +2236,89 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 	}, nil
 }
 
+// verifyPullContentDigest permits a different canonical digest algorithm on
+// manifest pulls, but verifies the returned bytes against the requested digest.
+// Pushes deliberately continue to use verifyContentDigest's strict comparison.
+// Alternate algorithms buffer at most MaxMetadataBytes before returning the
+// verified body to the caller. Headerless chunked responses stream verification
+// as the body is read. Resolve and Exists use HEAD, so remain strict.
+func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
+	headerStr := resp.Header.Get(headerDockerContentDigest)
+	if !expected.Algorithm().Available() {
+		return verifyContentDigest(resp, expected)
+	}
+	if headerStr == "" {
+		if resp.ContentLength != -1 {
+			return verifyContentDigest(resp, expected)
+		}
+		// Manifests fetched without a header were never bounded by
+		// MaxMetadataBytes. Verify the chunked body as the caller reads it.
+		resp.Body = newVerifyReadCloser(resp.Body, expected, resp.Request.Method, resp.Request.URL)
+		return nil
+	}
+	canonical, err := digest.Parse(headerStr)
+	if err != nil || canonical.Algorithm() == expected.Algorithm() {
+		return verifyContentDigest(resp, expected)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(limitReader(resp.Body, s.repo.maxMetadataBytes()))
+	if err != nil {
+		return fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	var extra [1]byte
+	if n, err := io.ReadFull(resp.Body, extra[:]); n > 0 {
+		return fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, errdef.ErrSizeExceedsLimit)
+	} else if err != nil && err != io.EOF {
+		return fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	if actual := expected.Algorithm().FromBytes(body); actual != expected {
+		return fmt.Errorf("%s %q: invalid response; content digest mismatch: received %q when expecting %q; %w",
+			resp.Request.Method, resp.Request.URL, actual, expected, content.ErrMismatchedDigest)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	return nil
+}
+
+// verifyReadCloser checks the digest at EOF without buffering the response.
+type verifyReadCloser struct {
+	io.ReadCloser
+	verifier digest.Verifier
+	expected digest.Digest
+	method   string
+	url      *url.URL
+	checked  bool
+}
+
+func newVerifyReadCloser(rc io.ReadCloser, expected digest.Digest, method string, url *url.URL) io.ReadCloser {
+	return &verifyReadCloser{
+		ReadCloser: rc,
+		verifier:   expected.Verifier(),
+		expected:   expected,
+		method:     method,
+		url:        url,
+	}
+}
+
+func (v *verifyReadCloser) Read(p []byte) (int, error) {
+	n, err := v.ReadCloser.Read(p)
+	if n > 0 {
+		if _, werr := v.verifier.Write(p[:n]); werr != nil {
+			return n, werr
+		}
+	}
+	if err == io.EOF && !v.checked {
+		v.checked = true
+		if !v.verifier.Verified() {
+			return n, fmt.Errorf("%s %q: invalid response; content digest mismatch: expecting %q; %w",
+				v.method, v.url, v.expected, content.ErrMismatchedDigest)
+		}
+	}
+	return n, err
+}
+
 // calculateDigestFromResponse calculates the actual digest of the response body
 // taking care not to destroy it in the process.
-func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (digest.Digest, error) {
+func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64, algorithm digest.Algorithm) (digest.Digest, error) {
 	defer resp.Body.Close()
 
 	body := limitReader(resp.Body, maxMetadataBytes)
@@ -2225,7 +2328,7 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (d
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(content))
 
-	return digest.FromBytes(content), nil
+	return algorithm.FromBytes(content), nil
 }
 
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.
