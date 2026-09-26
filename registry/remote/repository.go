@@ -159,9 +159,11 @@ type Repository struct {
 	// Distribution Spec: an upload session is opened, the content is streamed in
 	// PATCH requests, and the session is closed with a final PUT. A
 	// registry-advertised OCI-Chunk-Min-Length raises this floor for all but the
-	// final chunk. If the chunked upload cannot be started (e.g. the registry
-	// does not support it), the push transparently falls back to a monolithic
-	// upload before any content is consumed.
+	// final chunk, up to a fixed limit (currently 32 MiB) since each chunk is
+	// buffered in memory; a larger advertised minimum makes the push fall back
+	// to a monolithic upload. If the chunked upload cannot be started (e.g. the
+	// registry does not support it), the push transparently falls back to a
+	// monolithic upload before any content is consumed.
 	//
 	// MaxChunkSize applies to [Repository.Push] only. Blob mount falls back to a
 	// monolithic upload when the registry does not implement the mount endpoint,

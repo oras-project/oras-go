@@ -37,6 +37,12 @@ import (
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pushing-a-blob-in-chunks
 const headerOCIChunkMinLength = "OCI-Chunk-Min-Length"
 
+// maxChunkMinLength is the largest registry-advertised OCI-Chunk-Min-Length
+// honored when it raises the caller's chunk size. Each chunk is buffered in
+// memory, so a larger advertised minimum makes the push fall back to a
+// monolithic upload, which streams the content without buffering.
+const maxChunkMinLength int64 = 32 * 1024 * 1024 // 32 MiB
+
 // errChunkedUploadNotStarted signals that a chunked upload failed before any
 // byte of the content was consumed. The caller may safely fall back to a
 // monolithic upload with the original reader.
@@ -91,6 +97,15 @@ func (s *blobStore) pushChunked(ctx context.Context, expected ocispec.Descriptor
 	if up.chunk >= expected.Size {
 		s.cancelUpload(ctx, up.location)
 		return fmt.Errorf("%w: effective chunk size %d is not smaller than blob size %d", errChunkedUploadNotStarted, up.chunk, expected.Size)
+	}
+
+	// Each chunk is buffered in memory, so a registry-advertised minimum must not
+	// raise the caller's chunk size without bound and defeat the limit the caller
+	// set MaxChunkSize to establish. Nothing is consumed yet, so release the
+	// session and fall back to a monolithic upload, which does not buffer.
+	if up.chunk > chunkSize && up.chunk > maxChunkMinLength {
+		s.cancelUpload(ctx, up.location)
+		return fmt.Errorf("%w: advertised minimum chunk size %d exceeds limit %d", errChunkedUploadNotStarted, up.chunk, maxChunkMinLength)
 	}
 
 	// Bound the read at the declared size so an over-long reader cannot push
