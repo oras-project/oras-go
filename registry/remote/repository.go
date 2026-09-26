@@ -554,6 +554,9 @@ func (r *Repository) policyDigest(reference string) digest.Digest {
 
 // Fetch fetches the content identified by the descriptor.
 // If mirrors are configured, they are tried in order before the primary.
+// Manifest responses with a different Docker-Content-Digest algorithm are
+// verified and buffered up to MaxMetadataBytes before the reader is returned.
+// Each such in-flight fetch may hold that much data in memory.
 func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
 	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return nil, err
@@ -1524,6 +1527,9 @@ type manifestStore struct {
 }
 
 // Fetch fetches the content identified by the descriptor.
+// If the manifest's Docker-Content-Digest uses a different algorithm, the
+// response is verified and buffered up to MaxMetadataBytes before return.
+// Each such in-flight fetch may hold that much data in memory.
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
 		return nil, err
