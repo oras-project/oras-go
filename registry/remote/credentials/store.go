@@ -40,17 +40,32 @@ const (
 	dockerConfigFileName = "config.json"
 )
 
-// Store is the interface that any credentials store must implement.
-type Store interface {
+// Getter retrieves credentials.
+type Getter interface {
 	// Get retrieves credentials from the store for the given server address.
 	Get(ctx context.Context, serverAddress string) (Credential, error)
+}
+
+// Putter saves credentials.
+type Putter interface {
 	// Put saves credentials into the store for the given server address.
 	Put(ctx context.Context, serverAddress string, cred Credential) error
+}
+
+// Deleter removes credentials.
+type Deleter interface {
 	// Delete removes credentials from the store for the given server address.
 	Delete(ctx context.Context, serverAddress string) error
 }
 
-// NamespaceMatcher is an optional interface that a [Store] may implement to
+// Store is the interface that any credentials store must implement.
+type Store interface {
+	Getter
+	Putter
+	Deleter
+}
+
+// NamespaceMatcher is an optional interface that a [Getter] may implement to
 // report that its Get already performs most-specific-first namespace matching
 // for a server address.
 //
@@ -64,12 +79,12 @@ type Store interface {
 // credential. A matching store can tell that entry apart from an absent one
 // and treats it as anonymous access for that namespace, as
 // containers-auth.json does. A non-matching store cannot, because
-// [Store.Get] reports both as [EmptyCredential] with a nil error, so the walk
+// [Getter.Get] reports both as [EmptyCredential] with a nil error, so the walk
 // continues past it.
 //
 // A store that does not implement this interface is treated as not matching.
 type NamespaceMatcher interface {
-	Store
+	Getter
 
 	// MatchesNamespace reports whether Get performs most-specific-first
 	// namespace matching for serverAddress.

@@ -39,7 +39,7 @@ var ErrClientTypeUnsupported = errors.New("client type not supported")
 //
 // Login validates the credentials against the registry, but does not prove
 // access to the target namespace or repository.
-func Login(ctx context.Context, store credentials.Store, reg *Registry, cred credentials.Credential) error {
+func Login(ctx context.Context, store credentials.Putter, reg *Registry, cred credentials.Credential) error {
 	if reg.Reference.Tag != "" || reg.Reference.Digest != "" {
 		return fmt.Errorf("%w: login target must not include a tag or digest", errdef.ErrInvalidReference)
 	}
@@ -79,7 +79,7 @@ func Login(ctx context.Context, store credentials.Store, reg *Registry, cred cre
 }
 
 // Logout provides the logout functionality for the given registry resource.
-func Logout(ctx context.Context, store credentials.Store, resource properties.Resource) error {
+func Logout(ctx context.Context, store credentials.Deleter, resource properties.Resource) error {
 	serverAddress, err := serverAddressFromResource(resource)
 	if err != nil {
 		return err
@@ -131,7 +131,7 @@ func serverAddressFromResource(resource properties.Resource) (string, error) {
 //     empty entry therefore means anonymous access for that namespace, and the
 //     walk is left to the store rather than repeated over the same keys here.
 //   - Any other store is asked for each namespace in turn and the first
-//     non-empty credential wins. [credentials.Store.Get] reports an absent key
+//     non-empty credential wins. [credentials.Getter.Get] reports an absent key
 //     and a key holding no credential alike, as
 //     [credentials.EmptyCredential] with a nil error, so an empty result
 //     cannot be read as a deliberate anonymous entry and the walk continues to
@@ -139,7 +139,7 @@ func serverAddressFromResource(resource properties.Resource) (string, error) {
 //
 // Credentials for "docker.io" are keyed by a sentinel server address that is
 // not a path root, so namespaces are not considered for it.
-func NewCredentialFunc(store credentials.Store) credentials.CredentialFunc {
+func NewCredentialFunc(store credentials.Getter) credentials.CredentialFunc {
 	if store == nil {
 		return func(context.Context, properties.Resource) (credentials.Credential, error) {
 			return credentials.EmptyCredential, nil

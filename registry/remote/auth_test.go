@@ -743,3 +743,52 @@ func TestNewCredentialFunc_HierarchicalDynamicStore(t *testing.T) {
 		})
 	}
 }
+
+// readOnlyGetter implements only credentials.Getter.
+type readOnlyGetter struct {
+	storage map[string]credentials.Credential
+}
+
+func (r *readOnlyGetter) Get(ctx context.Context, serverAddress string) (credentials.Credential, error) {
+	return r.storage[serverAddress], nil
+}
+
+func TestNewCredentialFunc_WithGetterOnly(t *testing.T) {
+	getter := &readOnlyGetter{
+		storage: map[string]credentials.Credential{
+			"example.com": {Username: "user", Password: "secret"},
+		},
+	}
+	credFunc := NewCredentialFunc(getter)
+	res := properties.Resource{Registry: "example.com"}
+	got, err := credFunc(context.Background(), res)
+	if err != nil {
+		t.Fatalf("NewCredentialFunc() error = %v", err)
+	}
+	want := credentials.Credential{Username: "user", Password: "secret"}
+	if got != want {
+		t.Errorf("NewCredentialFunc() = %v, want %v", got, want)
+	}
+}
+
+// deleteOnlyDeleter implements only credentials.Deleter.
+type deleteOnlyDeleter struct {
+	deleted []string
+}
+
+func (d *deleteOnlyDeleter) Delete(ctx context.Context, serverAddress string) error {
+	d.deleted = append(d.deleted, serverAddress)
+	return nil
+}
+
+func TestLogout_WithDeleterOnly(t *testing.T) {
+	deleter := &deleteOnlyDeleter{}
+	res := properties.Resource{Registry: "example.com"}
+	if err := Logout(context.Background(), deleter, res); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	if len(deleter.deleted) != 1 || deleter.deleted[0] != "example.com" {
+		t.Errorf("Logout() deleted = %v, want [\"example.com\"]", deleter.deleted)
+	}
+}
+

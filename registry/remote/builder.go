@@ -51,7 +51,7 @@ type ClientBuilder struct {
 	// CredentialStore is used to resolve credentials when not specified
 	// in the registry properties.
 	// If nil, no credential store fallback is used.
-	CredentialStore credentials.Store
+	CredentialStore credentials.Getter
 
 	// UserAgent is the User-Agent header value for HTTP requests.
 	// If empty, no User-Agent header is set.
