@@ -295,6 +295,9 @@ type inheritedHelperStore struct {
 func (s inheritedHelperStore) Get(ctx context.Context, serverAddress string) (Credential, error) {
 	cred, err := s.Store.Get(ctx, serverAddress)
 	if err != nil {
+		if ctx.Err() != nil {
+			return EmptyCredential, err
+		}
 		return EmptyCredential, nil
 	}
 	return cred, nil
