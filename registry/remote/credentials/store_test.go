@@ -52,6 +52,12 @@ func (t *testStore) Delete(ctx context.Context, serverAddress string) error {
 
 type badStore struct{}
 
+type contextErrorStore struct{ Store }
+
+func (contextErrorStore) Get(ctx context.Context, _ string) (Credential, error) {
+	return EmptyCredential, ctx.Err()
+}
+
 var errBadStore = errors.New("bad store!")
 
 // Get retrieves credentials from the store for the given server address.
@@ -1176,6 +1182,37 @@ func Test_inheritedHelperStore_Get_helperError(t *testing.T) {
 	}
 	if got != EmptyCredential {
 		t.Errorf("inheritedHelperStore.Get() = %v, want %v", got, EmptyCredential)
+	}
+}
+
+func Test_inheritedHelperStore_Get_success(t *testing.T) {
+	address := "example.com/team/app"
+	want := Credential{Username: "username", Password: "password"}
+	store := inheritedHelperStore{&testStore{storage: map[string]Credential{address: want}}}
+	got, err := store.Get(context.Background(), address)
+	if err != nil {
+		t.Fatal("inheritedHelperStore.Get() error =", err)
+	}
+	if got != want {
+		t.Errorf("inheritedHelperStore.Get() = %v, want %v", got, want)
+	}
+}
+
+func Test_inheritedHelperStore_Get_contextError(t *testing.T) {
+	store := inheritedHelperStore{contextErrorStore{}}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	deadline, stop := context.WithTimeout(context.Background(), 0)
+	defer stop()
+
+	for _, ctx := range []context.Context{canceled, deadline} {
+		got, err := store.Get(ctx, "example.com/team/app")
+		if !errors.Is(err, ctx.Err()) {
+			t.Errorf("inheritedHelperStore.Get() error = %v, want %v", err, ctx.Err())
+		}
+		if got != EmptyCredential {
+			t.Errorf("inheritedHelperStore.Get() = %v, want %v", got, EmptyCredential)
+		}
 	}
 }
 
