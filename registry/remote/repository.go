@@ -150,18 +150,22 @@ type Repository struct {
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-manifests
 	SkipReferrersGC bool
 
-	// MaxChunkSize specifies the target size in bytes for each PATCH chunk when
+	// MaxChunkSize overrides Registry default if > 0.
+	// It specifies the target size in bytes for each PATCH chunk when
 	// pushing a blob in chunks.
 	//
-	// If zero or negative (the default), blobs are pushed monolithically in a
+	// If zero or negative (the default), Registry.MaxChunkSize is used. If
+	// both settings are non-positive, blobs are pushed monolithically in a
 	// single request, preserving the previous behavior. If positive, a blob
 	// larger than the effective chunk size is uploaded in chunks per the OCI
 	// Distribution Spec: an upload session is opened, the content is streamed in
 	// PATCH requests, and the session is closed with a final PUT. A
 	// registry-advertised OCI-Chunk-Min-Length raises this floor for all but the
-	// final chunk. If the chunked upload cannot be started (e.g. the registry
-	// does not support it), the push transparently falls back to a monolithic
-	// upload before any content is consumed.
+	// final chunk, up to a fixed limit (currently 32 MiB) since each chunk is
+	// buffered in memory; a larger advertised minimum makes the push fall back
+	// to a monolithic upload. If the chunked upload cannot be started (e.g. the
+	// registry does not support it), the push transparently falls back to a
+	// monolithic upload before any content is consumed.
 	//
 	// MaxChunkSize applies to [Repository.Push] only. Blob mount falls back to a
 	// monolithic upload when the registry does not implement the mount endpoint,
@@ -279,10 +283,17 @@ func (r *Repository) maxMetadataBytes() int64 {
 	return r.Registry.MaxMetadataBytes
 }
 
-// maxChunkSize returns the target chunk size in bytes for chunked blob upload.
-// A value <= 0 disables chunking.
+// maxChunkSize returns the effective target chunk size in bytes for chunked
+// blob upload. A value <= 0 disables chunking.
+// Repository-level setting takes precedence over Registry default.
 func (r *Repository) maxChunkSize() int64 {
-	return r.MaxChunkSize
+	if r.MaxChunkSize > 0 {
+		return r.MaxChunkSize
+	}
+	if r.Registry != nil {
+		return r.Registry.MaxChunkSize
+	}
+	return 0
 }
 
 // handleWarning returns the warning handler function.
