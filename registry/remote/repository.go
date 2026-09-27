@@ -2187,19 +2187,17 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // manifest pulls, but verifies the returned bytes against the requested digest.
 // Pushes deliberately continue to use verifyContentDigest's strict comparison.
 // Alternate algorithms buffer at most MaxMetadataBytes before returning the
-// verified body to the caller. Headerless chunked responses stream verification
-// as the body is read. Resolve and Exists use HEAD, so remain strict.
+// verified body to the caller. Headerless responses stream verification as the
+// body is read, regardless of Content-Length. Resolve and Exists use HEAD, so
+// remain strict.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
 	headerStr := resp.Header.Get(headerDockerContentDigest)
 	if !expected.Algorithm().Available() {
 		return verifyContentDigest(resp, expected)
 	}
 	if headerStr == "" {
-		if resp.ContentLength != -1 {
-			return verifyContentDigest(resp, expected)
-		}
 		// Manifests fetched without a header were never bounded by
-		// MaxMetadataBytes. Verify the chunked body as the caller reads it.
+		// MaxMetadataBytes. Verify the body as the caller reads it.
 		resp.Body = newVerifyReadCloser(resp.Body, expected, resp.Request.Method, resp.Request.URL)
 		return nil
 	}

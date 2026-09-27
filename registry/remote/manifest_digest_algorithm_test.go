@@ -152,6 +152,53 @@ func TestManifestPullHeaderlessChunkedStreamsPastMetadataLimit(t *testing.T) {
 	}
 }
 
+func TestManifestPullHeaderlessContentLengthVerifiesBody(t *testing.T) {
+	manifest := []byte(`{"schemaVersion":2,"manifests":[]}`)
+	for _, algorithm := range []digest.Algorithm{digest.SHA256, digest.SHA512} {
+		for _, corrupted := range []bool{false, true} {
+			t.Run(algorithm.String()+"/corrupted="+strconv.FormatBool(corrupted), func(t *testing.T) {
+				payload := bytes.Clone(manifest)
+				if corrupted {
+					payload[0] = 'x'
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+					w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+					_, _ = w.Write(payload)
+				}))
+				defer server.Close()
+				repo, err := NewRepository(strings.TrimPrefix(server.URL, "http://") + "/test")
+				if err != nil {
+					t.Fatal(err)
+				}
+				repo.Registry.PlainHTTP = true
+				repo.Registry.MaxMetadataBytes = 8
+				target := ocispec.Descriptor{
+					MediaType: ocispec.MediaTypeImageIndex,
+					Digest:    algorithm.FromBytes(manifest),
+					Size:      int64(len(manifest)),
+				}
+				reader, err := repo.Fetch(context.Background(), target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer reader.Close()
+				got, err := io.ReadAll(reader)
+				if !bytes.Equal(got, payload) {
+					t.Fatalf("body = %q, want %q", got, payload)
+				}
+				if corrupted {
+					if !errors.Is(err, content.ErrMismatchedDigest) {
+						t.Fatalf("read error = %v, want digest mismatch", err)
+					}
+				} else if err != nil {
+					t.Fatalf("read error = %v, want nil", err)
+				}
+			})
+		}
+	}
+}
+
 func TestManifestPullBodyReadFailures(t *testing.T) {
 	body := []byte("manifest")
 	for _, tt := range []struct {
