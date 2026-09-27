@@ -2418,6 +2418,97 @@ func TestStore_DeleteWithAutoGC(t *testing.T) {
 	}
 }
 
+// A manifest whose tag has moved to another manifest is no longer tagged, so
+// deleting its parent with AutoGC must delete it as a dangling node.
+func TestStore_DeleteWithAutoGCAfterRetag(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	generateManifest := func(config ocispec.Descriptor, layers ...ocispec.Descriptor) {
+		manifest := ocispec.Manifest{
+			Config: config,
+			Layers: layers,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	generateIndex := func(manifests ...ocispec.Descriptor) {
+		index := ocispec.Index{
+			Manifests: manifests,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("bar"))     // Blob 2
+	generateManifest(descs[0], descs[1])                       // Blob 3
+	generateManifest(descs[0], descs[2])                       // Blob 4
+	generateIndex(descs[3])                                    // Blob 5
+
+	for i := range blobs {
+		if err := s.Push(ctx, descs[i], bytes.NewReader(blobs[i])); err != nil {
+			t.Fatalf("failed to push test content: %d: %v", i, err)
+		}
+	}
+
+	// tag blob 3, then move the tag to blob 4
+	ref := "latest"
+	if err := s.Tag(ctx, descs[3], ref); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Tag(ctx, descs[4], ref); err != nil {
+		t.Fatal(err)
+	}
+
+	// delete blob 5 and verify the result
+	if err := s.Delete(ctx, descs[5]); err != nil {
+		t.Fatal(err)
+	}
+
+	// blob 3 is no longer tagged, so blob 1, 3 and 5 are now deleted
+	notPresent := []ocispec.Descriptor{descs[1], descs[3], descs[5]}
+	for _, node := range notPresent {
+		if exists, _ := s.Exists(ctx, node); exists {
+			t.Errorf("%v should not exist in store", node)
+		}
+	}
+	stillPresent := []ocispec.Descriptor{descs[0], descs[2], descs[4]}
+	for _, node := range stillPresent {
+		if exists, _ := s.Exists(ctx, node); !exists {
+			t.Errorf("%v should exist in store", node)
+		}
+	}
+	got, err := s.Resolve(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !content.Equal(got, descs[4]) {
+		t.Errorf("Store.Resolve(%q) = %v, want %v", ref, got, descs[4])
+	}
+}
+
 func TestStore_Untag(t *testing.T) {
 	content := []byte("test delete")
 	desc := ocispec.Descriptor{
