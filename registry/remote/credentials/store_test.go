@@ -629,6 +629,36 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 			serverAddress: "whatever.example.com",
 			want:          "teststore",
 		},
+		{
+			name:          "Namespaced address uses the cred helper of its host",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry1.example.com/team/app",
+			want:          "registry1-helper",
+		},
+		{
+			name:          "Namespaced address with an empty cred helper for its host",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry3.example.com/team/app",
+			want:          "",
+		},
+		{
+			name:          "Namespaced address without a cred helper falls back to creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "whatever.example.com/team/app",
+			want:          "teststore",
+		},
+		{
+			name:          "Namespaced address prefers its host's cred helper over creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "test.example.com/team/app",
+			want:          "test-helper",
+		},
+		{
+			name:          "Host is not matched by prefix",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry1.example.com.evil/team",
+			want:          "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -636,7 +666,7 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 			if err != nil {
 				t.Fatal("NewStore() error =", err)
 			}
-			if got := ds.getHelperSuffix(tt.serverAddress); got != tt.want {
+			if got, _ := ds.getHelperSuffix(tt.serverAddress); got != tt.want {
 				t.Errorf("DynamicStore.getHelperSuffix() = %v, want %v", got, tt.want)
 			}
 		})
@@ -682,6 +712,11 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 			configPath:    "testdata/credsStore_config.json",
 			serverAddress: "whaterver.example.com",
 		},
+		{
+			name:          "Cred helper configured for the host of a namespaced address",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry1.example.com/team/app",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -690,6 +725,9 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 				t.Fatal("NewStore() error =", err)
 			}
 			gotStore := ds.getStore(tt.serverAddress)
+			if inherited, ok := gotStore.(inheritedHelperStore); ok {
+				gotStore = inherited.Store
+			}
 			if _, ok := gotStore.(*nativeStore); !ok {
 				t.Errorf("gotStore is not a native store")
 			}
@@ -1127,5 +1165,23 @@ func TestStoreWithFallbacks_MatchesNamespace(t *testing.T) {
 				t.Errorf("MatchesNamespace() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_inheritedHelperStore_Get_helperError(t *testing.T) {
+	store := inheritedHelperStore{&nativeStore{&testExecuter{}}}
+	got, err := store.Get(context.Background(), exeErrorHost)
+	if err != nil {
+		t.Fatal("inheritedHelperStore.Get() error =", err)
+	}
+	if got != EmptyCredential {
+		t.Errorf("inheritedHelperStore.Get() = %v, want %v", got, EmptyCredential)
+	}
+}
+
+func Test_inheritedHelperStore_Put_helperError(t *testing.T) {
+	store := inheritedHelperStore{&nativeStore{&testExecuter{}}}
+	if err := store.Put(context.Background(), "localhost:500/unknown", Credential{}); err == nil {
+		t.Error("inheritedHelperStore.Put() error = nil, want error")
 	}
 }

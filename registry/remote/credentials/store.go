@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configfile"
 )
@@ -116,8 +117,10 @@ type StoreOptions struct {
 	// containers-auth.json (Podman/Buildah). When false (default), exact
 	// hostname matching is used, as in Docker config.json.
 	//
-	// This only affects the plaintext file store; credential helpers and
-	// native stores are always keyed by the exact server address.
+	// This only affects credential lookup in the plaintext file store. A
+	// credential helper is always selected by nearest configured parent, and
+	// the selected helper and native stores are always keyed by the exact
+	// server address, regardless of this option.
 	//
 	// It also makes the store authoritative for namespace matching, reported
 	// through [NamespaceMatcher]: a key that is present but holds no
@@ -179,6 +182,9 @@ func NewStoreFromDocker(opt StoreOptions) (*DynamicStore, error) {
 }
 
 // Get retrieves credentials from the store for the given server address.
+//
+// Callers that walk namespaces call this once per path segment, so a helper
+// inherited from a parent namespace may be executed several times per lookup.
 func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (Credential, error) {
 	return ds.getStore(serverAddress).Get(ctx, serverAddress)
 }
@@ -231,23 +237,43 @@ func (ds *DynamicStore) ConfigPath() string {
 }
 
 // getHelperSuffix returns the credential helper suffix for the given server
-// address.
-func (ds *DynamicStore) getHelperSuffix(serverAddress string) string {
-	// 1. Look for a server-specific credential helper first
-	if helper := ds.config.GetCredentialHelper(serverAddress); helper != "" {
-		return helper
+// address, and whether it was configured for that address itself rather than
+// inherited from a parent namespace.
+//
+// "credHelpers" is keyed by registry host, so a namespaced address
+// ("host/path") resolves to the helper configured for its nearest parent,
+// down to the bare host. The resolved helper is queried with the full address,
+// path included. Note that containers/image queries the helper with the host
+// alone, so a credential stored here under a namespaced key is not visible to
+// Podman or the Docker CLI.
+func (ds *DynamicStore) getHelperSuffix(serverAddress string) (suffix string, exact bool) {
+	// 1. Look for a server-specific credential helper, then for the helper of
+	// each parent namespace.
+	key := serverAddress
+	for {
+		if helper := ds.config.GetCredentialHelper(key); helper != "" {
+			return helper, key == serverAddress
+		}
+		i := strings.LastIndex(key, "/")
+		if i <= 0 {
+			break
+		}
+		key = key[:i]
 	}
 	// 2. Then look for the configured native store
 	if credsStore := ds.config.CredentialsStore(); credsStore != "" {
-		return credsStore
+		return credsStore, true
 	}
 	// 3. Use the detected default store
-	return ds.detectedCredsStore
+	return ds.detectedCredsStore, true
 }
 
 // getStore returns a store for the given server address.
 func (ds *DynamicStore) getStore(serverAddress string) Store {
-	if helper := ds.getHelperSuffix(serverAddress); helper != "" {
+	if helper, exact := ds.getHelperSuffix(serverAddress); helper != "" {
+		if !exact {
+			return inheritedHelperStore{NewNativeStore(helper)}
+		}
 		return NewNativeStore(helper)
 	}
 
@@ -255,6 +281,23 @@ func (ds *DynamicStore) getStore(serverAddress string) Store {
 	fs.DisablePut = !ds.options.AllowPlaintextPut
 	fs.Hierarchical = ds.options.Hierarchical
 	return fs
+}
+
+// inheritedHelperStore is a credential helper configured for a parent
+// namespace. Get probes it with a key it was never configured for, so an error
+// there is a miss rather than a failure.
+type inheritedHelperStore struct {
+	Store
+}
+
+// Get retrieves credentials from the helper, reporting a failed probe as a miss
+// so that the caller falls back to the parent namespace.
+func (s inheritedHelperStore) Get(ctx context.Context, serverAddress string) (Credential, error) {
+	cred, err := s.Store.Get(ctx, serverAddress)
+	if err != nil {
+		return EmptyCredential, nil
+	}
+	return cred, nil
 }
 
 // getDockerConfigPath returns the path to the default docker config file.
