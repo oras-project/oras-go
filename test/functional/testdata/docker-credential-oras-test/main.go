@@ -83,7 +83,11 @@ func main() {
 		server := strings.TrimSpace(string(input))
 		cred, ok := s[server]
 		if !ok {
-			fmt.Fprintln(os.Stderr, "credentials not found in native keychain")
+			// docker-credential-helpers reports a miss on stdout, not stderr,
+			// and oras-go's executer only reads stdout. Printing to stderr
+			// leaves stdout empty, so the miss surfaces as a bare
+			// "exit status 1" the native store cannot recognise as a miss.
+			fmt.Fprintln(os.Stdout, "credentials not found in native keychain")
 			os.Exit(1)
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(map[string]string{
