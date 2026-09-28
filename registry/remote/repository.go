@@ -1740,6 +1740,12 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	switch resp.StatusCode {
 	case http.StatusOK:
 		if resp.ContentLength == -1 {
+			// Identity comes from Resolve's HEAD, which carries no body and so
+			// cannot verify an alternate digest algorithm: a digest reference
+			// using an algorithm the registry does not report fails here even
+			// though Fetch accepts it. Go sets ContentLength to -1 for chunked
+			// and transparently gunzipped responses.
+			//
 			// policy is evaluated below against the fetched descriptor, so
 			// skip the redundant evaluation in Resolve.
 			desc, err = s.Resolve(withPolicyChecked(ctx), reference)
@@ -2156,13 +2162,11 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 		contentDigest = serverHeaderDigest
 	}
 
-	if httpMethod == http.MethodGet && len(refDigest) > 0 && len(serverHeaderDigest) > 0 && contentDigest.Algorithm() != refDigest.Algorithm() {
+	if httpMethod == http.MethodGet && len(refDigest) > 0 && len(serverHeaderDigest) > 0 && serverHeaderDigest.Algorithm() != refDigest.Algorithm() {
 		// A registry may report a canonical digest using a different algorithm.
-		// Preserve the requested identity, verifying it against the body for GET.
-		if httpMethod == http.MethodGet {
-			if err := s.verifyPullContentDigest(resp, refDigest); err != nil {
-				return ocispec.Descriptor{}, err
-			}
+		// Preserve the requested identity, verifying it against the body.
+		if err := s.verifyPullContentDigest(resp, refDigest); err != nil {
+			return ocispec.Descriptor{}, err
 		}
 		contentDigest = refDigest
 	}
@@ -2187,9 +2191,10 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // manifest pulls, but verifies the returned bytes against the requested digest.
 // Pushes deliberately continue to use verifyContentDigest's strict comparison.
 // Alternate algorithms buffer at most MaxMetadataBytes before returning the
-// verified body to the caller. Headerless responses stream verification as the
-// body is read, regardless of Content-Length. Resolve and Exists use HEAD, so
-// remain strict.
+// verified body to the caller. Headerless responses, regardless of
+// Content-Length, are verified only once the body is read to EOF: a caller that
+// stops after desc.Size bytes never triggers the check. Resolve and Exists use
+// HEAD, so remain strict.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
 	headerStr := resp.Header.Get(headerDockerContentDigest)
 	if !expected.Algorithm().Available() {

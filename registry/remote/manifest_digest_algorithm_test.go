@@ -262,7 +262,6 @@ func TestManifestPullUnavailableDigestAlgorithm(t *testing.T) {
 
 func TestManifestPullDifferentDigestAlgorithm(t *testing.T) {
 	manifest := []byte(`{"schemaVersion":2,"manifests":[]}`)
-	var chunked bool
 	target := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageIndex,
 		Digest:    digest.SHA512.FromBytes(manifest),
@@ -275,16 +274,8 @@ func TestManifestPullDifferentDigestAlgorithm(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", target.MediaType)
-		if !chunked || r.Method == http.MethodHead {
-			w.Header().Set("Content-Length", strconv.Itoa(len(manifest)))
-		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(manifest)))
 		w.Header().Set("Docker-Content-Digest", digest.SHA256.FromBytes(manifest).String())
-		if chunked && r.Method == http.MethodHead {
-			w.Header().Set("Docker-Content-Digest", target.Digest.String())
-		}
-		if chunked && r.Method == http.MethodGet {
-			w.(http.Flusher).Flush()
-		}
 		if r.Method != http.MethodHead {
 			_, _ = w.Write(manifest)
 		}
@@ -334,21 +325,39 @@ func TestManifestPullDifferentDigestAlgorithm(t *testing.T) {
 		}
 	})
 	t.Run("FetchReferenceChunked", func(t *testing.T) {
-		chunked = true
-		desc, r, err := repo.FetchReference(ctx, target.Digest.String())
+		// A registry reporting its own canonical algorithm on both methods.
+		chunkedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", target.MediaType)
+			w.Header().Set("Docker-Content-Digest", digest.SHA256.FromBytes(manifest).String())
+			if r.Method == http.MethodHead {
+				w.Header().Set("Content-Length", strconv.Itoa(len(manifest)))
+				return
+			}
+			w.(http.Flusher).Flush()
+			_, _ = w.Write(manifest)
+		}))
+		defer chunkedServer.Close()
+		chunkedRepo, err := NewRepository(strings.TrimPrefix(chunkedServer.URL, "http://") + "/test")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer r.Close()
-		if desc.Digest != target.Digest {
-			t.Fatalf("digest = %s, want %s", desc.Digest, target.Digest)
+		chunkedRepo.Registry.PlainHTTP = true
+		// Identity comes from Resolve's HEAD, which cannot verify an alternate
+		// algorithm, so FetchReference rejects what Fetch accepts.
+		_, r, err := chunkedRepo.FetchReference(ctx, target.Digest.String())
+		if r != nil {
+			r.Close()
 		}
-		body, err := io.ReadAll(r)
+		if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+			t.Fatalf("FetchReference on an unknown-length response = %v, want digest mismatch", err)
+		}
+		rc, err := chunkedRepo.Fetch(ctx, target)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("Fetch = %v, want success", err)
 		}
-		if string(body) != string(manifest) {
-			t.Fatalf("unexpected body: %s", body)
+		defer rc.Close()
+		if body, err := io.ReadAll(rc); err != nil || string(body) != string(manifest) {
+			t.Fatalf("Fetch body = %s, %v", body, err)
 		}
 	})
 }
