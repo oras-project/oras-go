@@ -22,6 +22,7 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 const (
@@ -216,7 +217,7 @@ func ExampleLogout() {
 	if err != nil {
 		panic(err)
 	}
-	err = remote.Logout(context.Background(), store, "localhost:5000")
+	err = remote.Logout(context.Background(), store, properties.Resource{Registry: "localhost:5000"})
 	if err != nil {
 		panic(err)
 	}

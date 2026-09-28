@@ -40,8 +40,10 @@ var (
 	// the descriptor has an invalid size.
 	ErrInvalidDescriptorSize = errors.New("invalid descriptor size")
 
-	// ErrMismatchedDigest is returned by ReadAll() when
-	// the descriptor has an invalid digest.
+	// ErrMismatchedDigest is returned when content does not match the digest
+	// recorded in its descriptor, wherever that mismatch is detected: by
+	// ReadAll() for a descriptor with an invalid digest, and by a registry
+	// client whose response digest disagrees with the requested digest.
 	ErrMismatchedDigest = errors.New("mismatched digest")
 
 	// ErrTrailingData is returned by ReadAll() when

@@ -208,3 +208,160 @@ func Test_readSeekCloser_Seek(t *testing.T) {
 		t.Errorf("readSeekCloser.Seek() error = %v, wantErr %v", err, true)
 	}
 }
+
+type countingClient struct {
+	client   Client
+	requests int
+}
+
+func (c *countingClient) Do(req *http.Request) (*http.Response, error) {
+	c.requests++
+	return c.client.Do(req)
+}
+
+func Test_readSeekCloser_Seek_RequestCount(t *testing.T) {
+	content := []byte("hello world")
+	path := "/testpath"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		rangeHeader := r.Header.Get("Range")
+		if rangeHeader == "" {
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write(content); err != nil {
+				t.Errorf("failed to write %q: %v", r.URL, err)
+			}
+			return
+		}
+		var start, end int
+		_, err := fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end)
+		if err != nil {
+			t.Errorf("invalid range header: %s", rangeHeader)
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		if start < 0 || start > end || start >= len(content) {
+			t.Errorf("invalid range: %s", rangeHeader)
+			w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		end = min(end+1, len(content))
+		w.WriteHeader(http.StatusPartialContent)
+		if _, err := w.Write(content[start:end]); err != nil {
+			t.Errorf("failed to write %q: %v", r.URL, err)
+		}
+	}))
+	defer ts.Close()
+
+	// Seek reconnects lazily: seeks send no request, and the next Read sends
+	// one Range request only if the offset differs from the body's position.
+	tests := []struct {
+		name         string
+		seeks        []int64
+		wantRequests int
+		want         []byte
+	}{
+		{
+			name:         "three distinct seeks",
+			seeks:        []int64{3, 7, 2},
+			wantRequests: 1,
+			want:         content[2:],
+		},
+		{
+			name:         "seek away and back",
+			seeks:        []int64{7, 0},
+			wantRequests: 0,
+			want:         content,
+		},
+		{
+			name:         "seek to current offset",
+			seeks:        []int64{0},
+			wantRequests: 0,
+			want:         content,
+		},
+		{
+			name:         "seek past end",
+			seeks:        []int64{11},
+			wantRequests: 0,
+			want:         nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := ts.Client()
+			resp, err := client.Get(ts.URL + path)
+			if err != nil {
+				t.Fatalf("failed to do request: %v", err)
+			}
+			counter := countingClient{
+				client: client,
+			}
+			rsc := NewReadSeekCloser(&counter, resp.Request, resp.Body, int64(len(content)))
+			defer rsc.Close()
+
+			for _, offset := range tt.seeks {
+				_, err := rsc.Seek(offset, io.SeekStart)
+				if err != nil {
+					t.Errorf("readSeekCloser.Seek() error = %v", err)
+				}
+			}
+
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(rsc); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			if got := buf.Bytes(); !bytes.Equal(got, tt.want) {
+				t.Errorf("readSeekCloser.Read() = %v, want %v", got, tt.want)
+			}
+			if counter.requests != tt.wantRequests {
+				t.Errorf("readSeekCloser sent %v requests, want %v", counter.requests, tt.wantRequests)
+			}
+		})
+	}
+}
+
+func Test_readSeekCloser_Read_RangeError(t *testing.T) {
+	content := []byte("hello world")
+	path := "/testpath"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		// Ignore the Range header, as a server without range support does.
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write(content); err != nil {
+			t.Errorf("failed to write %q: %v", r.URL, err)
+		}
+	}))
+	defer ts.Close()
+
+	client := ts.Client()
+	resp, err := client.Get(ts.URL + path)
+	if err != nil {
+		t.Fatalf("failed to do request: %v", err)
+	}
+	rsc := NewReadSeekCloser(client, resp.Request, resp.Body, int64(len(content)))
+	defer rsc.Close()
+
+	// Seek sends no request, so it cannot see that the server ignores Range.
+	if _, err := rsc.Seek(7, io.SeekStart); err != nil {
+		t.Fatalf("readSeekCloser.Seek() error = %v", err)
+	}
+
+	// A failed Read must not let a later Read return content from the wrong
+	// offset, so every Read fails while the server ignores Range.
+	buf := make([]byte, len(content))
+	for range 2 {
+		n, err := rsc.Read(buf)
+		if err == nil {
+			t.Errorf("readSeekCloser.Read() error = %v, wantErr %v", err, true)
+		}
+		if n != 0 {
+			t.Errorf("readSeekCloser.Read() n = %v, want %v", n, 0)
+		}
+	}
+}
