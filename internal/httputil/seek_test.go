@@ -255,8 +255,8 @@ func Test_readSeekCloser_Seek_RequestCount(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	// Seek reconnects eagerly: a seek that changes position sends a Range
-	// request, while seeking to the current offset or past the end sends none.
+	// Seek reconnects lazily: seeks send no request, and the next Read sends
+	// one Range request only if the offset differs from the body's position.
 	tests := []struct {
 		name         string
 		seeks        []int64
@@ -266,8 +266,14 @@ func Test_readSeekCloser_Seek_RequestCount(t *testing.T) {
 		{
 			name:         "three distinct seeks",
 			seeks:        []int64{3, 7, 2},
-			wantRequests: 3,
+			wantRequests: 1,
 			want:         content[2:],
+		},
+		{
+			name:         "seek away and back",
+			seeks:        []int64{7, 0},
+			wantRequests: 0,
+			want:         content,
 		},
 		{
 			name:         "seek to current offset",
@@ -311,8 +317,51 @@ func Test_readSeekCloser_Seek_RequestCount(t *testing.T) {
 				t.Errorf("readSeekCloser.Read() = %v, want %v", got, tt.want)
 			}
 			if counter.requests != tt.wantRequests {
-				t.Errorf("readSeekCloser.Seek() sent %v requests, want %v", counter.requests, tt.wantRequests)
+				t.Errorf("readSeekCloser sent %v requests, want %v", counter.requests, tt.wantRequests)
 			}
 		})
+	}
+}
+
+func Test_readSeekCloser_Read_RangeError(t *testing.T) {
+	content := []byte("hello world")
+	path := "/testpath"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		// Ignore the Range header, as a server without range support does.
+		w.WriteHeader(http.StatusOK)
+		if _, err := w.Write(content); err != nil {
+			t.Errorf("failed to write %q: %v", r.URL, err)
+		}
+	}))
+	defer ts.Close()
+
+	client := ts.Client()
+	resp, err := client.Get(ts.URL + path)
+	if err != nil {
+		t.Fatalf("failed to do request: %v", err)
+	}
+	rsc := NewReadSeekCloser(client, resp.Request, resp.Body, int64(len(content)))
+	defer rsc.Close()
+
+	// Seek sends no request, so it cannot see that the server ignores Range.
+	if _, err := rsc.Seek(7, io.SeekStart); err != nil {
+		t.Fatalf("readSeekCloser.Seek() error = %v", err)
+	}
+
+	// A failed Read must not let a later Read return content from the wrong
+	// offset, so every Read fails while the server ignores Range.
+	buf := make([]byte, len(content))
+	for range 2 {
+		n, err := rsc.Read(buf)
+		if err == nil {
+			t.Errorf("readSeekCloser.Read() error = %v, wantErr %v", err, true)
+		}
+		if n != 0 {
+			t.Errorf("readSeekCloser.Read() n = %v, want %v", n, 0)
+		}
 	}
 }
