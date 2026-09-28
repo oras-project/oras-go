@@ -2209,10 +2209,11 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 
 	if len(refDigest) > 0 && refDigest != contentDigest {
 		return ocispec.Descriptor{}, fmt.Errorf(
-			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
+			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q; %w",
 			resp.Request.Method, resp.Request.URL,
 			headerDockerContentDigest, contentDigest,
 			refDigest,
+			content.ErrMismatchedDigest,
 		)
 	}
 
@@ -2260,10 +2261,11 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 
 	if contentDigest != expected {
 		return fmt.Errorf(
-			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
+			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q; %w",
 			resp.Request.Method, resp.Request.URL,
 			headerDockerContentDigest, contentDigest,
 			expected,
+			content.ErrMismatchedDigest,
 		)
 	}
 
