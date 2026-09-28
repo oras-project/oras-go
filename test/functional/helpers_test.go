@@ -197,7 +197,7 @@ func newCredHelperRepo(t *testing.T, name string, store credentials.Store) *remo
 	}
 	repo.Registry.PlainHTTP = true
 	repo.Registry.Client = &auth.Client{
-		CredentialFunc: store.Get,
+		CredentialFunc: remote.NewCredentialFunc(store),
 	}
 	return repo
 }
