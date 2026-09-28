@@ -301,3 +301,32 @@ func TestReadAll_LargeContent(t *testing.T) {
 		t.Error("ReadAll() returned content that does not match the input")
 	}
 }
+
+func BenchmarkReadAll(b *testing.B) {
+	tests := []struct {
+		name string
+		size int
+	}{
+		{"4KiB", 1 << 12},
+		{"1MiB", 1 << 20},
+		{"8MiB", 1 << 23},
+	}
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(tt.size))
+			content := make([]byte, tt.size)
+			for i := range content {
+				content[i] = byte(i % 251)
+			}
+			desc := NewDescriptorFromBytes("test", content)
+			r := bytes.NewReader(content)
+			for b.Loop() {
+				r.Reset(content)
+				if _, err := ReadAll(r, desc); err != nil {
+					b.Fatal("ReadAll() error = ", err)
+				}
+			}
+		})
+	}
+}

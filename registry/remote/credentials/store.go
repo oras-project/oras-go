@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configfile"
 )
@@ -48,6 +49,32 @@ type Store interface {
 	Put(ctx context.Context, serverAddress string, cred Credential) error
 	// Delete removes credentials from the store for the given server address.
 	Delete(ctx context.Context, serverAddress string) error
+}
+
+// NamespaceMatcher is an optional interface that a [Store] may implement to
+// report that its Get already performs most-specific-first namespace matching
+// for a server address.
+//
+// Resolving the credential for a namespaced resource walks that resource's
+// namespaces from most specific to least specific. A store that matches
+// namespaces itself is asked once, with the full namespaced key, and its
+// answer is final; a store that does not is asked for each namespace in turn,
+// stopping at the first non-empty credential.
+//
+// The distinction matters only for a key that is present but holds no
+// credential. A matching store can tell that entry apart from an absent one
+// and treats it as anonymous access for that namespace, as
+// containers-auth.json does. A non-matching store cannot, because
+// [Store.Get] reports both as [EmptyCredential] with a nil error, so the walk
+// continues past it.
+//
+// A store that does not implement this interface is treated as not matching.
+type NamespaceMatcher interface {
+	Store
+
+	// MatchesNamespace reports whether Get performs most-specific-first
+	// namespace matching for serverAddress.
+	MatchesNamespace(serverAddress string) bool
 }
 
 // DynamicStore dynamically determines which store to use based on the settings
@@ -90,8 +117,15 @@ type StoreOptions struct {
 	// containers-auth.json (Podman/Buildah). When false (default), exact
 	// hostname matching is used, as in Docker config.json.
 	//
-	// This only affects the plaintext file store; credential helpers and
-	// native stores are always keyed by the exact server address.
+	// This only affects credential lookup in the plaintext file store. A
+	// credential helper is always selected by nearest configured parent, and
+	// the selected helper and native stores are always keyed by the exact
+	// server address, regardless of this option.
+	//
+	// It also makes the store authoritative for namespace matching, reported
+	// through [NamespaceMatcher]: a key that is present but holds no
+	// credential means anonymous access for that namespace, rather than a
+	// miss that falls back to the parent namespace.
 	Hierarchical bool
 }
 
@@ -148,8 +182,23 @@ func NewStoreFromDocker(opt StoreOptions) (*DynamicStore, error) {
 }
 
 // Get retrieves credentials from the store for the given server address.
+//
+// Callers that walk namespaces call this once per path segment, so a helper
+// inherited from a parent namespace may be executed several times per lookup.
 func (ds *DynamicStore) Get(ctx context.Context, serverAddress string) (Credential, error) {
 	return ds.getStore(serverAddress).Get(ctx, serverAddress)
+}
+
+// MatchesNamespace reports whether Get performs most-specific-first namespace
+// matching for serverAddress. It does when [StoreOptions].Hierarchical is set
+// and the store selected for serverAddress is the plaintext config file; a
+// native store or credential helper is always keyed by the exact server
+// address.
+//
+// MatchesNamespace implements [NamespaceMatcher].
+func (ds *DynamicStore) MatchesNamespace(serverAddress string) bool {
+	matcher, ok := ds.getStore(serverAddress).(NamespaceMatcher)
+	return ok && matcher.MatchesNamespace(serverAddress)
 }
 
 // Put saves credentials into the store for the given server address.
@@ -188,23 +237,43 @@ func (ds *DynamicStore) ConfigPath() string {
 }
 
 // getHelperSuffix returns the credential helper suffix for the given server
-// address.
-func (ds *DynamicStore) getHelperSuffix(serverAddress string) string {
-	// 1. Look for a server-specific credential helper first
-	if helper := ds.config.GetCredentialHelper(serverAddress); helper != "" {
-		return helper
+// address, and whether it was configured for that address itself rather than
+// inherited from a parent namespace.
+//
+// "credHelpers" is keyed by registry host, so a namespaced address
+// ("host/path") resolves to the helper configured for its nearest parent,
+// down to the bare host. The resolved helper is queried with the full address,
+// path included. Note that containers/image queries the helper with the host
+// alone, so a credential stored here under a namespaced key is not visible to
+// Podman or the Docker CLI.
+func (ds *DynamicStore) getHelperSuffix(serverAddress string) (suffix string, exact bool) {
+	// 1. Look for a server-specific credential helper, then for the helper of
+	// each parent namespace.
+	key := serverAddress
+	for {
+		if helper := ds.config.GetCredentialHelper(key); helper != "" {
+			return helper, key == serverAddress
+		}
+		i := strings.LastIndex(key, "/")
+		if i <= 0 {
+			break
+		}
+		key = key[:i]
 	}
 	// 2. Then look for the configured native store
 	if credsStore := ds.config.CredentialsStore(); credsStore != "" {
-		return credsStore
+		return credsStore, true
 	}
 	// 3. Use the detected default store
-	return ds.detectedCredsStore
+	return ds.detectedCredsStore, true
 }
 
 // getStore returns a store for the given server address.
 func (ds *DynamicStore) getStore(serverAddress string) Store {
-	if helper := ds.getHelperSuffix(serverAddress); helper != "" {
+	if helper, exact := ds.getHelperSuffix(serverAddress); helper != "" {
+		if !exact {
+			return inheritedHelperStore{NewNativeStore(helper)}
+		}
 		return NewNativeStore(helper)
 	}
 
@@ -212,6 +281,26 @@ func (ds *DynamicStore) getStore(serverAddress string) Store {
 	fs.DisablePut = !ds.options.AllowPlaintextPut
 	fs.Hierarchical = ds.options.Hierarchical
 	return fs
+}
+
+// inheritedHelperStore is a credential helper configured for a parent
+// namespace. Get probes it with a key it was never configured for, so an error
+// there is a miss rather than a failure.
+type inheritedHelperStore struct {
+	Store
+}
+
+// Get retrieves credentials from the helper, reporting a failed probe as a miss
+// so that the caller falls back to the parent namespace.
+func (s inheritedHelperStore) Get(ctx context.Context, serverAddress string) (Credential, error) {
+	cred, err := s.Store.Get(ctx, serverAddress)
+	if err != nil {
+		if ctx.Err() != nil {
+			return EmptyCredential, err
+		}
+		return EmptyCredential, nil
+	}
+	return cred, nil
 }
 
 // getDockerConfigPath returns the path to the default docker config file.
@@ -263,6 +352,22 @@ func (sf *storeWithFallbacks) Get(ctx context.Context, serverAddress string) (Cr
 		}
 	}
 	return EmptyCredential, nil
+}
+
+// MatchesNamespace reports whether Get performs most-specific-first namespace
+// matching for serverAddress. It does only when every store in the chain does,
+// since a store that does not has to be walked namespace by namespace, and the
+// chain cannot walk one store without walking them all.
+//
+// MatchesNamespace implements [NamespaceMatcher].
+func (sf *storeWithFallbacks) MatchesNamespace(serverAddress string) bool {
+	for _, s := range sf.stores {
+		matcher, ok := s.(NamespaceMatcher)
+		if !ok || !matcher.MatchesNamespace(serverAddress) {
+			return false
+		}
+	}
+	return true
 }
 
 // Put saves credentials into the StoreWithFallbacks. It puts

@@ -15,8 +15,6 @@ limitations under the License.
 
 package properties
 
-import "github.com/oras-project/oras-go/v3/registry/remote/credentials"
-
 // Registry contains configuration for connecting to a remote registry.
 type Registry struct {
 	// Reference contains the parsed registry and repository reference.
@@ -26,7 +24,7 @@ type Registry struct {
 	Transport Transport
 
 	// Credential used for authentication.
-	Credential credentials.Credential
+	Credential Credential
 
 	// Attributes contains registry-specific attributes.
 	Attributes Attributes

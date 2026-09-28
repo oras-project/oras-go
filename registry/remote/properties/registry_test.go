@@ -17,8 +17,6 @@ package properties
 
 import (
 	"testing"
-
-	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 )
 
 func TestNewRegistry(t *testing.T) {
@@ -68,7 +66,7 @@ func TestNewRegistry(t *testing.T) {
 	}
 
 	// Test Credential defaults (should be empty)
-	if reg.Credential != credentials.EmptyCredential {
+	if reg.Credential != (Credential{}) {
 		t.Error("Credential should be empty by default")
 	}
 }
@@ -188,7 +186,7 @@ func TestRegistry_Fields(t *testing.T) {
 				"X-Custom-Header": "custom-value",
 			},
 		},
-		Credential: credentials.Credential{
+		Credential: Credential{
 			Username: "testuser",
 			Password: "testpass",
 		},

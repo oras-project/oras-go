@@ -46,8 +46,22 @@ its final form.
 
 ### 3. Get approvals
 
-Branch protection on `main` requires approval from at least 3 of the 4 owners
-listed in [OWNERS.md](OWNERS.md). Reviewers should verify:
+The number of approvals required from the owners listed in
+[OWNERS.md](OWNERS.md) depends on the kind of release. The author counts
+toward the total, so an owner-authored release PR needs one fewer review than
+the number below, and no release can be approved by its author alone:
+
+| Release type | Owner approvals (author included) |
+| --- | --- |
+| Patch (`vX.Y.Z` → `vX.Y.Z+1`) | 2 owners |
+| Minor (`vX.Y.Z` → `vX.Y+1.0`) | 2 owners |
+| Major (`vX.Y.Z` → `vX+1.0.0`) | super majority of owners, more than two thirds (3 of the 4 current owners) |
+
+These tiers are project policy, not an enforced gate: GitHub branch protection
+supports only a single fixed approval count, so it cannot express
+per-release-type requirements.
+
+Reviewers should verify:
 
 - The target commit is correct
 - The release notes are accurate and complete

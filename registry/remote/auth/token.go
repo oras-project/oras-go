@@ -27,12 +27,14 @@ import (
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // TokenParams contains parameters for token acquisition.
 type TokenParams struct {
-	// Registry is the registry hostname (i.e. host:port).
-	Registry string
+	// Resource is the registry resource being accessed, including any namespace
+	// or repository path when available.
+	Resource properties.Resource
 	// Realm is the token endpoint URL.
 	Realm string
 	// Service is the service parameter from the WWW-Authenticate header.
