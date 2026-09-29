@@ -3134,3 +3134,76 @@ func TestStore_BadDigest(t *testing.T) {
 		}
 	})
 }
+
+// newImage returns a manifest and its successors in push order, manifest last.
+// Every blob embeds name, so images built with different names share nothing.
+func newImage(tb testing.TB, name string, successors int) ([]ocispec.Descriptor, [][]byte) {
+	tb.Helper()
+
+	var descs []ocispec.Descriptor
+	var blobs [][]byte
+	appendBlob := func(mediaType string, blob []byte) {
+		descs = append(descs, content.NewDescriptorFromBytes(mediaType, blob))
+		blobs = append(blobs, blob)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte(name+"-config"))
+	for i := range successors - 1 {
+		appendBlob(ocispec.MediaTypeImageLayer, []byte(name+"-layer"+strconv.Itoa(i)))
+	}
+	manifest := ocispec.Manifest{
+		Config: descs[0],
+		Layers: descs[1:],
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	return descs, blobs
+}
+
+func BenchmarkStore_Delete(b *testing.B) {
+	for _, tags := range []int{10, 100, 1000, 10000} {
+		b.Run(fmt.Sprintf("tags=%d", tags), func(b *testing.B) {
+			ctx := context.Background()
+			s, err := New(b.TempDir())
+			if err != nil {
+				b.Fatal("New() error =", err)
+			}
+			s.AutoSaveIndex = false
+			push := func(descs []ocispec.Descriptor, blobs [][]byte) {
+				for i, blob := range blobs {
+					if err := s.Push(ctx, descs[i], bytes.NewReader(blob)); err != nil {
+						b.Fatal("Store.Push() error =", err)
+					}
+				}
+			}
+
+			bgDescs, bgBlobs := newImage(b, "bg", 1)
+			bg := bgDescs[len(bgDescs)-1]
+			push(bgDescs, bgBlobs)
+			for i := range tags {
+				if err := s.Tag(ctx, bg, "tag"+strconv.Itoa(i)); err != nil {
+					b.Fatal("Store.Tag() error =", err)
+				}
+			}
+
+			targetDescs, targetBlobs := newImage(b, "target", 10)
+			target := targetDescs[len(targetDescs)-1]
+
+			b.ReportAllocs()
+			for b.Loop() {
+				b.StopTimer()
+				s.AutoSaveIndex = false
+				push(targetDescs, targetBlobs)
+				// Only the measured Delete saves the index, as AutoSaveIndex does by default.
+				s.AutoSaveIndex = true
+				b.StartTimer()
+				if err := s.Delete(ctx, target); err != nil {
+					b.Fatal("Store.Delete() error =", err)
+				}
+			}
+		})
+	}
+}
