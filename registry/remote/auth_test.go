@@ -743,3 +743,93 @@ func TestNewCredentialFunc_HierarchicalDynamicStore(t *testing.T) {
 		})
 	}
 }
+
+// readOnlyGetter implements only credentials.Getter.
+type readOnlyGetter struct {
+	storage map[string]credentials.Credential
+}
+
+func (r *readOnlyGetter) Get(ctx context.Context, serverAddress string) (credentials.Credential, error) {
+	return r.storage[serverAddress], nil
+}
+
+func TestNewCredentialFunc_WithGetterOnly(t *testing.T) {
+	getter := &readOnlyGetter{
+		storage: map[string]credentials.Credential{
+			"example.com": {Username: "user", Password: "secret"},
+		},
+	}
+	credFunc := NewCredentialFunc(getter)
+	res := properties.Resource{Registry: "example.com"}
+	got, err := credFunc(context.Background(), res)
+	if err != nil {
+		t.Fatalf("NewCredentialFunc() error = %v", err)
+	}
+	want := credentials.Credential{Username: "user", Password: "secret"}
+	if got != want {
+		t.Errorf("NewCredentialFunc() = %v, want %v", got, want)
+	}
+}
+
+// putOnlyPutter implements only credentials.Putter.
+type putOnlyPutter struct {
+	storage map[string]credentials.Credential
+}
+
+func (p *putOnlyPutter) Put(ctx context.Context, serverAddress string, cred credentials.Credential) error {
+	p.storage[serverAddress] = cred
+	return nil
+}
+
+func TestLogin_WithPutterOnly(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wantedAuthHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(testUsername+":"+testPassword))
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != wantedAuthHeader {
+			w.Header().Set("Www-Authenticate", `Basic realm="Test Server"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("cannot parse test server URL: %v", err)
+	}
+	reg, err := NewRegistry(uri.Host)
+	if err != nil {
+		t.Fatalf("cannot create test registry: %v", err)
+	}
+	reg.PlainHTTP = true
+
+	putter := &putOnlyPutter{
+		storage: make(map[string]credentials.Credential),
+	}
+	cred := credentials.Credential{Username: testUsername, Password: testPassword}
+	if err := Login(context.Background(), putter, reg, cred); err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	if got := putter.storage[uri.Host]; got != cred {
+		t.Errorf("Login() stored = %v, want %v", got, cred)
+	}
+}
+
+// deleteOnlyDeleter implements only credentials.Deleter.
+type deleteOnlyDeleter struct {
+	deleted []string
+}
+
+func (d *deleteOnlyDeleter) Delete(ctx context.Context, serverAddress string) error {
+	d.deleted = append(d.deleted, serverAddress)
+	return nil
+}
+
+func TestLogout_WithDeleterOnly(t *testing.T) {
+	deleter := &deleteOnlyDeleter{}
+	res := properties.Resource{Registry: "example.com"}
+	if err := Logout(context.Background(), deleter, res); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	if len(deleter.deleted) != 1 || deleter.deleted[0] != "example.com" {
+		t.Errorf("Logout() deleted = %v, want [\"example.com\"]", deleter.deleted)
+	}
+}
