@@ -156,7 +156,7 @@ func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
 			legacyAddress := strings.TrimPrefix(addr, "http://")
 			legacyAddress = strings.TrimPrefix(legacyAddress, "https://")
 			legacyAddress = strings.TrimSuffix(legacyAddress, "/")
-			if legacyAddress == serverAddress {
+			if strings.EqualFold(legacyAddress, serverAddress) {
 				matched = true
 				authCfgBytes = auth
 				break

@@ -450,6 +450,36 @@ func TestFileStore_Put_addNew(t *testing.T) {
 	}
 }
 
+func TestFileStore_Put_getCaseInsensitive(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	ctx := context.Background()
+
+	fs, err := credentials.NewFileStore(configPath)
+	if err != nil {
+		t.Fatal("NewFileStore() error =", err)
+	}
+
+	server := "localhost:5020"
+	cred := credentials.Credential{
+		Username: "CASEUSER",
+		Password: "CASEPASS",
+	}
+
+	if err := fs.Put(ctx, server, cred); err != nil {
+		t.Fatalf("FileStore.Put() error = %v", err)
+	}
+
+	got, err := fs.Get(ctx, "LOCALHOST:5020")
+	if err != nil {
+		t.Fatalf("FileStore.Get() error = %v", err)
+	}
+
+	if !reflect.DeepEqual(got, cred) {
+		t.Errorf("FileStore.Get() = %v, want %v", got, cred)
+	}
+}
+
 func TestFileStore_Put_updateOld(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")

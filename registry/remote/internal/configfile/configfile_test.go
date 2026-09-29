@@ -178,6 +178,29 @@ func TestConfig_GetAuthConfig_validConfig(t *testing.T) {
 	}
 }
 
+func TestConfig_GetAuthConfig_caseInsensitive(t *testing.T) {
+    cfg := NewConfig()
+
+    server := "localhost:5020"
+    authCfg := AuthConfig{
+        Username: "CASEUSER",
+        Password: "CASEPASS",
+    }
+
+    if err := cfg.SetAuthConfig(server, authCfg); err != nil {
+        t.Fatalf("SetAuthConfig() error = %v", err)
+    }
+
+    got, err := cfg.GetAuthConfig("LOCALHOST:5020")
+    if err != nil {
+        t.Fatalf("GetAuthConfig() error = %v", err)
+    }
+
+    if !reflect.DeepEqual(got, authCfg) {
+        t.Errorf("GetAuthConfig() = %v, want %v", got, authCfg)
+    }
+}
+
 func TestConfig_GetAuthConfig_legacyConfig(t *testing.T) {
 	cfg, err := Load("./testdata/legacy_auths_config.json")
 	if err != nil {
