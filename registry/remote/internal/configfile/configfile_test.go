@@ -179,26 +179,78 @@ func TestConfig_GetAuthConfig_validConfig(t *testing.T) {
 }
 
 func TestConfig_GetAuthConfig_caseInsensitive(t *testing.T) {
-    cfg := NewConfig()
+	cfg := NewConfig()
 
-    server := "localhost:5020"
-    authCfg := AuthConfig{
-        Username: "CASEUSER",
-        Password: "CASEPASS",
-    }
+	server := "localhost:5020"
+	authCfg := AuthConfig{
+		Username: "CASEUSER",
+		Password: "CASEPASS",
+	}
 
-    if err := cfg.SetAuthConfig(server, authCfg); err != nil {
-        t.Fatalf("SetAuthConfig() error = %v", err)
-    }
+	if err := cfg.SetAuthConfig(server, authCfg); err != nil {
+		t.Fatalf("SetAuthConfig() error = %v", err)
+	}
 
-    got, err := cfg.GetAuthConfig("LOCALHOST:5020")
-    if err != nil {
-        t.Fatalf("GetAuthConfig() error = %v", err)
-    }
+	got, err := cfg.GetAuthConfig("LOCALHOST:5020")
+	if err != nil {
+		t.Fatalf("GetAuthConfig() error = %v", err)
+	}
 
-    if !reflect.DeepEqual(got, authCfg) {
-        t.Errorf("GetAuthConfig() = %v, want %v", got, authCfg)
-    }
+	if !reflect.DeepEqual(got, authCfg) {
+		t.Errorf("GetAuthConfig() = %v, want %v", got, authCfg)
+	}
+}
+
+func TestConfig_GetAuthConfig_exactMatchWins(t *testing.T) {
+	cfg := NewConfig()
+
+	if err := cfg.SetAuthConfig("localhost:5020", AuthConfig{
+		Username: "EXACT",
+	}); err != nil {
+		t.Fatal("SetAuthConfig() error =", err)
+	}
+
+	if err := cfg.SetAuthConfig("LOCALHOST:5020", AuthConfig{
+		Username: "UPPER",
+	}); err != nil {
+		t.Fatal("SetAuthConfig() error =", err)
+	}
+
+	got, err := cfg.GetAuthConfig("localhost:5020")
+	if err != nil {
+		t.Fatalf("GetAuthConfig() error = %v", err)
+	}
+
+	want := AuthConfig{Username: "EXACT"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GetAuthConfig() = %v, want %v", got, want)
+	}
+}
+
+func TestConfig_GetAuthConfig_caseVariants(t *testing.T) {
+	cfg := NewConfig()
+
+	if err := cfg.SetAuthConfig("LOCALHOST:5020", AuthConfig{
+		Username: "UPPER",
+	}); err != nil {
+		t.Fatal("SetAuthConfig() error =", err)
+	}
+
+	if err := cfg.SetAuthConfig("LocalHost:5020", AuthConfig{
+		Username: "MIXED",
+	}); err != nil {
+		t.Fatal("SetAuthConfig() error =", err)
+	}
+
+	got, err := cfg.GetAuthConfig("localhost:5020")
+	if err != nil {
+		t.Fatalf("GetAuthConfig() error = %v", err)
+	}
+
+	want := AuthConfig{Username: "UPPER"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("GetAuthConfig() = %v, want %v", got, want)
+	}
 }
 
 func TestConfig_GetAuthConfig_legacyConfig(t *testing.T) {
@@ -652,6 +704,27 @@ func TestConfig_PutAuthConfig_updateOld(t *testing.T) {
 	}
 }
 
+func TestConfig_PutAuthConfig_caseInsensitive(t *testing.T) {
+	cfg := NewConfig()
+
+	authCfg := AuthConfig{
+		Username: "testuser",
+		Password: "testpass",
+	}
+
+	if err := cfg.PutAuthConfig("registry.example.com", authCfg); err != nil {
+		t.Fatalf("PutAuthConfig() error = %v", err)
+	}
+
+	if err := cfg.PutAuthConfig("REGISTRY.EXAMPLE.COM", authCfg); err != nil {
+		t.Fatalf("PutAuthConfig() error = %v", err)
+	}
+
+	if len(cfg.authsCache) != 1 {
+		t.Errorf("len(authsCache) = %d, want 1", len(cfg.authsCache))
+	}
+}
+
 func TestConfig_DeleteAuthConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
@@ -757,6 +830,33 @@ func TestConfig_DeleteAuthConfig(t *testing.T) {
 
 	if want := cred2; !reflect.DeepEqual(got, want) {
 		t.Errorf("Config.GetAuthConfig(%s).Credential() = %v, want %v", server2, got, want)
+	}
+}
+
+func TestConfig_DeleteAuthConfig_caseInsensitive(t *testing.T) {
+	cfg := NewConfig()
+
+	server := "localhost:5020"
+	authCfg := AuthConfig{
+		Username: "CASEUSER",
+		Password: "CASEPASS",
+	}
+
+	if err := cfg.SetAuthConfig(server, authCfg); err != nil {
+		t.Fatalf("SetAuthConfig() error = %v", err)
+	}
+
+	if err := cfg.DeleteAuthConfig("LOCALHOST:5020"); err != nil {
+		t.Fatalf("DeleteAuthConfig() error = %v", err)
+	}
+
+	got, err := cfg.GetAuthConfig(server)
+	if err != nil {
+		t.Fatalf("GetAuthConfig() error = %v", err)
+	}
+
+	if !reflect.DeepEqual(got, AuthConfig{}) {
+		t.Errorf("GetAuthConfig() = %v, want empty", got)
 	}
 }
 
@@ -974,6 +1074,19 @@ func TestConfig_GetCredentialHelper(t *testing.T) {
 				t.Errorf("Config.GetCredentialHelper() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestConfig_GetCredentialHelper_caseInsensitive(t *testing.T) {
+	cfg := NewConfig()
+
+	cfg.credentialHelpers["LOCALHOST:5020"] = "test-helper"
+
+	got := cfg.GetCredentialHelper("localhost:5020")
+	want := "test-helper"
+
+	if got != want {
+		t.Errorf("GetCredentialHelper() = %v, want %v", got, want)
 	}
 }
 
@@ -1246,6 +1359,13 @@ func TestConfig_GetAuthConfigHierarchical(t *testing.T) {
 			},
 		},
 		{
+			name:          "Case-insensitive hostname match",
+			serverAddress: "REGISTRY.EXAMPLE.COM/namespace",
+			want: AuthConfig{
+				Auth: "bmFtZXNwYWNlOnBhc3M=",
+			},
+		},
+		{
 			name:          "Exact match on repo",
 			serverAddress: "registry.example.com/namespace/repo",
 			want: AuthConfig{
@@ -1466,7 +1586,7 @@ func TestConfig_RemoveAuthConfig(t *testing.T) {
 	}
 
 	// Remove it
-	cfg.RemoveAuthConfig(serverAddress)
+	cfg.RemoveAuthConfig("REGISTRY.EXAMPLE.COM")
 
 	// Verify it was removed
 	got, err := cfg.GetAuthConfig(serverAddress)

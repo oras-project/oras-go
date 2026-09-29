@@ -450,7 +450,7 @@ func TestFileStore_Put_addNew(t *testing.T) {
 	}
 }
 
-func TestFileStore_Put_getCaseInsensitive(t *testing.T) {
+func TestFileStore_Get_caseInsensitive(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	ctx := context.Background()
@@ -725,6 +725,46 @@ func TestFileStore_Delete(t *testing.T) {
 	}
 	if want := cred2; !reflect.DeepEqual(got, want) {
 		t.Errorf("FileStore.Get(%s) = %v, want %v", server2, got, want)
+	}
+}
+
+func TestFileStore_Delete_caseInsensitive(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	ctx := context.Background()
+
+	server := "registry1.example.com"
+
+	cfg := configtest.Config{
+		AuthConfigs: map[string]configtest.AuthConfig{
+			server: {
+				Auth: "dXNlcm5hbWU6cGFzc3dvcmQ=",
+			},
+		},
+	}
+	jsonStr, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+	if err := os.WriteFile(configPath, jsonStr, 0666); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	fs, err := credentials.NewFileStore(configPath)
+	if err != nil {
+		t.Fatal("NewFileStore() error =", err)
+	}
+
+	if err := fs.Delete(ctx, "REGISTRY1.EXAMPLE.COM"); err != nil {
+		t.Fatalf("FileStore.Delete() error = %v", err)
+	}
+
+	got, err := fs.Get(ctx, server)
+	if err != nil {
+		t.Fatalf("FileStore.Get() error = %v", err)
+	}
+	if !reflect.DeepEqual(got, credentials.EmptyCredential) {
+		t.Errorf("FileStore.Get(%s) = %v, want empty", server, got)
 	}
 }
 

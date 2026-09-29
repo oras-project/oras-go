@@ -141,6 +141,22 @@ func Load(configPath string) (*Config, error) {
 	return cfg, nil
 }
 
+func normalizeAuthAddress(addr string) (scheme, host, path string) {
+	switch {
+	case strings.HasPrefix(addr, "http://"):
+		scheme = "http://"
+		addr = strings.TrimPrefix(addr, "http://")
+	case strings.HasPrefix(addr, "https://"):
+		scheme = "https://"
+		addr = strings.TrimPrefix(addr, "https://")
+	}
+
+	addr = strings.TrimSuffix(addr, "/")
+
+	host, path, _ = strings.Cut(addr, "/")
+	return scheme, strings.ToLower(host), path
+}
+
 // GetAuthConfig returns an AuthConfig for serverAddress.
 func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
 	cfg.rwLock.RLock()
@@ -152,20 +168,31 @@ func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
 		// a http/https prefix in legacy config files, e.g. "registry.example.com"
 		// can be stored as "https://registry.example.com/".
 		var matched bool
+		var matchedAddr string
+
+		serverScheme, serverHost, serverPath := normalizeAuthAddress(serverAddress)
+
 		for addr, auth := range cfg.authsCache {
-			legacyAddress := strings.TrimPrefix(addr, "http://")
-			legacyAddress = strings.TrimPrefix(legacyAddress, "https://")
-			legacyAddress = strings.TrimSuffix(legacyAddress, "/")
-			if strings.EqualFold(legacyAddress, serverAddress) {
+			addrScheme, host, path := normalizeAuthAddress(addr)
+			if serverScheme != "" && addrScheme != serverScheme {
+				continue
+			}
+
+			if host != serverHost || path != serverPath {
+				continue
+			}
+
+			if !matched || addr < matchedAddr {
 				matched = true
+				matchedAddr = addr
 				authCfgBytes = auth
-				break
 			}
 		}
 		if !matched {
 			return AuthConfig{}, nil
 		}
 	}
+
 	var authCfg AuthConfig
 	if err := json.Unmarshal(authCfgBytes, &authCfg); err != nil {
 		return AuthConfig{}, fmt.Errorf("failed to unmarshal auth field: %w: %v", ErrInvalidConfigFormat, err)
@@ -197,20 +224,27 @@ func (cfg *Config) GetAuthConfigHierarchical(serverAddress string) (AuthConfig, 
 		return authCfg, nil
 	}
 
-	// Try longest-prefix match
+	// Find the longest matching registry/path entry.
 	var bestMatch string
 	var bestAuthBytes json.RawMessage
 	for addr, auth := range cfg.authsCache {
-		// Check if the address is a prefix of serverAddress
-		if !strings.HasPrefix(serverAddress, addr) {
+		addrHost, addrPath, _ := strings.Cut(addr, "/")
+		serverHost, serverPath, _ := strings.Cut(serverAddress, "/")
+
+		if !strings.EqualFold(serverHost, addrHost) {
 			continue
 		}
-		// Ensure prefix match is at a path boundary
-		if len(serverAddress) > len(addr) && serverAddress[len(addr)] != '/' {
-			continue
+		if addrPath != "" {
+			if !strings.HasPrefix(serverPath, addrPath) {
+				continue
+			}
+			if len(serverPath) > len(addrPath) && serverPath[len(addrPath)] != '/' {
+				continue
+			}
 		}
+
 		// Keep the longest matching prefix
-		if len(addr) > len(bestMatch) {
+		if len(addr) > len(bestMatch) || (len(addr) == len(bestMatch) && addr < bestMatch) {
 			bestMatch = addr
 			bestAuthBytes = auth
 		}
@@ -250,7 +284,35 @@ func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error
 	if err != nil {
 		return fmt.Errorf("failed to marshal auth field: %w", err)
 	}
-	cfg.authsCache[serverAddress] = authCfgBytes
+	addr := serverAddress
+	serverScheme, serverHost, serverPath := normalizeAuthAddress(serverAddress)
+	if _, ok := cfg.authsCache[serverAddress]; !ok {
+		var matched bool
+		var matchedAddr string
+
+		for key := range cfg.authsCache {
+			keyScheme, keyHost, keyPath := normalizeAuthAddress(key)
+
+			if serverScheme != "" && keyScheme != serverScheme {
+				continue
+			}
+			if keyHost != serverHost || keyPath != serverPath {
+				continue
+			}
+
+			if !matched || key < matchedAddr {
+				matched = true
+				matchedAddr = key
+			}
+		}
+
+		if matched {
+			addr = matchedAddr
+		}
+	}
+
+	cfg.authsCache[addr] = authCfgBytes
+
 	if cfg.path != "" {
 		return cfg.saveFile()
 	}
@@ -263,7 +325,35 @@ func (cfg *Config) RemoveAuthConfig(serverAddress string) {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
-	delete(cfg.authsCache, serverAddress)
+	if _, ok := cfg.authsCache[serverAddress]; ok {
+		delete(cfg.authsCache, serverAddress)
+		return
+	}
+
+	serverScheme, serverHost, serverPath := normalizeAuthAddress(serverAddress)
+
+	var matched bool
+	var matchedAddr string
+
+	for key := range cfg.authsCache {
+		keyScheme, keyHost, keyPath := normalizeAuthAddress(key)
+
+		if serverScheme != "" && keyScheme != serverScheme {
+			continue
+		}
+		if keyHost != serverHost || keyPath != serverPath {
+			continue
+		}
+
+		if !matched || key < matchedAddr {
+			matched = true
+			matchedAddr = key
+		}
+	}
+
+	if matched {
+		delete(cfg.authsCache, matchedAddr)
+	}
 }
 
 // DeleteAuthConfig deletes the corresponding credential for serverAddress and saves to file.
@@ -271,11 +361,38 @@ func (cfg *Config) DeleteAuthConfig(serverAddress string) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
+	addr := serverAddress
+	serverScheme, serverHost, serverPath := normalizeAuthAddress(serverAddress)
+
 	if _, ok := cfg.authsCache[serverAddress]; !ok {
-		// no ops
+		var matched bool
+		var matchedAddr string
+
+		for key := range cfg.authsCache {
+			keyScheme, keyHost, keyPath := normalizeAuthAddress(key)
+
+			if serverScheme != "" && keyScheme != serverScheme {
+				continue
+			}
+			if keyHost != serverHost || keyPath != serverPath {
+				continue
+			}
+
+			if !matched || key < matchedAddr {
+				matched = true
+				matchedAddr = key
+			}
+		}
+
+		if matched {
+			addr = matchedAddr
+		}
+	}
+
+	if _, ok := cfg.authsCache[addr]; !ok {
 		return nil
 	}
-	delete(cfg.authsCache, serverAddress)
+	delete(cfg.authsCache, addr)
 	if cfg.path != "" {
 		return cfg.saveFile()
 	}
@@ -287,7 +404,31 @@ func (cfg *Config) GetCredentialHelper(serverAddress string) string {
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
-	return cfg.credentialHelpers[serverAddress]
+	serverAddress = normalizeServerAddress(serverAddress)
+
+	if helper, ok := cfg.credentialHelpers[serverAddress]; ok {
+		return helper
+	}
+
+	var matched bool
+	var matchedHelper string
+	var matchedKey string
+
+	for key, helper := range cfg.credentialHelpers {
+		if strings.EqualFold(key, serverAddress) {
+			if !matched || key < matchedKey {
+				matched = true
+				matchedKey = key
+				matchedHelper = helper
+			}
+		}
+	}
+
+	if matched {
+		return matchedHelper
+	}
+
+	return ""
 }
 
 // SetCredentialHelper sets the credential helper for serverAddress in memory.
@@ -298,6 +439,7 @@ func (cfg *Config) SetCredentialHelper(serverAddress, helper string) {
 	if cfg.credentialHelpers == nil {
 		cfg.credentialHelpers = make(map[string]string)
 	}
+	serverAddress = normalizeServerAddress(serverAddress)
 	cfg.credentialHelpers[serverAddress] = helper
 }
 
@@ -408,6 +550,14 @@ func (cfg *Config) saveFile() (returnErr error) {
 		return fmt.Errorf("failed to save config file: %w", err)
 	}
 	return nil
+}
+
+func normalizeServerAddress(addr string) string {
+	addr = strings.TrimPrefix(addr, "http://")
+	addr = strings.TrimPrefix(addr, "https://")
+
+	host, path, _ := strings.Cut(addr, "/")
+	return strings.ToLower(host) + path
 }
 
 // ToHostname normalizes a server address to just its hostname, removing
