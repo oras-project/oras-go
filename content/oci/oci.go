@@ -32,7 +32,6 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/container/set"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
@@ -200,16 +199,12 @@ func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 
 // delete deletes one node and returns the dangling nodes caused by the delete.
 func (s *Store) delete(ctx context.Context, target ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	resolvers := s.tagResolver.Map()
-	untagged := false
-	for reference, desc := range resolvers {
-		if content.Equal(desc, target) {
-			s.tagResolver.Untag(reference)
-			untagged = true
-		}
+	tagSet := s.tagResolver.TagSet(target)
+	for reference := range tagSet {
+		s.tagResolver.Untag(reference)
 	}
 	danglings := s.graph.Remove(target)
-	if untagged && s.AutoSaveIndex {
+	if len(tagSet) > 0 && s.AutoSaveIndex {
 		err := s.saveIndex()
 		if err != nil {
 			return nil, err

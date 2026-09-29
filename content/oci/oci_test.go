@@ -42,6 +42,7 @@ import (
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/cas"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
+	"github.com/oras-project/oras-go/v3/internal/docker"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 	"github.com/oras-project/oras-go/v3/registry"
 	"golang.org/x/sync/errgroup"
@@ -2509,6 +2510,75 @@ func TestStore_DeleteWithAutoGCAfterRetag(t *testing.T) {
 	}
 }
 
+func TestStore_DeleteWithMismatchedMediaType(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+
+	ctx := context.Background()
+	descs, blobs := newImage(t, "test", 1)
+	manifest := descs[len(descs)-1]
+	for i, blob := range blobs {
+		if err := s.Push(ctx, descs[i], bytes.NewReader(blob)); err != nil {
+			t.Fatalf("failed to push test content: %d: %v", i, err)
+		}
+	}
+	if err := s.Tag(ctx, manifest, "latest"); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// Delete removes the blob by digest, so it must drop every reference to
+	// that digest, even when called with another media type.
+	target := manifest
+	target.MediaType = docker.MediaTypeManifest
+	if err := s.Delete(ctx, target); err != nil {
+		t.Fatal("Store.Delete() error =", err)
+	}
+
+	for _, ref := range []string{"latest", manifest.Digest.String()} {
+		if _, err := s.Resolve(ctx, ref); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Store.Resolve(%q) error = %v, want %v", ref, err, errdef.ErrNotFound)
+		}
+	}
+}
+
+func TestStore_DeleteAfterTaggingWithOtherMediaType(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+
+	ctx := context.Background()
+	descs, blobs := newImage(t, "test", 1)
+	manifest := descs[len(descs)-1]
+	for i, blob := range blobs {
+		if err := s.Push(ctx, descs[i], bytes.NewReader(blob)); err != nil {
+			t.Fatalf("failed to push test content: %d: %v", i, err)
+		}
+	}
+	if err := s.Tag(ctx, manifest, "oci"); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	// Tag only checks that the digest exists, so it accepts the same content
+	// under another media type.
+	other := manifest
+	other.MediaType = docker.MediaTypeManifest
+	if err := s.Tag(ctx, other, "docker"); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	if err := s.Delete(ctx, manifest); err != nil {
+		t.Fatal("Store.Delete() error =", err)
+	}
+
+	for _, ref := range []string{"oci", "docker", manifest.Digest.String()} {
+		if _, err := s.Resolve(ctx, ref); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Store.Resolve(%q) error = %v, want %v", ref, err, errdef.ErrNotFound)
+		}
+	}
+}
+
 func TestStore_Untag(t *testing.T) {
 	content := []byte("test delete")
 	desc := ocispec.Descriptor{
@@ -3133,4 +3203,77 @@ func TestStore_BadDigest(t *testing.T) {
 			t.Errorf("Store.Predecessors() error = %v, wantErr %v", err, nil)
 		}
 	})
+}
+
+// newImage returns a manifest and its successors in push order, manifest last.
+// Every blob embeds name, so images built with different names share nothing.
+func newImage(tb testing.TB, name string, successors int) ([]ocispec.Descriptor, [][]byte) {
+	tb.Helper()
+
+	var descs []ocispec.Descriptor
+	var blobs [][]byte
+	appendBlob := func(mediaType string, blob []byte) {
+		descs = append(descs, content.NewDescriptorFromBytes(mediaType, blob))
+		blobs = append(blobs, blob)
+	}
+
+	appendBlob(ocispec.MediaTypeImageConfig, []byte(name+"-config"))
+	for i := range successors - 1 {
+		appendBlob(ocispec.MediaTypeImageLayer, []byte(name+"-layer"+strconv.Itoa(i)))
+	}
+	manifest := ocispec.Manifest{
+		Config: descs[0],
+		Layers: descs[1:],
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	appendBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	return descs, blobs
+}
+
+func BenchmarkStore_Delete(b *testing.B) {
+	for _, tags := range []int{10, 100, 1000, 10000} {
+		b.Run(fmt.Sprintf("tags=%d", tags), func(b *testing.B) {
+			ctx := context.Background()
+			s, err := New(b.TempDir())
+			if err != nil {
+				b.Fatal("New() error =", err)
+			}
+			s.AutoSaveIndex = false
+			push := func(descs []ocispec.Descriptor, blobs [][]byte) {
+				for i, blob := range blobs {
+					if err := s.Push(ctx, descs[i], bytes.NewReader(blob)); err != nil {
+						b.Fatal("Store.Push() error =", err)
+					}
+				}
+			}
+
+			bgDescs, bgBlobs := newImage(b, "bg", 1)
+			bg := bgDescs[len(bgDescs)-1]
+			push(bgDescs, bgBlobs)
+			for i := range tags {
+				if err := s.Tag(ctx, bg, "tag"+strconv.Itoa(i)); err != nil {
+					b.Fatal("Store.Tag() error =", err)
+				}
+			}
+
+			targetDescs, targetBlobs := newImage(b, "target", 10)
+			target := targetDescs[len(targetDescs)-1]
+
+			b.ReportAllocs()
+			for b.Loop() {
+				b.StopTimer()
+				s.AutoSaveIndex = false
+				push(targetDescs, targetBlobs)
+				// Only the measured Delete saves the index, as AutoSaveIndex does by default.
+				s.AutoSaveIndex = true
+				b.StartTimer()
+				if err := s.Delete(ctx, target); err != nil {
+					b.Fatal("Store.Delete() error =", err)
+				}
+			}
+		})
+	}
 }
