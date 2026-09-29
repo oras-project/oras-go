@@ -52,6 +52,12 @@ func (t *testStore) Delete(ctx context.Context, serverAddress string) error {
 
 type badStore struct{}
 
+type contextErrorStore struct{ Store }
+
+func (contextErrorStore) Get(ctx context.Context, _ string) (Credential, error) {
+	return EmptyCredential, ctx.Err()
+}
+
 var errBadStore = errors.New("bad store!")
 
 // Get retrieves credentials from the store for the given server address.
@@ -629,6 +635,36 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 			serverAddress: "whatever.example.com",
 			want:          "teststore",
 		},
+		{
+			name:          "Namespaced address uses the cred helper of its host",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry1.example.com/team/app",
+			want:          "registry1-helper",
+		},
+		{
+			name:          "Namespaced address with an empty cred helper for its host",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry3.example.com/team/app",
+			want:          "",
+		},
+		{
+			name:          "Namespaced address without a cred helper falls back to creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "whatever.example.com/team/app",
+			want:          "teststore",
+		},
+		{
+			name:          "Namespaced address prefers its host's cred helper over creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "test.example.com/team/app",
+			want:          "test-helper",
+		},
+		{
+			name:          "Host is not matched by prefix",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry1.example.com.evil/team",
+			want:          "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -636,7 +672,7 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 			if err != nil {
 				t.Fatal("NewStore() error =", err)
 			}
-			if got := ds.getHelperSuffix(tt.serverAddress); got != tt.want {
+			if got, _ := ds.getHelperSuffix(tt.serverAddress); got != tt.want {
 				t.Errorf("DynamicStore.getHelperSuffix() = %v, want %v", got, tt.want)
 			}
 		})
@@ -682,6 +718,11 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 			configPath:    "testdata/credsStore_config.json",
 			serverAddress: "whaterver.example.com",
 		},
+		{
+			name:          "Cred helper configured for the host of a namespaced address",
+			configPath:    "testdata/credHelpers_config.json",
+			serverAddress: "registry1.example.com/team/app",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -690,6 +731,9 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 				t.Fatal("NewStore() error =", err)
 			}
 			gotStore := ds.getStore(tt.serverAddress)
+			if inherited, ok := gotStore.(inheritedHelperStore); ok {
+				gotStore = inherited.Store
+			}
 			if _, ok := gotStore.(*nativeStore); !ok {
 				t.Errorf("gotStore is not a native store")
 			}
@@ -1022,5 +1066,159 @@ func TestNewStoreFromDocker(t *testing.T) {
 	}
 	if want := EmptyCredential; got != want {
 		t.Errorf("DynamicStore.Get() = %v, want %v", got, want)
+	}
+}
+
+func TestDynamicStore_MatchesNamespace(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  configtest.Config
+		opts StoreOptions
+		want bool
+	}{
+		{
+			name: "hierarchical file store matches namespaces",
+			cfg: configtest.Config{
+				AuthConfigs: map[string]configtest.AuthConfig{
+					"test.example.com": {},
+				},
+			},
+			opts: StoreOptions{Hierarchical: true},
+			want: true,
+		},
+		{
+			name: "file store without Hierarchical does not match namespaces",
+			cfg: configtest.Config{
+				AuthConfigs: map[string]configtest.AuthConfig{
+					"test.example.com": {},
+				},
+			},
+			opts: StoreOptions{},
+			want: false,
+		},
+		{
+			// A native store is always keyed by the exact server address, so
+			// Hierarchical cannot make it match namespaces.
+			name: "native store does not match namespaces even when Hierarchical",
+			cfg: configtest.Config{
+				CredentialsStore: "teststore",
+			},
+			opts: StoreOptions{Hierarchical: true},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			jsonStr, err := json.Marshal(tt.cfg)
+			if err != nil {
+				t.Fatalf("failed to marshal config: %v", err)
+			}
+			if err := os.WriteFile(configPath, jsonStr, 0666); err != nil {
+				t.Fatalf("failed to write config file: %v", err)
+			}
+
+			ds, err := NewStore(configPath, tt.opts)
+			if err != nil {
+				t.Fatal("NewStore() error =", err)
+			}
+			if got := ds.MatchesNamespace("test.example.com/team/app"); got != tt.want {
+				t.Errorf("DynamicStore.MatchesNamespace() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStoreWithFallbacks_MatchesNamespace(t *testing.T) {
+	matching := &FileStore{Hierarchical: true}
+	nonMatching := &FileStore{}
+
+	tests := []struct {
+		name      string
+		primary   Store
+		fallbacks []Store
+		want      bool
+	}{
+		{
+			name:      "all stores match namespaces",
+			primary:   matching,
+			fallbacks: []Store{matching},
+			want:      true,
+		},
+		{
+			name:      "a fallback that does not match disables matching",
+			primary:   matching,
+			fallbacks: []Store{nonMatching},
+			want:      false,
+		},
+		{
+			// A store that does not implement NamespaceMatcher at all is
+			// treated as not matching.
+			name:      "a store that is not a NamespaceMatcher disables matching",
+			primary:   matching,
+			fallbacks: []Store{&testStore{}},
+			want:      false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewStoreWithFallbacks(tt.primary, tt.fallbacks...)
+			matcher, ok := s.(NamespaceMatcher)
+			if !ok {
+				t.Fatal("NewStoreWithFallbacks() does not implement NamespaceMatcher")
+			}
+			if got := matcher.MatchesNamespace("test.example.com/team/app"); got != tt.want {
+				t.Errorf("MatchesNamespace() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_inheritedHelperStore_Get_helperError(t *testing.T) {
+	store := inheritedHelperStore{&nativeStore{&testExecuter{}}}
+	got, err := store.Get(context.Background(), exeErrorHost)
+	if err != nil {
+		t.Fatal("inheritedHelperStore.Get() error =", err)
+	}
+	if got != EmptyCredential {
+		t.Errorf("inheritedHelperStore.Get() = %v, want %v", got, EmptyCredential)
+	}
+}
+
+func Test_inheritedHelperStore_Get_success(t *testing.T) {
+	address := "example.com/team/app"
+	want := Credential{Username: "username", Password: "password"}
+	store := inheritedHelperStore{&testStore{storage: map[string]Credential{address: want}}}
+	got, err := store.Get(context.Background(), address)
+	if err != nil {
+		t.Fatal("inheritedHelperStore.Get() error =", err)
+	}
+	if got != want {
+		t.Errorf("inheritedHelperStore.Get() = %v, want %v", got, want)
+	}
+}
+
+func Test_inheritedHelperStore_Get_contextError(t *testing.T) {
+	store := inheritedHelperStore{contextErrorStore{}}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	deadline, stop := context.WithTimeout(context.Background(), 0)
+	defer stop()
+
+	for _, ctx := range []context.Context{canceled, deadline} {
+		got, err := store.Get(ctx, "example.com/team/app")
+		if !errors.Is(err, ctx.Err()) {
+			t.Errorf("inheritedHelperStore.Get() error = %v, want %v", err, ctx.Err())
+		}
+		if got != EmptyCredential {
+			t.Errorf("inheritedHelperStore.Get() = %v, want %v", got, EmptyCredential)
+		}
+	}
+}
+
+func Test_inheritedHelperStore_Put_helperError(t *testing.T) {
+	store := inheritedHelperStore{&nativeStore{&testExecuter{}}}
+	if err := store.Put(context.Background(), "localhost:500/unknown", Credential{}); err == nil {
+		t.Error("inheritedHelperStore.Put() error = nil, want error")
 	}
 }

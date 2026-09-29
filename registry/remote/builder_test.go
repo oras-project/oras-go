@@ -114,7 +114,7 @@ func TestClientBuilder_Build_WithCredential(t *testing.T) {
 		t.Fatalf("Build() error = %v", err)
 	}
 
-	cred, err := client.CredentialFunc(context.Background(), "test-registry.example.com")
+	cred, err := client.CredentialFunc(context.Background(), testRegistryResource("test-registry.example.com"))
 	if err != nil {
 		t.Fatalf("CredentialFunc() error = %v", err)
 	}
@@ -156,7 +156,7 @@ func TestClientBuilder_Build_WithCredentialStore(t *testing.T) {
 		t.Fatalf("Build() error = %v", err)
 	}
 
-	cred, err := client.CredentialFunc(context.Background(), wantRegistry)
+	cred, err := client.CredentialFunc(context.Background(), testRegistryResource(wantRegistry))
 	if err != nil {
 		t.Fatalf("CredentialFunc() error = %v", err)
 	}

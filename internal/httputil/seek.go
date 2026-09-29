@@ -30,14 +30,17 @@ type Client interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-// readSeekCloser seeks http body by starting new connections.
+// readSeekCloser seeks http body by starting new connections lazily on Read.
 type readSeekCloser struct {
 	client Client
 	req    *http.Request
 	rc     io.ReadCloser
 	size   int64
 	offset int64
-	closed bool
+	// rcOffset is the position of the next byte rc yields. rc can be read
+	// directly only while rcOffset equals offset.
+	rcOffset int64
+	closed   bool
 }
 
 // NewReadSeekCloser returns a seeker to make the HTTP response seekable.
@@ -51,17 +54,38 @@ func NewReadSeekCloser(client Client, req *http.Request, respBody io.ReadCloser,
 	}
 }
 
-// Read reads the content body and counts offset.
+// Read reads the content body and counts offset. If a previous Seek moved
+// offset away from rcOffset, Read first starts a new connection to the remote
+// at offset.
 func (rsc *readSeekCloser) Read(p []byte) (n int, err error) {
 	if rsc.closed {
 		return 0, errors.New("read: already closed")
 	}
+	if rsc.offset != rsc.rcOffset {
+		req := rsc.req.Clone(rsc.req.Context())
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", rsc.offset, rsc.size-1))
+		resp, err := rsc.client.Do(req)
+		if err != nil {
+			return 0, fmt.Errorf("read: %s %q: %w", req.Method, req.URL, err)
+		}
+		if resp.StatusCode != http.StatusPartialContent {
+			resp.Body.Close()
+			return 0, fmt.Errorf("read: %s %q: unexpected status code %d", resp.Request.Method, resp.Request.URL, resp.StatusCode)
+		}
+
+		rsc.rc.Close()
+		rsc.rc = resp.Body
+		rsc.rcOffset = rsc.offset
+	}
+
 	n, err = rsc.rc.Read(p)
 	rsc.offset += int64(n)
-	return
+	rsc.rcOffset += int64(n)
+	return n, err
 }
 
-// Seek starts a new connection to the remote for reading if position changes.
+// Seek sets the offset for the next Read without sending any request, so
+// errors from the remote are reported by the next Read instead.
 func (rsc *readSeekCloser) Seek(offset int64, whence int) (int64, error) {
 	if rsc.closed {
 		return 0, errors.New("seek: already closed")
@@ -79,29 +103,13 @@ func (rsc *readSeekCloser) Seek(offset int64, whence int) (int64, error) {
 	if offset < 0 {
 		return 0, errors.New("seek: an attempt was made to move the pointer before the beginning of the content")
 	}
-	if offset == rsc.offset {
-		return offset, nil
-	}
+	// Past the end there is nothing to request, so drop the body now and let
+	// Read report EOF instead of sending an invalid Range.
 	if offset >= rsc.size {
 		rsc.rc.Close()
 		rsc.rc = http.NoBody
-		rsc.offset = offset
-		return offset, nil
+		rsc.rcOffset = offset
 	}
-
-	req := rsc.req.Clone(rsc.req.Context())
-	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, rsc.size-1))
-	resp, err := rsc.client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("seek: %s %q: %w", req.Method, req.URL, err)
-	}
-	if resp.StatusCode != http.StatusPartialContent {
-		resp.Body.Close()
-		return 0, fmt.Errorf("seek: %s %q: unexpected status code %d", resp.Request.Method, resp.Request.URL, resp.StatusCode)
-	}
-
-	rsc.rc.Close()
-	rsc.rc = resp.Body
 	rsc.offset = offset
 	return offset, nil
 }

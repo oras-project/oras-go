@@ -38,6 +38,12 @@ func NewTracker() *Tracker {
 // Returns false if the work is done or still in progress.
 func (t *Tracker) TryCommit(target ocispec.Descriptor) (chan struct{}, bool) {
 	key := descriptor.FromOCI(target)
+	// Check for an existing entry first so the common case (the descriptor
+	// is already committed or in progress) does not pay for a channel
+	// allocation that LoadOrStore would immediately discard.
+	if status, exists := t.status.Load(key); exists {
+		return status.(chan struct{}), false
+	}
 	status, exists := t.status.LoadOrStore(key, make(chan struct{}))
 	return status.(chan struct{}), !exists
 }

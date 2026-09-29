@@ -25,8 +25,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
 )
 
@@ -76,13 +78,21 @@ type Client struct {
 	// is already available in the DefaultClient.
 	// It is also possible to use a custom client. For example, github.com/hashicorp/go-retryablehttp
 	// is a popular HTTP client that supports retries.
+	//
+	// The Client field and the *http.Client it points to are both read once,
+	// on the first request sent through this Client, to build the
+	// redirect-safe wrapper used for every subsequent request. After that
+	// first request, neither reassigning Client nor mutating the fields of
+	// the http.Client it points to (Transport, Timeout, Jar, CheckRedirect)
+	// has any effect. Configure the client fully before first use, or derive
+	// a separately-configured one with Clone.
 	Client *http.Client
 
 	// Header contains the custom headers to be added to each request.
 	Header http.Header
 
 	// CredentialFunc specifies the function for resolving the credential for the
-	// given registry (i.e. host:port).
+	// given registry resource.
 	// EmptyCredential is a valid return value and should not be considered as
 	// an error.
 	// If nil, the credential is always resolved to EmptyCredential.
@@ -117,6 +127,38 @@ type Client struct {
 	// - https://distribution.github.io/distribution/spec/auth/jwt/
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
 	TokenFetcher TokenFetcher
+
+	// redirectSafeClientOnce guards the lazy construction of
+	// redirectSafeClientValue below.
+	redirectSafeClientOnce sync.Once
+
+	// redirectSafeClientValue caches the client returned by
+	// redirectSafeClient(c.client()). The wrapper is stateless with respect
+	// to the request being sent, so it only needs to be built once per
+	// Client rather than on every send.
+	redirectSafeClientValue *http.Client
+}
+
+// Clone returns a shallow copy of c's exported configuration. Assigning to the
+// clone's fields does not affect c — for example to attach a different
+// CredentialFunc before use — but the Header map and the Cache and Client
+// values it references are shared with c, so mutating those through the clone
+// is visible to c as well.
+//
+// The clone does not inherit c's cached, lazily-built redirect-safe client;
+// it builds and caches its own the first time it sends a request. This makes
+// Clone the supported way to derive an independent Client: assigning a
+// Client value directly (dst := *c) also copies its internal
+// synchronization state and is unsafe once c has sent a request.
+func (c *Client) Clone() *Client {
+	return &Client{
+		Client:         c.Client,
+		Header:         c.Header,
+		CredentialFunc: c.CredentialFunc,
+		Cache:          c.Cache,
+		ClientID:       c.ClientID,
+		TokenFetcher:   c.TokenFetcher,
+	}
 }
 
 // client returns an HTTP client used to access the remote registry.
@@ -128,12 +170,22 @@ func (c *Client) client() *http.Client {
 	return c.Client
 }
 
+// cachedRedirectSafeClient returns the redirect-safe wrapper around c.client(),
+// building it on the first call and reusing it for every subsequent call. Safe
+// for concurrent use.
+func (c *Client) cachedRedirectSafeClient() *http.Client {
+	c.redirectSafeClientOnce.Do(func() {
+		c.redirectSafeClientValue = redirectSafeClient(c.client())
+	})
+	return c.redirectSafeClientValue
+}
+
 // send adds headers to the request and sends the request to the remote server.
 func (c *Client) send(req *http.Request) (*http.Response, error) {
 	for key, values := range c.Header {
 		req.Header[key] = append(req.Header[key], values...)
 	}
-	return redirectSafeClient(c.client()).Do(req)
+	return c.cachedRedirectSafeClient().Do(req)
 }
 
 // redirectSafeClient returns a shallow copy of client whose CheckRedirect drops
@@ -190,12 +242,12 @@ func canonicalHost(u *url.URL) string {
 	return strings.ToLower(u.Hostname()) + ":" + port
 }
 
-// credential resolves the credential for the given registry.
-func (c *Client) credential(ctx context.Context, reg string) (credentials.Credential, error) {
+// credential resolves the credential for the given registry resource.
+func (c *Client) credential(ctx context.Context, resource properties.Resource) (credentials.Credential, error) {
 	if c.CredentialFunc == nil {
 		return credentials.EmptyCredential, nil
 	}
-	return c.CredentialFunc(ctx, reg)
+	return c.CredentialFunc(ctx, resource)
 }
 
 // cache resolves the cache.
@@ -275,19 +327,24 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	// attempt cached auth token
 	var attemptedKey string
 	cache := c.cache()
-	host := requestResource(originalReq).Host()
-	scheme, err := cache.GetScheme(ctx, host)
+	resource := requestResource(originalReq)
+	host := resource.Host()
+	// Credentials may be namespaced, so a token fetched for one repository
+	// path must not be replayed for another path on the same host. Scopes
+	// stay host-wide, as they describe the registry, not the credential.
+	cacheKey := resource.String()
+	scheme, err := cache.GetScheme(ctx, cacheKey)
 	if err == nil {
 		switch scheme {
 		case SchemeBasic:
-			token, err := cache.GetToken(ctx, host, SchemeBasic, "")
+			token, err := cache.GetToken(ctx, cacheKey, SchemeBasic, "")
 			if err == nil {
 				req.Header.Set(headerAuthorization, "Basic "+token)
 			}
 		case SchemeBearer:
 			scopes := GetScopesForHost(ctx, host)
 			attemptedKey = strings.Join(scopes, " ")
-			token, err := cache.GetToken(ctx, host, SchemeBearer, attemptedKey)
+			token, err := cache.GetToken(ctx, cacheKey, SchemeBearer, attemptedKey)
 			if err == nil {
 				req.Header.Set(headerAuthorization, "Bearer "+token)
 			}
@@ -316,8 +373,8 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	case SchemeBasic:
 		resp.Body.Close()
 
-		token, err := cache.Set(ctx, host, SchemeBasic, "", func(ctx context.Context) (string, error) {
-			return c.fetchBasicAuth(ctx, host)
+		token, err := cache.Set(ctx, cacheKey, SchemeBasic, "", func(ctx context.Context) (string, error) {
+			return c.fetchBasicAuth(ctx, resource)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
@@ -338,7 +395,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt the cache again if there is a scope change
 		if key != attemptedKey {
-			if token, err := cache.GetToken(ctx, host, SchemeBearer, key); err == nil {
+			if token, err := cache.GetToken(ctx, cacheKey, SchemeBearer, key); err == nil {
 				req = originalReq.Clone(ctx)
 				req.Header.Set(headerAuthorization, "Bearer "+token)
 				if err := rewindRequestBody(req); err != nil {
@@ -362,8 +419,8 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 		service := params["service"]
-		token, err := cache.Set(ctx, host, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			return c.fetchBearerToken(ctx, host, realm, service, scopes)
+		token, err := cache.Set(ctx, cacheKey, SchemeBearer, key, func(ctx context.Context) (string, error) {
+			return c.fetchBearerToken(ctx, resource, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
@@ -382,8 +439,8 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 }
 
 // fetchBasicAuth fetches a basic auth token for the basic challenge.
-func (c *Client) fetchBasicAuth(ctx context.Context, registry string) (string, error) {
-	cred, err := c.credential(ctx, registry)
+func (c *Client) fetchBasicAuth(ctx context.Context, resource properties.Resource) (string, error) {
+	cred, err := c.credential(ctx, resource)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve credential: %w", err)
 	}
@@ -402,8 +459,8 @@ func (c *Client) fetchBasicAuth(ctx context.Context, registry string) (string, e
 // The acquisition strategy is delegated to TokenFetcher. When none is
 // configured, a CompositeTokenFetcher is used: anonymous access goes through
 // the distribution spec token endpoint and credentialed access uses OAuth2.
-func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service string, scopes []string) (string, error) {
-	cred, err := c.credential(ctx, registry)
+func (c *Client) fetchBearerToken(ctx context.Context, resource properties.Resource, realm, service string, scopes []string) (string, error) {
+	cred, err := c.credential(ctx, resource)
 	if err != nil {
 		return "", err
 	}
@@ -413,7 +470,7 @@ func (c *Client) fetchBearerToken(ctx context.Context, registry, realm, service 
 		fetcher = NewCompositeTokenFetcher(c.Client, c.Header, c.ClientID, false)
 	}
 	params := TokenParams{
-		Registry: registry,
+		Resource: resource,
 		Realm:    realm,
 		Service:  service,
 		Scopes:   scopes,

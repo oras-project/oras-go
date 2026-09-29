@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 func TestDistributionTokenFetcher_FetchToken(t *testing.T) {
@@ -74,7 +75,7 @@ func TestDistributionTokenFetcher_FetchToken(t *testing.T) {
 	}
 
 	params := TokenParams{
-		Registry: "test-registry",
+		Resource: properties.Resource{Registry: "test-registry"},
 		Realm:    ts.URL,
 		Service:  wantService,
 		Scopes:   []string{wantScope},
@@ -121,7 +122,7 @@ func TestDistributionTokenFetcher_FetchToken_Anonymous(t *testing.T) {
 	}
 
 	params := TokenParams{
-		Registry: "test-registry",
+		Resource: properties.Resource{Registry: "test-registry"},
 		Realm:    ts.URL,
 		Service:  "test_service",
 		Scopes:   []string{"repository:test:pull"},
@@ -253,7 +254,7 @@ func TestOAuth2TokenFetcher_FetchToken_Password(t *testing.T) {
 	}
 
 	params := TokenParams{
-		Registry: "test-registry",
+		Resource: properties.Resource{Registry: "test-registry"},
 		Realm:    ts.URL,
 		Service:  wantService,
 		Scopes:   []string{wantScope},
@@ -306,7 +307,7 @@ func TestOAuth2TokenFetcher_FetchToken_RefreshToken(t *testing.T) {
 	}
 
 	params := TokenParams{
-		Registry: "test-registry",
+		Resource: properties.Resource{Registry: "test-registry"},
 		Realm:    ts.URL,
 		Service:  "test_service",
 	}
@@ -415,7 +416,7 @@ func TestCompositeTokenFetcher_FetchToken_AccessToken(t *testing.T) {
 	}
 
 	params := TokenParams{
-		Registry: "test-registry",
+		Resource: properties.Resource{Registry: "test-registry"},
 	}
 	cred := credentials.Credential{
 		AccessToken: wantToken,
@@ -439,7 +440,7 @@ func TestCompositeTokenFetcher_FetchToken_EmptyCredential(t *testing.T) {
 	}
 
 	params := TokenParams{
-		Registry: "test-registry",
+		Resource: properties.Resource{Registry: "test-registry"},
 	}
 
 	token, err := fetcher.FetchToken(context.Background(), params, credentials.EmptyCredential)
@@ -461,7 +462,7 @@ func TestCompositeTokenFetcher_FetchToken_LegacyMode(t *testing.T) {
 	}
 
 	params := TokenParams{
-		Registry: "test-registry",
+		Resource: properties.Resource{Registry: "test-registry"},
 	}
 	// Credential with username/password but no refresh token
 	cred := credentials.Credential{
@@ -488,7 +489,7 @@ func TestCompositeTokenFetcher_FetchToken_OAuth2(t *testing.T) {
 	}
 
 	params := TokenParams{
-		Registry: "test-registry",
+		Resource: properties.Resource{Registry: "test-registry"},
 	}
 	// Credential with username/password and no refresh token
 	cred := credentials.Credential{
@@ -515,7 +516,7 @@ func TestCompositeTokenFetcher_FetchToken_RefreshToken(t *testing.T) {
 	}
 
 	params := TokenParams{
-		Registry: "test-registry",
+		Resource: properties.Resource{Registry: "test-registry"},
 	}
 	cred := credentials.Credential{
 		RefreshToken: "refresh_token",

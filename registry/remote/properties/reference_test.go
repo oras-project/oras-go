@@ -160,11 +160,12 @@ func TestNewReference_EmptyComponents(t *testing.T) {
 
 func TestNewReferenceList(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		wantCount int
-		wantTags  []string
-		wantErr   bool
+		name        string
+		input       string
+		wantCount   int
+		wantTags    []string
+		wantDigests []string
+		wantErr     bool
 	}{
 		{
 			name:      "multiple tags",
@@ -188,6 +189,42 @@ func TestNewReferenceList(t *testing.T) {
 			input:   "localhost:5000/repo:v1,,v3",
 			wantErr: true,
 		},
+		{
+			name:        "multiple digests",
+			input:       "localhost:5000/repo@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+			wantCount:   2,
+			wantTags:    []string{"", ""},
+			wantDigests: []string{"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"},
+		},
+		{
+			name:        "tag with digest",
+			input:       "localhost:5000/repo:v1@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			wantCount:   1,
+			wantTags:    []string{"v1"},
+			wantDigests: []string{"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+		},
+		{
+			name:        "tag with spaces and digest",
+			input:       "localhost:5000/repo: v1 @sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			wantCount:   1,
+			wantTags:    []string{"v1"},
+			wantDigests: []string{"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+		},
+		{
+			name:    "invalid tag with digest",
+			input:   "localhost:5000/repo:bad tag@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			wantErr: true,
+		},
+		{
+			name:    "tags with digest",
+			input:   "localhost:5000/repo:v1,v2@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			wantErr: true,
+		},
+		{
+			name:    "tag with digest list",
+			input:   "localhost:5000/repo:v1@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -198,6 +235,9 @@ func TestNewReferenceList(t *testing.T) {
 				return
 			}
 			if tt.wantErr {
+				if !errors.Is(err, errdef.ErrInvalidReference) {
+					t.Errorf("NewReferenceList() error = %v, want ErrInvalidReference", err)
+				}
 				return
 			}
 			if len(refs) != tt.wantCount {
@@ -206,6 +246,13 @@ func TestNewReferenceList(t *testing.T) {
 			for i, ref := range refs {
 				if ref.Tag != tt.wantTags[i] {
 					t.Errorf("refs[%d].Tag = %q, want %q", i, ref.Tag, tt.wantTags[i])
+				}
+				var wantDigest string
+				if tt.wantDigests != nil {
+					wantDigest = tt.wantDigests[i]
+				}
+				if ref.Digest != wantDigest {
+					t.Errorf("refs[%d].Digest = %q, want %q", i, ref.Digest, wantDigest)
 				}
 			}
 		})

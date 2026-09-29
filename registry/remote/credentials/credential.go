@@ -18,46 +18,22 @@ package credentials
 import (
 	"context"
 	"fmt"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
-// Credential contains authentication credentials used to access remote
-// registries.
-type Credential struct {
-	// Username is the name of the user for the remote registry.
-	Username string
-
-	// Password is the secret associated with the username.
-	Password string
-
-	// RefreshToken is a bearer token to be sent to the authorization service
-	// for fetching access tokens.
-	// A refresh token is often referred as an identity token.
-	// Reference: https://distribution.github.io/distribution/spec/auth/oauth/
-	RefreshToken string
-
-	// AccessToken is a bearer token to be sent to the registry.
-	// An access token is often referred as a registry token.
-	// Reference: https://distribution.github.io/distribution/spec/auth/token/
-	AccessToken string
-}
+// Credential aliases the canonical credential type used by registry properties.
+type Credential = properties.Credential
 
 // EmptyCredential represents an empty credential.
 var EmptyCredential Credential
 
-// IsEmpty returns true if the credential has no values
-func (c *Credential) IsEmpty() bool {
-	if *c == EmptyCredential {
-		return true
-	}
-	return false
-}
-
 // CredentialFunc represents a function that resolves the credential for the
-// given registry (i.e. host:port).
+// given resource.
 //
 // [EmptyCredential] is a valid return value and should not be considered as
 // an error.
-type CredentialFunc func(ctx context.Context, hostport string) (Credential, error)
+type CredentialFunc func(ctx context.Context, resource properties.Resource) (Credential, error)
 
 // StaticCredentialFunc specifies static credentials for the given host.
 func StaticCredentialFunc(registry string, cred Credential) CredentialFunc {
@@ -67,8 +43,8 @@ func StaticCredentialFunc(registry string, cred Credential) CredentialFunc {
 		// reference: https://github.com/moby/moby/blob/v24.0.0-beta.2/registry/config.go#L25-L48
 		registry = "registry-1.docker.io"
 	}
-	return func(_ context.Context, hostport string) (Credential, error) {
-		if hostport == registry {
+	return func(_ context.Context, resource properties.Resource) (Credential, error) {
+		if resource.Host() == registry {
 			return cred, nil
 		}
 		return EmptyCredential, nil
