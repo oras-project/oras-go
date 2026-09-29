@@ -42,6 +42,7 @@ import (
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/cas"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
+	"github.com/oras-project/oras-go/v3/internal/docker"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 	"github.com/oras-project/oras-go/v3/registry"
 	"golang.org/x/sync/errgroup"
@@ -2506,6 +2507,75 @@ func TestStore_DeleteWithAutoGCAfterRetag(t *testing.T) {
 	}
 	if !content.Equal(got, descs[4]) {
 		t.Errorf("Store.Resolve(%q) = %v, want %v", ref, got, descs[4])
+	}
+}
+
+func TestStore_DeleteWithMismatchedMediaType(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+
+	ctx := context.Background()
+	descs, blobs := newImage(t, "test", 1)
+	manifest := descs[len(descs)-1]
+	for i, blob := range blobs {
+		if err := s.Push(ctx, descs[i], bytes.NewReader(blob)); err != nil {
+			t.Fatalf("failed to push test content: %d: %v", i, err)
+		}
+	}
+	if err := s.Tag(ctx, manifest, "latest"); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// Delete removes the blob by digest, so it must drop every reference to
+	// that digest, even when called with another media type.
+	target := manifest
+	target.MediaType = docker.MediaTypeManifest
+	if err := s.Delete(ctx, target); err != nil {
+		t.Fatal("Store.Delete() error =", err)
+	}
+
+	for _, ref := range []string{"latest", manifest.Digest.String()} {
+		if _, err := s.Resolve(ctx, ref); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Store.Resolve(%q) error = %v, want %v", ref, err, errdef.ErrNotFound)
+		}
+	}
+}
+
+func TestStore_DeleteAfterTaggingWithOtherMediaType(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+
+	ctx := context.Background()
+	descs, blobs := newImage(t, "test", 1)
+	manifest := descs[len(descs)-1]
+	for i, blob := range blobs {
+		if err := s.Push(ctx, descs[i], bytes.NewReader(blob)); err != nil {
+			t.Fatalf("failed to push test content: %d: %v", i, err)
+		}
+	}
+	if err := s.Tag(ctx, manifest, "oci"); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+	// Tag only checks that the digest exists, so it accepts the same content
+	// under another media type.
+	other := manifest
+	other.MediaType = docker.MediaTypeManifest
+	if err := s.Tag(ctx, other, "docker"); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	if err := s.Delete(ctx, manifest); err != nil {
+		t.Fatal("Store.Delete() error =", err)
+	}
+
+	for _, ref := range []string{"oci", "docker", manifest.Digest.String()} {
+		if _, err := s.Resolve(ctx, ref); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Store.Resolve(%q) error = %v, want %v", ref, err, errdef.ErrNotFound)
+		}
 	}
 }
 
