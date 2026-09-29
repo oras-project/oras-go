@@ -3373,6 +3373,8 @@ func Test_BlobStore_Fetch_BadResponse(t *testing.T) {
 
 		if _, err = store.Fetch(ctx, blobDesc); err == nil {
 			t.Error("Blobs.Fetch() error = nil, want error")
+		} else if !errors.Is(err, content.ErrMismatchedDigest) {
+			t.Errorf("Blobs.Fetch() error = %v, want %v", err, content.ErrMismatchedDigest)
 		}
 	})
 
@@ -4326,6 +4328,8 @@ func Test_ManifestStore_Fetch(t *testing.T) {
 		_, err = store.Fetch(ctx, manifestDesc)
 		if err == nil {
 			t.Error("Manifests.Fetch() error = nil, wantErr = true")
+		} else if !errors.Is(err, content.ErrMismatchedDigest) {
+			t.Errorf("Manifests.Fetch() error = %v, want %v", err, content.ErrMismatchedDigest)
 		}
 	})
 }

@@ -503,6 +503,73 @@ func TestRepository_Push_ChunkedViaRepositoryPush(t *testing.T) {
 	}
 }
 
+func TestRegistry_Repository_Push_ChunkedDefault(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		defaultMax int64
+		override   int64
+		wantPatch  int
+	}{
+		{name: "registry default", defaultMax: 2, wantPatch: 3},
+		{name: "repository override", defaultMax: 2, override: 3, wantPatch: 2},
+		{name: "monolithic default", wantPatch: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := &chunkedUploadRegistry{t: t}
+			srv := httptest.NewServer(reg.handler())
+			defer srv.Close()
+
+			uri, err := url.Parse(srv.URL)
+			if err != nil {
+				t.Fatalf("invalid test server URL: %v", err)
+			}
+			registry, err := NewRegistry(uri.Host)
+			if err != nil {
+				t.Fatalf("NewRegistry() error = %v", err)
+			}
+			registry.PlainHTTP = true
+			registry.Client = &auth.Client{Client: &http.Client{}}
+			registry.MaxChunkSize = tt.defaultMax
+			target, err := registry.Repository(context.Background(), "test")
+			if err != nil {
+				t.Fatalf("Registry.Repository() error = %v", err)
+			}
+			repo, ok := target.(*Repository)
+			if !ok {
+				t.Fatalf("repository type = %T, want *Repository", target)
+			}
+			repo.MaxChunkSize = tt.override
+
+			blob := []byte("hello")
+			desc := ocispec.Descriptor{
+				MediaType: "application/octet-stream",
+				Digest:    digest.FromBytes(blob),
+				Size:      int64(len(blob)),
+			}
+			if err := repo.Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+				t.Fatalf("Push() error = %v", err)
+			}
+			if got := reg.patchCount(); got != tt.wantPatch {
+				t.Errorf("PATCH count = %d, want %d", got, tt.wantPatch)
+			}
+			if !bytes.Equal(reg.uploaded, blob) {
+				t.Errorf("uploaded = %q, want %q", reg.uploaded, blob)
+			}
+		})
+	}
+}
+
+func TestRepository_MaxChunkSizeWithoutRegistry(t *testing.T) {
+	repo := &Repository{}
+	if got := repo.maxChunkSize(); got != 0 {
+		t.Errorf("maxChunkSize() = %d, want 0", got)
+	}
+	repo.MaxChunkSize = 4
+	if got := repo.maxChunkSize(); got != 4 {
+		t.Errorf("maxChunkSize() = %d, want 4", got)
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -602,6 +669,83 @@ func TestRepository_Push_ChunkedMinLengthHuge(t *testing.T) {
 	}
 	if !reg.cancelled {
 		t.Error("expected the opened chunked session to be released before fallback")
+	}
+}
+
+// zeroReader yields n zero bytes without materializing them.
+type zeroReader struct {
+	n int64
+}
+
+func (r *zeroReader) Read(p []byte) (int, error) {
+	if r.n <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > r.n {
+		p = p[:r.n]
+	}
+	clear(p)
+	r.n -= int64(len(p))
+	return len(p), nil
+}
+
+func TestRepository_Push_ChunkedMinLengthAboveCeiling(t *testing.T) {
+	// A registry advertising an OCI-Chunk-Min-Length above maxChunkMinLength but
+	// below the blob size must not raise the chunk size to it, since each chunk
+	// is buffered in memory. The push releases the session and falls back to a
+	// monolithic upload, which streams the content without buffering.
+	const sessionPath = "/v2/test/blobs/uploads/session"
+	minLen := maxChunkMinLength + 1
+	size := maxChunkMinLength + 2
+
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+			w.Header().Set(headerOCIChunkMinLength, fmt.Sprintf("%d", minLen))
+			w.Header().Set("Location", sessionPath)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodPatch && r.URL.Path == sessionPath:
+			if _, err := io.Copy(io.Discard, r.Body); err != nil {
+				t.Errorf("failed to read PATCH body: %v", err)
+			}
+			w.Header().Set("Location", sessionPath)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodPut && r.URL.Path == sessionPath:
+			if _, err := io.Copy(io.Discard, r.Body); err != nil {
+				t.Errorf("failed to read PUT body: %v", err)
+			}
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodDelete && r.URL.Path == sessionPath:
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	d := digest.Canonical.Digester()
+	if _, err := io.Copy(d.Hash(), &zeroReader{n: size}); err != nil {
+		t.Fatalf("failed to digest content: %v", err)
+	}
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    d.Digest(),
+		Size:      size,
+	}
+
+	repo := newChunkedTestRepo(t, srv, 2)
+	if err := repo.Blobs().Push(context.Background(), desc, &zeroReader{n: size}); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+
+	// The chunked session POST is released by DELETE before the monolithic POST/PUT.
+	want := []string{http.MethodPost, http.MethodDelete, http.MethodPost, http.MethodPut}
+	if !equalStrings(methods, want) {
+		t.Errorf("methods = %v, want %v (must release the session and fall back, not raise the chunk size)", methods, want)
 	}
 }
 
