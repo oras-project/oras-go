@@ -115,6 +115,8 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 	var cache auth.Cache
 	if b.CacheFactory != nil {
 		cache = b.CacheFactory(props.Reference.Registry)
+	} else {
+		cache = auth.NewCache()
 	}
 
 	// Create auth client
