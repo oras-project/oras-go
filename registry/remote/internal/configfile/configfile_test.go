@@ -201,6 +201,44 @@ func TestConfig_GetAuthConfig_caseInsensitive(t *testing.T) {
 	}
 }
 
+func TestConfig_SetAuthConfig_prefersExactMatch(t *testing.T) {
+	cfg := NewConfig()
+
+	oldAuth, err := json.Marshal(AuthConfig{Username: "OLD"})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	variantAuth, err := json.Marshal(AuthConfig{Username: "VARIANT"})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+
+	cfg.authsCache["localhost:5020"] = oldAuth
+	cfg.authsCache["LOCALHOST:5020"] = variantAuth
+
+	newAuth := AuthConfig{Username: "NEW"}
+	if err := cfg.SetAuthConfig("localhost:5020", newAuth); err != nil {
+		t.Fatalf("SetAuthConfig() error = %v", err)
+	}
+
+	got, err := cfg.GetAuthConfig("localhost:5020")
+	if err != nil {
+		t.Fatalf("GetAuthConfig() error = %v", err)
+	}
+
+	if !reflect.DeepEqual(got, newAuth) {
+		t.Errorf("GetAuthConfig() = %v, want %v", got, newAuth)
+	}
+
+	if _, ok := cfg.authsCache["LOCALHOST:5020"]; ok {
+		t.Error("case-variant auth entry was not removed")
+	}
+
+	if _, ok := cfg.authsCache["localhost:5020"]; !ok {
+		t.Error("exact auth entry was removed")
+	}
+}
+
 func TestConfig_GetAuthConfig_prefersExactMatch(t *testing.T) {
 	cfg := NewConfig()
 
@@ -726,6 +764,44 @@ func TestConfig_PutAuthConfig_caseInsensitive(t *testing.T) {
 	}
 }
 
+func TestConfig_PutAuthConfig_prefersExactMatch(t *testing.T) {
+	cfg := NewConfig()
+
+	oldAuth, err := json.Marshal(AuthConfig{Username: "OLD"})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	variantAuth, err := json.Marshal(AuthConfig{Username: "VARIANT"})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+
+	cfg.authsCache["registry.example.com"] = oldAuth
+	cfg.authsCache["REGISTRY.EXAMPLE.COM"] = variantAuth
+
+	newAuth := AuthConfig{Username: "NEW"}
+	if err := cfg.PutAuthConfig("registry.example.com", newAuth); err != nil {
+		t.Fatalf("PutAuthConfig() error = %v", err)
+	}
+
+	got, err := cfg.GetAuthConfig("registry.example.com")
+	if err != nil {
+		t.Fatalf("GetAuthConfig() error = %v", err)
+	}
+
+	if !reflect.DeepEqual(got, newAuth) {
+		t.Errorf("GetAuthConfig() = %v, want %v", got, newAuth)
+	}
+
+	if _, ok := cfg.authsCache["REGISTRY.EXAMPLE.COM"]; ok {
+		t.Error("case-variant auth entry was not removed")
+	}
+
+	if _, ok := cfg.authsCache["registry.example.com"]; !ok {
+		t.Error("exact auth entry was removed")
+	}
+}
+
 func TestConfig_DeleteAuthConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
@@ -1094,6 +1170,33 @@ func TestConfig_GetCredentialHelper_caseInsensitive(t *testing.T) {
 
 	if got != want {
 		t.Errorf("GetCredentialHelper() = %v, want %v", got, want)
+	}
+}
+
+func TestConfig_GetCredentialHelper_normalizesStoredKey(t *testing.T) {
+	cfg := NewConfig()
+
+	cfg.credentialHelpers["https://LOCALHOST:5020/"] = "test-helper"
+
+	got := cfg.GetCredentialHelper("localhost:5020")
+	want := "test-helper"
+
+	if got != want {
+		t.Errorf("GetCredentialHelper() = %v, want %v", got, want)
+	}
+}
+
+func TestConfig_GetCredentialHelper_pathCaseSensitive(t *testing.T) {
+	cfg := NewConfig()
+
+	cfg.credentialHelpers["registry.example.com/Foo"] = "test-helper"
+
+	if got := cfg.GetCredentialHelper("REGISTRY.EXAMPLE.COM/Foo"); got != "test-helper" {
+		t.Errorf("GetCredentialHelper() = %v, want %v", got, "test-helper")
+	}
+
+	if got := cfg.GetCredentialHelper("registry.example.com/foo"); got != "" {
+		t.Errorf("GetCredentialHelper() = %v, want empty", got)
 	}
 }
 

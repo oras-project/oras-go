@@ -294,7 +294,15 @@ func (cfg *Config) SetAuthConfig(serverAddress string, authCfg AuthConfig) error
 	}
 	addr := serverAddress
 	if matchedKeys := matchingAuthKeys(cfg.authsCache, serverAddress); len(matchedKeys) > 0 {
-		addr = matchedKeys[0]
+		if _, ok := cfg.authsCache[serverAddress]; !ok {
+			addr = matchedKeys[0]
+		}
+
+		for _, key := range matchedKeys {
+			if key != addr {
+				delete(cfg.authsCache, key)
+			}
+		}
 	}
 
 	cfg.authsCache[addr] = authCfgBytes
@@ -313,7 +321,15 @@ func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error
 	}
 	addr := serverAddress
 	if matchedKeys := matchingAuthKeys(cfg.authsCache, serverAddress); len(matchedKeys) > 0 {
-		addr = matchedKeys[0]
+		if _, ok := cfg.authsCache[serverAddress]; !ok {
+			addr = matchedKeys[0]
+		}
+
+		for _, key := range matchedKeys {
+			if key != addr {
+				delete(cfg.authsCache, key)
+			}
+		}
 	}
 
 	cfg.authsCache[addr] = authCfgBytes
@@ -371,7 +387,7 @@ func (cfg *Config) GetCredentialHelper(serverAddress string) string {
 	var matchedKey string
 
 	for key, helper := range cfg.credentialHelpers {
-		if strings.EqualFold(key, serverAddress) {
+		if normalizeServerAddress(key) == serverAddress {
 			if !matched || key < matchedKey {
 				matched = true
 				matchedKey = key
