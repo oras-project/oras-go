@@ -502,9 +502,13 @@ func (c *Client) fetchBearerToken(ctx context.Context, resource properties.Resou
 // parseChallengeScopes parses the space-separated scopes of the `scope`
 // parameter of a WWW-Authenticate challenge.
 //
-// An unparseable scope fails the request rather than being passed through to the
-// token server as an opaque string, so that the caller sees which scope the
-// registry sent instead of an unexplained token failure.
+// A scope outside the documented grammar is kept opaque by [ParseScope] and
+// forwarded to the token server as it arrived, so a registry with its own scope
+// form does not fail the request. Only a scope that cannot round trip through
+// the wire form is an error — one carrying a tab, CR or LF, which the split on
+// spaces above does not separate — and it fails the request naming the registry
+// and quoting the offending scope, since the user cannot fix what they cannot
+// see.
 func parseChallengeScopes(paramScope string) ([]Scope, error) {
 	var scopes []Scope
 	for s := range strings.SplitSeq(paramScope, " ") {

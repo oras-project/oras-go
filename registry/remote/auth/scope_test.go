@@ -77,6 +77,41 @@ func TestParseScope(t *testing.T) {
 			scope: "aws",
 			want:  Scope{ResourceType: "aws"},
 		},
+		{
+			name:  "two-part scope is opaque",
+			scope: "repository:foo",
+			want:  Scope{ResourceType: "repository:foo"},
+		},
+		{
+			name:  "empty action list is opaque",
+			scope: "no:actions:",
+			want:  Scope{ResourceType: "no:actions:"},
+		},
+		{
+			name:  "only empty actions is opaque",
+			scope: "repository:foo:,",
+			want:  Scope{ResourceType: "repository:foo:,"},
+		},
+		{
+			name:  "no resource type is opaque",
+			scope: ":foo:pull",
+			want:  Scope{ResourceType: ":foo:pull"},
+		},
+		{
+			name:  "empty resource name is opaque",
+			scope: "repository::pull",
+			want:  Scope{ResourceType: "repository::pull"},
+		},
+		{
+			name:  "comma in resource type is opaque",
+			scope: "repo,sitory:foo:pull",
+			want:  Scope{ResourceType: "repo,sitory:foo:pull"},
+		},
+		{
+			name:  "comma in resource name is opaque",
+			scope: "repository:foo,bar:pull",
+			want:  Scope{ResourceType: "repository:foo,bar:pull"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -97,23 +132,21 @@ func TestParseScope(t *testing.T) {
 	}
 }
 
+// TestParseScope_invalid covers the only scopes ParseScope rejects: those that
+// cannot round trip through the space-separated wire form. Everything else
+// outside the grammar falls back to an opaque scope, covered by TestParseScope.
 func TestParseScope_invalid(t *testing.T) {
 	tests := []struct {
 		name  string
 		scope string
 	}{
 		{name: "empty", scope: ""},
-		{name: "one colon", scope: "invalid:scope"},
-		{name: "no action", scope: "no:actions:"},
-		{name: "only empty actions", scope: "repository:foo:,"},
-		{name: "no resource type", scope: ":foo:pull"},
-		{name: "no resource name", scope: "repository::pull"},
+		{name: "space alone", scope: " "},
 		{name: "space in resource name", scope: "repository:foo bar:pull"},
 		{name: "space in action", scope: "repository:foo:pull push"},
 		{name: "tab in resource name", scope: "repository:foo\tbar:pull"},
 		{name: "newline in action", scope: "repository:foo:pull\npush"},
-		{name: "comma in resource type", scope: "repo,sitory:foo:pull"},
-		{name: "comma in resource name", scope: "repository:foo,bar:pull"},
+		{name: "space in an otherwise opaque scope", scope: "opaque scope"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

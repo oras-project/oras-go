@@ -4974,10 +4974,14 @@ func BenchmarkClient_send(b *testing.B) {
 	}
 }
 
-// TestClient_Do_Bearer_InvalidChallengeScope covers decision 6 of #1451: a
-// `scope` parameter the client cannot parse fails the request, naming the
-// registry and quoting the offending scope, rather than being forwarded to the
-// token server as an opaque string.
+// TestClient_Do_Bearer_InvalidChallengeScope covers decision 6 of #1451 as
+// widened by the opaque fallback: a `scope` parameter the client cannot parse
+// fails the request, naming the registry and quoting the offending scope. Only
+// a scope that cannot round trip through the wire form is unparseable, so the
+// challenge here carries a tab; a scope merely outside the documented grammar
+// is forwarded opaquely instead — see
+// TestClient_Do_Bearer_OpaqueChallengeScope and
+// TestClient_Do_Bearer_TwoPartChallengeScope.
 func TestClient_Do_Bearer_InvalidChallengeScope(t *testing.T) {
 	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("unexpected token request for an unparseable challenge scope")
@@ -4986,7 +4990,7 @@ func TestClient_Do_Bearer_InvalidChallengeScope(t *testing.T) {
 	defer as.Close()
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Www-Authenticate", fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, "test", "repository:foo"))
+		w.Header().Set("Www-Authenticate", fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, "test", "repository:foo\tbar:pull"))
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer ts.Close()
@@ -5013,8 +5017,60 @@ func TestClient_Do_Bearer_InvalidChallengeScope(t *testing.T) {
 	if !errors.Is(err, errdef.ErrInvalidScope) {
 		t.Errorf("Client.Do() error = %v, want it to wrap %v", err, errdef.ErrInvalidScope)
 	}
-	if got := err.Error(); !strings.Contains(got, uri.Host) || !strings.Contains(got, `"repository:foo"`) {
+	if got := err.Error(); !strings.Contains(got, uri.Host) || !strings.Contains(got, `"repository:foo\tbar:pull"`) {
 		t.Errorf("Client.Do() error = %q, want it to name the host and quote the scope", got)
+	}
+}
+
+// TestClient_Do_Bearer_TwoPartChallengeScope is the other half of the opaque
+// fallback: a challenge scope outside the documented grammar — here the
+// two-part `repository:foo`, which a registry may emit with no action list — is
+// forwarded to the token server exactly as it arrived rather than failing the
+// request.
+func TestClient_Do_Bearer_TwoPartChallengeScope(t *testing.T) {
+	const opaqueScope = "repository:foo"
+	const wantToken = "two_part_scope_token"
+	var service string
+
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, []string{opaqueScope}) {
+			t.Errorf("unexpected scopes in token request: %v, want [%s]", got, opaqueScope)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if _, err := fmt.Fprintf(w, `{"token":%q}`, wantToken); err != nil {
+			t.Error("failed to write token response:", err)
+		}
+	}))
+	defer as.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+wantToken {
+			w.Header().Set("Www-Authenticate", fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, opaqueScope))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	client := &Client{Cache: NewCache()}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/v2/foo/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
 	}
 }
 
@@ -5105,10 +5161,10 @@ func TestClient_Do_Bearer_NamespacedScopeHints(t *testing.T) {
 	}
 }
 
-// TestClient_Do_Bearer_OpaqueChallengeScope pins the one grammar widening the
-// registry survey forced: public.ecr.aws challenges with scope="aws", a single
-// token with no resource name and no actions, which has to reach the token
-// endpoint unchanged.
+// TestClient_Do_Bearer_OpaqueChallengeScope pins the case the registry survey
+// turned up: public.ecr.aws challenges with scope="aws", a single token with no
+// resource name and no actions, which has to reach the token endpoint
+// unchanged.
 func TestClient_Do_Bearer_OpaqueChallengeScope(t *testing.T) {
 	const wantToken = "opaque_scope_token"
 	var service string
