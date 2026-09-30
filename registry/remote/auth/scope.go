@@ -47,10 +47,10 @@ const (
 // The zero value names no resource and is dropped by [CleanScopes].
 //
 // A scope usually has all three parts, as in `repository:hello-world:pull,push`.
-// A registry may also issue an opaque scope that is a single token carrying
-// neither a resource name nor actions — public.ecr.aws challenges with `aws` —
-// which is held in ResourceType alone and forwarded to the token endpoint as it
-// arrived.
+// A registry may also issue a scope outside that grammar — public.ecr.aws
+// challenges with `aws` — which is kept opaque: held in ResourceType alone,
+// carrying neither a resource name nor actions, and forwarded to the token
+// endpoint as it arrived.
 //
 // Reference: https://distribution.github.io/distribution/spec/auth/scope/
 type Scope struct {
@@ -80,40 +80,41 @@ type Scope struct {
 // the last one. The parsed actions are de-duplicated and sorted, and a wildcard
 // action "*" absorbs the others.
 //
-// A single token with no colon is accepted as an opaque scope, since a registry
-// may challenge with one: public.ecr.aws challenges with `aws`. Anything else
-// outside the grammar is rejected — a scope naming no resource type, a two-part
-// scope with no action list, and a scope containing white space or a comma
-// outside the action list, as such a scope cannot round trip through the space-
-// and comma-separated wire form. The returned error wraps
-// [errdef.ErrInvalidScope].
+// A scope outside that grammar is kept as an opaque scope rather than rejected,
+// since a registry may challenge with one and it is better forwarded to the
+// token endpoint as it arrived than turned into a failed request:
+// public.ecr.aws challenges with `aws`. Opaque is the fallback for every token
+// the grammar does not cover — a single token with no colon, a scope naming no
+// resource type, a two-part scope with no action list, a scope with an empty
+// resource name or an empty action list, and a scope carrying a comma outside
+// the action list.
+//
+// Only a scope that cannot round trip through the space-separated wire form is
+// rejected: the empty string, and a scope containing white space. The returned
+// error wraps [errdef.ErrInvalidScope].
 func ParseScope(scope string) (Scope, error) {
-	invalid := func() (Scope, error) {
-		return Scope{}, fmt.Errorf("%w: invalid scope %q", errdef.ErrInvalidScope, scope)
-	}
 	if scope == "" || strings.ContainsAny(scope, " \t\r\n") {
-		return invalid()
+		return Scope{}, fmt.Errorf("%w: %q", errdef.ErrInvalidScope, scope)
 	}
+	// the fallback for anything outside the grammar: the whole token is held in
+	// ResourceType and forwarded as it arrived
+	opaque := Scope{ResourceType: scope}
 	resourceType, rest, ok := strings.Cut(scope, ":")
-	if resourceType == "" || strings.Contains(resourceType, ",") {
-		return invalid()
-	}
-	if !ok {
-		// an opaque scope, carrying no resource name and no actions
-		return Scope{ResourceType: resourceType}, nil
+	if !ok || resourceType == "" || strings.Contains(resourceType, ",") {
+		return opaque, nil
 	}
 	i := strings.LastIndex(rest, ":")
 	if i <= 0 {
 		// no action list, or an empty resource name
-		return invalid()
+		return opaque, nil
 	}
 	resourceName, actions := rest[:i], rest[i+1:]
 	if strings.Contains(resourceName, ",") {
-		return invalid()
+		return opaque, nil
 	}
 	actionList := cleanActions(strings.Split(actions, ","))
 	if len(actionList) == 0 {
-		return invalid()
+		return opaque, nil
 	}
 	return Scope{
 		ResourceType: resourceType,
@@ -223,9 +224,10 @@ type scopeHints map[string][]Scope
 // client with cache is hinted to fetch a token via a single token fetch request
 // for all the HEAD, POST, PUT requests.
 //
-// Passing an empty list of scopes removes the scope hints in the context for
-// the given resource, without affecting the hints registered for any other
-// resource.
+// Passing an empty list of scopes removes the scope hints registered in the
+// context for this exact resource, without affecting the hints registered for
+// any other resource. Hints inherited from the registry or from a namespace
+// above the resource cannot be removed this way; they keep applying.
 //
 // Reference: https://distribution.github.io/distribution/spec/auth/scope/
 func WithScopesForResource(ctx context.Context, resource properties.Resource, scopes ...Scope) context.Context {
@@ -265,6 +267,10 @@ func AppendScopesForResource(ctx context.Context, resource properties.Resource, 
 // given registry resource: those registered for the resource itself, plus those
 // registered for the registry or for any namespace above it. The result is
 // de-duplicated and sorted, and shares no memory with the context.
+//
+// Paths are matched by segment, so `ns` covers `ns/app` but not `nsother/app`.
+// Path does not distinguish a namespace from a repository, so hints registered
+// for the repository `ns/app` also apply to the repository `ns/app/sub`.
 func GetScopesForResource(ctx context.Context, resource properties.Resource) []Scope {
 	resource = canonicalResource(resource)
 	hints := getScopeHints(ctx, resource.Registry)
