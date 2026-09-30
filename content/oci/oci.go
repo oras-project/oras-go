@@ -50,7 +50,7 @@ type Store struct {
 	//   - If AutoSaveIndex is set to true, the OCI store will automatically save
 	//     the changes to `index.json` when
 	//      1. pushing a manifest
-	//      2. calling Tag() or Delete()
+	//      2. calling Tag(), Delete(), or GC()
 	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
 	//     to manually call SaveIndex() when needed.
 	//   - Default value: true.
@@ -409,7 +409,7 @@ func (s *Store) loadIndexFile(ctx context.Context) error {
 // SaveIndex writes the `index.json` file to the file system.
 //   - If AutoSaveIndex is set to true (default value),
 //     the OCI store will automatically save the changes to `index.json`
-//     on Tag() and Delete() calls, and when pushing a manifest.
+//     on Tag(), Delete(), and GC() calls, and when pushing a manifest.
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
 //     to manually call this method when needed.
 func (s *Store) SaveIndex() error {
@@ -474,6 +474,11 @@ func (s *Store) GC(ctx context.Context) error {
 	err := s.gcIndex(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to reload index: %w", err)
+	}
+	if s.AutoSaveIndex {
+		if err := s.saveIndex(); err != nil {
+			return fmt.Errorf("unable to save index: %w", err)
+		}
 	}
 	reachableNodes := s.graph.DigestSet()
 
@@ -571,6 +576,15 @@ func (s *Store) gcIndex(ctx context.Context) error {
 				break
 			}
 			subject = next
+		}
+	}
+	// Keep digest references for manifests reachable from tagged roots and
+	// referrers, so saving the rebuilt index preserves their descriptors.
+	for ref, desc := range refMap {
+		if ref == desc.Digest.String() && graph.Exists(desc) {
+			if err := tagResolver.Tag(ctx, deleteAnnotationRefName(desc), ref); err != nil {
+				return err
+			}
 		}
 	}
 	s.tagResolver = tagResolver
