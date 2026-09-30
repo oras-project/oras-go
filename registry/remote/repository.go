@@ -150,6 +150,30 @@ type Repository struct {
 	//  - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-manifests
 	SkipReferrersGC bool
 
+	// MaxChunkSize overrides Registry default if > 0.
+	// It specifies the target size in bytes for each PATCH chunk when
+	// pushing a blob in chunks.
+	//
+	// If zero or negative (the default), Registry.MaxChunkSize is used. If
+	// both settings are non-positive, blobs are pushed monolithically in a
+	// single request, preserving the previous behavior. If positive, a blob
+	// larger than the effective chunk size is uploaded in chunks per the OCI
+	// Distribution Spec: an upload session is opened, the content is streamed in
+	// PATCH requests, and the session is closed with a final PUT. A
+	// registry-advertised OCI-Chunk-Min-Length raises this floor for all but the
+	// final chunk, up to a fixed limit (currently 32 MiB) since each chunk is
+	// buffered in memory; a larger advertised minimum makes the push fall back
+	// to a monolithic upload. If the chunked upload cannot be started (e.g. the
+	// registry does not support it), the push transparently falls back to a
+	// monolithic upload before any content is consumed.
+	//
+	// MaxChunkSize applies to [Repository.Push] only. Blob mount falls back to a
+	// monolithic upload when the registry does not implement the mount endpoint,
+	// regardless of this setting.
+	//
+	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pushing-a-blob-in-chunks
+	MaxChunkSize int64
+
 	// mirrors is an ordered list of mirror repositories to try before the
 	// primary registry for read operations. When empty, all reads go directly
 	// to the primary. Mirrors are populated from a [properties.Registry] when a
@@ -229,6 +253,7 @@ func (r *Repository) clone() *Repository {
 		TagListMaxPages:      r.TagListMaxPages,
 		ReferrerListMaxPages: r.ReferrerListMaxPages,
 		SkipReferrersGC:      r.SkipReferrersGC,
+		MaxChunkSize:         r.MaxChunkSize,
 		mirrors:              r.mirrors,
 	}
 }
@@ -256,6 +281,19 @@ func (r *Repository) maxMetadataBytes() int64 {
 		return 0
 	}
 	return r.Registry.MaxMetadataBytes
+}
+
+// maxChunkSize returns the effective target chunk size in bytes for chunked
+// blob upload. A value <= 0 disables chunking.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) maxChunkSize() int64 {
+	if r.MaxChunkSize > 0 {
+		return r.MaxChunkSize
+	}
+	if r.Registry != nil {
+		return r.Registry.MaxChunkSize
+	}
+	return 0
 }
 
 // handleWarning returns the warning handler function.
@@ -554,6 +592,9 @@ func (r *Repository) policyDigest(reference string) digest.Digest {
 
 // Fetch fetches the content identified by the descriptor.
 // If mirrors are configured, they are tried in order before the primary.
+// Manifest responses with a different Docker-Content-Digest algorithm are
+// verified and buffered up to MaxMetadataBytes before the reader is returned.
+// Each such in-flight fetch may hold that much data in memory.
 func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
 	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return nil, err
@@ -1277,6 +1318,24 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
 	repoRef := s.repo.reference()
 	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull, auth.ActionPush)
+
+	// Push in chunks when configured and the blob is larger than a single chunk.
+	// A blob that fits in one chunk is pushed monolithically, since a lone PATCH
+	// plus the closing PUT is strictly worse than a monolithic POST/PUT. If the
+	// chunked upload cannot be started before any content is consumed, fall back
+	// to the monolithic path so no registry regresses.
+	if chunkSize := s.repo.maxChunkSize(); chunkSize > 0 && expected.Size > chunkSize {
+		err := s.pushChunked(ctx, expected, content, chunkSize)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, errChunkedUploadNotStarted) {
+			return err
+		}
+		// Pre-consumption failure: no bytes were read from content, so a
+		// monolithic upload can safely take over.
+	}
+
 	url := buildRepositoryBlobUploadURL(s.repo.plainHTTP(), repoRef)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
@@ -1315,36 +1374,44 @@ func sameUploadHost(location, reqURL *url.URL) bool {
 	return canonicalPort(location) == canonicalPort(reqURL)
 }
 
-// completePushAfterInitialPost implements step 2 of the push protocol. This can be invoked either by
-// Push or by Mount when the receiving repository does not implement the
-// mount endpoint.
-func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.Request, resp *http.Response, expected ocispec.Descriptor, content io.Reader) error {
-	reqHostname := req.URL.Hostname()
-	reqPort := req.URL.Port()
-	// monolithic upload
+// resolveUploadLocation extracts the next blob-upload Location from resp,
+// resolved against the request URL. It applies the port-443 work-around and
+// rejects cross-host redirects and https scheme downgrades that could forward
+// credentials to an attacker-controlled endpoint.
+// Reference: https://github.com/oras-project/oras-go/issues/177
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-jxpm-75mh-9fp7
+func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, error) {
 	location, err := resp.Location()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// work-around solution for https://github.com/oras-project/oras-go/issues/177
 	// For some registries, if the port 443 is explicitly set to the hostname
 	// like registry.wabbit-networks.io:443/myrepo, blob push will fail since
 	// the hostname of the Location header in the response is set to
 	// registry.wabbit-networks.io instead of registry.wabbit-networks.io:443.
-	locationHostname := location.Hostname()
-	locationPort := location.Port()
-	// if location port 443 is missing, add it back
-	if reqPort == "443" && locationHostname == reqHostname && locationPort == "" {
-		location.Host = locationHostname + ":" + reqPort
+	if req.URL.Port() == "443" && location.Hostname() == req.URL.Hostname() && location.Port() == "" {
+		location.Host = location.Hostname() + ":443"
 	}
 	// Validate the Location stays on the same host to prevent credentials from
 	// being forwarded to an attacker-controlled endpoint.
-	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-jxpm-75mh-9fp7
 	if !sameUploadHost(location, req.URL) {
-		return fmt.Errorf("blob upload Location %q is on a different host than the registry %q", location.Host, req.URL.Host)
+		return nil, fmt.Errorf("blob upload Location %q is on a different host than the registry %q", location.Host, req.URL.Host)
 	}
 	if req.URL.Scheme == "https" && location.Scheme != "https" {
-		return fmt.Errorf("blob upload Location %q downgrades scheme from https", location.Host)
+		return nil, fmt.Errorf("blob upload Location %q downgrades scheme from https", location.Host)
+	}
+	return location, nil
+}
+
+// completePushAfterInitialPost implements step 2 of the push protocol. This can be invoked either by
+// Push or by Mount when the receiving repository does not implement the
+// mount endpoint.
+func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.Request, resp *http.Response, expected ocispec.Descriptor, content io.Reader) error {
+	// monolithic upload
+	location, err := resolveUploadLocation(resp, req)
+	if err != nil {
+		return err
 	}
 	url := location.String()
 	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, content)
@@ -1524,6 +1591,9 @@ type manifestStore struct {
 }
 
 // Fetch fetches the content identified by the descriptor.
+// If the manifest's Docker-Content-Digest uses a different algorithm, the
+// response is verified and buffered up to MaxMetadataBytes before return.
+// Each such in-flight fetch may hold that much data in memory.
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
 	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
 		return nil, err
@@ -1567,8 +1637,8 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (r
 	// Content-Length is not validated here because some registries (e.g. Harbor)
 	// return different values between HEAD (used by Resolve) and GET responses,
 	// typically due to transparent compression. Integrity is guaranteed by
-	// verifyContentDigest below.
-	if err := verifyContentDigest(resp, target.Digest); err != nil {
+	// digest verification below.
+	if err := s.verifyPullContentDigest(resp, target.Digest); err != nil {
 		return nil, err
 	}
 	return resp.Body, nil
@@ -1734,9 +1804,18 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (d
 	switch resp.StatusCode {
 	case http.StatusOK:
 		if resp.ContentLength == -1 {
+			// Identity comes from Resolve's HEAD, which carries no body and so
+			// cannot verify an alternate digest algorithm: a digest reference
+			// using an algorithm the registry does not report fails here even
+			// though Fetch accepts it. Go sets ContentLength to -1 for chunked
+			// and transparently gunzipped responses.
+			//
 			// policy is evaluated below against the fetched descriptor, so
 			// skip the redundant evaluation in Resolve.
 			desc, err = s.Resolve(withPolicyChecked(ctx), reference)
+			if err == nil {
+				err = s.verifyPullContentDigest(resp, desc.Digest)
+			}
 		} else {
 			desc, err = s.generateDescriptor(resp, ref, req.Method)
 		}
@@ -2134,7 +2213,11 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 			// GET without server `Docker-Content-Digest` header forces the
 			// expensive calculation
 			var calculatedDigest digest.Digest
-			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.maxMetadataBytes()); err != nil {
+			algorithm := digest.Canonical
+			if len(refDigest) > 0 {
+				algorithm = refDigest.Algorithm()
+			}
+			if calculatedDigest, err = calculateDigestFromResponse(resp, s.repo.maxMetadataBytes(), algorithm); err != nil {
 				return ocispec.Descriptor{}, fmt.Errorf("failed to calculate digest on response body; %w", err)
 			}
 			contentDigest = calculatedDigest
@@ -2143,12 +2226,21 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 		contentDigest = serverHeaderDigest
 	}
 
+	if httpMethod == http.MethodGet && len(refDigest) > 0 && len(serverHeaderDigest) > 0 && serverHeaderDigest.Algorithm() != refDigest.Algorithm() {
+		// A registry may report a canonical digest using a different algorithm.
+		// Preserve the requested identity, verifying it against the body.
+		if err := s.verifyPullContentDigest(resp, refDigest); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		contentDigest = refDigest
+	}
 	if len(refDigest) > 0 && refDigest != contentDigest {
 		return ocispec.Descriptor{}, fmt.Errorf(
-			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
+			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q; %w",
 			resp.Request.Method, resp.Request.URL,
 			headerDockerContentDigest, contentDigest,
 			refDigest,
+			content.ErrMismatchedDigest,
 		)
 	}
 
@@ -2160,9 +2252,88 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 	}, nil
 }
 
+// verifyPullContentDigest permits a different canonical digest algorithm on
+// manifest pulls, but verifies the returned bytes against the requested digest.
+// Pushes deliberately continue to use verifyContentDigest's strict comparison.
+// Alternate algorithms buffer at most MaxMetadataBytes before returning the
+// verified body to the caller. Headerless responses, regardless of
+// Content-Length, are verified only once the body is read to EOF: a caller that
+// stops after desc.Size bytes never triggers the check. Resolve and Exists use
+// HEAD, so remain strict.
+func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
+	headerStr := resp.Header.Get(headerDockerContentDigest)
+	if !expected.Algorithm().Available() {
+		return verifyContentDigest(resp, expected)
+	}
+	if headerStr == "" {
+		// Manifests fetched without a header were never bounded by
+		// MaxMetadataBytes. Verify the body as the caller reads it.
+		resp.Body = newVerifyReadCloser(resp.Body, expected, resp.Request.Method, resp.Request.URL)
+		return nil
+	}
+	canonical, err := digest.Parse(headerStr)
+	if err != nil || canonical.Algorithm() == expected.Algorithm() {
+		return verifyContentDigest(resp, expected)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(limitReader(resp.Body, s.repo.maxMetadataBytes()))
+	if err != nil {
+		return fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	var extra [1]byte
+	if n, err := io.ReadFull(resp.Body, extra[:]); n > 0 {
+		return fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, errdef.ErrSizeExceedsLimit)
+	} else if err != nil && err != io.EOF {
+		return fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	if actual := expected.Algorithm().FromBytes(body); actual != expected {
+		return fmt.Errorf("%s %q: invalid response; content digest mismatch: received %q when expecting %q; %w",
+			resp.Request.Method, resp.Request.URL, actual, expected, content.ErrMismatchedDigest)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	return nil
+}
+
+// verifyReadCloser checks the digest at EOF without buffering the response.
+type verifyReadCloser struct {
+	io.ReadCloser
+	verifier digest.Verifier
+	expected digest.Digest
+	method   string
+	url      *url.URL
+	checked  bool
+}
+
+func newVerifyReadCloser(rc io.ReadCloser, expected digest.Digest, method string, url *url.URL) io.ReadCloser {
+	return &verifyReadCloser{
+		ReadCloser: rc,
+		verifier:   expected.Verifier(),
+		expected:   expected,
+		method:     method,
+		url:        url,
+	}
+}
+
+func (v *verifyReadCloser) Read(p []byte) (int, error) {
+	n, err := v.ReadCloser.Read(p)
+	if n > 0 {
+		if _, werr := v.verifier.Write(p[:n]); werr != nil {
+			return n, werr
+		}
+	}
+	if err == io.EOF && !v.checked {
+		v.checked = true
+		if !v.verifier.Verified() {
+			return n, fmt.Errorf("%s %q: invalid response; content digest mismatch: expecting %q; %w",
+				v.method, v.url, v.expected, content.ErrMismatchedDigest)
+		}
+	}
+	return n, err
+}
+
 // calculateDigestFromResponse calculates the actual digest of the response body
 // taking care not to destroy it in the process.
-func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (digest.Digest, error) {
+func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64, algorithm digest.Algorithm) (digest.Digest, error) {
 	defer resp.Body.Close()
 
 	body := limitReader(resp.Body, maxMetadataBytes)
@@ -2172,7 +2343,7 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64) (d
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(content))
 
-	return digest.FromBytes(content), nil
+	return algorithm.FromBytes(content), nil
 }
 
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.
@@ -2196,10 +2367,11 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 
 	if contentDigest != expected {
 		return fmt.Errorf(
-			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
+			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q; %w",
 			resp.Request.Method, resp.Request.URL,
 			headerDockerContentDigest, contentDigest,
 			expected,
+			content.ErrMismatchedDigest,
 		)
 	}
 

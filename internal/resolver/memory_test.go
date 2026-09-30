@@ -106,3 +106,40 @@ func TestTagSet(t *testing.T) {
 		t.Fatalf("expect size = %d, got %d", 2, len(tagSet))
 	}
 }
+
+// Moving a reference to another descriptor must remove it from the tag set of
+// the descriptor it previously pointed to.
+func TestTagSetRetag(t *testing.T) {
+	ref := "latest"
+
+	s := NewMemory()
+	ctx := context.Background()
+
+	oldContent := []byte("foo")
+	oldDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(oldContent),
+		Size:      int64(len(oldContent)),
+	}
+
+	newContent := []byte("bar")
+	newDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(newContent),
+		Size:      int64(len(newContent)),
+	}
+
+	if err := s.Tag(ctx, oldDesc, ref); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Tag(ctx, newDesc, ref); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := s.TagSet(oldDesc); got.Contains(ref) {
+		t.Errorf("TagSet(oldDesc) = %v, want no %q after it moved to newDesc", got, ref)
+	}
+	if got := s.TagSet(newDesc); !got.Contains(ref) {
+		t.Errorf("TagSet(newDesc) = %v, want it to contain %q", got, ref)
+	}
+}

@@ -51,7 +51,7 @@ type ClientBuilder struct {
 	// CredentialStore is used to resolve credentials when not specified
 	// in the registry properties.
 	// If nil, no credential store fallback is used.
-	CredentialStore credentials.Store
+	CredentialStore credentials.Getter
 
 	// UserAgent is the User-Agent header value for HTTP requests.
 	// If empty, no User-Agent header is set.
@@ -115,6 +115,8 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 	var cache auth.Cache
 	if b.CacheFactory != nil {
 		cache = b.CacheFactory(props.Reference.Registry)
+	} else {
+		cache = auth.NewCache()
 	}
 
 	// Create auth client
