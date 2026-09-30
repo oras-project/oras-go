@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -157,6 +158,26 @@ func normalizeAuthAddress(addr string) (scheme, host, path string) {
 	return scheme, strings.ToLower(host), path
 }
 
+func matchingAuthKeys(auths map[string]json.RawMessage, serverAddress string) []string {
+	serverScheme, serverHost, serverPath := normalizeAuthAddress(serverAddress)
+
+	var matchedKeys []string
+	for addr := range auths {
+		addrScheme, host, path := normalizeAuthAddress(addr)
+		if serverScheme != "" && addrScheme != serverScheme {
+			continue
+		}
+		if host != serverHost || path != serverPath {
+			continue
+		}
+
+		matchedKeys = append(matchedKeys, addr)
+	}
+
+	slices.Sort(matchedKeys)
+	return matchedKeys
+}
+
 // GetAuthConfig returns an AuthConfig for serverAddress.
 func (cfg *Config) GetAuthConfig(serverAddress string) (AuthConfig, error) {
 	cfg.rwLock.RLock()
@@ -271,11 +292,17 @@ func (cfg *Config) SetAuthConfig(serverAddress string, authCfg AuthConfig) error
 	if err != nil {
 		return fmt.Errorf("failed to marshal auth field: %w", err)
 	}
-	cfg.authsCache[serverAddress] = authCfgBytes
+	addr := serverAddress
+	if matchedKeys := matchingAuthKeys(cfg.authsCache, serverAddress); len(matchedKeys) > 0 {
+		addr = matchedKeys[0]
+	}
+
+	cfg.authsCache[addr] = authCfgBytes
 	return nil
 }
 
 // PutAuthConfig puts authCfg for serverAddress and saves to file if a path is configured.
+// If an equivalent auth entry already exists, it updates that entry instead of creating a new key.
 func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
@@ -285,30 +312,8 @@ func (cfg *Config) PutAuthConfig(serverAddress string, authCfg AuthConfig) error
 		return fmt.Errorf("failed to marshal auth field: %w", err)
 	}
 	addr := serverAddress
-	serverScheme, serverHost, serverPath := normalizeAuthAddress(serverAddress)
-	if _, ok := cfg.authsCache[serverAddress]; !ok {
-		var matched bool
-		var matchedAddr string
-
-		for key := range cfg.authsCache {
-			keyScheme, keyHost, keyPath := normalizeAuthAddress(key)
-
-			if serverScheme != "" && keyScheme != serverScheme {
-				continue
-			}
-			if keyHost != serverHost || keyPath != serverPath {
-				continue
-			}
-
-			if !matched || key < matchedAddr {
-				matched = true
-				matchedAddr = key
-			}
-		}
-
-		if matched {
-			addr = matchedAddr
-		}
+	if matchedKeys := matchingAuthKeys(cfg.authsCache, serverAddress); len(matchedKeys) > 0 {
+		addr = matchedKeys[0]
 	}
 
 	cfg.authsCache[addr] = authCfgBytes
@@ -325,34 +330,8 @@ func (cfg *Config) RemoveAuthConfig(serverAddress string) {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
-	if _, ok := cfg.authsCache[serverAddress]; ok {
-		delete(cfg.authsCache, serverAddress)
-		return
-	}
-
-	serverScheme, serverHost, serverPath := normalizeAuthAddress(serverAddress)
-
-	var matched bool
-	var matchedAddr string
-
-	for key := range cfg.authsCache {
-		keyScheme, keyHost, keyPath := normalizeAuthAddress(key)
-
-		if serverScheme != "" && keyScheme != serverScheme {
-			continue
-		}
-		if keyHost != serverHost || keyPath != serverPath {
-			continue
-		}
-
-		if !matched || key < matchedAddr {
-			matched = true
-			matchedAddr = key
-		}
-	}
-
-	if matched {
-		delete(cfg.authsCache, matchedAddr)
+	for _, key := range matchingAuthKeys(cfg.authsCache, serverAddress) {
+		delete(cfg.authsCache, key)
 	}
 }
 
@@ -361,38 +340,15 @@ func (cfg *Config) DeleteAuthConfig(serverAddress string) error {
 	cfg.rwLock.Lock()
 	defer cfg.rwLock.Unlock()
 
-	addr := serverAddress
-	serverScheme, serverHost, serverPath := normalizeAuthAddress(serverAddress)
-
-	if _, ok := cfg.authsCache[serverAddress]; !ok {
-		var matched bool
-		var matchedAddr string
-
-		for key := range cfg.authsCache {
-			keyScheme, keyHost, keyPath := normalizeAuthAddress(key)
-
-			if serverScheme != "" && keyScheme != serverScheme {
-				continue
-			}
-			if keyHost != serverHost || keyPath != serverPath {
-				continue
-			}
-
-			if !matched || key < matchedAddr {
-				matched = true
-				matchedAddr = key
-			}
-		}
-
-		if matched {
-			addr = matchedAddr
-		}
-	}
-
-	if _, ok := cfg.authsCache[addr]; !ok {
+	matchedKeys := matchingAuthKeys(cfg.authsCache, serverAddress)
+	if len(matchedKeys) == 0 {
 		return nil
 	}
-	delete(cfg.authsCache, addr)
+
+	for _, key := range matchedKeys {
+		delete(cfg.authsCache, key)
+	}
+
 	if cfg.path != "" {
 		return cfg.saveFile()
 	}
@@ -553,11 +509,11 @@ func (cfg *Config) saveFile() (returnErr error) {
 }
 
 func normalizeServerAddress(addr string) string {
-	addr = strings.TrimPrefix(addr, "http://")
-	addr = strings.TrimPrefix(addr, "https://")
-
-	host, path, _ := strings.Cut(addr, "/")
-	return strings.ToLower(host) + path
+	_, host, path := normalizeAuthAddress(addr)
+	if path == "" {
+		return host
+	}
+	return host + "/" + path
 }
 
 // ToHostname normalizes a server address to just its hostname, removing

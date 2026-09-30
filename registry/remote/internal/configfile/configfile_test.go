@@ -201,20 +201,20 @@ func TestConfig_GetAuthConfig_caseInsensitive(t *testing.T) {
 	}
 }
 
-func TestConfig_GetAuthConfig_exactMatchWins(t *testing.T) {
+func TestConfig_GetAuthConfig_prefersExactMatch(t *testing.T) {
 	cfg := NewConfig()
 
-	if err := cfg.SetAuthConfig("localhost:5020", AuthConfig{
-		Username: "EXACT",
-	}); err != nil {
-		t.Fatal("SetAuthConfig() error =", err)
+	exact, err := json.Marshal(AuthConfig{Username: "EXACT"})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	upper, err := json.Marshal(AuthConfig{Username: "UPPER"})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
 	}
 
-	if err := cfg.SetAuthConfig("LOCALHOST:5020", AuthConfig{
-		Username: "UPPER",
-	}); err != nil {
-		t.Fatal("SetAuthConfig() error =", err)
-	}
+	cfg.authsCache["localhost:5020"] = exact
+	cfg.authsCache["LOCALHOST:5020"] = upper
 
 	got, err := cfg.GetAuthConfig("localhost:5020")
 	if err != nil {
@@ -230,17 +230,18 @@ func TestConfig_GetAuthConfig_exactMatchWins(t *testing.T) {
 func TestConfig_GetAuthConfig_caseVariants(t *testing.T) {
 	cfg := NewConfig()
 
-	if err := cfg.SetAuthConfig("LOCALHOST:5020", AuthConfig{
-		Username: "UPPER",
-	}); err != nil {
-		t.Fatal("SetAuthConfig() error =", err)
+	upper, err := json.Marshal(AuthConfig{Username: "UPPER"})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
 	}
 
-	if err := cfg.SetAuthConfig("LocalHost:5020", AuthConfig{
-		Username: "MIXED",
-	}); err != nil {
-		t.Fatal("SetAuthConfig() error =", err)
+	mixed, err := json.Marshal(AuthConfig{Username: "MIXED"})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
 	}
+
+	cfg.authsCache["LOCALHOST:5020"] = upper
+	cfg.authsCache["LocalHost:5020"] = mixed
 
 	got, err := cfg.GetAuthConfig("localhost:5020")
 	if err != nil {
@@ -833,24 +834,30 @@ func TestConfig_DeleteAuthConfig(t *testing.T) {
 	}
 }
 
-func TestConfig_DeleteAuthConfig_caseInsensitive(t *testing.T) {
+func TestConfig_DeleteAuthConfig_caseVariants(t *testing.T) {
 	cfg := NewConfig()
 
-	server := "localhost:5020"
 	authCfg := AuthConfig{
 		Username: "CASEUSER",
 		Password: "CASEPASS",
 	}
 
-	if err := cfg.SetAuthConfig(server, authCfg); err != nil {
+	if err := cfg.SetAuthConfig("localhost:5020", authCfg); err != nil {
 		t.Fatalf("SetAuthConfig() error = %v", err)
 	}
 
-	if err := cfg.DeleteAuthConfig("LOCALHOST:5020"); err != nil {
+	// Simulate legacy duplicate entries with different casing.
+	cfg.authsCache["LOCALHOST:5020"] = cfg.authsCache["localhost:5020"]
+
+	if err := cfg.DeleteAuthConfig("LocalHost:5020"); err != nil {
 		t.Fatalf("DeleteAuthConfig() error = %v", err)
 	}
 
-	got, err := cfg.GetAuthConfig(server)
+	if len(cfg.authsCache) != 0 {
+		t.Errorf("len(authsCache) = %d, want 0", len(cfg.authsCache))
+	}
+
+	got, err := cfg.GetAuthConfig("localhost:5020")
 	if err != nil {
 		t.Fatalf("GetAuthConfig() error = %v", err)
 	}
@@ -1571,30 +1578,34 @@ func TestConfig_SetCredentialHelper(t *testing.T) {
 	}
 }
 
-func TestConfig_RemoveAuthConfig(t *testing.T) {
+func TestConfig_RemoveAuthConfig_caseVariants(t *testing.T) {
 	cfg := NewConfig()
 
-	serverAddress := "registry.example.com"
 	authCfg := AuthConfig{
-		Username: "testuser",
-		Password: "testpass",
+		Username: "CASEUSER",
+		Password: "CASEPASS",
 	}
 
-	// Set auth
-	if err := cfg.SetAuthConfig(serverAddress, authCfg); err != nil {
+	if err := cfg.SetAuthConfig("localhost:5020", authCfg); err != nil {
 		t.Fatalf("SetAuthConfig() error = %v", err)
 	}
 
-	// Remove it
-	cfg.RemoveAuthConfig("REGISTRY.EXAMPLE.COM")
+	// Simulate legacy duplicate entries with different casing.
+	cfg.authsCache["LOCALHOST:5020"] = cfg.authsCache["localhost:5020"]
 
-	// Verify it was removed
-	got, err := cfg.GetAuthConfig(serverAddress)
+	cfg.RemoveAuthConfig("LocalHost:5020")
+
+	if len(cfg.authsCache) != 0 {
+		t.Errorf("len(authsCache) = %d, want 0", len(cfg.authsCache))
+	}
+
+	got, err := cfg.GetAuthConfig("localhost:5020")
 	if err != nil {
 		t.Fatalf("GetAuthConfig() error = %v", err)
 	}
-	if got.Username != "" || got.Password != "" {
-		t.Errorf("GetAuthConfig() after remove = %v, want empty", got)
+
+	if !reflect.DeepEqual(got, AuthConfig{}) {
+		t.Errorf("GetAuthConfig() = %v, want empty", got)
 	}
 }
 
