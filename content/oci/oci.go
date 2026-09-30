@@ -157,10 +157,9 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 // Delete deletes the content matching the descriptor from the store. Delete may
 // fail on certain systems (i.e. NTFS), if there is a process (i.e. an unclosed
 // Reader) using target.
-//   - If s.AutoGC is set to true, Delete will recursively
-//     remove the dangling blobs caused by the current delete.
-//   - If s.AutoDeleteReferrers is set to true, Delete will recursively remove
-//     the referrers of the manifests being deleted.
+//   - If s.AutoGC is set to true, Delete will recursively remove the dangling
+//     blobs caused by the current delete and the referrers of the manifests
+//     being deleted.
 func (s *Store) Delete(ctx context.Context, target ocispec.Descriptor) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
