@@ -1237,10 +1237,10 @@ func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo
 	repoRef := s.repo.reference()
 	ctx = auth.AppendRepositoryScope(ctx, repoRef, auth.ActionPull, auth.ActionPush)
 
-	// We also need pull access to the source repo.
-	fromRef := repoRef
-	fromRef.Repository = fromRepo
-	ctx = auth.AppendRepositoryScope(ctx, fromRef, auth.ActionPull)
+	// We also need pull access to the source repo. Scope hints are keyed by the
+	// resource they apply to, so the source scope has to be registered against
+	// the target repository: it is the request to the target that must carry it.
+	ctx = auth.AppendScopesForResource(ctx, repoRef.Resource(), auth.ScopeRepository(fromRepo, auth.ActionPull))
 
 	url := buildRepositoryBlobMountURL(s.repo.plainHTTP(), repoRef, desc.Digest, fromRepo)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)

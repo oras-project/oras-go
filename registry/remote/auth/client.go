@@ -328,10 +328,10 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	var attemptedKey string
 	cache := c.cache()
 	resource := requestResource(originalReq)
-	host := resource.Host()
 	// Credentials may be namespaced, so a token fetched for one repository
-	// path must not be replayed for another path on the same host. Scopes
-	// stay host-wide, as they describe the registry, not the credential.
+	// path must not be replayed for another path on the same host. The scope
+	// hints are keyed by the same resource, so that the repositories of one
+	// namespace are not disclosed on a token request made for another.
 	cacheKey := resource.String()
 	scheme, err := cache.GetScheme(ctx, cacheKey)
 	if err == nil {
@@ -342,8 +342,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 				req.Header.Set(headerAuthorization, "Basic "+token)
 			}
 		case SchemeBearer:
-			scopes := GetScopesForHost(ctx, host)
-			attemptedKey = strings.Join(scopes, " ")
+			attemptedKey = bearerCacheKey(GetScopesForResource(ctx, resource))
 			token, err := cache.GetToken(ctx, cacheKey, SchemeBearer, attemptedKey)
 			if err == nil {
 				req.Header.Set(headerAuthorization, "Bearer "+token)
@@ -385,13 +384,16 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	case SchemeBearer:
 		resp.Body.Close()
 
-		scopes := GetScopesForHost(ctx, host)
+		scopes := GetScopesForResource(ctx, resource)
 		if paramScope := params["scope"]; paramScope != "" {
 			// merge hinted scopes with challenged scopes
-			scopes = append(scopes, strings.Split(paramScope, " ")...)
-			scopes = CleanScopes(scopes)
+			challenged, err := parseChallengeScopes(paramScope)
+			if err != nil {
+				return nil, fmt.Errorf("%s %q: bearer challenge from %s: %w", resp.Request.Method, resp.Request.URL, resource.Registry, err)
+			}
+			scopes = CleanScopes(append(scopes, challenged...))
 		}
-		key := strings.Join(scopes, " ")
+		key := bearerCacheKey(scopes)
 
 		// attempt the cache again if there is a scope change
 		if key != attemptedKey {
@@ -459,7 +461,7 @@ func (c *Client) fetchBasicAuth(ctx context.Context, resource properties.Resourc
 // The acquisition strategy is delegated to TokenFetcher. When none is
 // configured, a CompositeTokenFetcher is used: anonymous access goes through
 // the distribution spec token endpoint and credentialed access uses OAuth2.
-func (c *Client) fetchBearerToken(ctx context.Context, resource properties.Resource, realm, service string, scopes []string) (string, error) {
+func (c *Client) fetchBearerToken(ctx context.Context, resource properties.Resource, realm, service string, scopes []Scope) (string, error) {
 	cred, err := c.credential(ctx, resource)
 	if err != nil {
 		return "", err
@@ -476,6 +478,36 @@ func (c *Client) fetchBearerToken(ctx context.Context, resource properties.Resou
 		Scopes:   scopes,
 	}
 	return fetcher.FetchToken(ctx, params, cred)
+}
+
+// parseChallengeScopes parses the space-separated scopes of the `scope`
+// parameter of a WWW-Authenticate challenge.
+//
+// An unparseable scope fails the request rather than being passed through to the
+// token server as an opaque string, so that the caller sees which scope the
+// registry sent instead of an unexplained token failure.
+func parseChallengeScopes(paramScope string) ([]Scope, error) {
+	var scopes []Scope
+	for s := range strings.SplitSeq(paramScope, " ") {
+		if s == "" {
+			continue
+		}
+		scope, err := ParseScope(s)
+		if err != nil {
+			return nil, err
+		}
+		scopes = append(scopes, scope)
+	}
+	return scopes, nil
+}
+
+// bearerCacheKey returns the token cache key for scopes.
+//
+// The scopes are cleaned first, so that the key does not depend on their order
+// or on duplication among them, and so that the key derivation cannot drift from
+// the sort order of [CleanScopes].
+func bearerCacheKey(scopes []Scope) string {
+	return joinScopes(CleanScopes(scopes))
 }
 
 // rewindRequestBody tries to rewind the request body if exists.

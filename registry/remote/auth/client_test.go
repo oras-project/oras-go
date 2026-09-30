@@ -32,10 +32,40 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
+
+// mustParseScopes parses scopes given in their wire form, panicking on one that
+// does not parse. The test fixtures are all well-formed, so a failure here is a
+// broken test rather than a case under test.
+func mustParseScopes(scopes ...string) []Scope {
+	parsed := make([]Scope, 0, len(scopes))
+	for _, s := range scopes {
+		scope, err := ParseScope(s)
+		if err != nil {
+			panic(err)
+		}
+		parsed = append(parsed, scope)
+	}
+	return parsed
+}
+
+// withScopesForHost registers scopes, given in their wire form, against the
+// registry at host as a whole. Hints registered this way apply to every request
+// to that registry, which is the shape they had before they were keyed per
+// resource.
+func withScopesForHost(ctx context.Context, host string, scopes ...string) context.Context {
+	return WithScopesForResource(ctx, properties.Resource{Registry: host}, mustParseScopes(scopes...)...)
+}
+
+// joinScopeStrings cleans and joins scopes given in their wire form, the way the
+// client does when it builds a token request.
+func joinScopeStrings(scopes ...string) string {
+	return joinScopes(CleanScopes(mustParseScopes(scopes...)))
+}
 
 func TestClient_SetUserAgent(t *testing.T) {
 	wantUserAgent := "test agent"
@@ -396,7 +426,7 @@ func TestClient_Do_Bearer_AccessToken_Cached(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopesForHost(context.Background(), uri.Host, scope)
+	ctx := withScopesForHost(context.Background(), uri.Host, scope)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -532,8 +562,8 @@ func TestClient_Do_Bearer_AccessToken_Cached_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesForHost(ctx, uri1.Host, scope1)
-	ctx = WithScopesForHost(ctx, uri2.Host, scope2)
+	ctx = withScopesForHost(ctx, uri1.Host, scope1)
+	ctx = withScopesForHost(ctx, uri2.Host, scope2)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -862,7 +892,7 @@ func TestClient_Do_Bearer_Auth_Cached(t *testing.T) {
 	client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
 
 	// first request
-	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
+	ctx := withScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -1076,8 +1106,8 @@ func TestClient_Do_Bearer_Auth_Cached_PerHost(t *testing.T) {
 	client2.TokenFetcher = NewCompositeTokenFetcher(client2.Client, client2.Header, client2.ClientID, true)
 
 	ctx := context.Background()
-	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
+	ctx = withScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = withScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -1471,7 +1501,7 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
+	ctx := withScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -1722,8 +1752,8 @@ func TestClient_Do_Bearer_OAuth2_Password_Cached_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
+	ctx = withScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = withScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -2099,7 +2129,7 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
+	ctx := withScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -2336,8 +2366,8 @@ func TestClient_Do_Bearer_OAuth2_RefreshToken_Cached_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
+	ctx = withScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = withScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -2572,7 +2602,7 @@ func TestClient_Do_Token_Expire(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
+	ctx := withScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -2785,8 +2815,8 @@ func TestClient_Do_Token_Expire_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
+	ctx = withScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = withScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -2916,8 +2946,7 @@ func TestClient_Do_Scope_Hint_Mismatch(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		scopes := CleanScopes(append([]string{scope}, scopes...))
-		scope := strings.Join(scopes, " ")
+		scope := joinScopeStrings(append([]string{scope}, scopes...)...)
 		if got := r.PostForm.Get("scope"); got != scope {
 			t.Errorf("unexpected scope: %v, want %v", got, scope)
 			w.WriteHeader(http.StatusUnauthorized)
@@ -2979,7 +3008,7 @@ func TestClient_Do_Scope_Hint_Mismatch(t *testing.T) {
 	}
 
 	// first request
-	ctx := WithScopesForHost(context.Background(), uri.Host, scopes...)
+	ctx := withScopesForHost(context.Background(), uri.Host, scopes...)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL, nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
@@ -3067,8 +3096,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		scopes := CleanScopes(append([]string{scope1}, scopes1...))
-		scope := strings.Join(scopes, " ")
+		scope := joinScopeStrings(append([]string{scope1}, scopes1...)...)
 		if got := r.PostForm.Get("scope"); got != scope {
 			t.Errorf("unexpected scope: %v, want %v", got, scope)
 			w.WriteHeader(http.StatusUnauthorized)
@@ -3160,8 +3188,7 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		scopes := CleanScopes(append([]string{scope2}, scopes2...))
-		scope := strings.Join(scopes, " ")
+		scope := joinScopeStrings(append([]string{scope2}, scopes2...)...)
 		if got := r.PostForm.Get("scope"); got != scope {
 			t.Errorf("unexpected scope: %v, want %v", got, scope)
 			w.WriteHeader(http.StatusUnauthorized)
@@ -3215,8 +3242,8 @@ func TestClient_Do_Scope_Hint_Mismatch_PerHost(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx = WithScopesForHost(ctx, uri1.Host, scopes1...)
-	ctx = WithScopesForHost(ctx, uri2.Host, scopes2...)
+	ctx = withScopesForHost(ctx, uri1.Host, scopes1...)
+	ctx = withScopesForHost(ctx, uri2.Host, scopes2...)
 	// first request to server 1
 	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, ts1.URL, nil)
 	if err != nil {
@@ -4760,5 +4787,187 @@ func BenchmarkClient_send(b *testing.B) {
 			b.Fatalf("Client.send() error = %v", err)
 		}
 		resp.Body.Close()
+	}
+}
+
+// TestClient_Do_Bearer_InvalidChallengeScope covers decision 6 of #1451: a
+// `scope` parameter the client cannot parse fails the request, naming the
+// registry and quoting the offending scope, rather than being forwarded to the
+// token server as an opaque string.
+func TestClient_Do_Bearer_InvalidChallengeScope(t *testing.T) {
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexpected token request for an unparseable challenge scope")
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer as.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Www-Authenticate", fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, "test", "repository:foo"))
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	client := &Client{
+		CredentialFunc: credentials.StaticCredentialFunc(uri.Host, credentials.Credential{
+			Username: username,
+			Password: password,
+		}),
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/v2/foo/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("Client.Do() error = nil, want an invalid scope error")
+	}
+	if !errors.Is(err, errdef.ErrInvalidScope) {
+		t.Errorf("Client.Do() error = %v, want it to wrap %v", err, errdef.ErrInvalidScope)
+	}
+	if got := err.Error(); !strings.Contains(got, uri.Host) || !strings.Contains(got, `"repository:foo"`) {
+		t.Errorf("Client.Do() error = %q, want it to name the host and quote the scope", got)
+	}
+}
+
+// TestClient_Do_Bearer_NamespacedScopeHints is the case #1376 is about: two
+// namespaces of one registry threaded through a single context must each get a
+// token request carrying only their own scopes, and must not share a cache key.
+func TestClient_Do_Bearer_NamespacedScopeHints(t *testing.T) {
+	var service string
+	tokenForScope := map[string]string{
+		"repository:namespace1/app:pull,push": "token_for_namespace1",
+		"repository:namespace2/app:pull,push": "token_for_namespace2",
+	}
+	var tokenRequests atomic.Int64
+
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenRequests.Add(1)
+		scopes := r.URL.Query()["scope"]
+		if len(scopes) != 1 {
+			t.Errorf("unexpected scopes in token request: %v, want exactly one", scopes)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		token, ok := tokenForScope[scopes[0]]
+		if !ok {
+			t.Errorf("unexpected scope in token request: %q", scopes[0])
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, token); err != nil {
+			t.Error("failed to write token response:", err)
+		}
+	}))
+	defer as.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		repository, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/v2/"), "/manifests/")
+		want := "Bearer " + tokenForScope["repository:"+repository+":pull,push"]
+		if got := r.Header.Get("Authorization"); got != want {
+			// no token yet, or a token minted for the other namespace
+			w.Header().Set("Www-Authenticate", fmt.Sprintf("Bearer realm=%q,service=%q", as.URL, service))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	client := &Client{
+		Cache: NewCache(),
+		// anonymous, so the distribution flow puts the scopes in the query
+		TokenFetcher: NewCompositeTokenFetcher(nil, nil, "", true),
+	}
+
+	// Thread both namespaces through one context, as a caller copying between
+	// them would.
+	ctx := context.Background()
+	for _, namespace := range []string{"namespace1", "namespace2"} {
+		ref, err := properties.NewReference(uri.Host + "/" + namespace + "/app")
+		if err != nil {
+			t.Fatalf("properties.NewReference() error = %v", err)
+		}
+		ctx = AppendRepositoryScope(ctx, ref, ActionPull, ActionPush)
+	}
+
+	// Each namespace is requested twice: the second request must hit the cache
+	// rather than re-fetch a token, which is the cache-key churn #1376 reports.
+	for _, path := range []string{"namespace1/app", "namespace2/app", "namespace1/app", "namespace2/app"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v2/"+path+"/manifests/latest", nil)
+		if err != nil {
+			t.Fatalf("failed to create test request: %v", err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Client.Do() for %s error = %v", path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("Client.Do() for %s = %v, want %v", path, resp.StatusCode, http.StatusOK)
+		}
+	}
+	if got := tokenRequests.Load(); got != 2 {
+		t.Errorf("token requests = %d, want 2 (one per namespace)", got)
+	}
+}
+
+// TestClient_Do_Bearer_OpaqueChallengeScope pins the one grammar widening the
+// registry survey forced: public.ecr.aws challenges with scope="aws", a single
+// token with no resource name and no actions, which has to reach the token
+// endpoint unchanged.
+func TestClient_Do_Bearer_OpaqueChallengeScope(t *testing.T) {
+	const wantToken = "opaque_scope_token"
+	var service string
+
+	as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query()["scope"]; !reflect.DeepEqual(got, []string{"aws"}) {
+			t.Errorf("unexpected scopes in token request: %v, want [aws]", got)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if _, err := fmt.Fprintf(w, `{"token":%q}`, wantToken); err != nil {
+			t.Error("failed to write token response:", err)
+		}
+	}))
+	defer as.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+wantToken {
+			w.Header().Set("Www-Authenticate", fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, "aws"))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	service = uri.Host
+
+	client := &Client{Cache: NewCache()}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		ts.URL+"/v2/docker/library/alpine/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
 	}
 }
