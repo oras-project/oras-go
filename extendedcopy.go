@@ -34,6 +34,15 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
+type findRootsOptions struct {
+	Depth            int
+	FindPredecessors func(
+		context.Context,
+		content.ReadOnlyGraphStorage,
+		ocispec.Descriptor,
+	) ([]ocispec.Descriptor, error)
+}
+
 // DefaultExtendedCopyOptions provides the default ExtendedCopyOptions.
 var DefaultExtendedCopyOptions ExtendedCopyOptions = ExtendedCopyOptions{
 	ExtendedCopyGraphOptions: DefaultExtendedCopyGraphOptions,
@@ -120,7 +129,10 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 	}
 	limiter := semaphore.NewWeighted(int64(opts.Concurrency))
 
-	roots, err := findRoots(ctx, src, node, opts, limiter)
+	roots, err := findRoots(ctx, src, node, findRootsOptions{
+		Depth:            opts.Depth,
+		FindPredecessors: opts.FindPredecessors,
+	}, limiter)
 	if err != nil {
 		return err
 	}
@@ -149,7 +161,7 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 // findRoots finds the root nodes reachable from the given node through a
 // breadth-first search. The predecessors of the nodes at the same depth are
 // found concurrently, bounded by limiter.
-func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions, limiter *semaphore.Weighted) ([]ocispec.Descriptor, error) {
+func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts findRootsOptions, limiter *semaphore.Weighted) ([]ocispec.Descriptor, error) {
 	visited := set.New[descriptor.Descriptor]()
 	rootMap := make(map[descriptor.Descriptor]ocispec.Descriptor)
 	addRoot := func(key descriptor.Descriptor, val ocispec.Descriptor) {
