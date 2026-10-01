@@ -413,3 +413,34 @@ func TestStorage_Delete(t *testing.T) {
 		t.Fatalf("got error = %v, want %v", err, errdef.ErrNotFound)
 	}
 }
+
+// TestStorage_BadPush_NoIngestFileLeftBehind ensures that the ingest file of a
+// push that failed is removed. Nothing else removes it, so a leaked ingest file
+// occupies its space until the store is deleted.
+func TestStorage_BadPush_NoIngestFileLeftBehind(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	tempDir := t.TempDir()
+	s, err := NewStorage(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	if err := s.Push(ctx, desc, strings.NewReader("foobar")); err == nil {
+		t.Fatal("Storage.Push() error = nil, wantErr = true")
+	}
+
+	entries, err := os.ReadDir(s.ingestRoot)
+	if err != nil {
+		t.Fatal("error calling ReadDir(), error =", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("len(ingest entries) = %v, want %v", len(entries), 0)
+	}
+}

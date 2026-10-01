@@ -146,7 +146,7 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 }
 
 // findRoots finds the root nodes reachable from the given node through a
-// depth-first search.
+// breadth-first search.
 func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) ([]ocispec.Descriptor, error) {
 	visited := set.New[descriptor.Descriptor]()
 	rootMap := make(map[descriptor.Descriptor]ocispec.Descriptor)
@@ -163,27 +163,21 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 		}
 	}
 
-	var stack copyutil.Stack
-	// push the initial node to the stack, set the depth to 0
-	stack.Push(copyutil.NodeInfo{Node: node, Depth: 0})
-	for {
-		current, ok := stack.Pop()
-		if !ok {
-			// empty stack
-			break
+	// Visit nodes in depth order so a shared predecessor is processed at its
+	// shortest distance from the initial node.
+	frontier := copyutil.Stack{{Node: node, Depth: 0}}
+	var next copyutil.Stack
+	visited.Add(descriptor.FromOCI(node))
+	for !frontier.IsEmpty() || !next.IsEmpty() {
+		if frontier.IsEmpty() {
+			frontier, next = next, frontier[:0]
 		}
+		current, _ := frontier.Pop()
 		currentNode := current.Node
-		currentKey := descriptor.FromOCI(currentNode)
-
-		if visited.Contains(currentKey) {
-			// skip the current node if it has been visited
-			continue
-		}
-		visited.Add(currentKey)
 
 		// stop finding predecessors if the target depth is reached
 		if opts.Depth > 0 && current.Depth == opts.Depth {
-			addRoot(currentKey, currentNode)
+			addRoot(descriptor.FromOCI(currentNode), currentNode)
 			continue
 		}
 
@@ -195,17 +189,17 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 		// The current node has no predecessor node,
 		// which means it is a root node of a sub-DAG.
 		if len(predecessors) == 0 {
-			addRoot(currentKey, currentNode)
+			addRoot(descriptor.FromOCI(currentNode), currentNode)
 			continue
 		}
 
 		// The current node has predecessor nodes, which means it is NOT a root node.
-		// Push the predecessor nodes to the stack and keep finding from there.
+		// Queue predecessor nodes for the next depth and keep finding.
 		for _, predecessor := range predecessors {
 			predecessorKey := descriptor.FromOCI(predecessor)
 			if !visited.Contains(predecessorKey) {
-				// push the predecessor node with increased depth
-				stack.Push(copyutil.NodeInfo{Node: predecessor, Depth: current.Depth + 1})
+				visited.Add(predecessorKey)
+				next.Push(copyutil.NodeInfo{Node: predecessor, Depth: current.Depth + 1})
 			}
 		}
 	}
