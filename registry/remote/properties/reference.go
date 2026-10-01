@@ -316,6 +316,16 @@ func (r Reference) Host() string {
 	return r.Registry
 }
 
+// Resource returns the registry resource addressed by r, dropping any tag or
+// digest. The registry name is lower-cased, as registry host names are
+// case-insensitive.
+func (r Reference) Resource() Resource {
+	return Resource{
+		Registry: strings.ToLower(r.Registry),
+		Path:     r.Repository,
+	}
+}
+
 // GetReference returns the reference string (digest if present, otherwise tag).
 func (r Reference) GetReference() string {
 	if r.Digest != "" {
