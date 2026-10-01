@@ -18,8 +18,10 @@ package oras
 import (
 	"bytes"
 	"context"
+	_ "crypto/sha512"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"testing"
@@ -1130,6 +1132,103 @@ func Test_PackManifest_ImageV1_1_InvalidDateTimeFormat(t *testing.T) {
 	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
 		t.Errorf("Oras.PackManifest() error = %v, wantErr = %v", err, wantErr)
 	}
+}
+
+func Test_PackManifest_DigestAlgorithm(t *testing.T) {
+	ctx := context.Background()
+	artifactType := "application/vnd.test"
+
+	for _, version := range []PackManifestVersion{PackManifestVersion1_0, PackManifestVersion1_1} {
+		t.Run(fmt.Sprintf("sha512, version %v", version), func(t *testing.T) {
+			s := memory.New()
+			manifestDesc, err := PackManifest(ctx, s, version, artifactType, PackManifestOptions{
+				DigestAlgorithm: digest.SHA512,
+			})
+			if err != nil {
+				t.Fatal("Oras.PackManifest() error =", err)
+			}
+			if got := manifestDesc.Digest.Algorithm(); got != digest.SHA512 {
+				t.Errorf("manifest digest algorithm = %v, want %v", got, digest.SHA512)
+			}
+
+			// the store verifies the manifest against its digest on fetch
+			manifestJSON, err := content.FetchAll(ctx, s, manifestDesc)
+			if err != nil {
+				t.Fatal("content.FetchAll() error =", err)
+			}
+			var manifest ocispec.Manifest
+			if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
+				t.Fatal("error decoding manifest, error =", err)
+			}
+
+			// the generated config and layers use the same algorithm and are pushed
+			generated := append([]ocispec.Descriptor{manifest.Config}, manifest.Layers...)
+			for _, desc := range generated {
+				if got := desc.Digest.Algorithm(); got != digest.SHA512 {
+					t.Errorf("%s digest algorithm = %v, want %v", desc.MediaType, got, digest.SHA512)
+				}
+				if _, err := content.FetchAll(ctx, s, desc); err != nil {
+					t.Errorf("content.FetchAll(%s) error = %v", desc.MediaType, err)
+				}
+			}
+		})
+	}
+
+	t.Run("sha512 with a config descriptor", func(t *testing.T) {
+		s := memory.New()
+		configBytes := []byte("{}")
+		configDesc := content.NewDescriptorFromBytes("application/vnd.test.config", configBytes)
+		if err := s.Push(ctx, configDesc, bytes.NewReader(configBytes)); err != nil {
+			t.Fatal("Store.Push() error =", err)
+		}
+		manifestDesc, err := PackManifest(ctx, s, PackManifestVersion1_1, artifactType, PackManifestOptions{
+			ConfigDescriptor: &configDesc,
+			DigestAlgorithm:  digest.SHA512,
+		})
+		if err != nil {
+			t.Fatal("Oras.PackManifest() error =", err)
+		}
+		manifestJSON, err := content.FetchAll(ctx, s, manifestDesc)
+		if err != nil {
+			t.Fatal("content.FetchAll() error =", err)
+		}
+		var manifest ocispec.Manifest
+		if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
+			t.Fatal("error decoding manifest, error =", err)
+		}
+		// the supplied config keeps its digest; the generated empty layer does not
+		if got := manifest.Config.Digest; got != configDesc.Digest {
+			t.Errorf("config digest = %v, want %v", got, configDesc.Digest)
+		}
+		if len(manifest.Layers) != 1 {
+			t.Fatalf("got %d layers, want 1", len(manifest.Layers))
+		}
+		if got := manifest.Layers[0].Digest.Algorithm(); got != digest.SHA512 {
+			t.Errorf("layer digest algorithm = %v, want %v", got, digest.SHA512)
+		}
+		if _, err := content.FetchAll(ctx, s, manifest.Layers[0]); err != nil {
+			t.Errorf("content.FetchAll(layer) error = %v", err)
+		}
+	})
+
+	t.Run("default is sha256", func(t *testing.T) {
+		manifestDesc, err := PackManifest(ctx, memory.New(), PackManifestVersion1_1, artifactType, PackManifestOptions{})
+		if err != nil {
+			t.Fatal("Oras.PackManifest() error =", err)
+		}
+		if got := manifestDesc.Digest.Algorithm(); got != digest.SHA256 {
+			t.Errorf("manifest digest algorithm = %v, want %v", got, digest.SHA256)
+		}
+	})
+
+	t.Run("unavailable algorithm", func(t *testing.T) {
+		_, err := PackManifest(ctx, memory.New(), PackManifestVersion1_1, artifactType, PackManifestOptions{
+			DigestAlgorithm: digest.Algorithm("sha1"),
+		})
+		if !errors.Is(err, errdef.ErrUnsupported) {
+			t.Errorf("Oras.PackManifest() error = %v, wantErr %v", err, errdef.ErrUnsupported)
+		}
+	})
 }
 
 func Test_PackManifest_UnsupportedPackManifestVersion(t *testing.T) {

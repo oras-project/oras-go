@@ -16,11 +16,14 @@ limitations under the License.
 package content
 
 import (
+	_ "crypto/sha512"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
 )
 
@@ -67,6 +70,60 @@ func TestGenerateDescriptor(t *testing.T) {
 			got := NewDescriptorFromBytes(tt.args.mediaType, tt.args.content)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GenerateDescriptor() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewDescriptorFromBytesWithAlgorithm(t *testing.T) {
+	contentFoo := []byte("foo")
+
+	tests := []struct {
+		name      string
+		mediaType string
+		alg       digest.Algorithm
+		want      ocispec.Descriptor
+		wantErr   error
+	}{
+		{
+			name:      "sha512",
+			mediaType: "example media type",
+			alg:       digest.SHA512,
+			want: ocispec.Descriptor{
+				MediaType: "example media type",
+				Digest:    digest.SHA512.FromBytes(contentFoo),
+				Size:      int64(len(contentFoo))},
+		},
+		{
+			name: "sha256 with missing media type",
+			alg:  digest.SHA256,
+			want: ocispec.Descriptor{
+				MediaType: descriptor.DefaultMediaType,
+				Digest:    digest.FromBytes(contentFoo),
+				Size:      int64(len(contentFoo))},
+		},
+		{
+			name:    "unavailable algorithm",
+			alg:     digest.Algorithm("sha1"),
+			wantErr: errdef.ErrUnsupported,
+		},
+		{
+			name:      "empty algorithm is canonical",
+			mediaType: "example media type",
+			want: ocispec.Descriptor{
+				MediaType: "example media type",
+				Digest:    digest.FromBytes(contentFoo),
+				Size:      int64(len(contentFoo))},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NewDescriptorFromBytesWithAlgorithm(tt.mediaType, contentFoo, tt.alg)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("NewDescriptorFromBytesWithAlgorithm() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewDescriptorFromBytesWithAlgorithm() = %v, want %v", got, tt.want)
 			}
 		})
 	}
