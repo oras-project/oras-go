@@ -2992,6 +2992,13 @@ func TestStore_GCIndexSaveFailureLeavesBlobs(t *testing.T) {
 	if exists, err := s.Exists(ctx, desc); err != nil || !exists {
 		t.Errorf("Exists(manifest) after failed GC = %v, %v, want true", exists, err)
 	}
+	// the rebuilt resolver and graph must not replace the current ones
+	if _, err := s.tagResolver.Resolve(ctx, desc.Digest.String()); err != nil {
+		t.Errorf("tagResolver.Resolve(manifest) after failed GC = %v, want nil", err)
+	}
+	if !s.graph.Exists(desc) {
+		t.Error("graph.Exists(manifest) after failed GC = false, want true")
+	}
 }
 
 // TestStore_GCWithUnreachableReferrer covers an untagged referrer that stays in
