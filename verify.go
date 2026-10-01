@@ -181,6 +181,9 @@ func (r *VerifyGraphReport) addFailed(desc ocispec.Descriptor, err error) {
 
 // OK reports whether every node visited by VerifyGraph passed verification.
 func (r *VerifyGraphReport) OK() bool {
+	if r == nil {
+		return false
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.Failed) == 0
@@ -342,8 +345,10 @@ func verifyGraph(ctx context.Context, src content.ReadOnlyStorage, root ocispec.
 		successors, verifyErr := opts.FindSuccessors(ctx, proxy, desc)
 		if verifyErr != nil {
 			verifyErr = fmt.Errorf("failed to read %s: %w", desc.Digest, verifyErr)
-		} else if len(successors) == 0 && !descriptor.IsManifest(desc) {
-			verifyErr = content.Verify(ctx, src, desc)
+		} else if len(successors) == 0 {
+			if err := content.Verify(ctx, src, desc); err != nil {
+				verifyErr = fmt.Errorf("failed to read %s: %w", desc.Digest, err)
+			}
 		}
 
 		if verifyErr == nil {

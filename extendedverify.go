@@ -63,7 +63,6 @@ type ExtendedVerifyGraphOptions struct {
 // See [Verify] for the "on error resume next" behavior. If the walk stops
 // after ref was resolved, the partial report is returned along with the error.
 func ExtendedVerify(ctx context.Context, src ReadOnlyGraphTarget, ref string, opts ExtendedVerifyOptions) (ocispec.Descriptor, *VerifyReport, error) {
-
 	if src == nil {
 		return ocispec.Descriptor{}, nil, newCopyError("ExtendedVerify", CopyErrorOriginSource, ocispec.Descriptor{}, errors.New("nil source target"))
 	}
