@@ -265,6 +265,10 @@ func (ds *DynamicStore) ConfigPath() string {
 // path included. Note that containers/image queries the helper with the host
 // alone, so a credential stored here under a namespaced key is not visible to
 // Podman or the Docker CLI.
+//
+// "credsStore" and the detected platform default are global stores configured
+// for registry hosts. When queried for a namespaced address, they are probes of
+// a key the store was never configured for, so exact is false.
 func (ds *DynamicStore) getHelperSuffix(serverAddress string) (suffix string, exact bool) {
 	// 1. Look for a server-specific credential helper, then for the helper of
 	// each parent namespace.
@@ -281,10 +285,24 @@ func (ds *DynamicStore) getHelperSuffix(serverAddress string) (suffix string, ex
 	}
 	// 2. Then look for the configured native store
 	if credsStore := ds.config.CredentialsStore(); credsStore != "" {
-		return credsStore, true
+		return credsStore, !isNamespaced(serverAddress)
 	}
 	// 3. Use the detected default store
-	return ds.detectedCredsStore, true
+	return ds.detectedCredsStore, !isNamespaced(serverAddress)
+}
+
+// isNamespaced reports whether serverAddress represents a namespaced key
+// rather than a host-level key.
+// The docker.io sentinel "https://index.docker.io/v1/" contains '/' but is
+// a host-level key rather than a namespace.
+func isNamespaced(serverAddress string) bool {
+	addr := strings.TrimPrefix(serverAddress, "http://")
+	addr = strings.TrimPrefix(addr, "https://")
+	addr = strings.TrimSuffix(addr, "/")
+	if addr == "index.docker.io/v1" {
+		return false
+	}
+	return strings.Contains(addr, "/")
 }
 
 // getStore returns a store for the given server address.
@@ -303,8 +321,8 @@ func (ds *DynamicStore) getStore(serverAddress string) Store {
 }
 
 // inheritedHelperStore is a credential helper configured for a parent
-// namespace. Get probes it with a key it was never configured for, so an error
-// there is a miss rather than a failure.
+// namespace or whole host. Get probes it with a key it was never configured
+// for, so an error there is a miss rather than a failure.
 type inheritedHelperStore struct {
 	Store
 }
