@@ -77,16 +77,16 @@ type VerifyGraphOptions struct {
 	// original source storage to fetch large blobs.
 	// If FindSuccessors is nil, content.Successors will be used.
 	FindSuccessors func(ctx context.Context, fetcher content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
-	// Verified is an optional, caller-provided record of digests that are
+	// KnownVerified is an optional, caller-provided record of digests that are
 	// already known to be intact. Leaf blobs whose digest is present in
-	// Verified are not re-fetched; they are recorded as skipped in the
+	// KnownVerified are not re-fetched; they are recorded as skipped in the
 	// report instead. Manifests are always re-read, since that is the only
 	// way to discover their successors. On success, VerifyGraph adds every
-	// digest it verifies to Verified, so passing the same VerifiedSet across
-	// multiple Verify/VerifyGraph calls avoids re-verifying blobs shared
-	// between them. Verified is left nil by default, so every node is always
+	// digest it verifies to KnownVerified, so passing the same VerifiedSet
+	// across multiple Verify/VerifyGraph calls avoids re-verifying blobs
+	// shared between them. KnownVerified is nil by default, so every node is
 	// freshly verified.
-	Verified *VerifiedSet
+	KnownVerified *VerifiedSet
 }
 
 // VerifiedSet records digests that have already passed content integrity
@@ -146,7 +146,6 @@ type FailedNode struct {
 // manifest itself, and nodes beneath it that happen to be reachable by some
 // other path in the graph are still verified independently.
 type VerifyGraphReport struct {
-	mu sync.Mutex
 	// Verified lists the descriptors that were fetched in full and passed
 	// content integrity verification during this call.
 	Verified []ocispec.Descriptor
@@ -157,52 +156,76 @@ type VerifyGraphReport struct {
 	Failed []FailedNode
 }
 
-func newVerifyGraphReport() *VerifyGraphReport {
-	return &VerifyGraphReport{}
-}
-
-func (r *VerifyGraphReport) addVerified(desc ocispec.Descriptor) {
-	r.mu.Lock()
-	r.Verified = append(r.Verified, desc)
-	r.mu.Unlock()
-}
-
-func (r *VerifyGraphReport) addSkipped(desc ocispec.Descriptor) {
-	r.mu.Lock()
-	r.Skipped = append(r.Skipped, desc)
-	r.mu.Unlock()
-}
-
-func (r *VerifyGraphReport) addFailed(desc ocispec.Descriptor, err error) {
-	r.mu.Lock()
-	r.Failed = append(r.Failed, FailedNode{Descriptor: desc, Err: err})
-	r.mu.Unlock()
-}
-
-// OK reports whether every node visited by VerifyGraph passed verification.
+// OK reports whether verification recorded any failures.
+// Skipped descriptors do not make the report unsuccessful.
 func (r *VerifyGraphReport) OK() bool {
+	return len(r.Failed) == 0
+}
+
+// verifyGraphReport is the mutable, concurrency-safe accumulator used during
+// graph verification. report returns a snapshot as the public report type.
+type verifyGraphReport struct {
+	mu       sync.Mutex
+	verified []ocispec.Descriptor
+	skipped  []ocispec.Descriptor
+	failed   []FailedNode
+}
+
+func newVerifyGraphReport() *verifyGraphReport {
+	return &verifyGraphReport{}
+}
+
+func (r *verifyGraphReport) OK() bool {
 	if r == nil {
 		return false
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return len(r.Failed) == 0
+	return len(r.failed) == 0
 }
 
-func (r *VerifyGraphReport) merge(other *VerifyGraphReport) {
+// report returns a snapshot of the accumulated results.
+func (r *verifyGraphReport) report() *VerifyGraphReport {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return &VerifyGraphReport{
+		Verified: append([]ocispec.Descriptor(nil), r.verified...),
+		Skipped:  append([]ocispec.Descriptor(nil), r.skipped...),
+		Failed:   append([]FailedNode(nil), r.failed...),
+	}
+}
+
+func (r *verifyGraphReport) addVerified(desc ocispec.Descriptor) {
+	r.mu.Lock()
+	r.verified = append(r.verified, desc)
+	r.mu.Unlock()
+}
+
+func (r *verifyGraphReport) addSkipped(desc ocispec.Descriptor) {
+	r.mu.Lock()
+	r.skipped = append(r.skipped, desc)
+	r.mu.Unlock()
+}
+
+func (r *verifyGraphReport) addFailed(desc ocispec.Descriptor, err error) {
+	r.mu.Lock()
+	r.failed = append(r.failed, FailedNode{Descriptor: desc, Err: err})
+	r.mu.Unlock()
+}
+
+// merge adds the results from a completed verification into this accumulator.
+func (r *verifyGraphReport) merge(other *VerifyGraphReport) {
 	if other == nil {
 		return
 	}
 
-	other.mu.Lock()
-	defer other.mu.Unlock()
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.Verified = append(r.Verified, other.Verified...)
-	r.Skipped = append(r.Skipped, other.Skipped...)
-	r.Failed = append(r.Failed, other.Failed...)
+	r.verified = append(r.verified, other.Verified...)
+	r.skipped = append(r.skipped, other.Skipped...)
+	r.failed = append(r.failed, other.Failed...)
 }
 
 // VerifyReport is the result of Verify. It embeds the VerifyGraphReport for
@@ -322,7 +345,7 @@ func verifyGraph(ctx context.Context, src content.ReadOnlyStorage, root ocispec.
 		// manifest is metadata-sized (bounded by MaxMetadataBytes) so
 		// re-reading it is cheap.
 		isManifest := descriptor.IsManifest(desc)
-		if !isManifest && opts.Verified != nil && opts.Verified.Contains(desc.Digest) {
+		if !isManifest && opts.KnownVerified != nil && opts.KnownVerified.Contains(desc.Digest) {
 			if opts.OnVerifySkipped != nil {
 				if err := opts.OnVerifySkipped(ctx, desc); err != nil {
 					return err
@@ -374,8 +397,8 @@ func verifyGraph(ctx context.Context, src content.ReadOnlyStorage, root ocispec.
 			report.addFailed(desc, verifyErr)
 		} else {
 			report.addVerified(desc)
-			if opts.Verified != nil {
-				opts.Verified.Add(desc.Digest)
+			if opts.KnownVerified != nil {
+				opts.KnownVerified.Add(desc.Digest)
 			}
 		}
 
@@ -416,7 +439,7 @@ func verifyGraph(ctx context.Context, src content.ReadOnlyStorage, root ocispec.
 	}
 
 	if err := syncutil.Go(ctx, limiter, fn, root); err != nil {
-		return report, newCopyError("VerifyGraph", CopyErrorOriginSource, root, err)
+		return report.report(), newCopyError("VerifyGraph", CopyErrorOriginSource, root, err)
 	}
-	return report, nil
+	return report.report(), nil
 }

@@ -622,7 +622,7 @@ func TestExtendedVerifyGraph_VerifiedSetReuse(t *testing.T) {
 
 	shared := oras.NewVerifiedSet()
 	opts := oras.ExtendedVerifyGraphOptions{
-		VerifyGraphOptions: oras.VerifyGraphOptions{Verified: shared},
+		VerifyGraphOptions: oras.VerifyGraphOptions{KnownVerified: shared},
 	}
 	report, err := oras.ExtendedVerifyGraph(ctx, src, g.descs[3], opts)
 	if err != nil {

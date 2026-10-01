@@ -369,7 +369,7 @@ func TestVerifyGraph_WithOptions(t *testing.T) {
 		shared.Add(descs[1].Digest) // pre-mark one leaf as already verified
 		var skippedCount int64
 		opts := oras.VerifyGraphOptions{
-			Verified: shared,
+			KnownVerified: shared,
 			OnVerifySkipped: func(ctx context.Context, desc ocispec.Descriptor) error {
 				atomic.AddInt64(&skippedCount, 1)
 				return nil
@@ -864,7 +864,7 @@ func TestVerify_VerifiedSetReuse(t *testing.T) {
 
 	shared := oras.NewVerifiedSet()
 	if _, _, err := oras.Verify(ctx, src, ref, oras.VerifyOptions{
-		VerifyGraphOptions: oras.VerifyGraphOptions{Verified: shared},
+		VerifyGraphOptions: oras.VerifyGraphOptions{KnownVerified: shared},
 	}); err != nil {
 		t.Fatalf("Verify() [populate] error = %v", err)
 	}
@@ -873,7 +873,7 @@ func TestVerify_VerifiedSetReuse(t *testing.T) {
 	}
 
 	_, report, err := oras.Verify(ctx, src, ref, oras.VerifyOptions{
-		VerifyGraphOptions: oras.VerifyGraphOptions{Verified: shared},
+		VerifyGraphOptions: oras.VerifyGraphOptions{KnownVerified: shared},
 	})
 	if err != nil {
 		t.Fatalf("Verify() [reuse] error = %v", err)

@@ -147,8 +147,8 @@ func ExtendedVerifyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, 
 	}, roots...)
 
 	if err != nil {
-		return report, err
+		return report.report(), err
 	}
 
-	return report, nil
+	return report.report(), nil
 }
