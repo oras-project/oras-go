@@ -25,7 +25,6 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/internal/cas"
 	"github.com/oras-project/oras-go/v3/internal/container/set"
-	"github.com/oras-project/oras-go/v3/internal/copyutil"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/internal/docker"
 	"github.com/oras-project/oras-go/v3/internal/spec"
@@ -59,6 +58,7 @@ type ExtendedCopyGraphOptions struct {
 	// equal to 0, the depth limit will be considered as infinity.
 	Depth int
 	// FindPredecessors finds the predecessors of the current node.
+	// It may be called concurrently, so it must be safe for concurrent use.
 	// If FindPredecessors is nil, src.Predecessors will be adapted and used.
 	FindPredecessors func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
@@ -114,16 +114,17 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 		return newCopyError("ExtendedCopyGraph", CopyErrorOriginDestination, ocispec.Descriptor{}, errors.New("nil destination target"))
 	}
 
-	roots, err := findRoots(ctx, src, node, opts)
-	if err != nil {
-		return err
-	}
-
 	// if Concurrency is not set or invalid, use the default concurrency
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultConcurrency
 	}
 	limiter := semaphore.NewWeighted(int64(opts.Concurrency))
+
+	roots, err := findRoots(ctx, src, node, opts, limiter)
+	if err != nil {
+		return err
+	}
+
 	// use caching proxy on non-leaf nodes
 	if opts.MaxMetadataBytes <= 0 {
 		opts.MaxMetadataBytes = defaultCopyMaxMetadataBytes
@@ -146,8 +147,9 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 }
 
 // findRoots finds the root nodes reachable from the given node through a
-// breadth-first search.
-func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) ([]ocispec.Descriptor, error) {
+// breadth-first search. The predecessors of the nodes at the same depth are
+// found concurrently, bounded by limiter.
+func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions, limiter *semaphore.Weighted) ([]ocispec.Descriptor, error) {
 	visited := set.New[descriptor.Descriptor]()
 	rootMap := make(map[descriptor.Descriptor]ocispec.Descriptor)
 	addRoot := func(key descriptor.Descriptor, val ocispec.Descriptor) {
@@ -163,45 +165,62 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 		}
 	}
 
-	// Visit nodes in depth order so a shared predecessor is processed at its
+	// Visit nodes level by level so a shared predecessor is processed at its
 	// shortest distance from the initial node.
-	frontier := copyutil.Stack{{Node: node, Depth: 0}}
-	var next copyutil.Stack
+	level := []ocispec.Descriptor{node}
+	var next []ocispec.Descriptor
 	visited.Add(descriptor.FromOCI(node))
-	for !frontier.IsEmpty() || !next.IsEmpty() {
-		if frontier.IsEmpty() {
-			frontier, next = next, frontier[:0]
-		}
-		current, _ := frontier.Pop()
-		currentNode := current.Node
-
+	for depth := 0; len(level) > 0; depth++ {
 		// stop finding predecessors if the target depth is reached
-		if opts.Depth > 0 && current.Depth == opts.Depth {
-			addRoot(descriptor.FromOCI(currentNode), currentNode)
-			continue
+		if opts.Depth > 0 && depth == opts.Depth {
+			for _, root := range level {
+				addRoot(descriptor.FromOCI(root), root)
+			}
+			break
 		}
 
-		predecessors, err := opts.FindPredecessors(ctx, storage, currentNode)
+		// Find the predecessors of every node at this depth concurrently.
+		// Each lookup writes only its own slot, so no lock is needed.
+		indices := make([]int, len(level))
+		for i := range indices {
+			indices[i] = i
+		}
+		results := make([][]ocispec.Descriptor, len(level))
+		err := syncutil.Go(ctx, limiter, func(ctx context.Context, _ *syncutil.LimitedRegion, i int) error {
+			predecessors, err := opts.FindPredecessors(ctx, storage, level[i])
+			if err != nil {
+				return newCopyError("FindPredecessors", CopyErrorOriginSource, level[i], err)
+			}
+			results[i] = predecessors
+			return nil
+		}, indices...)
 		if err != nil {
-			return nil, newCopyError("FindPredecessors", CopyErrorOriginSource, currentNode, err)
+			return nil, err
 		}
 
-		// The current node has no predecessor node,
-		// which means it is a root node of a sub-DAG.
-		if len(predecessors) == 0 {
-			addRoot(descriptor.FromOCI(currentNode), currentNode)
-			continue
-		}
+		// Merge the results in order, so the outcome does not depend on which
+		// lookup finished first.
+		for i, predecessors := range results {
+			// The current node has no predecessor node,
+			// which means it is a root node of a sub-DAG.
+			if len(predecessors) == 0 {
+				addRoot(descriptor.FromOCI(level[i]), level[i])
+				continue
+			}
 
-		// The current node has predecessor nodes, which means it is NOT a root node.
-		// Queue predecessor nodes for the next depth and keep finding.
-		for _, predecessor := range predecessors {
-			predecessorKey := descriptor.FromOCI(predecessor)
-			if !visited.Contains(predecessorKey) {
-				visited.Add(predecessorKey)
-				next.Push(copyutil.NodeInfo{Node: predecessor, Depth: current.Depth + 1})
+			// The current node has predecessor nodes, which means it is NOT a root node.
+			// Queue predecessor nodes for the next depth and keep finding.
+			for _, predecessor := range predecessors {
+				predecessorKey := descriptor.FromOCI(predecessor)
+				if !visited.Contains(predecessorKey) {
+					visited.Add(predecessorKey)
+					next = append(next, predecessor)
+				}
 			}
 		}
+
+		// move on to the next depth, reusing the backing array of this level
+		level, next = next, level[:0]
 	}
 
 	roots := make([]ocispec.Descriptor, 0, len(rootMap))

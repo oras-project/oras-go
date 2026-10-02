@@ -27,6 +27,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -710,6 +711,54 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 	copiedIndice := []int{0, 1, 2, 3, 4, 5, 6, 7}
 	uncopiedIndice := []int{8, 9, 10, 11}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
+}
+
+func TestExtendedCopyGraph_FindPredecessorsConcurrently(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	src := memory.New()
+	// node has four predecessors, all at depth 1
+	node := pushIndex(t, ctx, src, "node")
+	var predecessors []ocispec.Descriptor
+	for _, name := range []string{"p1", "p2", "p3", "p4"} {
+		predecessors = append(predecessors, pushIndex(t, ctx, src, name, node))
+	}
+
+	var calls atomic.Int64
+	// Each predecessor lookup blocks until the lookups of all predecessors are
+	// in flight at once, which only a concurrent implementation can reach.
+	// A serial implementation waits here until ctx times out.
+	var arrived atomic.Int64
+	allArrived := make(chan struct{})
+	dst := memory.New()
+	opts := oras.ExtendedCopyGraphOptions{
+		CopyGraphOptions: oras.CopyGraphOptions{
+			Concurrency: len(predecessors),
+		},
+		FindPredecessors: func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			calls.Add(1)
+			if desc.Digest == node.Digest {
+				return src.Predecessors(ctx, desc)
+			}
+			if arrived.Add(1) == int64(len(predecessors)) {
+				close(allArrived)
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-allArrived:
+			}
+			return src.Predecessors(ctx, desc)
+		},
+	}
+	if err := oras.ExtendedCopyGraph(ctx, src, dst, node, opts); err != nil {
+		t.Fatal(err)
+	}
+
+	// FindPredecessors is called once for node and once for each predecessor
+	if got, want := calls.Load(), int64(len(predecessors)+1); got != want {
+		t.Errorf("FindPredecessors calls = %d, want %d", got, want)
+	}
 }
 
 func TestExtendedCopy_NotFound(t *testing.T) {
