@@ -40,13 +40,14 @@ func NewDescriptorFromBytes(mediaType string, content []byte) ocispec.Descriptor
 // NewDescriptorFromBytesWithAlgorithm returns a descriptor like
 // [NewDescriptorFromBytes], with the digest computed using alg.
 // If alg is empty, [digest.Canonical] is used.
-// It returns [errdef.ErrUnsupported] if alg is not available, which requires
-// its hash package to be linked into the binary.
+// It returns [errdef.ErrUnsupported] if alg is not one of SHA-256, SHA-384 and
+// SHA-512, or is not available, which requires its hash package to be linked
+// into the binary.
 func NewDescriptorFromBytesWithAlgorithm(mediaType string, content []byte, alg digest.Algorithm) (ocispec.Descriptor, error) {
 	if alg == "" {
 		alg = digest.Canonical
 	}
-	if !alg.Available() {
+	if !descriptor.IsSupportedAlgorithm(alg) || !alg.Available() {
 		return ocispec.Descriptor{}, fmt.Errorf("digest algorithm %q: %w", alg, errdef.ErrUnsupported)
 	}
 	if mediaType == "" {

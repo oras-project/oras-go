@@ -30,6 +30,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 )
 
@@ -113,9 +114,12 @@ type PackManifestOptions struct {
 	// manifest, and of the config and layer blobs that [PackManifest]
 	// generates. Descriptors supplied in Subject, Layers and ConfigDescriptor
 	// keep their own digests.
-	// If empty, [digest.Canonical] (SHA-256) is used. Any other algorithm must
-	// be available, which requires its hash package to be linked into the
-	// binary (for example by importing crypto/sha512).
+	// If empty, [digest.Canonical] (SHA-256) is used. SHA-384 and SHA-512 are
+	// the other supported algorithms, and must be available, which requires
+	// their hash package to be linked into the binary (for example by
+	// importing crypto/sha512).
+	// With a non-canonical algorithm, the generated empty config and layer
+	// digests differ from [ocispec.DescriptorEmptyJSON].
 	DigestAlgorithm digest.Algorithm
 }
 
@@ -151,7 +155,7 @@ func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersio
 	if opts.DigestAlgorithm == "" {
 		opts.DigestAlgorithm = digest.Canonical
 	}
-	if !opts.DigestAlgorithm.Available() {
+	if !descriptor.IsSupportedAlgorithm(opts.DigestAlgorithm) || !opts.DigestAlgorithm.Available() {
 		return ocispec.Descriptor{}, fmt.Errorf("digest algorithm %q: %w", opts.DigestAlgorithm, errdef.ErrUnsupported)
 	}
 	switch packManifestVersion {
@@ -421,7 +425,7 @@ func pushManifest(ctx context.Context, pusher content.Pusher, manifest any, medi
 	}
 	manifestDesc, err := content.NewDescriptorFromBytesWithAlgorithm(mediaType, manifestJSON, alg)
 	if err != nil {
-		return ocispec.Descriptor{}, err
+		return ocispec.Descriptor{}, fmt.Errorf("failed to create manifest descriptor: %w", err)
 	}
 	// populate ArtifactType and Annotations of the manifest into manifestDesc
 	manifestDesc.ArtifactType = artifactType
