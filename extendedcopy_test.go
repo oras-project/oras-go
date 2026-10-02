@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -2010,5 +2011,56 @@ func TestExtendedCopy_CopyError_Descriptor(t *testing.T) {
 	want := `failed to perform "Tag" on destination for ` + manifestDesc.Digest.String() + `: ` + errTag.Error()
 	if got := copyErr.Error(); got != want {
 		t.Errorf("CopyError message = %q, want %q", got, want)
+	}
+}
+
+// pushIndex pushes an image index referencing manifests to store and returns
+// its descriptor. The name annotation keeps the content of each index unique.
+func pushIndex(tb testing.TB, ctx context.Context, store content.Pusher, name string, manifests ...ocispec.Descriptor) ocispec.Descriptor {
+	tb.Helper()
+	if manifests == nil {
+		manifests = []ocispec.Descriptor{}
+	}
+	data, err := json.Marshal(ocispec.Index{
+		Versioned:   specs.Versioned{SchemaVersion: 2},
+		MediaType:   ocispec.MediaTypeImageIndex,
+		Manifests:   manifests,
+		Annotations: map[string]string{"name": name},
+	})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, data)
+	if err := store.Push(ctx, desc, bytes.NewReader(data)); err != nil {
+		tb.Fatal(err)
+	}
+	return desc
+}
+
+func BenchmarkExtendedCopyGraph_FindPredecessorsLatency(b *testing.B) {
+	// latency simulates the round trip of a lookup against a remote registry.
+	const latency = 5 * time.Millisecond
+	for _, width := range []int{1, 4, 16, 32} {
+		b.Run("width="+strconv.Itoa(width), func(b *testing.B) {
+			ctx := context.Background()
+			src := memory.New()
+			node := pushIndex(b, ctx, src, "node")
+			for i := range width {
+				pushIndex(b, ctx, src, "p"+strconv.Itoa(i), node)
+			}
+
+			opts := oras.ExtendedCopyGraphOptions{
+				FindPredecessors: func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+					time.Sleep(latency)
+					return src.Predecessors(ctx, desc)
+				},
+			}
+			for b.Loop() {
+				dst := memory.New()
+				if err := oras.ExtendedCopyGraph(ctx, src, dst, node, opts); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
