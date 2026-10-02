@@ -119,6 +119,9 @@ func (s *VerifiedSet) Contains(d digest.Digest) bool {
 func (s *VerifiedSet) Add(d digest.Digest) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+	if s.digests == nil {
+		s.digests = make(map[digest.Digest]struct{})
+	}
 	s.digests[d] = struct{}{}
 }
 
@@ -159,7 +162,7 @@ type VerifyGraphReport struct {
 // OK reports whether verification recorded any failures.
 // Skipped descriptors do not make the report unsuccessful.
 func (r *VerifyGraphReport) OK() bool {
-	return len(r.Failed) == 0
+	return r != nil && len(r.Failed) == 0
 }
 
 // verifyGraphReport is the mutable, concurrency-safe accumulator used during
@@ -173,15 +176,6 @@ type verifyGraphReport struct {
 
 func newVerifyGraphReport() *verifyGraphReport {
 	return &verifyGraphReport{}
-}
-
-func (r *verifyGraphReport) OK() bool {
-	if r == nil {
-		return false
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.failed) == 0
 }
 
 // report returns a snapshot of the accumulated results.

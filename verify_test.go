@@ -1104,3 +1104,11 @@ func TestVerifyGraph_ContextCanceledMidWalk(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyGraphReport_OK_Nil(t *testing.T) {
+	var report *oras.VerifyGraphReport
+
+	if report.OK() {
+		t.Fatal("VerifyGraphReport.OK() = true, want false")
+	}
+}
