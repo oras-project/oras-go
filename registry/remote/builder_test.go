@@ -273,6 +273,39 @@ func TestClientBuilder_Build_WithCustomCache(t *testing.T) {
 	}
 }
 
+func TestClientBuilder_Build_NilCacheFactory(t *testing.T) {
+	builder := NewClientBuilder()
+	builder.CacheFactory = nil
+
+	propsA := &properties.Registry{
+		Reference: properties.Reference{
+			Registry:   "test-registry-a.example.com",
+			Repository: "test/repo",
+		},
+	}
+	propsB := &properties.Registry{
+		Reference: properties.Reference{
+			Registry:   "test-registry-b.example.com",
+			Repository: "test/repo",
+		},
+	}
+
+	clientA, err := builder.Build(propsA)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	clientB, err := builder.Build(propsB)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if clientA.Cache == nil || clientB.Cache == nil {
+		t.Fatal("Build() returned client with nil cache")
+	}
+	if clientA.Cache == clientB.Cache {
+		t.Error("Build() returned the same cache for different registries")
+	}
+}
+
 func TestClientBuilder_Build_WithTokenFetcher(t *testing.T) {
 	wantToken := "custom-token"
 	customFetcher := &mockTokenFetcher{token: wantToken}

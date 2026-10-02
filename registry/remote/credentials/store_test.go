@@ -607,72 +607,105 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 		configPath    string
 		serverAddress string
 		want          string
+		wantExact     bool
 	}{
 		{
 			name:          "Get cred helper: registry_helper1",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com",
 			want:          "registry1-helper",
+			wantExact:     true,
 		},
 		{
 			name:          "Get cred helper: registry_helper2",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry2.example.com",
 			want:          "registry2-helper",
+			wantExact:     true,
 		},
 		{
 			name:          "Empty cred helper configured",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry3.example.com",
 			want:          "",
+			wantExact:     true,
 		},
 		{
 			name:          "No cred helper and creds store configured",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "whatever.example.com",
 			want:          "",
+			wantExact:     true,
 		},
 		{
 			name:          "Choose cred helper over creds store",
 			configPath:    "testdata/credsStore_config.json",
 			serverAddress: "test.example.com",
 			want:          "test-helper",
+			wantExact:     true,
 		},
 		{
 			name:          "No cred helper configured, choose cred store",
 			configPath:    "testdata/credsStore_config.json",
 			serverAddress: "whatever.example.com",
 			want:          "teststore",
+			wantExact:     true,
 		},
 		{
 			name:          "Namespaced address uses the cred helper of its host",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com/team/app",
 			want:          "registry1-helper",
+			wantExact:     false,
 		},
 		{
 			name:          "Namespaced address with an empty cred helper for its host",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry3.example.com/team/app",
 			want:          "",
+			wantExact:     false,
 		},
 		{
 			name:          "Namespaced address without a cred helper falls back to creds store",
 			configPath:    "testdata/credsStore_config.json",
 			serverAddress: "whatever.example.com/team/app",
 			want:          "teststore",
+			wantExact:     false,
 		},
 		{
 			name:          "Namespaced address prefers its host's cred helper over creds store",
 			configPath:    "testdata/credsStore_config.json",
 			serverAddress: "test.example.com/team/app",
 			want:          "test-helper",
+			wantExact:     false,
 		},
 		{
 			name:          "Host is not matched by prefix",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com.evil/team",
 			want:          "",
+			wantExact:     false,
+		},
+		{
+			name:          "Docker sentinel with creds store is exact",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "https://index.docker.io/v1/",
+			want:          "teststore",
+			wantExact:     true,
+		},
+		{
+			name:          "Docker sentinel without trailing slash with creds store is exact",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "https://index.docker.io/v1",
+			want:          "teststore",
+			wantExact:     true,
+		},
+		{
+			name:          "Docker sentinel without scheme with creds store is exact",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "index.docker.io/v1",
+			want:          "teststore",
+			wantExact:     true,
 		},
 	}
 	for _, tt := range tests {
@@ -681,8 +714,45 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 			if err != nil {
 				t.Fatal("NewStore() error =", err)
 			}
-			if got, _ := ds.getHelperSuffix(tt.serverAddress); got != tt.want {
-				t.Errorf("DynamicStore.getHelperSuffix() = %v, want %v", got, tt.want)
+			got, gotExact := ds.getHelperSuffix(tt.serverAddress)
+			if got != tt.want {
+				t.Errorf("DynamicStore.getHelperSuffix() suffix = %v, want %v", got, tt.want)
+			}
+			if gotExact != tt.wantExact {
+				t.Errorf("DynamicStore.getHelperSuffix() exact = %v, want %v", gotExact, tt.wantExact)
+			}
+		})
+	}
+}
+
+func Test_isNamespaced(t *testing.T) {
+	tests := []struct {
+		address string
+		want    bool
+	}{
+		{"example.com", false},
+		{"example.com:5000", false},
+		{"localhost", false},
+		{"localhost:5000", false},
+		{"127.0.0.1:5000", false},
+		{"http://localhost:5000/", false},
+		{"https://example.com/", false},
+		{"https://index.docker.io/v1/", false},
+		{"https://index.docker.io/v1", false},
+		{"index.docker.io/v1", false},
+		{"index.docker.io/v1/", false},
+		{"http://index.docker.io/v1/", false},
+		{"example.com/team/app", true},
+		{"example.com/team", true},
+		{"localhost:5000/repo", true},
+		{"http://localhost:5000/repo", true},
+		{"https://index.docker.io/v1/library/ubuntu", true},
+		{"index.docker.io/v1/library/ubuntu", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.address, func(t *testing.T) {
+			if got := isNamespaced(tt.address); got != tt.want {
+				t.Errorf("isNamespaced(%q) = %v, want %v", tt.address, got, tt.want)
 			}
 		})
 	}
@@ -706,31 +776,49 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 		name          string
 		configPath    string
 		serverAddress string
+		wantInherited bool
 	}{
 		{
 			name:          "Cred helper configured for registry1.example.com",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com",
+			wantInherited: false,
 		},
 		{
 			name:          "Cred helper configured for registry2.example.com",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry2.example.com",
+			wantInherited: false,
 		},
 		{
 			name:          "Cred helper configured for test.example.com",
 			configPath:    "testdata/credsStore_config.json",
 			serverAddress: "test.example.com",
+			wantInherited: false,
 		},
 		{
 			name:          "No cred helper configured, use creds store",
 			configPath:    "testdata/credsStore_config.json",
 			serverAddress: "whaterver.example.com",
+			wantInherited: false,
 		},
 		{
 			name:          "Cred helper configured for the host of a namespaced address",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com/team/app",
+			wantInherited: true,
+		},
+		{
+			name:          "Creds store for a namespaced address",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "whatever.example.com/team/app",
+			wantInherited: true,
+		},
+		{
+			name:          "Docker sentinel with creds store is not inherited",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "https://index.docker.io/v1/",
+			wantInherited: false,
 		},
 	}
 	for _, tt := range tests {
@@ -740,6 +828,10 @@ func Test_DynamicStore_getStore_nativeStore(t *testing.T) {
 				t.Fatal("NewStore() error =", err)
 			}
 			gotStore := ds.getStore(tt.serverAddress)
+			_, isInherited := gotStore.(inheritedHelperStore)
+			if isInherited != tt.wantInherited {
+				t.Errorf("gotStore inherited = %v, want %v", isInherited, tt.wantInherited)
+			}
 			if inherited, ok := gotStore.(inheritedHelperStore); ok {
 				gotStore = inherited.Store
 			}
