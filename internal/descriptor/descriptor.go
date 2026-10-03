@@ -42,6 +42,18 @@ type Descriptor struct {
 // Empty is an empty descriptor
 var Empty Descriptor
 
+// IsSupportedAlgorithm reports whether alg is a digest algorithm that oras-go
+// accepts. The set is fixed here rather than taken from go-digest, whose
+// registry can hold algorithms that are not appropriate for ORAS.
+func IsSupportedAlgorithm(alg digest.Algorithm) bool {
+	switch alg {
+	case digest.SHA256, digest.SHA384, digest.SHA512:
+		return true
+	default:
+		return false
+	}
+}
+
 // FromOCI shrinks the OCI descriptor to the minimum.
 func FromOCI(desc ocispec.Descriptor) Descriptor {
 	return Descriptor{

@@ -16,8 +16,11 @@ limitations under the License.
 package content
 
 import (
+	"fmt"
+
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
 )
 
@@ -32,6 +35,29 @@ func NewDescriptorFromBytes(mediaType string, content []byte) ocispec.Descriptor
 		Digest:    digest.FromBytes(content),
 		Size:      int64(len(content)),
 	}
+}
+
+// NewDescriptorFromBytesWithAlgorithm returns a descriptor like
+// [NewDescriptorFromBytes], with the digest computed using alg.
+// If alg is empty, [digest.Canonical] is used.
+// It returns [errdef.ErrUnsupported] if alg is not one of SHA-256, SHA-384 and
+// SHA-512, or is not available, which requires its hash package to be linked
+// into the binary.
+func NewDescriptorFromBytesWithAlgorithm(mediaType string, content []byte, alg digest.Algorithm) (ocispec.Descriptor, error) {
+	if alg == "" {
+		alg = digest.Canonical
+	}
+	if !descriptor.IsSupportedAlgorithm(alg) || !alg.Available() {
+		return ocispec.Descriptor{}, fmt.Errorf("digest algorithm %q: %w", alg, errdef.ErrUnsupported)
+	}
+	if mediaType == "" {
+		mediaType = descriptor.DefaultMediaType
+	}
+	return ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    alg.FromBytes(content),
+		Size:      int64(len(content)),
+	}, nil
 }
 
 // Equal returns true if two descriptors point to the same content.
