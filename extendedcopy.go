@@ -195,6 +195,12 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 			return nil
 		}, indices...)
 		if err != nil {
+			// On cancellation syncutil.Go returns the context cause, which
+			// drops the CopyError built above.
+			var copyErr *CopyError
+			if !errors.As(err, &copyErr) {
+				return nil, newCopyError("FindPredecessors", CopyErrorOriginSource, ocispec.Descriptor{}, err)
+			}
 			return nil, err
 		}
 

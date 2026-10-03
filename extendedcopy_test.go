@@ -761,6 +761,41 @@ func TestExtendedCopyGraph_FindPredecessorsConcurrently(t *testing.T) {
 	}
 }
 
+func TestExtendedCopyGraph_FindPredecessorsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	src := memory.New()
+	// node has two predecessors, both at depth 1
+	node := pushIndex(t, ctx, src, "node")
+	pushIndex(t, ctx, src, "p1", node)
+	pushIndex(t, ctx, src, "p2", node)
+
+	// cancel ctx while the predecessors of depth 1 are being looked up
+	opts := oras.ExtendedCopyGraphOptions{
+		FindPredecessors: func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			if desc.Digest == node.Digest {
+				return src.Predecessors(ctx, desc)
+			}
+			cancel()
+			return nil, ctx.Err()
+		},
+	}
+	err := oras.ExtendedCopyGraph(ctx, src, memory.New(), node, opts)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, context.Canceled)
+	}
+	var copyErr *oras.CopyError
+	if !errors.As(err, &copyErr) {
+		t.Fatalf("ExtendedCopyGraph() error is not a CopyError: %v", err)
+	}
+	if want := "FindPredecessors"; copyErr.Op != want {
+		t.Errorf("CopyError op = %v, want %v", copyErr.Op, want)
+	}
+	if want := oras.CopyErrorOriginSource; copyErr.Origin != want {
+		t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+	}
+}
+
 func TestExtendedCopy_NotFound(t *testing.T) {
 	src := memory.New()
 	dst := memory.New()
