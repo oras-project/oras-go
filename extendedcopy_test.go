@@ -27,7 +27,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -709,6 +711,89 @@ func TestExtendedCopyGraph_WithFindPredecessorsOption(t *testing.T) {
 	copiedIndice := []int{0, 1, 2, 3, 4, 5, 6, 7}
 	uncopiedIndice := []int{8, 9, 10, 11}
 	verifyCopy(dst, copiedIndice, uncopiedIndice)
+}
+
+func TestExtendedCopyGraph_FindPredecessorsConcurrently(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	src := memory.New()
+	// node has four predecessors, all at depth 1
+	node := pushIndex(t, ctx, src, "node")
+	var predecessors []ocispec.Descriptor
+	for _, name := range []string{"p1", "p2", "p3", "p4"} {
+		predecessors = append(predecessors, pushIndex(t, ctx, src, name, node))
+	}
+
+	var calls atomic.Int64
+	// Each predecessor lookup blocks until the lookups of all predecessors are
+	// in flight at once, which only a concurrent implementation can reach.
+	// A serial implementation waits here until ctx times out.
+	var arrived atomic.Int64
+	allArrived := make(chan struct{})
+	dst := memory.New()
+	opts := oras.ExtendedCopyGraphOptions{
+		CopyGraphOptions: oras.CopyGraphOptions{
+			Concurrency: len(predecessors),
+		},
+		FindPredecessors: func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			calls.Add(1)
+			if desc.Digest == node.Digest {
+				return src.Predecessors(ctx, desc)
+			}
+			if arrived.Add(1) == int64(len(predecessors)) {
+				close(allArrived)
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-allArrived:
+			}
+			return src.Predecessors(ctx, desc)
+		},
+	}
+	if err := oras.ExtendedCopyGraph(ctx, src, dst, node, opts); err != nil {
+		t.Fatal(err)
+	}
+
+	// FindPredecessors is called once for node and once for each predecessor
+	if got, want := calls.Load(), int64(len(predecessors)+1); got != want {
+		t.Errorf("FindPredecessors calls = %d, want %d", got, want)
+	}
+}
+
+func TestExtendedCopyGraph_FindPredecessorsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	src := memory.New()
+	// node has two predecessors, both at depth 1
+	node := pushIndex(t, ctx, src, "node")
+	pushIndex(t, ctx, src, "p1", node)
+	pushIndex(t, ctx, src, "p2", node)
+
+	// cancel ctx while the predecessors of depth 1 are being looked up
+	opts := oras.ExtendedCopyGraphOptions{
+		FindPredecessors: func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			if desc.Digest == node.Digest {
+				return src.Predecessors(ctx, desc)
+			}
+			cancel()
+			return nil, ctx.Err()
+		},
+	}
+	err := oras.ExtendedCopyGraph(ctx, src, memory.New(), node, opts)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, context.Canceled)
+	}
+	var copyErr *oras.CopyError
+	if !errors.As(err, &copyErr) {
+		t.Fatalf("ExtendedCopyGraph() error is not a CopyError: %v", err)
+	}
+	if want := "FindPredecessors"; copyErr.Op != want {
+		t.Errorf("CopyError op = %v, want %v", copyErr.Op, want)
+	}
+	if want := oras.CopyErrorOriginSource; copyErr.Origin != want {
+		t.Errorf("CopyError origin = %v, want %v", copyErr.Origin, want)
+	}
 }
 
 func TestExtendedCopy_NotFound(t *testing.T) {
@@ -2010,5 +2095,56 @@ func TestExtendedCopy_CopyError_Descriptor(t *testing.T) {
 	want := `failed to perform "Tag" on destination for ` + manifestDesc.Digest.String() + `: ` + errTag.Error()
 	if got := copyErr.Error(); got != want {
 		t.Errorf("CopyError message = %q, want %q", got, want)
+	}
+}
+
+// pushIndex pushes an image index referencing manifests to store and returns
+// its descriptor. The name annotation keeps the content of each index unique.
+func pushIndex(tb testing.TB, ctx context.Context, store content.Pusher, name string, manifests ...ocispec.Descriptor) ocispec.Descriptor {
+	tb.Helper()
+	if manifests == nil {
+		manifests = []ocispec.Descriptor{}
+	}
+	data, err := json.Marshal(ocispec.Index{
+		Versioned:   specs.Versioned{SchemaVersion: 2},
+		MediaType:   ocispec.MediaTypeImageIndex,
+		Manifests:   manifests,
+		Annotations: map[string]string{"name": name},
+	})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, data)
+	if err := store.Push(ctx, desc, bytes.NewReader(data)); err != nil {
+		tb.Fatal(err)
+	}
+	return desc
+}
+
+func BenchmarkExtendedCopyGraph_FindPredecessorsLatency(b *testing.B) {
+	// latency simulates the round trip of a lookup against a remote registry.
+	const latency = 5 * time.Millisecond
+	for _, width := range []int{1, 4, 16, 32} {
+		b.Run("width="+strconv.Itoa(width), func(b *testing.B) {
+			ctx := context.Background()
+			src := memory.New()
+			node := pushIndex(b, ctx, src, "node")
+			for i := range width {
+				pushIndex(b, ctx, src, "p"+strconv.Itoa(i), node)
+			}
+
+			opts := oras.ExtendedCopyGraphOptions{
+				FindPredecessors: func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+					time.Sleep(latency)
+					return src.Predecessors(ctx, desc)
+				},
+			}
+			for b.Loop() {
+				dst := memory.New()
+				if err := oras.ExtendedCopyGraph(ctx, src, dst, node, opts); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

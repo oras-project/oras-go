@@ -297,6 +297,11 @@ changes:
   serve as defaults on `remote.Registry`, with repository-level overrides.
 - A detected native credential store is no longer persisted to a shared Docker
   configuration file as a side effect of `DynamicStore.Put`.
+- `oras.ExtendedCopy` and `oras.ExtendedCopyGraph` look up predecessors
+  concurrently, up to `Concurrency` lookups at a time, so
+  `ExtendedCopyGraphOptions.FindPredecessors` and the source storage it queries
+  may be called from several goroutines. Implementations that keep state must
+  synchronize access to it. In v2 the lookups ran one node at a time.
 
 ## Major additions in v3
 
