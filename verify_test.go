@@ -1112,3 +1112,11 @@ func TestVerifyGraphReport_OK_Nil(t *testing.T) {
 		t.Fatal("VerifyGraphReport.OK() = true, want false")
 	}
 }
+
+func TestVerifyReport_OK_Nil(t *testing.T) {
+	var report *oras.VerifyReport
+
+	if report.OK() {
+		t.Fatal("VerifyReport.OK() = true, want false")
+	}
+}

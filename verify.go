@@ -64,7 +64,7 @@ type VerifyGraphOptions struct {
 	// itself, which does not.
 	PostVerify func(ctx context.Context, desc ocispec.Descriptor, verifyErr error) error
 	// OnVerifySkipped will be called when desc is skipped because its
-	// digest was already present in Verified.
+	// digest was already present in KnownVerified.
 	OnVerifySkipped func(ctx context.Context, desc ocispec.Descriptor) error
 	// FindSuccessors finds the successors of the current node.
 	// A node for which FindSuccessors returns successors is not itself read
@@ -93,7 +93,7 @@ type VerifyGraphOptions struct {
 // verification. It is safe for concurrent use, and a single VerifiedSet may
 // be shared and reused across multiple Verify/VerifyGraph calls that read
 // from the same underlying storage. Do not share a VerifiedSet between
-// different storages; see VerifyGraphOptions.Verified.
+// different storages; see VerifyGraphOptions.KnownVerified.
 //
 // Digests added to a VerifiedSet are trusted without being re-read, so only
 // add digests that were actually verified.
@@ -228,6 +228,12 @@ type VerifyReport struct {
 	// Node is the descriptor that ref resolved to.
 	Node ocispec.Descriptor
 	*VerifyGraphReport
+}
+
+// OK reports whether verification recorded any failures.
+// It returns false for a nil report.
+func (r *VerifyReport) OK() bool {
+	return r != nil && r.VerifyGraphReport.OK()
 }
 
 // Verify resolves ref against src and verifies the content integrity of the
