@@ -219,7 +219,9 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 			}
 		}
 
-		// move on to the next depth, reusing the backing array of this level
+		// Move on to the next depth, reusing the backing array of this level.
+		// level and next always alternate between two distinct arrays, so the
+		// appends above can never overwrite the level entries read above.
 		level, next = next, level[:0]
 	}
 
