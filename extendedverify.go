@@ -51,6 +51,7 @@ type ExtendedVerifyGraphOptions struct {
 	// equal to 0, the depth limit will be considered as infinity.
 	Depth int
 	// FindPredecessors finds the predecessors of the current node.
+	// It may be called concurrently, so it must be safe for concurrent use.
 	// If FindPredecessors is nil, src.Predecessors will be adapted and used.
 	FindPredecessors func(ctx context.Context, src content.ReadOnlyGraphStorage, desc ocispec.Descriptor) ([]ocispec.Descriptor, error)
 }
