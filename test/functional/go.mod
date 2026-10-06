@@ -3,7 +3,7 @@ module github.com/oras-project/oras-go/v3/test/functional
 go 1.26.0
 
 require (
-	github.com/ProtonMail/go-crypto v1.5.0
+	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/oras-project/oras-go/v3 v3.0.0
