@@ -98,38 +98,39 @@ type VerifyGraphOptions struct {
 // Digests added to a VerifiedSet are trusted without being re-read, so only
 // add digests that were actually verified.
 type VerifiedSet struct {
-	lock    sync.RWMutex
-	digests map[digest.Digest]struct{}
+	lock  sync.RWMutex
+	sizes map[digest.Digest]int64
 }
 
 // NewVerifiedSet returns an empty VerifiedSet ready for use.
 func NewVerifiedSet() *VerifiedSet {
-	return &VerifiedSet{digests: make(map[digest.Digest]struct{})}
+	return &VerifiedSet{sizes: make(map[digest.Digest]int64)}
 }
 
-// Contains reports whether d has already been recorded as verified.
-func (s *VerifiedSet) Contains(d digest.Digest) bool {
+// Contains reports whether desc has already been recorded as verified with
+// the same digest and size.
+func (s *VerifiedSet) Contains(desc ocispec.Descriptor) bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	_, ok := s.digests[d]
-	return ok
+	size, ok := s.sizes[desc.Digest]
+	return ok && size == desc.Size
 }
 
-// Add records d as verified.
-func (s *VerifiedSet) Add(d digest.Digest) {
+// Add records desc as verified.
+func (s *VerifiedSet) Add(desc ocispec.Descriptor) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	if s.digests == nil {
-		s.digests = make(map[digest.Digest]struct{})
+	if s.sizes == nil {
+		s.sizes = make(map[digest.Digest]int64)
 	}
-	s.digests[d] = struct{}{}
+	s.sizes[desc.Digest] = desc.Size
 }
 
 // Len returns the number of digests currently recorded.
 func (s *VerifiedSet) Len() int {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	return len(s.digests)
+	return len(s.sizes)
 }
 
 // FailedNode describes a descriptor that failed content integrity
@@ -345,7 +346,7 @@ func verifyGraph(ctx context.Context, src content.ReadOnlyStorage, root ocispec.
 		// manifest is metadata-sized (bounded by MaxMetadataBytes) so
 		// re-reading it is cheap.
 		isManifest := descriptor.IsManifest(desc)
-		if !isManifest && opts.KnownVerified != nil && opts.KnownVerified.Contains(desc.Digest) {
+		if !isManifest && opts.KnownVerified != nil && opts.KnownVerified.Contains(desc) {
 			if opts.OnVerifySkipped != nil {
 				if err := opts.OnVerifySkipped(ctx, desc); err != nil {
 					return err
@@ -398,7 +399,7 @@ func verifyGraph(ctx context.Context, src content.ReadOnlyStorage, root ocispec.
 		} else {
 			report.addVerified(desc)
 			if opts.KnownVerified != nil {
-				opts.KnownVerified.Add(desc.Digest)
+				opts.KnownVerified.Add(desc)
 			}
 		}
 

@@ -366,7 +366,7 @@ func TestVerifyGraph_WithOptions(t *testing.T) {
 
 	t.Run("OnVerifySkipped fires for Verified-set skips", func(t *testing.T) {
 		shared := oras.NewVerifiedSet()
-		shared.Add(descs[1].Digest) // pre-mark one leaf as already verified
+		shared.Add(descs[1]) // pre-mark one leaf as already verified
 		var skippedCount int64
 		opts := oras.VerifyGraphOptions{
 			KnownVerified: shared,
@@ -890,6 +890,78 @@ func TestVerify_VerifiedSetReuse(t *testing.T) {
 	if got, want := len(report.Skipped), len(descs)-1; got != want {
 		t.Errorf("len(report.Skipped) = %v, want %v", got, want)
 	}
+}
+
+func TestVerifyGraph_VerifiedSetSizeMismatch(t *testing.T) {
+	ctx := context.Background()
+	src := cas.NewMemory()
+	blob := []byte("foo")
+	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, blob)
+	if err := src.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+		t.Fatalf("failed to push test content to src: %v", err)
+	}
+
+	// record the blob as verified with its correct size
+	shared := oras.NewVerifiedSet()
+	opts := oras.VerifyGraphOptions{KnownVerified: shared}
+	report, err := oras.VerifyGraph(ctx, src, desc, opts)
+	if err != nil {
+		t.Fatalf("VerifyGraph() [populate] error = %v", err)
+	}
+	if !report.OK() {
+		t.Fatalf("report.OK() = false, want true; Failed = %v", report.Failed)
+	}
+	if got, want := shared.Len(), 1; got != want {
+		t.Fatalf("shared.Len() = %v, want %v", got, want)
+	}
+
+	// Same digest, different declared size. This must not match a previously
+	// verified descriptor.
+	wrongSize := desc
+	wrongSize.Size++
+
+	if shared.Contains(wrongSize) {
+		t.Fatal("shared.Contains(wrongSize) = true, want false")
+	}
+
+	t.Run("matching descriptor is still skipped", func(t *testing.T) {
+		report, err := oras.VerifyGraph(ctx, src, desc, opts)
+		if err != nil {
+			t.Fatalf("VerifyGraph() error = %v", err)
+		}
+		if !report.OK() {
+			t.Fatalf("report.OK() = false, want true; Failed = %v", report.Failed)
+		}
+		if got, want := len(report.Skipped), 1; got != want {
+			t.Errorf("len(report.Skipped) = %v, want %v", got, want)
+		}
+		if got := len(report.Verified); got != 0 {
+			t.Errorf("len(report.Verified) = %v, want 0", got)
+		}
+	})
+
+	t.Run("same digest with different size is failed, not skipped", func(t *testing.T) {
+		report, err := oras.VerifyGraph(ctx, src, wrongSize, opts)
+		if err != nil {
+			t.Fatalf("VerifyGraph() error = %v", err)
+		}
+		if report.OK() {
+			t.Fatal("report.OK() = true, want false")
+		}
+		if got := len(report.Skipped); got != 0 {
+			t.Errorf("len(report.Skipped) = %v, want 0", got)
+		}
+		if got, want := len(report.Failed), 1; got != want {
+			t.Fatalf("len(report.Failed) = %v, want %v", got, want)
+		}
+		if got, want := report.Failed[0].Descriptor, wrongSize; !reflect.DeepEqual(got, want) {
+			t.Errorf("report.Failed[0].Descriptor = %v, want %v", got, want)
+		}
+		// a failed node must not be recorded as verified
+		if shared.Contains(wrongSize) {
+			t.Error("shared.Contains(wrongSize) = true, want false")
+		}
+	})
 }
 
 func TestVerify_Errors(t *testing.T) {
