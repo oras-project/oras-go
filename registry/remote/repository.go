@@ -2263,7 +2263,11 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // HEAD, so remain strict.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
 	headerStr := resp.Header.Get(headerDockerContentDigest)
-	if !descriptor.IsSupportedAlgorithm(expected.Algorithm()) || !expected.Algorithm().Available() {
+	if algo := expected.Algorithm(); !descriptor.IsSupportedAlgorithm(algo) {
+		return fmt.Errorf("%s %q: unsupported digest algorithm %q: %w",
+			resp.Request.Method, resp.Request.URL, algo, errdef.ErrUnsupported)
+	}
+	if !expected.Algorithm().Available() {
 		return verifyContentDigest(resp, expected)
 	}
 	if headerStr == "" {
