@@ -1342,3 +1342,283 @@ func Test_validateMediaType(t *testing.T) {
 		})
 	}
 }
+
+func Test_PackIndex(t *testing.T) {
+	s := memory.New()
+
+	// test PackIndex
+	ctx := context.Background()
+	indexDesc, err := PackIndex(ctx, s, "", PackIndexOptions{})
+	if err != nil {
+		t.Fatal("Oras.PackIndex() error =", err)
+	}
+
+	var index ocispec.Index
+	rc, err := s.Fetch(ctx, indexDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	if err := json.NewDecoder(rc).Decode(&index); err != nil {
+		t.Fatal("error decoding index, error =", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal("Store.Fetch().Close() error =", err)
+	}
+
+	// verify index
+	if index.MediaType != ocispec.MediaTypeImageIndex {
+		t.Errorf("got media type = %s, want %s", index.MediaType, ocispec.MediaTypeImageIndex)
+	}
+	if index.Manifests == nil || len(index.Manifests) != 0 {
+		t.Errorf("got manifests = %v, want empty non-nil slice", index.Manifests)
+	}
+	if _, ok := index.Annotations[ocispec.AnnotationCreated]; !ok {
+		t.Errorf("annotation %s not found", ocispec.AnnotationCreated)
+	}
+}
+
+func Test_PackIndex_WithOptions(t *testing.T) {
+	s := memory.New()
+
+	// prepare test content
+	// NOTE: the subject and referenced manifests are built from fake bytes
+	// and are intentionally NOT pushed. PackIndex only pushes the index itself
+	// and does not verify that referenced content exists, and memory.Store does
+	// not require it either.
+	subject := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, []byte("subject"))
+	manifests := []ocispec.Descriptor{
+		content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, []byte("amd64")),
+		content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, []byte("nested")),
+	}
+	manifests[0].Platform = &ocispec.Platform{OS: "linux", Architecture: "amd64"}
+	annotations := map[string]string{
+		ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
+		"foo":                     "bar",
+	}
+	artifactType := "application/vnd.test"
+
+	// test PackIndex
+	ctx := context.Background()
+	opts := PackIndexOptions{
+		Subject:          &subject,
+		Manifests:        manifests,
+		IndexAnnotations: annotations,
+	}
+	indexDesc, err := PackIndex(ctx, s, artifactType, opts)
+	if err != nil {
+		t.Fatal("Oras.PackIndex() error =", err)
+	}
+
+	// verify descriptor
+	if indexDesc.ArtifactType != artifactType {
+		t.Errorf("got artifact type = %s, want %s", indexDesc.ArtifactType, artifactType)
+	}
+	if !reflect.DeepEqual(indexDesc.Annotations, annotations) {
+		t.Errorf("got descriptor annotations = %v, want %v", indexDesc.Annotations, annotations)
+	}
+
+	var index ocispec.Index
+	rc, err := s.Fetch(ctx, indexDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	if err := json.NewDecoder(rc).Decode(&index); err != nil {
+		t.Fatal("error decoding index, error =", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal("Store.Fetch().Close() error =", err)
+	}
+
+	// verify index
+	if index.ArtifactType != artifactType {
+		t.Errorf("got artifact type = %s, want %s", index.ArtifactType, artifactType)
+	}
+	if !reflect.DeepEqual(index.Subject, &subject) {
+		t.Errorf("got subject = %v, want %v", index.Subject, &subject)
+	}
+	if !reflect.DeepEqual(index.Manifests, manifests) {
+		t.Errorf("got manifests = %v, want %v", index.Manifests, manifests)
+	}
+	if !reflect.DeepEqual(index.Annotations, annotations) {
+		t.Errorf("got annotations = %v, want %v", index.Annotations, annotations)
+	}
+}
+
+func Test_PackIndex_InvalidMediaType(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	_, err := PackIndex(ctx, s, "random", PackIndexOptions{})
+	if wantErr := errdef.ErrInvalidMediaType; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.PackIndex() error = %v, wantErr = %v", err, wantErr)
+	}
+}
+
+func Test_PackIndex_InvalidDateTimeFormat(t *testing.T) {
+	s := memory.New()
+
+	ctx := context.Background()
+	opts := PackIndexOptions{
+		IndexAnnotations: map[string]string{
+			ocispec.AnnotationCreated: "2000/01/01 00:00:00",
+		},
+	}
+	_, err := PackIndex(ctx, s, "application/vnd.test", opts)
+	if wantErr := ErrInvalidDateTimeFormat; !errors.Is(err, wantErr) {
+		t.Errorf("Oras.PackIndex() error = %v, wantErr = %v", err, wantErr)
+	}
+}
+
+func Test_PackIndex_Reproducible(t *testing.T) {
+	ctx := context.Background()
+	opts := PackIndexOptions{
+		Manifests: []ocispec.Descriptor{
+			content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, []byte("amd64")),
+		},
+		IndexAnnotations: map[string]string{
+			ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
+		},
+	}
+
+	desc1, err := PackIndex(ctx, memory.New(), "application/vnd.test", opts)
+	if err != nil {
+		t.Fatal("Oras.PackIndex() error =", err)
+	}
+	desc2, err := PackIndex(ctx, memory.New(), "application/vnd.test", opts)
+	if err != nil {
+		t.Fatal("Oras.PackIndex() error =", err)
+	}
+	if desc1.Digest != desc2.Digest {
+		t.Errorf("got digests %s and %s, want identical", desc1.Digest, desc2.Digest)
+	}
+}
+
+func Test_PackIndex_DigestAlgorithm(t *testing.T) {
+	ctx := context.Background()
+	artifactType := "application/vnd.test"
+
+	t.Run("sha512", func(t *testing.T) {
+		s := memory.New()
+		// the referenced descriptors keep their own digests
+		manifests := []ocispec.Descriptor{
+			content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, []byte("amd64")),
+		}
+		indexDesc, err := PackIndex(ctx, s, artifactType, PackIndexOptions{
+			Manifests:       manifests,
+			DigestAlgorithm: digest.SHA512,
+		})
+		if err != nil {
+			t.Fatal("Oras.PackIndex() error =", err)
+		}
+		if got := indexDesc.Digest.Algorithm(); got != digest.SHA512 {
+			t.Errorf("index digest algorithm = %v, want %v", got, digest.SHA512)
+		}
+
+		// the store verifies the index against its digest on fetch
+		indexJSON, err := content.FetchAll(ctx, s, indexDesc)
+		if err != nil {
+			t.Fatal("content.FetchAll() error =", err)
+		}
+		var index ocispec.Index
+		if err := json.Unmarshal(indexJSON, &index); err != nil {
+			t.Fatal("error decoding index, error =", err)
+		}
+		if !reflect.DeepEqual(index.Manifests, manifests) {
+			t.Errorf("got manifests = %v, want %v", index.Manifests, manifests)
+		}
+		if got := index.Manifests[0].Digest.Algorithm(); got != digest.SHA256 {
+			t.Errorf("manifest digest algorithm = %v, want %v", got, digest.SHA256)
+		}
+	})
+
+	t.Run("default is sha256", func(t *testing.T) {
+		indexDesc, err := PackIndex(ctx, memory.New(), artifactType, PackIndexOptions{})
+		if err != nil {
+			t.Fatal("Oras.PackIndex() error =", err)
+		}
+		if got := indexDesc.Digest.Algorithm(); got != digest.SHA256 {
+			t.Errorf("index digest algorithm = %v, want %v", got, digest.SHA256)
+		}
+	})
+
+	t.Run("unavailable algorithm", func(t *testing.T) {
+		_, err := PackIndex(ctx, memory.New(), artifactType, PackIndexOptions{
+			DigestAlgorithm: digest.Algorithm("sha1"),
+		})
+		if !errors.Is(err, errdef.ErrUnsupported) {
+			t.Errorf("Oras.PackIndex() error = %v, wantErr %v", err, errdef.ErrUnsupported)
+		}
+	})
+}
+
+func Test_PackIndex_AlreadyExists(t *testing.T) {
+	s := memory.New()
+	ctx := context.Background()
+	opts := PackIndexOptions{
+		IndexAnnotations: map[string]string{
+			ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
+		},
+	}
+
+	want, err := PackIndex(ctx, s, "", opts)
+	if err != nil {
+		t.Fatal("Oras.PackIndex() error =", err)
+	}
+	got, err := PackIndex(ctx, s, "", opts)
+	if err != nil {
+		t.Fatal("Oras.PackIndex() second call error =", err)
+	}
+	if got.Digest != want.Digest {
+		t.Errorf("got digest = %s, want %s", got.Digest, want.Digest)
+	}
+}
+
+func Test_PackIndex_NoArtifactTypeNoSubject(t *testing.T) {
+	s := memory.New()
+	ctx := context.Background()
+
+	indexDesc, err := PackIndex(ctx, s, "", PackIndexOptions{})
+	if err != nil {
+		t.Fatal("Oras.PackIndex() error =", err)
+	}
+	if indexDesc.ArtifactType != "" {
+		t.Errorf("got descriptor artifact type = %q, want empty", indexDesc.ArtifactType)
+	}
+
+	rc, err := s.Fetch(ctx, indexDesc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	defer rc.Close()
+	raw, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("io.ReadAll() error =", err)
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal("error decoding index, error =", err)
+	}
+	for _, key := range []string{"artifactType", "subject"} {
+		if _, ok := fields[key]; ok {
+			t.Errorf("index JSON contains %q, want it omitted", key)
+		}
+	}
+	if string(fields["manifests"]) != "[]" {
+		t.Errorf("got manifests = %s, want []", fields["manifests"])
+	}
+}
+
+type errPusher struct{ err error }
+
+func (p errPusher) Push(context.Context, ocispec.Descriptor, io.Reader) error {
+	return p.err
+}
+
+func Test_PackIndex_PushError(t *testing.T) {
+	wantErr := errors.New("push failed")
+	_, err := PackIndex(context.Background(), errPusher{err: wantErr}, "", PackIndexOptions{})
+	if !errors.Is(err, wantErr) {
+		t.Errorf("Oras.PackIndex() error = %v, wantErr = %v", err, wantErr)
+	}
+}

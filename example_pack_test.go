@@ -96,3 +96,53 @@ func ExamplePackManifest_imageV10() {
 	// Manifest descriptor: {application/vnd.oci.image.manifest.v1+json sha256:da221a11559704e4971c3dcf6564303707a333c8de8cb5475fc48b0072b36c19 308 [] map[org.opencontainers.image.created:2000-01-01T00:00:00Z] [] <nil> application/vnd.example+type}
 	// Manifest content: {"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.example+type","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2},"layers":[],"annotations":{"org.opencontainers.image.created":"2000-01-01T00:00:00Z"}}
 }
+
+// ExamplePackIndex demonstrates packing an OCI Image Index that references a
+// previously packed manifest.
+func ExamplePackIndex() {
+	// 0. Create a storage
+	store := memory.New()
+	ctx := context.Background()
+
+	// 1. Pack a manifest to be referenced by the index
+	manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_1, "application/vnd.example+type", oras.PackManifestOptions{
+		ManifestAnnotations: map[string]string{
+			ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+	manifestDesc.Platform = &ocispec.Platform{
+		OS:           "linux",
+		Architecture: "amd64",
+	}
+
+	// 2. Set optional parameters
+	opts := oras.PackIndexOptions{
+		Manifests: []ocispec.Descriptor{manifestDesc},
+		IndexAnnotations: map[string]string{
+			// this time stamp will be automatically generated if not specified
+			// use a fixed value here to make the pack result reproducible
+			ocispec.AnnotationCreated: "2000-01-01T00:00:00Z",
+		},
+	}
+
+	// 3. Pack an index
+	artifactType := "application/vnd.example+type"
+	indexDesc, err := oras.PackIndex(ctx, store, artifactType, opts)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Index descriptor:", indexDesc)
+
+	// 4. Verify the packed index
+	indexData, err := content.FetchAll(ctx, store, indexDesc)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Index content:", string(indexData))
+	// Output:
+	// Index descriptor: {application/vnd.oci.image.index.v1+json sha256:5f11dad4b5288be83933c40991d69334533e797ff2b21458dca2801a4f41130c 529 [] map[org.opencontainers.image.created:2000-01-01T00:00:00Z] [] <nil> application/vnd.example+type}
+	// Index content: {"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","artifactType":"application/vnd.example+type","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:c259a195a48d8029d75449579c81269ca6225cd5b57d36073a7de6458afdfdbd","size":528,"annotations":{"org.opencontainers.image.created":"2000-01-01T00:00:00Z"},"platform":{"architecture":"amd64","os":"linux"},"artifactType":"application/vnd.example+type"}],"annotations":{"org.opencontainers.image.created":"2000-01-01T00:00:00Z"}}
+}
