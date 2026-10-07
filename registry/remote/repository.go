@@ -37,6 +37,7 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/cas"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/internal/httputil"
 	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/spec"
@@ -2262,7 +2263,7 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // HEAD, so remain strict.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
 	headerStr := resp.Header.Get(headerDockerContentDigest)
-	if !expected.Algorithm().Available() {
+	if !descriptor.IsSupportedAlgorithm(expected.Algorithm()) || !expected.Algorithm().Available() {
 		return verifyContentDigest(resp, expected)
 	}
 	if headerStr == "" {
