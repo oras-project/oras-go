@@ -4009,3 +4009,100 @@ func Test_removeFiles(t *testing.T) {
 		t.Errorf("Stat() error = %v, want %v", err, os.ErrNotExist)
 	}
 }
+
+// corruptBlob overwrites the blob file for dgst with content that no longer
+// matches it, so any fetch of dgst fails digest verification.
+func corruptBlob(tb testing.TB, root string, dgst digest.Digest) {
+	tb.Helper()
+	path := filepath.Join(root, ocispec.ImageBlobsDir, dgst.Algorithm().String(), dgst.Encoded())
+	// blobs are written read-only, so replace the file rather than rewrite it
+	if err := os.Remove(path); err != nil {
+		tb.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"corrupted":true}`), 0444); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+func TestStore_GCIndexTaggedIndexAllFailure(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	s, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob := []byte(`{"layers":[]}`)
+	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, blob)
+	if err := s.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Tag(ctx, desc, "tagged"); err != nil {
+		t.Fatal(err)
+	}
+	corruptBlob(t, root, desc.Digest)
+	if err := s.GC(ctx); err == nil {
+		t.Fatal("GC() = nil, want an error from re-indexing a tagged manifest")
+	}
+}
+
+func TestStore_GCIndexSubjectFailure(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	s, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob := []byte(`{"layers":[]}`)
+	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, blob)
+	if err := s.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+		t.Fatal(err)
+	}
+	corruptBlob(t, root, desc.Digest)
+	if err := s.GC(ctx); err == nil {
+		t.Fatal("GC() = nil, want an error from resolving an untagged manifest's subject")
+	}
+}
+
+func TestStore_GCIndexReferrerIndexAllFailure(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	s, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject := []byte(`{"layers":[]}`)
+	subjectDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, subject)
+	if err := s.Push(ctx, subjectDesc, bytes.NewReader(subject)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Tag(ctx, subjectDesc, "subject"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A nested manifest written straight to storage, so it stays out of the
+	// tag resolver and is only reached by walking the referrer's successors.
+	nested := []byte(`{"layers":[],"annotations":{"nested":"yes"}}`)
+	nestedDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, nested)
+	if err := s.storage.Push(ctx, nestedDesc, bytes.NewReader(nested)); err != nil {
+		t.Fatal(err)
+	}
+
+	referrer, err := json.Marshal(ocispec.Manifest{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    ocispec.DescriptorEmptyJSON,
+		Layers:    []ocispec.Descriptor{nestedDesc},
+		Subject:   &subjectDesc,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	referrerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, referrer)
+	if err := s.Push(ctx, referrerDesc, bytes.NewReader(referrer)); err != nil {
+		t.Fatal(err)
+	}
+	corruptBlob(t, root, nestedDesc.Digest)
+
+	if err := s.GC(ctx); err == nil {
+		t.Fatal("GC() = nil, want an error from re-indexing a referrer's successors")
+	}
+}
