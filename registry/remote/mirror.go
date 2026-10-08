@@ -74,8 +74,7 @@ func isDigestReference(reference string) bool {
 	// host:port patterns (e.g., "localhost:5000") where the prefix is not a
 	// known algorithm at all.
 	if i := strings.Index(reference, ":"); i > 0 {
-		alg := digest.Algorithm(reference[:i])
-		return descriptor.IsSupportedAlgorithm(alg) && alg.Available()
+		return descriptor.IsSupportedAlgorithm(digest.Algorithm(reference[:i]))
 	}
 	return false
 }
