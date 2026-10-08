@@ -198,15 +198,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 			// If a hard link is found in the tarball, it will be extracted.
 			// If the target link already exists, os.Link will throw an error.
 			// This is a known limitation and will not be addressed.
-			var target string
-			if target, err = ensureLinkPath(dirPath, dirName, filePath, header.Linkname); err == nil {
-				if !filepath.IsAbs(target) {
-					// link(2) resolves relative paths against the process CWD, not
-					// the link file's directory. Resolve explicitly to prevent escape.
-					target = filepath.Join(filepath.Dir(filePath), target)
-				}
-				err = os.Link(target, filePath)
-			}
+			err = extractHardLink(dirPath, dirName, filePath, header.Linkname)
 		case tar.TypeSymlink:
 			var target string
 			target, err = ensureLinkPath(dirPath, dirName, filePath, header.Linkname)
@@ -240,6 +232,31 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 			}
 		}
 	}
+}
+
+// extractHardLink creates a hard link at filePath to the file named by
+// linkname. Unlike a symlink target, a tar hard link target is a path from the
+// archive root, the same convention as entry names, so it is resolved against
+// dirPath and not against the directory of the link.
+func extractHardLink(dirPath, dirName, filePath, linkname string) error {
+	rel, err := resolveRelToBase(dirPath, dirName, linkname)
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(dirPath, rel)
+	if err := checkSymlinkEscape(dirPath, target); err != nil {
+		return err
+	}
+	// link(2) may follow a symlink target on some platforms, and the checks
+	// above only inspect the ancestors of target, so refuse a symlink target.
+	info, err := os.Lstat(target)
+	if err != nil {
+		return fmt.Errorf("hard link %q: %w", linkname, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("hard link target %q is a symbolic link", linkname)
+	}
+	return os.Link(target, filePath)
 }
 
 // resolveRelToBase ensures the target path is in the base path,
