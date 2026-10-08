@@ -69,10 +69,10 @@ func isDigestReference(reference string) bool {
 		return true
 	}
 	// Bare digest references like "sha256:abc...": check the algorithm prefix.
-	// The allowlist comes first so an algorithm a dependency registered but
-	// oras-go never vetted is not treated as a digest, and Available() rejects
-	// host:port patterns (e.g., "localhost:5000") where the prefix is not a
-	// known algorithm at all.
+	// The allowlist alone decides, so reference parsing does not depend on
+	// which hash packages the final binary happens to link in. It also
+	// rejects host:port patterns (e.g., "localhost:5000"), whose prefix is
+	// not an algorithm at all.
 	if i := strings.Index(reference, ":"); i > 0 {
 		return descriptor.IsSupportedAlgorithm(digest.Algorithm(reference[:i]))
 	}
