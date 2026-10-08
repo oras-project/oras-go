@@ -52,7 +52,7 @@ type Store struct {
 	//   - If AutoSaveIndex is set to true, the OCI store will automatically save
 	//     the changes to `index.json` when
 	//      1. pushing a manifest
-	//      2. calling Tag() or Delete()
+	//      2. calling Tag(), Delete(), or GC()
 	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
 	//     to manually call SaveIndex() when needed. Callers doing bulk work can
 	//     avoid rewriting the index after every operation by saving it once
@@ -488,7 +488,7 @@ func (s *Store) resetIndexFile() error {
 // SaveIndex writes the `index.json` file to the file system.
 //   - If AutoSaveIndex is set to true (default value),
 //     the OCI store will automatically save the changes to `index.json`
-//     on Tag() and Delete() calls, and when pushing a manifest.
+//     on Tag(), Delete(), and GC() calls, and when pushing a manifest.
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
 //     to manually call this method when needed. Callers doing bulk work can
 //     avoid rewriting the index after every operation by saving it once after
@@ -501,12 +501,26 @@ func (s *Store) SaveIndex() error {
 }
 
 func (s *Store) saveIndex() error {
+	return s.saveIndexFrom(s.tagResolver)
+}
+
+// saveIndexFrom writes the `index.json` file from the references in tagResolver.
+func (s *Store) saveIndexFrom(tagResolver *resolver.Memory) (err error) {
 	s.indexLock.Lock()
 	defer s.indexLock.Unlock()
 
+	// restore the previous manifest list if the write fails, so that a failed
+	// save leaves the in-memory index as it was
+	oldManifests := s.index.Manifests
+	defer func() {
+		if err != nil {
+			s.index.Manifests = oldManifests
+		}
+	}()
+
 	var manifests []ocispec.Descriptor
 	tagged := set.New[digest.Digest]()
-	refMap := s.tagResolver.Map()
+	refMap := tagResolver.Map()
 
 	// 1. Add descriptors that are associated with tags
 	// Note: One descriptor can be associated with multiple tags.
@@ -553,10 +567,19 @@ func (s *Store) GC(ctx context.Context) error {
 	defer s.sync.Unlock()
 
 	// get reachable nodes by reloading the index
-	err := s.gcIndex(ctx)
+	tagResolver, graph, err := s.gcIndex(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to reload index: %w", err)
 	}
+	// replace the resolver and graph only once the index is saved, so that a
+	// failed save leaves the store as it was
+	if s.AutoSaveIndex {
+		if err := s.saveIndexFrom(tagResolver); err != nil {
+			return fmt.Errorf("unable to save index: %w", err)
+		}
+	}
+	s.tagResolver = tagResolver
+	s.graph = graph
 	reachableNodes := s.graph.DigestSet()
 
 	// clean up garbage blobs in the storage
@@ -667,9 +690,9 @@ func removeFiles(dir string, match func(entry fs.DirEntry) bool) {
 	}
 }
 
-// gcIndex reloads the index and updates metadata. Information of untagged blobs
-// are cleaned and only tagged blobs remain.
-func (s *Store) gcIndex(ctx context.Context) error {
+// gcIndex reloads the index and returns the rebuilt metadata without applying
+// it. Information of untagged blobs are cleaned and only tagged blobs remain.
+func (s *Store) gcIndex(ctx context.Context) (*resolver.Memory, *graph.Memory, error) {
 	tagResolver := resolver.NewMemory()
 	graph := graph.NewMemory()
 	tagged := set.New[digest.Digest]()
@@ -681,14 +704,14 @@ func (s *Store) gcIndex(ctx context.Context) error {
 			continue
 		}
 		if err := tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
-			return err
+			return nil, nil, err
 		}
 		if err := tagResolver.Tag(ctx, desc, ref); err != nil {
-			return err
+			return nil, nil, err
 		}
 		plain := descriptor.Plain(desc)
 		if err := graph.IndexAll(ctx, s.storage, plain); err != nil {
-			return err
+			return nil, nil, err
 		}
 		tagged.Add(desc.Digest)
 	}
@@ -703,27 +726,34 @@ func (s *Store) gcIndex(ctx context.Context) error {
 		for {
 			next, err := manifestutil.Subject(ctx, s.storage, *subject)
 			if err != nil {
-				return err
+				return nil, nil, err
 			}
 			if next == nil {
 				break
 			}
 			if graph.Exists(*next) {
 				if err := tagResolver.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
-					return err
+					return nil, nil, err
 				}
 				plain := descriptor.Plain(desc)
 				if err := graph.IndexAll(ctx, s.storage, plain); err != nil {
-					return err
+					return nil, nil, err
 				}
 				break
 			}
 			subject = next
 		}
 	}
-	s.tagResolver = tagResolver
-	s.graph = graph
-	return nil
+	// Keep digest references for manifests reachable from tagged roots and
+	// referrers, so saving the rebuilt index preserves their descriptors.
+	for ref, desc := range refMap {
+		if ref == desc.Digest.String() && graph.Exists(desc) {
+			if err := tagResolver.Tag(ctx, deleteAnnotationRefName(desc), ref); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return tagResolver, graph, nil
 }
 
 // isTagged checks if the blob given by the descriptor is tagged.
