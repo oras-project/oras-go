@@ -2260,7 +2260,8 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // verified body to the caller. Headerless responses, regardless of
 // Content-Length, are verified only once the body is read to EOF: a caller that
 // stops after desc.Size bytes never triggers the check. Resolve and Exists use
-// HEAD, so remain strict.
+// HEAD, so remain strict. A digest algorithm oras-go does not support is
+// rejected with errdef.ErrUnsupported.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
 	headerStr := resp.Header.Get(headerDockerContentDigest)
 	if algo := expected.Algorithm(); !descriptor.IsSupportedAlgorithm(algo) {
