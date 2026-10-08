@@ -8021,7 +8021,10 @@ func Test_generateIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to marshal index:", err)
 	}
-	wantIndexDesc := content.NewDescriptorFromBytes(wantIndex.MediaType, wantIndexJSON)
+	wantIndexDesc, err := content.NewDescriptorFromBytesWithAlgorithm(wantIndex.MediaType, wantIndexJSON, digest.Canonical)
+	if err != nil {
+		t.Fatal("failed to generate descriptor:", err)
+	}
 
 	wantEmptyIndex := ocispec.Index{
 		Versioned: specs.Versioned{
@@ -8034,11 +8037,15 @@ func Test_generateIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal("failed to marshal index:", err)
 	}
-	wantEmptyIndexDesc := content.NewDescriptorFromBytes(wantEmptyIndex.MediaType, wantEmptyIndexJSON)
+	wantEmptyIndexDesc, err := content.NewDescriptorFromBytesWithAlgorithm(wantEmptyIndex.MediaType, wantEmptyIndexJSON, digest.Canonical)
+	if err != nil {
+		t.Fatal("failed to generate descriptor:", err)
+	}
 
 	tests := []struct {
 		name      string
 		manifests []ocispec.Descriptor
+		alg       digest.Algorithm
 		wantDesc  ocispec.Descriptor
 		wantBytes []byte
 		wantErr   bool
@@ -8046,6 +8053,7 @@ func Test_generateIndex(t *testing.T) {
 		{
 			name:      "non-empty referrers list",
 			manifests: referrers,
+			alg:       digest.Canonical,
 			wantDesc:  wantIndexDesc,
 			wantBytes: wantIndexJSON,
 			wantErr:   false,
@@ -8053,6 +8061,7 @@ func Test_generateIndex(t *testing.T) {
 		{
 			name:      "nil referrers list",
 			manifests: nil,
+			alg:       digest.Canonical,
 			wantDesc:  wantEmptyIndexDesc,
 			wantBytes: wantEmptyIndexJSON,
 			wantErr:   false,
@@ -8060,14 +8069,59 @@ func Test_generateIndex(t *testing.T) {
 		{
 			name:      "empty referrers list",
 			manifests: nil,
+			alg:       digest.Canonical,
 			wantDesc:  wantEmptyIndexDesc,
 			wantBytes: wantEmptyIndexJSON,
 			wantErr:   false,
 		},
+		{
+			name:      "SHA-384 algorithm",
+			manifests: referrers,
+			alg:       digest.SHA384,
+			wantDesc: func() ocispec.Descriptor {
+				desc, err := content.NewDescriptorFromBytesWithAlgorithm(wantIndex.MediaType, wantIndexJSON, digest.SHA384)
+				if err != nil {
+					t.Fatal("failed to generate descriptor:", err)
+				}
+				return desc
+			}(),
+			wantBytes: wantIndexJSON,
+			wantErr:   false,
+		},
+		{
+			name:      "SHA-512 algorithm",
+			manifests: referrers,
+			alg:       digest.SHA512,
+			wantDesc: func() ocispec.Descriptor {
+				desc, err := content.NewDescriptorFromBytesWithAlgorithm(wantIndex.MediaType, wantIndexJSON, digest.SHA512)
+				if err != nil {
+					t.Fatal("failed to generate descriptor:", err)
+				}
+				return desc
+			}(),
+			wantBytes: wantIndexJSON,
+			wantErr:   false,
+		},
+		{
+			name:      "empty algorithm uses SHA-256",
+			manifests: referrers,
+			alg:       "",
+			wantDesc:  wantIndexDesc,
+			wantBytes: wantIndexJSON,
+			wantErr:   false,
+		},
+		{
+			name:      "unsupported algorithm errors",
+			manifests: referrers,
+			alg:       digest.Algorithm("sha1"),
+			wantDesc:  ocispec.Descriptor{},
+			wantBytes: nil,
+			wantErr:   true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1, err := generateIndex(tt.manifests)
+			got, got1, err := generateIndex(tt.manifests, tt.alg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("generateReferrersIndex() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -8079,6 +8133,102 @@ func Test_generateIndex(t *testing.T) {
 				t.Errorf("generateReferrersIndex() got1 = %v, want %v", got1, tt.wantBytes)
 			}
 		})
+	}
+}
+
+func Test_ManifestStore_Push_ReferrersAPIUnavailable_SHA384Subject(t *testing.T) {
+	// generate test content: the subject is digested with SHA-384, so the
+	// referrers tag is sha384-*. That the generated referrers index is
+	// digested with the subject's algorithm is covered by Test_generateIndex;
+	// this end-to-end test covers pushing the index by tag to a registry
+	// that canonicalizes tag pushes to SHA-256, which must not fail the
+	// push.
+	// Note: a SHA-512 subject is not usable here because its referrers tag
+	// exceeds the reference length limit, hence SHA-384 is the only
+	// non-SHA-256 algorithm covered by this end-to-end test.
+	subject := []byte(`{"layers":[]}`)
+	subjectDesc, err := content.NewDescriptorFromBytesWithAlgorithm(spec.MediaTypeArtifactManifest, subject, digest.SHA384)
+	if err != nil {
+		t.Fatalf("failed to generate subject descriptor: %v", err)
+	}
+	referrersTag := strings.Replace(subjectDesc.Digest.String(), ":", "-", 1)
+	artifact := spec.Artifact{
+		MediaType:    spec.MediaTypeArtifactManifest,
+		Subject:      &subjectDesc,
+		ArtifactType: "application/vnd.test",
+		Annotations:  map[string]string{"foo": "bar"},
+	}
+	artifactJSON, err := json.Marshal(artifact)
+	if err != nil {
+		t.Fatalf("failed to marshal manifest: %v", err)
+	}
+	artifactDesc := content.NewDescriptorFromBytes(artifact.MediaType, artifactJSON)
+	artifactDesc.ArtifactType = artifact.ArtifactType
+	artifactDesc.Annotations = artifact.Annotations
+
+	// the referrers index the client should generate and push for the
+	// artifact's subject
+	index_1 := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+		},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: []ocispec.Descriptor{
+			artifactDesc,
+		},
+	}
+	indexJSON_1, err := json.Marshal(index_1)
+	if err != nil {
+		t.Fatalf("failed to marshal manifest: %v", err)
+	}
+	var gotReferrerIndex []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+artifactDesc.Digest.String():
+			if contentType := r.Header.Get("Content-Type"); contentType != artifactDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotReferrerIndex = buf.Bytes()
+			// like a registry that canonicalizes tag pushes, report the
+			// digest of the received content under SHA-256
+			w.Header().Set("Docker-Content-Digest", digest.Canonical.FromBytes(buf.Bytes()).String())
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	ctx := context.Background()
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	if err := repo.Push(ctx, artifactDesc, bytes.NewReader(artifactJSON)); err != nil {
+		t.Fatalf("Manifests.Push() error = %v", err)
+	}
+	if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
+		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
 	}
 }
 

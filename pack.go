@@ -49,7 +49,7 @@ const (
 )
 
 var (
-	// ErrInvalidDateTimeFormat is returned by [Pack] and [PackManifest] when
+	// ErrInvalidDateTimeFormat is returned by [Pack], [PackManifest], and [PackIndex] when
 	// "org.opencontainers.artifact.created" or "org.opencontainers.image.created"
 	// is provided, but its value is not in RFC 3339 format.
 	// Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
@@ -123,6 +123,33 @@ type PackManifestOptions struct {
 	DigestAlgorithm digest.Algorithm
 }
 
+// PackIndexOptions contains optional parameters for [PackIndex].
+type PackIndexOptions struct {
+	// Subject is the subject of the index.
+	Subject *ocispec.Descriptor
+
+	// Manifests is the descriptors of the manifests or indexes referenced by
+	// the index. The caller is responsible for pushing the referenced content
+	// to the target before calling [PackIndex]; PackIndex only pushes the
+	// index itself.
+	Manifests []ocispec.Descriptor
+
+	// IndexAnnotations is the annotation map of the index. In order to
+	// make [PackIndex] reproducible, set the key ocispec.AnnotationCreated
+	// (i.e. "org.opencontainers.image.created") to a fixed value. The value
+	// must conform to RFC 3339.
+	IndexAnnotations map[string]string
+
+	// DigestAlgorithm is the algorithm used to compute the digest of the
+	// index. Descriptors supplied in Subject and Manifests keep their own
+	// digests.
+	// If empty, [digest.Canonical] (SHA-256) is used. SHA-384 and SHA-512 are
+	// the other supported algorithms, and must be available, which requires
+	// their hash package to be linked into the binary (for example by
+	// importing crypto/sha512).
+	DigestAlgorithm digest.Algorithm
+}
+
 // mediaTypeRegexp checks the format of media types.
 // References:
 //   - https://github.com/opencontainers/image-spec/blob/v1.1.1/schema/defs-descriptor.json#L7
@@ -166,6 +193,62 @@ func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersio
 	default:
 		return ocispec.Descriptor{}, fmt.Errorf("PackManifestVersion(%v): %w", packManifestVersion, errdef.ErrUnsupported)
 	}
+}
+
+// PackIndex generates an OCI Image Index based on the given parameters and
+// pushes the packed index to a content storage using pusher.
+//
+// artifactType is optional. If not empty, it MUST comply with RFC 6838.
+//
+// PackIndex only pushes the index itself. It does not push, nor verify the
+// existence or validity of, opts.Subject and the descriptors in
+// opts.Manifests. The caller is responsible for making the referenced content
+// available in the target; some targets, such as registries, may reject an
+// index that references missing content.
+//
+// Each time when PackIndex is called, if a time stamp is not specified, a new
+// time stamp is generated in the index annotations with the key
+// ocispec.AnnotationCreated (i.e. "org.opencontainers.image.created"), which
+// changes the digest of the packed index. To make [PackIndex] reproducible,
+// set the key ocispec.AnnotationCreated to a fixed value in
+// opts.IndexAnnotations. The value MUST conform to RFC 3339.
+//
+// If succeeded, returns a descriptor of the packed index.
+func PackIndex(ctx context.Context, pusher content.Pusher, artifactType string, opts PackIndexOptions) (ocispec.Descriptor, error) {
+	if opts.DigestAlgorithm == "" {
+		opts.DigestAlgorithm = digest.Canonical
+	}
+	if !descriptor.IsSupportedAlgorithm(opts.DigestAlgorithm) || !opts.DigestAlgorithm.Available() {
+		return ocispec.Descriptor{}, fmt.Errorf("digest algorithm %q: %w", opts.DigestAlgorithm, errdef.ErrUnsupported)
+	}
+
+	if artifactType != "" {
+		if err := validateMediaType(artifactType); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %w", err)
+		}
+	}
+
+	annotations, err := ensureAnnotationCreated(opts.IndexAnnotations, ocispec.AnnotationCreated)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	if opts.Manifests == nil {
+		opts.Manifests = []ocispec.Descriptor{}
+	}
+
+	index := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2,
+		},
+		MediaType:    ocispec.MediaTypeImageIndex,
+		Manifests:    opts.Manifests,
+		Subject:      opts.Subject,
+		ArtifactType: artifactType,
+		Annotations:  annotations,
+	}
+
+	return pushManifest(ctx, pusher, index, index.MediaType, index.ArtifactType, index.Annotations, opts.DigestAlgorithm)
 }
 
 // PackOptions contains optional parameters for [Pack].

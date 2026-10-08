@@ -24,6 +24,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -433,6 +434,201 @@ func Test_extractTarDirectory_HardLink(t *testing.T) {
 			t.Error("hardlink escaped extract dir: evil_link shares inode with CWD sentinel file")
 		}
 	})
+}
+
+func Test_extractTarDirectory_HardLink_ArchiveRoot(t *testing.T) {
+	const dirName = "base"
+
+	extract := func(t *testing.T, entries []tarEntry) (dirPath string, err error) {
+		t.Helper()
+		dirPath = filepath.Join(t.TempDir(), dirName)
+		tarData := createTar(t, entries)
+		err = extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), false)
+		return dirPath, err
+	}
+
+	assertSameFile := func(t *testing.T, a, b string) {
+		t.Helper()
+		infoA, err := os.Lstat(a)
+		if err != nil {
+			t.Fatalf("failed to stat %s: %v", a, err)
+		}
+		infoB, err := os.Lstat(b)
+		if err != nil {
+			t.Fatalf("failed to stat %s: %v", b, err)
+		}
+		if !os.SameFile(infoA, infoB) {
+			t.Errorf("%s and %s are not hard links of the same file", a, b)
+		}
+	}
+
+	t.Run("linkname is an archive root path across directories", func(t *testing.T) {
+		dirPath, err := extract(t, []tarEntry{
+			{name: "base/", mode: os.ModeDir | 0755},
+			{name: "base/a/", mode: os.ModeDir | 0755},
+			{name: "base/b/", mode: os.ModeDir | 0755},
+			{name: "base/a/file", content: "same content\n", mode: 0644},
+			{name: "base/b/file", linkname: "base/a/file", mode: 0644, isHardLink: true},
+		})
+		if err != nil {
+			t.Fatalf("extractTarDirectory() error = %v", err)
+		}
+		assertSameFile(t, filepath.Join(dirPath, "a", "file"), filepath.Join(dirPath, "b", "file"))
+		got, err := os.ReadFile(filepath.Join(dirPath, "b", "file"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "same content\n" {
+			t.Errorf("content = %q, want %q", got, "same content\n")
+		}
+	})
+
+	t.Run("linkname in the same directory is an archive root path", func(t *testing.T) {
+		dirPath, err := extract(t, []tarEntry{
+			{name: "base/a/", mode: os.ModeDir | 0755},
+			{name: "base/a/file", content: "x", mode: 0644},
+			{name: "base/a/copy", linkname: "base/a/file", mode: 0644, isHardLink: true},
+		})
+		if err != nil {
+			t.Fatalf("extractTarDirectory() error = %v", err)
+		}
+		assertSameFile(t, filepath.Join(dirPath, "a", "file"), filepath.Join(dirPath, "a", "copy"))
+	})
+
+	t.Run("nested directories in both directions", func(t *testing.T) {
+		dirPath, err := extract(t, []tarEntry{
+			{name: "base/x/y/z/", mode: os.ModeDir | 0755},
+			{name: "base/p/q/", mode: os.ModeDir | 0755},
+			{name: "base/x/y/z/deep", content: "deep", mode: 0644},
+			{name: "base/top", linkname: "base/x/y/z/deep", mode: 0644, isHardLink: true},
+			{name: "base/p/q/up", linkname: "base/top", mode: 0644, isHardLink: true},
+			{name: "base/x/y/z/again", linkname: "base/p/q/up", mode: 0644, isHardLink: true},
+		})
+		if err != nil {
+			t.Fatalf("extractTarDirectory() error = %v", err)
+		}
+		deep := filepath.Join(dirPath, "x", "y", "z", "deep")
+		assertSameFile(t, deep, filepath.Join(dirPath, "top"))
+		assertSameFile(t, deep, filepath.Join(dirPath, "p", "q", "up"))
+		assertSameFile(t, deep, filepath.Join(dirPath, "x", "y", "z", "again"))
+	})
+
+	t.Run("linkname with dot-dot components that stay inside the root", func(t *testing.T) {
+		dirPath, err := extract(t, []tarEntry{
+			{name: "base/a/", mode: os.ModeDir | 0755},
+			{name: "base/b/", mode: os.ModeDir | 0755},
+			{name: "base/a/file", content: "x", mode: 0644},
+			{name: "base/b/file", linkname: "base/b/../a/file", mode: 0644, isHardLink: true},
+		})
+		if err != nil {
+			t.Fatalf("extractTarDirectory() error = %v", err)
+		}
+		assertSameFile(t, filepath.Join(dirPath, "a", "file"), filepath.Join(dirPath, "b", "file"))
+	})
+
+	t.Run("absolute linkname inside the root is accepted", func(t *testing.T) {
+		dirPath := filepath.Join(t.TempDir(), dirName)
+		tarData := createTar(t, []tarEntry{
+			{name: "base/a/", mode: os.ModeDir | 0755},
+			{name: "base/b/", mode: os.ModeDir | 0755},
+			{name: "base/a/file", content: "x", mode: 0644},
+			{name: "base/b/file", linkname: filepath.Join(dirPath, "a", "file"), mode: 0644, isHardLink: true},
+		})
+		if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), false); err != nil {
+			t.Fatalf("extractTarDirectory() error = %v", err)
+		}
+		assertSameFile(t, filepath.Join(dirPath, "a", "file"), filepath.Join(dirPath, "b", "file"))
+	})
+
+	t.Run("missing target fails", func(t *testing.T) {
+		dirPath, err := extract(t, []tarEntry{
+			{name: "base/b/", mode: os.ModeDir | 0755},
+			{name: "base/b/file", linkname: "base/a/file", mode: 0644, isHardLink: true},
+		})
+		if err == nil {
+			t.Fatal("extractTarDirectory() error = nil, wantErr = true")
+		}
+		if _, statErr := os.Lstat(filepath.Join(dirPath, "b", "file")); statErr == nil {
+			t.Error("link was created for a missing target")
+		}
+	})
+
+	// None of these may create a hard link to a file outside of the
+	// extraction root. Symlinks are planted in the extraction directory
+	// beforehand, as the same directory may hold content from an earlier
+	// extraction, because a symlink entry pointing outside is itself rejected.
+	escapes := []struct {
+		name     string
+		linkname func(outside string) string
+		symlinks map[string]string // path relative to the root -> symlink target
+	}{
+		{
+			name:     "dot-dot out of the root",
+			linkname: func(string) string { return "base/../outside.txt" },
+		},
+		{
+			name:     "dot-dot out of the root from a nested directory",
+			linkname: func(string) string { return "base/b/../../outside.txt" },
+		},
+		{
+			name:     "relative to the parent of the root",
+			linkname: func(string) string { return "../outside.txt" },
+		},
+		{
+			name:     "absolute path outside the root",
+			linkname: func(outside string) string { return outside },
+		},
+		{
+			name:     "through a symlinked directory",
+			linkname: func(string) string { return "base/dirlink/outside.txt" },
+			symlinks: map[string]string{"dirlink": ".."},
+		},
+		{
+			name:     "through a symlinked directory with an absolute target",
+			linkname: func(string) string { return "base/b/dirlink/outside.txt" },
+			symlinks: map[string]string{"b/dirlink": "{outsideDir}"},
+		},
+		{
+			name:     "final component is a symlink to a file outside the root",
+			linkname: func(string) string { return "base/filelink" },
+			symlinks: map[string]string{"filelink": "{outside}"},
+		},
+		{
+			name:     "final component is a relative symlink to a file outside the root",
+			linkname: func(string) string { return "base/filelink" },
+			symlinks: map[string]string{"filelink": "../outside.txt"},
+		},
+	}
+	for _, tt := range escapes {
+		t.Run("escape rejected: "+tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			outside := filepath.Join(tempDir, "outside.txt")
+			if err := os.WriteFile(outside, []byte("secret"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			dirPath := filepath.Join(tempDir, dirName)
+			if err := os.MkdirAll(filepath.Join(dirPath, "b"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			for rel, target := range tt.symlinks {
+				target = strings.NewReplacer("{outside}", outside, "{outsideDir}", tempDir).Replace(target)
+				if err := os.Symlink(target, filepath.Join(dirPath, filepath.FromSlash(rel))); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			tarData := createTar(t, []tarEntry{
+				{name: "base/b/evil", linkname: tt.linkname(outside), mode: 0644, isHardLink: true},
+			})
+			if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), false); err == nil {
+				t.Fatal("extractTarDirectory() error = nil, wantErr = true")
+			}
+
+			if _, err := os.Lstat(filepath.Join(dirPath, "b", "evil")); err == nil {
+				t.Error("hard link was created")
+			}
+		})
+	}
 }
 
 type tarEntry struct {
