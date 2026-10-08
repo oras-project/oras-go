@@ -585,7 +585,7 @@ func (s *Store) GC(ctx context.Context) error {
 		}
 		alg := algDir.Name()
 		// skip unsupported directories
-		if !isKnownAlgorithm(alg) {
+		if !descriptor.IsSupportedAlgorithm(digest.Algorithm(alg)) {
 			continue
 		}
 		algPath := path.Join(rootpath, alg)
@@ -788,14 +788,4 @@ func validateReference(ref string) error {
 
 	// TODO: may enforce more strict validation if needed.
 	return nil
-}
-
-// isKnownAlgorithm checks is a string is a supported hash algorithm
-func isKnownAlgorithm(alg string) bool {
-	switch digest.Algorithm(alg) {
-	case digest.SHA256, digest.SHA512, digest.SHA384:
-		return true
-	default:
-		return false
-	}
 }

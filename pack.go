@@ -25,10 +25,12 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 )
 
@@ -47,7 +49,7 @@ const (
 )
 
 var (
-	// ErrInvalidDateTimeFormat is returned by [Pack] and [PackManifest] when
+	// ErrInvalidDateTimeFormat is returned by [Pack], [PackManifest], and [PackIndex] when
 	// "org.opencontainers.artifact.created" or "org.opencontainers.image.created"
 	// is provided, but its value is not in RFC 3339 format.
 	// Reference: https://www.rfc-editor.org/rfc/rfc3339#section-5.6
@@ -107,6 +109,45 @@ type PackManifestOptions struct {
 	// ConfigAnnotations is the annotation map of the config descriptor.
 	// This option is valid only when ConfigDescriptor is nil.
 	ConfigAnnotations map[string]string
+
+	// DigestAlgorithm is the algorithm used to compute the digest of the
+	// manifest, and of the config and layer blobs that [PackManifest]
+	// generates. Descriptors supplied in Subject, Layers and ConfigDescriptor
+	// keep their own digests.
+	// If empty, [digest.Canonical] (SHA-256) is used. SHA-384 and SHA-512 are
+	// the other supported algorithms, and must be available, which requires
+	// their hash package to be linked into the binary (for example by
+	// importing crypto/sha512).
+	// With a non-canonical algorithm, the generated empty config and layer
+	// digests differ from [ocispec.DescriptorEmptyJSON].
+	DigestAlgorithm digest.Algorithm
+}
+
+// PackIndexOptions contains optional parameters for [PackIndex].
+type PackIndexOptions struct {
+	// Subject is the subject of the index.
+	Subject *ocispec.Descriptor
+
+	// Manifests is the descriptors of the manifests or indexes referenced by
+	// the index. The caller is responsible for pushing the referenced content
+	// to the target before calling [PackIndex]; PackIndex only pushes the
+	// index itself.
+	Manifests []ocispec.Descriptor
+
+	// IndexAnnotations is the annotation map of the index. In order to
+	// make [PackIndex] reproducible, set the key ocispec.AnnotationCreated
+	// (i.e. "org.opencontainers.image.created") to a fixed value. The value
+	// must conform to RFC 3339.
+	IndexAnnotations map[string]string
+
+	// DigestAlgorithm is the algorithm used to compute the digest of the
+	// index. Descriptors supplied in Subject and Manifests keep their own
+	// digests.
+	// If empty, [digest.Canonical] (SHA-256) is used. SHA-384 and SHA-512 are
+	// the other supported algorithms, and must be available, which requires
+	// their hash package to be linked into the binary (for example by
+	// importing crypto/sha512).
+	DigestAlgorithm digest.Algorithm
 }
 
 // mediaTypeRegexp checks the format of media types.
@@ -138,6 +179,12 @@ var mediaTypeRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126
 //
 // If succeeded, returns a descriptor of the packed manifest.
 func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
+	if opts.DigestAlgorithm == "" {
+		opts.DigestAlgorithm = digest.Canonical
+	}
+	if !descriptor.IsSupportedAlgorithm(opts.DigestAlgorithm) || !opts.DigestAlgorithm.Available() {
+		return ocispec.Descriptor{}, fmt.Errorf("digest algorithm %q: %w", opts.DigestAlgorithm, errdef.ErrUnsupported)
+	}
 	switch packManifestVersion {
 	case PackManifestVersion1_0:
 		return packManifestV1_0(ctx, pusher, artifactType, opts)
@@ -146,6 +193,62 @@ func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersio
 	default:
 		return ocispec.Descriptor{}, fmt.Errorf("PackManifestVersion(%v): %w", packManifestVersion, errdef.ErrUnsupported)
 	}
+}
+
+// PackIndex generates an OCI Image Index based on the given parameters and
+// pushes the packed index to a content storage using pusher.
+//
+// artifactType is optional. If not empty, it MUST comply with RFC 6838.
+//
+// PackIndex only pushes the index itself. It does not push, nor verify the
+// existence or validity of, opts.Subject and the descriptors in
+// opts.Manifests. The caller is responsible for making the referenced content
+// available in the target; some targets, such as registries, may reject an
+// index that references missing content.
+//
+// Each time when PackIndex is called, if a time stamp is not specified, a new
+// time stamp is generated in the index annotations with the key
+// ocispec.AnnotationCreated (i.e. "org.opencontainers.image.created"), which
+// changes the digest of the packed index. To make [PackIndex] reproducible,
+// set the key ocispec.AnnotationCreated to a fixed value in
+// opts.IndexAnnotations. The value MUST conform to RFC 3339.
+//
+// If succeeded, returns a descriptor of the packed index.
+func PackIndex(ctx context.Context, pusher content.Pusher, artifactType string, opts PackIndexOptions) (ocispec.Descriptor, error) {
+	if opts.DigestAlgorithm == "" {
+		opts.DigestAlgorithm = digest.Canonical
+	}
+	if !descriptor.IsSupportedAlgorithm(opts.DigestAlgorithm) || !opts.DigestAlgorithm.Available() {
+		return ocispec.Descriptor{}, fmt.Errorf("digest algorithm %q: %w", opts.DigestAlgorithm, errdef.ErrUnsupported)
+	}
+
+	if artifactType != "" {
+		if err := validateMediaType(artifactType); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %w", err)
+		}
+	}
+
+	annotations, err := ensureAnnotationCreated(opts.IndexAnnotations, ocispec.AnnotationCreated)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	if opts.Manifests == nil {
+		opts.Manifests = []ocispec.Descriptor{}
+	}
+
+	index := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2,
+		},
+		MediaType:    ocispec.MediaTypeImageIndex,
+		Manifests:    opts.Manifests,
+		Subject:      opts.Subject,
+		ArtifactType: artifactType,
+		Annotations:  annotations,
+	}
+
+	return pushManifest(ctx, pusher, index, index.MediaType, index.ArtifactType, index.Annotations, opts.DigestAlgorithm)
 }
 
 // PackOptions contains optional parameters for [Pack].
@@ -215,7 +318,7 @@ func packArtifact(ctx context.Context, pusher content.Pusher, artifactType strin
 		Subject:      opts.Subject,
 		Annotations:  annotations,
 	}
-	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, manifest.Annotations)
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, manifest.Annotations, digest.Canonical)
 }
 
 // packManifestV1_0 packs an image manifest defined in image-spec v1.0.2.
@@ -239,7 +342,7 @@ func packManifestV1_0(ctx context.Context, pusher content.Pusher, artifactType s
 			return ocispec.Descriptor{}, fmt.Errorf("invalid artifactType format: %w", err)
 		}
 		var err error
-		configDesc, err = pushCustomEmptyConfig(ctx, pusher, artifactType, opts.ConfigAnnotations)
+		configDesc, err = pushCustomEmptyConfig(ctx, pusher, artifactType, opts.ConfigAnnotations, opts.DigestAlgorithm)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -261,7 +364,7 @@ func packManifestV1_0(ctx context.Context, pusher content.Pusher, artifactType s
 		Layers:      opts.Layers,
 		Annotations: annotations,
 	}
-	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, manifest.Annotations)
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, manifest.Annotations, opts.DigestAlgorithm)
 }
 
 // packManifestV1_1_RC2 packs an image manifest as defined in image-spec
@@ -281,7 +384,7 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 		configDesc = *opts.ConfigDescriptor
 	} else {
 		var err error
-		configDesc, err = pushCustomEmptyConfig(ctx, pusher, configMediaType, opts.ConfigAnnotations)
+		configDesc, err = pushCustomEmptyConfig(ctx, pusher, configMediaType, opts.ConfigAnnotations, digest.Canonical)
 		if err != nil {
 			return ocispec.Descriptor{}, err
 		}
@@ -304,7 +407,7 @@ func packManifestV1_1_RC2(ctx context.Context, pusher content.Pusher, configMedi
 		Subject:     opts.Subject,
 		Annotations: annotations,
 	}
-	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, manifest.Annotations)
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.Config.MediaType, manifest.Annotations, digest.Canonical)
 }
 
 // packManifestV1_1 packs an image manifest defined in image-spec v1.1.1.
@@ -330,9 +433,9 @@ func packManifestV1_1(ctx context.Context, pusher content.Pusher, artifactType s
 		configDesc = *opts.ConfigDescriptor
 	} else {
 		// use the empty descriptor for config
-		configDesc = ocispec.DescriptorEmptyJSON
+		configDesc = emptyJSONDescriptor(opts.DigestAlgorithm)
 		configDesc.Annotations = opts.ConfigAnnotations
-		configBytes := ocispec.DescriptorEmptyJSON.Data
+		configBytes := configDesc.Data
 		// push config
 		if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {
 			return ocispec.Descriptor{}, fmt.Errorf("failed to push config: %w", err)
@@ -346,8 +449,8 @@ func packManifestV1_1(ctx context.Context, pusher content.Pusher, artifactType s
 	}
 	if len(opts.Layers) == 0 {
 		// use the empty descriptor as the single layer
-		layerDesc := ocispec.DescriptorEmptyJSON
-		layerData := ocispec.DescriptorEmptyJSON.Data
+		layerDesc := emptyJSONDescriptor(opts.DigestAlgorithm)
+		layerData := layerDesc.Data
 		if !emptyBlobExists {
 			if err := pushIfNotExist(ctx, pusher, layerDesc, layerData); err != nil {
 				return ocispec.Descriptor{}, fmt.Errorf("failed to push layer: %w", err)
@@ -367,7 +470,15 @@ func packManifestV1_1(ctx context.Context, pusher content.Pusher, artifactType s
 		ArtifactType: artifactType,
 		Annotations:  annotations,
 	}
-	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, manifest.Annotations)
+	return pushManifest(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType, manifest.Annotations, opts.DigestAlgorithm)
+}
+
+// emptyJSONDescriptor returns the descriptor of the empty JSON blob with its
+// digest computed using alg.
+func emptyJSONDescriptor(alg digest.Algorithm) ocispec.Descriptor {
+	desc := ocispec.DescriptorEmptyJSON
+	desc.Digest = alg.FromBytes(desc.Data)
+	return desc
 }
 
 // pushIfNotExist pushes data described by desc if it does not exist in the
@@ -390,12 +501,15 @@ func pushIfNotExist(ctx context.Context, pusher content.Pusher, desc ocispec.Des
 }
 
 // pushManifest marshals manifest into JSON bytes and pushes it.
-func pushManifest(ctx context.Context, pusher content.Pusher, manifest any, mediaType string, artifactType string, annotations map[string]string) (ocispec.Descriptor, error) {
+func pushManifest(ctx context.Context, pusher content.Pusher, manifest any, mediaType string, artifactType string, annotations map[string]string, alg digest.Algorithm) (ocispec.Descriptor, error) {
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to marshal manifest: %w", err)
 	}
-	manifestDesc := content.NewDescriptorFromBytes(mediaType, manifestJSON)
+	manifestDesc, err := content.NewDescriptorFromBytesWithAlgorithm(mediaType, manifestJSON, alg)
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to create manifest descriptor: %w", err)
+	}
 	// populate ArtifactType and Annotations of the manifest into manifestDesc
 	manifestDesc.ArtifactType = artifactType
 	manifestDesc.Annotations = annotations
@@ -407,13 +521,16 @@ func pushManifest(ctx context.Context, pusher content.Pusher, manifest any, medi
 }
 
 // pushCustomEmptyConfig generates and pushes an empty config blob.
-func pushCustomEmptyConfig(ctx context.Context, pusher content.Pusher, mediaType string, annotations map[string]string) (ocispec.Descriptor, error) {
+func pushCustomEmptyConfig(ctx context.Context, pusher content.Pusher, mediaType string, annotations map[string]string, alg digest.Algorithm) (ocispec.Descriptor, error) {
 	// Use an empty JSON object here, because some registries may not accept
 	// empty config blob.
 	// As of September 2022, GAR is known to return 400 on empty blob upload.
 	// See https://github.com/oras-project/oras-go/issues/294 for details.
 	configBytes := []byte("{}")
-	configDesc := content.NewDescriptorFromBytes(mediaType, configBytes)
+	configDesc, err := content.NewDescriptorFromBytesWithAlgorithm(mediaType, configBytes, alg)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
 	configDesc.Annotations = annotations
 	// push config
 	if err := pushIfNotExist(ctx, pusher, configDesc, configBytes); err != nil {

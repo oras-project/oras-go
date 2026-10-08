@@ -1905,7 +1905,10 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 }
 
 // push pushes the manifest content, matching the expected descriptor.
-func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
+// alternates, if any, are additional digests of the same content computed by
+// the caller under other algorithms; they are accepted in the response
+// Docker-Content-Digest header — see [verifyContentDigest].
+func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string, alternates ...digest.Digest) error {
 	repoRef := s.repo.reference()
 	ref := repoRef
 	if d, err := digest.Parse(reference); err == nil {
@@ -1963,7 +1966,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 		return errutil.ParseErrorResponse(resp)
 	}
 	s.checkOCISubjectHeader(resp)
-	return verifyContentDigest(resp, expected.Digest)
+	return verifyContentDigest(resp, expected.Digest, alternates...)
 }
 
 // checkOCISubjectHeader checks the "OCI-Subject" header in the response and
@@ -2117,11 +2120,16 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 			// 2. OR the updated referrers list is empty but referrers GC
 			//    is skipped, in this case an empty index should still be pushed
 			//    as the old index won't get deleted
-			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
+			newIndexDesc, newIndex, err := generateIndex(updatedReferrers, subject.Digest.Algorithm())
 			if err != nil {
 				return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
 			}
-			if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
+			// The index is pushed by tag, so a registry may report the
+			// digest of the same content under digest.Canonical instead of
+			// the subject's algorithm. Both digests are computed from
+			// newIndex, so both are accepted by the response verification.
+			canonicalIndexDigest := digest.Canonical.FromBytes(newIndex)
+			if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag, canonicalIndexDigest); err != nil {
 				return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
 			}
 		}
@@ -2254,7 +2262,9 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 
 // verifyPullContentDigest permits a different canonical digest algorithm on
 // manifest pulls, but verifies the returned bytes against the requested digest.
-// Pushes deliberately continue to use verifyContentDigest's strict comparison.
+// Pushes deliberately continue to use verifyContentDigest's strict comparison,
+// except for the generated referrers index pushed by tag, which also accepts
+// the canonical digest of the bytes being pushed.
 // Alternate algorithms buffer at most MaxMetadataBytes before returning the
 // verified body to the caller. Headerless responses, regardless of
 // Content-Length, are verified only once the body is read to EOF: a caller that
@@ -2349,7 +2359,10 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64, al
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.
 // OCI distribution-spec states the Docker-Content-Digest header is optional.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
-func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
+// alternates list digests of the same content under other algorithms, which
+// are also accepted: a registry that canonicalizes tag pushes to
+// [digest.Canonical] reports such a digest instead of the expected one.
+func verifyContentDigest(resp *http.Response, expected digest.Digest, alternates ...digest.Digest) error {
 	digestStr := resp.Header.Get(headerDockerContentDigest)
 
 	if len(digestStr) == 0 {
@@ -2366,6 +2379,11 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 	}
 
 	if contentDigest != expected {
+		for _, alternate := range alternates {
+			if contentDigest == alternate {
+				return nil
+			}
+		}
 		return fmt.Errorf(
 			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q; %w",
 			resp.Request.Method, resp.Request.URL,
@@ -2379,7 +2397,9 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 }
 
 // generateIndex generates an image index containing the given manifests list.
-func generateIndex(manifests []ocispec.Descriptor) (ocispec.Descriptor, []byte, error) {
+// The index descriptor is digested using alg. [digest.Canonical] is used if alg
+// is empty; an error is returned if alg is unsupported or unavailable.
+func generateIndex(manifests []ocispec.Descriptor, alg digest.Algorithm) (ocispec.Descriptor, []byte, error) {
 	if manifests == nil {
 		manifests = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
 	}
@@ -2394,6 +2414,12 @@ func generateIndex(manifests []ocispec.Descriptor) (ocispec.Descriptor, []byte, 
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	indexDesc := content.NewDescriptorFromBytes(index.MediaType, indexJSON)
+	indexDesc, err := content.NewDescriptorFromBytesWithAlgorithm(index.MediaType, indexJSON, alg)
+	if err != nil {
+		// alg is unsupported or unavailable. A silent fallback to
+		// digest.Canonical would restore the referrers tag/index algorithm
+		// mismatch this function exists to avoid, so the error is surfaced.
+		return ocispec.Descriptor{}, nil, err
+	}
 	return indexDesc, indexJSON, nil
 }
