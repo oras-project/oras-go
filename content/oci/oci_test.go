@@ -3001,6 +3001,10 @@ func TestStore_GCIndexSaveFailureLeavesBlobs(t *testing.T) {
 	if !s.graph.Exists(desc) {
 		t.Error("graph.Exists(manifest) after failed GC = false, want true")
 	}
+	// the in-memory index must not keep the manifest list the failed save built
+	if len(s.index.Manifests) != 1 {
+		t.Errorf("len(s.index.Manifests) after failed GC = %d, want 1", len(s.index.Manifests))
+	}
 }
 
 // TestStore_GCWithUnreachableReferrer covers an untagged referrer that stays in

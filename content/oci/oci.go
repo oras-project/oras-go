@@ -505,9 +505,18 @@ func (s *Store) saveIndex() error {
 }
 
 // saveIndexFrom writes the `index.json` file from the references in tagResolver.
-func (s *Store) saveIndexFrom(tagResolver *resolver.Memory) error {
+func (s *Store) saveIndexFrom(tagResolver *resolver.Memory) (err error) {
 	s.indexLock.Lock()
 	defer s.indexLock.Unlock()
+
+	// restore the previous manifest list if the write fails, so that a failed
+	// save leaves the in-memory index as it was
+	oldManifests := s.index.Manifests
+	defer func() {
+		if err != nil {
+			s.index.Manifests = oldManifests
+		}
+	}()
 
 	var manifests []ocispec.Descriptor
 	tagged := set.New[digest.Digest]()
