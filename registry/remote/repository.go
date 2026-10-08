@@ -37,6 +37,7 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/cas"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/internal/httputil"
 	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/spec"
@@ -2269,12 +2270,14 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // verified body to the caller. Headerless responses, regardless of
 // Content-Length, are verified only once the body is read to EOF: a caller that
 // stops after desc.Size bytes never triggers the check. Resolve and Exists use
-// HEAD, so remain strict.
+// HEAD, so remain strict. A digest algorithm oras-go does not support is
+// rejected with errdef.ErrUnsupported.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
-	headerStr := resp.Header.Get(headerDockerContentDigest)
-	if !expected.Algorithm().Available() {
-		return verifyContentDigest(resp, expected)
+	if algo := expected.Algorithm(); !descriptor.IsSupportedAlgorithm(algo) || !algo.Available() {
+		return fmt.Errorf("%s %q: unsupported digest algorithm %q: %w",
+			resp.Request.Method, resp.Request.URL, algo, errdef.ErrUnsupported)
 	}
+	headerStr := resp.Header.Get(headerDockerContentDigest)
 	if headerStr == "" {
 		// Manifests fetched without a header were never bounded by
 		// MaxMetadataBytes. Verify the body as the caller reads it.

@@ -30,6 +30,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 )
 
@@ -634,6 +635,9 @@ func TestRepository_Push_ChunkedUnsupportedDigestAlgorithm(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported digest algorithm") {
 		t.Errorf("error = %v, want unsupported digest algorithm", err)
+	}
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("error = %v, want errdef.ErrUnsupported", err)
 	}
 	if !reg.cancelled {
 		t.Error("expected session to be cancelled on unsupported algorithm")
