@@ -2117,7 +2117,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 			// 2. OR the updated referrers list is empty but referrers GC
 			//    is skipped, in this case an empty index should still be pushed
 			//    as the old index won't get deleted
-			newIndexDesc, newIndex, err := generateIndex(updatedReferrers)
+			newIndexDesc, newIndex, err := generateIndex(updatedReferrers, subject.Digest.Algorithm())
 			if err != nil {
 				return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
 			}
@@ -2379,7 +2379,11 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 }
 
 // generateIndex generates an image index containing the given manifests list.
-func generateIndex(manifests []ocispec.Descriptor) (ocispec.Descriptor, []byte, error) {
+// The index descriptor is digested using alg, which is typically derived from
+// the subject descriptor so that the generated index stays consistent with the
+// algorithm used for the referrers tag. If alg is empty, unsupported or
+// unavailable, [digest.Canonical] is used.
+func generateIndex(manifests []ocispec.Descriptor, alg digest.Algorithm) (ocispec.Descriptor, []byte, error) {
 	if manifests == nil {
 		manifests = []ocispec.Descriptor{} // make it an empty array to prevent potential server-side bugs
 	}
@@ -2394,6 +2398,10 @@ func generateIndex(manifests []ocispec.Descriptor) (ocispec.Descriptor, []byte, 
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	indexDesc := content.NewDescriptorFromBytes(index.MediaType, indexJSON)
+	indexDesc, err := content.NewDescriptorFromBytesWithAlgorithm(index.MediaType, indexJSON, alg)
+	if err != nil {
+		// alg is not usable here; keep the previous behavior
+		indexDesc = content.NewDescriptorFromBytes(index.MediaType, indexJSON)
+	}
 	return indexDesc, indexJSON, nil
 }
