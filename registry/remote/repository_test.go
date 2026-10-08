@@ -8103,7 +8103,7 @@ func Test_generateIndex(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "empty algorithm falls back to SHA-256",
+			name:      "empty algorithm uses SHA-256",
 			manifests: referrers,
 			alg:       "",
 			wantDesc:  wantIndexDesc,
@@ -8111,12 +8111,12 @@ func Test_generateIndex(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "unsupported algorithm falls back to SHA-256",
+			name:      "unsupported algorithm errors",
 			manifests: referrers,
 			alg:       digest.Algorithm("sha1"),
-			wantDesc:  wantIndexDesc,
-			wantBytes: wantIndexJSON,
-			wantErr:   false,
+			wantDesc:  ocispec.Descriptor{},
+			wantBytes: nil,
+			wantErr:   true,
 		},
 	}
 	for _, tt := range tests {
@@ -8138,8 +8138,11 @@ func Test_generateIndex(t *testing.T) {
 
 func Test_ManifestStore_Push_ReferrersAPIUnavailable_SHA384Subject(t *testing.T) {
 	// generate test content: the subject is digested with SHA-384, so the
-	// referrers tag is sha384-* and the generated referrers index should be
-	// digested with SHA-384 as well.
+	// referrers tag is sha384-*. That the generated referrers index is
+	// digested with the subject's algorithm is covered by Test_generateIndex;
+	// this end-to-end test covers pushing the index by tag to a registry
+	// that canonicalizes tag pushes to SHA-256, which must not fail the
+	// push.
 	// Note: a SHA-512 subject is not usable here because its referrers tag
 	// exceeds the reference length limit, hence SHA-384 is the only
 	// non-SHA-256 algorithm covered by this end-to-end test.
@@ -8163,8 +8166,8 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SHA384Subject(t *testing.T)
 	artifactDesc.ArtifactType = artifact.ArtifactType
 	artifactDesc.Annotations = artifact.Annotations
 
-	// test pushing artifact with subject, a referrer list digested with the
-	// subject's algorithm should be created
+	// the referrers index the client should generate and push for the
+	// artifact's subject
 	index_1 := ocispec.Index{
 		Versioned: specs.Versioned{
 			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
@@ -8177,13 +8180,6 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SHA384Subject(t *testing.T)
 	indexJSON_1, err := json.Marshal(index_1)
 	if err != nil {
 		t.Fatalf("failed to marshal manifest: %v", err)
-	}
-	indexDesc_1, err := content.NewDescriptorFromBytesWithAlgorithm(index_1.MediaType, indexJSON_1, digest.SHA384)
-	if err != nil {
-		t.Fatalf("failed to generate index descriptor: %v", err)
-	}
-	if indexDesc_1.Digest.Algorithm() != subjectDesc.Digest.Algorithm() {
-		t.Errorf("index descriptor algorithm = %v, want %v", indexDesc_1.Digest.Algorithm(), subjectDesc.Digest.Algorithm())
 	}
 	var gotReferrerIndex []byte
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -8207,7 +8203,9 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SHA384Subject(t *testing.T)
 				t.Errorf("fail to read: %v", err)
 			}
 			gotReferrerIndex = buf.Bytes()
-			w.Header().Set("Docker-Content-Digest", indexDesc_1.Digest.String())
+			// like a registry that canonicalizes tag pushes, report the
+			// digest of the received content under SHA-256
+			w.Header().Set("Docker-Content-Digest", digest.Canonical.FromBytes(buf.Bytes()).String())
 			w.WriteHeader(http.StatusCreated)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
@@ -8231,13 +8229,6 @@ func Test_ManifestStore_Push_ReferrersAPIUnavailable_SHA384Subject(t *testing.T)
 	}
 	if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
 		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
-	}
-	// the pushed index body should match the descriptor digested with the
-	// subject's algorithm; a mismatch would also have failed Push() above,
-	// since the server responds with a sha384 "Docker-Content-Digest" header
-	// that the client verifies against its own index descriptor
-	if got := subjectDesc.Digest.Algorithm().FromBytes(gotReferrerIndex); got != indexDesc_1.Digest {
-		t.Errorf("referrers index digest = %v, want %v", got, indexDesc_1.Digest)
 	}
 }
 
