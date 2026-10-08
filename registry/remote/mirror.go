@@ -112,6 +112,37 @@ func isMirrorFallbackError(err error) bool {
 	return !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }
 
+func tryMirrors[T any](
+	mirrors []mirrorRepository,
+	primary *Repository,
+	reference string,
+	mirrorOp func(*Repository) (T, error),
+	primaryOp func(*Repository) (T, error),
+	accept func(T) bool,
+) (T, error) {
+	var zero T
+
+	for i := range mirrors {
+		if !mirrors[i].shouldUseForReference(reference) {
+			continue
+		}
+
+		result, err := mirrorOp(mirrors[i].Repository)
+		if err == nil {
+			if accept(result) {
+				return result, nil
+			}
+			continue
+		}
+
+		if !isMirrorFallbackError(err) {
+			return zero, err
+		}
+	}
+
+	return primaryOp(primary)
+}
+
 // withMirrorFallbackResolve tries to resolve the reference against each
 // applicable mirror in order, falling back to the primary repository on error.
 func withMirrorFallbackResolve(
@@ -122,19 +153,14 @@ func withMirrorFallbackResolve(
 	resolve func(ctx context.Context, repo *Repository, reference string) (ocispec.Descriptor, error),
 ) (ocispec.Descriptor, error) {
 	mirrorRef := mirrorReference(reference)
-	for i := range mirrors {
-		if !mirrors[i].shouldUseForReference(reference) {
-			continue
-		}
-		desc, err := resolve(ctx, mirrors[i].Repository, mirrorRef)
-		if err == nil {
-			return desc, nil
-		}
-		if !isMirrorFallbackError(err) {
-			return ocispec.Descriptor{}, err
-		}
-	}
-	return resolve(ctx, primary, reference)
+	return tryMirrors(
+		mirrors,
+		primary,
+		reference,
+		func(repo *Repository) (ocispec.Descriptor, error) { return resolve(ctx, repo, mirrorRef) },
+		func(repo *Repository) (ocispec.Descriptor, error) { return resolve(ctx, repo, reference) },
+		func(ocispec.Descriptor) bool { return true },
+	)
 }
 
 // withMirrorFallbackFetch tries to fetch the descriptor from each applicable
@@ -146,20 +172,15 @@ func withMirrorFallbackFetch(
 	target ocispec.Descriptor,
 	fetch func(ctx context.Context, repo *Repository, target ocispec.Descriptor) (io.ReadCloser, error),
 ) (io.ReadCloser, error) {
-	// Fetch by descriptor is always a digest-based operation.
-	for i := range mirrors {
-		if !mirrors[i].shouldUseForReference(target.Digest.String()) {
-			continue
-		}
-		rc, err := fetch(ctx, mirrors[i].Repository, target)
-		if err == nil {
-			return rc, nil
-		}
-		if !isMirrorFallbackError(err) {
-			return nil, err
-		}
-	}
-	return fetch(ctx, primary, target)
+	reference := target.Digest.String()
+	return tryMirrors(
+		mirrors,
+		primary,
+		reference,
+		func(repo *Repository) (io.ReadCloser, error) { return fetch(ctx, repo, target) },
+		func(repo *Repository) (io.ReadCloser, error) { return fetch(ctx, repo, target) },
+		func(io.ReadCloser) bool { return true },
+	)
 }
 
 // withMirrorFallbackFetchReference tries to fetch by reference from each
@@ -172,19 +193,30 @@ func withMirrorFallbackFetchReference(
 	fetch func(ctx context.Context, repo *Repository, reference string) (ocispec.Descriptor, io.ReadCloser, error),
 ) (ocispec.Descriptor, io.ReadCloser, error) {
 	mirrorRef := mirrorReference(reference)
-	for i := range mirrors {
-		if !mirrors[i].shouldUseForReference(reference) {
-			continue
-		}
-		desc, rc, err := fetch(ctx, mirrors[i].Repository, mirrorRef)
-		if err == nil {
-			return desc, rc, nil
-		}
-		if !isMirrorFallbackError(err) {
-			return ocispec.Descriptor{}, nil, err
-		}
+
+	type fallbackResult struct {
+		desc ocispec.Descriptor
+		rc   io.ReadCloser
 	}
-	return fetch(ctx, primary, reference)
+	result, err := tryMirrors(
+		mirrors,
+		primary,
+		reference,
+		func(repo *Repository) (fallbackResult, error) {
+			desc, rc, err := fetch(ctx, repo, mirrorRef)
+			return fallbackResult{desc: desc, rc: rc}, err
+		},
+		func(repo *Repository) (fallbackResult, error) {
+			desc, rc, err := fetch(ctx, repo, reference)
+			return fallbackResult{desc: desc, rc: rc}, err
+		},
+		func(fallbackResult) bool { return true },
+	)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+
+	return result.desc, result.rc, nil
 }
 
 // withMirrorFallbackExists tries to check existence against each applicable
@@ -196,25 +228,21 @@ func withMirrorFallbackExists(
 	target ocispec.Descriptor,
 	exists func(ctx context.Context, repo *Repository, target ocispec.Descriptor) (bool, error),
 ) (bool, error) {
-	// Exists by descriptor is always a digest-based operation.
-	for i := range mirrors {
-		if !mirrors[i].shouldUseForReference(target.Digest.String()) {
-			continue
-		}
-		ok, err := exists(ctx, mirrors[i].Repository, target)
-		if err == nil {
-			// Only a positive result is authoritative. A mirror that does not
-			// have the content says nothing about the primary, so keep
-			// looking; treating "absent here" as "absent everywhere" would
-			// report content that exists as missing.
-			if ok {
-				return true, nil
-			}
-			continue
-		}
-		if !isMirrorFallbackError(err) {
-			return false, err
-		}
-	}
-	return exists(ctx, primary, target)
+	reference := target.Digest.String()
+
+	return tryMirrors(
+		mirrors,
+		primary,
+		reference,
+		func(repo *Repository) (bool, error) {
+			return exists(ctx, repo, target)
+		},
+		func(repo *Repository) (bool, error) {
+			return exists(ctx, repo, target)
+		},
+		func(ok bool) bool {
+			// A mirror saying "not found" is not authoritative.
+			return ok
+		},
+	)
 }
