@@ -112,6 +112,13 @@ func isMirrorFallbackError(err error) bool {
 	return !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }
 
+// tryMirrors runs the operation against each mirror whose pull policy admits
+// reference, in order, and falls back to the primary repository. reference is
+// used only for mirror policy matching; it is not what the operations receive.
+// A mirror result rejected by accept is discarded and iteration continues, so T
+// must not own resources needing release unless accept always returns true. A
+// mirror error that isMirrorFallbackError rejects aborts without trying the
+// primary.
 func tryMirrors[T any](
 	mirrors []mirrorRepository,
 	primary *Repository,
@@ -172,6 +179,7 @@ func withMirrorFallbackFetch(
 	target ocispec.Descriptor,
 	fetch func(ctx context.Context, repo *Repository, target ocispec.Descriptor) (io.ReadCloser, error),
 ) (io.ReadCloser, error) {
+	// Fetch by descriptor is always a digest-based operation.
 	reference := target.Digest.String()
 	return tryMirrors(
 		mirrors,
@@ -228,6 +236,7 @@ func withMirrorFallbackExists(
 	target ocispec.Descriptor,
 	exists func(ctx context.Context, repo *Repository, target ocispec.Descriptor) (bool, error),
 ) (bool, error) {
+	// Exists by descriptor is always a digest-based operation.
 	reference := target.Digest.String()
 
 	return tryMirrors(
@@ -241,7 +250,10 @@ func withMirrorFallbackExists(
 			return exists(ctx, repo, target)
 		},
 		func(ok bool) bool {
-			// A mirror saying "not found" is not authoritative.
+			// Only a positive result is authoritative. A mirror that does not
+			// have the content says nothing about the primary, so keep
+			// looking; treating "absent here" as "absent everywhere" would
+			// report content that exists as missing.
 			return ok
 		},
 	)
