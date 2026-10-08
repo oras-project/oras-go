@@ -23,6 +23,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/registry"
 )
 
@@ -61,17 +62,19 @@ func (m *mirrorRepository) shouldUseForReference(reference string) bool {
 
 // isDigestReference reports whether a reference string is a digest reference.
 // A reference is considered a digest reference if it contains "@" (e.g.,
-// "repo@sha256:...") or if the part before ":" is a registered OCI digest
+// "repo@sha256:...") or if the part before ":" is a supported OCI digest
 // algorithm (e.g., "sha256:abc...").
 func isDigestReference(reference string) bool {
 	if strings.Contains(reference, "@") {
 		return true
 	}
 	// Bare digest references like "sha256:abc...": check the algorithm prefix.
-	// Using digest.Algorithm.Available() correctly rejects host:port patterns
-	// (e.g., "localhost:5000") where the prefix is not a known algorithm.
+	// The allowlist alone decides, so reference parsing does not depend on
+	// which hash packages the final binary happens to link in. It also
+	// rejects host:port patterns (e.g., "localhost:5000"), whose prefix is
+	// not an algorithm at all.
 	if i := strings.Index(reference, ":"); i > 0 {
-		return digest.Algorithm(reference[:i]).Available()
+		return descriptor.IsSupportedAlgorithm(digest.Algorithm(reference[:i]))
 	}
 	return false
 }

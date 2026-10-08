@@ -67,6 +67,16 @@ func TestManifestPullDigestValidation(t *testing.T) {
 			}
 		})
 	}
+	t.Run("unsupported algorithm rejects even without a header", func(t *testing.T) {
+		// A headerless response must not let a non-allowlisted algorithm
+		// skip verification by falling through to verifyContentDigest.
+		req := httptest.NewRequest(http.MethodGet, "http://example.com/v2/test/manifests/"+expected.String(), nil)
+		resp := &http.Response{Request: req, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(body))}
+		err := store.verifyPullContentDigest(resp, digest.Digest("unvetted:abc123"))
+		if !errors.Is(err, errdef.ErrUnsupported) {
+			t.Fatalf("error = %v, want errdef.ErrUnsupported", err)
+		}
+	})
 	t.Run("push remains strict", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPut, "http://example.com/v2/test/manifests/"+expected.String(), nil)
 		resp := &http.Response{Request: req, Header: http.Header{}}

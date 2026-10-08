@@ -29,6 +29,8 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 )
 
@@ -84,9 +86,13 @@ func (s *blobStore) pushChunked(ctx context.Context, expected ocispec.Descriptor
 
 	// Digest with the descriptor's own algorithm, not the canonical one.
 	algo := expected.Digest.Algorithm()
-	if !algo.Available() {
+	// IsSupportedAlgorithm keeps the allowlist authoritative even if a
+	// dependency registers an algorithm go-digest would otherwise accept;
+	// Available() still catches an allowlisted algorithm with no linked
+	// implementation.
+	if !descriptor.IsSupportedAlgorithm(algo) || !algo.Available() {
 		s.cancelUpload(ctx, up.location)
-		return fmt.Errorf("chunked blob push: unsupported digest algorithm %q", algo)
+		return fmt.Errorf("chunked blob push: unsupported digest algorithm %q: %w", algo, errdef.ErrUnsupported)
 	}
 	up.digester = algo.Digester()
 
