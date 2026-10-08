@@ -2263,14 +2263,11 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // HEAD, so remain strict. A digest algorithm oras-go does not support is
 // rejected with errdef.ErrUnsupported.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
-	headerStr := resp.Header.Get(headerDockerContentDigest)
-	if algo := expected.Algorithm(); !descriptor.IsSupportedAlgorithm(algo) {
+	if algo := expected.Algorithm(); !descriptor.IsSupportedAlgorithm(algo) || !algo.Available() {
 		return fmt.Errorf("%s %q: unsupported digest algorithm %q: %w",
 			resp.Request.Method, resp.Request.URL, algo, errdef.ErrUnsupported)
 	}
-	if !expected.Algorithm().Available() {
-		return verifyContentDigest(resp, expected)
-	}
+	headerStr := resp.Header.Get(headerDockerContentDigest)
 	if headerStr == "" {
 		// Manifests fetched without a header were never bounded by
 		// MaxMetadataBytes. Verify the body as the caller reads it.
