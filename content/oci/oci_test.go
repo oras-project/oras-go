@@ -3256,18 +3256,85 @@ func TestStore_GCErrorPath(t *testing.T) {
 	if err = s.GC(ctx); err != nil {
 		t.Fatal("this error should be silently ignored")
 	}
+}
 
-	// os.Remove() error
-	badDigest := digest.FromBytes([]byte("bad digest")).Encoded()
-	badPath := path.Join(algPath, "sha256", badDigest)
-	if err := os.Mkdir(badPath, 0777); err != nil {
+func TestStore_GCSkipsNonEmptyDigestNamedDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	kept := []byte(`{"layers":[]}`)
+	keptDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, kept)
+	if err := s.Push(ctx, keptDesc, bytes.NewReader(kept)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path.Join(badPath, "whatever"), []byte("extra content"), 0444); err != nil {
-		t.Fatal("error calling WriteFile(), error =", err)
+	if err := s.Tag(ctx, keptDesc, "kept"); err != nil {
+		t.Fatal(err)
 	}
-	if err = s.GC(ctx); err == nil {
-		t.Fatal("expect an error when os.Remove()")
+
+	garbage := []byte("garbage blob")
+	garbageDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, garbage)
+	if err := s.storage.Push(ctx, garbageDesc, bytes.NewReader(garbage)); err != nil {
+		t.Fatal(err)
+	}
+
+	dirDigest := digest.FromBytes([]byte("directory named like a digest"))
+	dirPath := path.Join(tempDir, ocispec.ImageBlobsDir, dirDigest.Algorithm().String(), dirDigest.Encoded())
+	if err := os.Mkdir(dirPath, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path.Join(dirPath, "whatever"), []byte("extra content"), 0444); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.GC(ctx); err != nil {
+		t.Fatal("GC() error =", err)
+	}
+
+	if _, err := os.Stat(dirPath); err != nil {
+		t.Fatalf("digest-named directory should remain: %v", err)
+	}
+
+	exists, err := s.Exists(ctx, garbageDesc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("unreachable blob should have been collected")
+	}
+
+	exists, err = s.Exists(ctx, keptDesc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatal("reachable blob should remain")
+	}
+}
+
+func TestStore_GCSkipsEmptyDigestNamedDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	dirDigest := digest.FromBytes([]byte("empty directory named like a digest"))
+	dirPath := path.Join(tempDir, ocispec.ImageBlobsDir, dirDigest.Algorithm().String(), dirDigest.Encoded())
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.GC(ctx); err != nil {
+		t.Fatal("GC() error =", err)
+	}
+
+	if _, err := os.Stat(dirPath); err != nil {
+		t.Fatalf("empty digest-named directory should remain: %v", err)
 	}
 }
 
