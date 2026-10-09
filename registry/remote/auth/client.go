@@ -55,6 +55,12 @@ var DefaultClient = &Client{
 // References: https://distribution.github.io/distribution/spec/auth/token/
 var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 
+// defaultMaxRedirects mirrors the limit enforced by net/http when
+// http.Client.CheckRedirect is nil. Installing a CheckRedirect replaces that
+// default policy, so the CheckRedirect installed by Client.send must enforce
+// the limit itself.
+const defaultMaxRedirects = 10
+
 // defaultClientID specifies the default client ID used in OAuth2.
 // See also ClientID.
 var defaultClientID = "oras-go"
@@ -152,6 +158,9 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 		}
 		if checkRedirect != nil {
 			return checkRedirect(req, via)
+		}
+		if len(via) >= defaultMaxRedirects {
+			return fmt.Errorf("stopped after %d redirects", defaultMaxRedirects)
 		}
 		return nil
 	}
