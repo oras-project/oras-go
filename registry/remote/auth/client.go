@@ -195,10 +195,11 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 
 // redirectSafeClient returns a shallow copy of client whose CheckRedirect drops
 // the Authorization header when a redirect crosses an HTTP origin (scheme,
-// host, or port). The standard library only strips sensitive headers when the
-// hostname changes, so a redirect to a different port on the same host would
-// otherwise forward credentials to an unintended endpoint. Any caller-provided
-// CheckRedirect is preserved.
+// host, or port) or moves between distribution-spec repositories on the same
+// origin. The standard library only strips sensitive headers when the hostname
+// changes, so a redirect to a different port on the same host, or to another
+// repository namespace, would otherwise forward a credential that was resolved
+// for a different resource. Any caller-provided CheckRedirect is preserved.
 //
 // This applies to token endpoint requests as well as registry requests: the
 // distribution spec flow sends the credential to the realm as HTTP Basic.
@@ -211,7 +212,7 @@ func redirectSafeClient(client *http.Client) *http.Client {
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) > 0 && !sameHTTPOrigin(via[len(via)-1].URL, req.URL) {
+		if len(via) > 0 && shouldDropAuthorization(via[len(via)-1].URL, req.URL) {
 			req.Header.Del(headerAuthorization)
 		}
 		if checkRedirect != nil {
@@ -233,6 +234,29 @@ func sameHTTPOrigin(a, b *url.URL) bool {
 		return false
 	}
 	return canonicalHost(a) == canonicalHost(b)
+}
+
+// shouldDropAuthorization reports whether an Authorization header resolved for
+// from must not be sent to to. A cross-origin redirect always drops the header.
+// A same-origin redirect drops it only when both URLs name a distribution-spec
+// repository and those repositories differ. A target that does not name a
+// repository (storage, a CDN path, a token endpoint) is not a namespace
+// boundary, so the header is preserved.
+func shouldDropAuthorization(from, to *url.URL) bool {
+	if from == nil || to == nil {
+		return false
+	}
+	return !sameHTTPOrigin(from, to) || crossesRepository(from, to)
+}
+
+// crossesRepository reports whether a and b both address a repository under the
+// distribution API and those repositories differ. Exact equality is used rather
+// than prefix matching: CredentialFunc is opaque, so the client cannot know the
+// namespace level at which the credential was resolved. repositoryFromPath
+// already validates the name and treats non-repository paths as empty.
+func crossesRepository(a, b *url.URL) bool {
+	from, to := repositoryFromPath(a.Path), repositoryFromPath(b.Path)
+	return from != "" && to != "" && from != to
 }
 
 // canonicalHost returns the lower-cased host of u with the default port for its
@@ -367,10 +391,12 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		return resp, nil
 	}
 	// If the challenge came from a different origin than originally requested
-	// (e.g. the request was redirected to another host or port), do not resolve
-	// or send the registry credentials to that origin.
+	// (e.g. the request was redirected to another host or port), or from a
+	// different distribution-spec repository on the same origin, do not resolve
+	// or send the credential that belongs to the original resource.
 	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
-	if resp.Request != nil && !sameHTTPOrigin(originalReq.URL, resp.Request.URL) {
+	// See also: https://github.com/oras-project/oras-go/issues/1430
+	if resp.Request != nil && shouldDropAuthorization(originalReq.URL, resp.Request.URL) {
 		return resp, nil
 	}
 

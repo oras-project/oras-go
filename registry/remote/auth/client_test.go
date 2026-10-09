@@ -4413,6 +4413,233 @@ func Test_sameHTTPOrigin(t *testing.T) {
 	}
 }
 
+func Test_repositoryFromPath(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"/v2/team-a/img/manifests/latest", "team-a/img"},
+		{"/v2/team-a/img/blobs/sha256:abc", "team-a/img"},
+		{"/v2/team-a/img/blobs/uploads/", "team-a/img"},
+		{"/v2/team-a/img/tags/list", "team-a/img"},
+		{"/v2/team-a/img/referrers/sha256:abc", "team-a/img"},
+		{"/v2/", ""},
+		{"/v2/_catalog", ""},
+		{"/storage/blob", ""},
+		{"/token", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			if got := repositoryFromPath(tt.path); got != tt.want {
+				t.Errorf("repositoryFromPath(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_crossesRepository(t *testing.T) {
+	parse := func(raw string) *url.URL {
+		t.Helper()
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	if !crossesRepository(parse("https://reg.example/v2/team-a/img/manifests/latest"), parse("https://reg.example/v2/team-b/img/manifests/latest")) {
+		t.Error("expected cross-repository redirect to be detected")
+	}
+	if crossesRepository(parse("https://reg.example/v2/team-a/img/manifests/latest"), parse("https://reg.example/v2/team-a/img/blobs/sha256:abc")) {
+		t.Error("same repository should not cross")
+	}
+	if crossesRepository(parse("https://reg.example/v2/team-a/img/blobs/sha256:abc"), parse("https://reg.example/storage/blob")) {
+		t.Error("blob storage redirect should not be treated as a repository boundary")
+	}
+}
+
+// TestClient_Do_Basic_Auth_CrossRepositoryRedirect verifies that a same-origin
+// redirect between distribution-spec repositories does not forward the
+// credential resolved for the source repository, and that the 401 re-challenge
+// guard does not retry the original resource's credential against the target.
+// See https://github.com/oras-project/oras-go/issues/1430.
+func TestClient_Do_Basic_Auth_CrossRepositoryRedirect(t *testing.T) {
+	username := "user-a"
+	password := "pass-a"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	var targetAuth string
+	var credCalls atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/team-a/img/manifests/latest":
+			if r.Header.Get("Authorization") != wantAuth {
+				w.Header().Set("Www-Authenticate", `Basic realm="registry"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			http.Redirect(w, r, "/v2/team-b/img/manifests/latest", http.StatusTemporaryRedirect)
+		case "/v2/team-b/img/manifests/latest":
+			targetAuth = r.Header.Get("Authorization")
+			w.Header().Set("Www-Authenticate", `Basic realm="registry"`)
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	tsURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test server: %v", err)
+	}
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			credCalls.Add(1)
+			if reg.Host() != tsURL.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, tsURL.Host)
+			}
+			return credentials.Credential{Username: username, Password: password}, nil
+		},
+	}
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v2/team-a/img/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusUnauthorized)
+	}
+	if targetAuth != "" {
+		t.Errorf("Authorization delivered to other repository: %q", targetAuth)
+	}
+	if got := credCalls.Load(); got != 1 {
+		t.Errorf("CredentialFunc calls = %d, want 1", got)
+	}
+}
+
+// TestClient_Do_Basic_Auth_SameRepositoryRedirect verifies that a same-origin
+// redirect that stays inside one repository still forwards the credential.
+func TestClient_Do_Basic_Auth_SameRepositoryRedirect(t *testing.T) {
+	username := "user-a"
+	password := "pass-a"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	var targetAuthOK atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/team-a/img/manifests/latest":
+			if r.Header.Get("Authorization") != wantAuth {
+				w.Header().Set("Www-Authenticate", `Basic realm="registry"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			http.Redirect(w, r, "/v2/team-a/img/manifests/sha256:abc", http.StatusTemporaryRedirect)
+		case "/v2/team-a/img/manifests/sha256:abc":
+			if r.Header.Get("Authorization") != wantAuth {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			targetAuthOK.Store(true)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	tsURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test server: %v", err)
+	}
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != tsURL.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, tsURL.Host)
+			}
+			return credentials.Credential{Username: username, Password: password}, nil
+		},
+	}
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v2/team-a/img/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if !targetAuthOK.Load() {
+		t.Error("credential was not forwarded across a same-repository redirect")
+	}
+}
+
+// TestClient_Do_Basic_Auth_BlobRedirectOffDistributionPath verifies that a
+// same-origin blob redirect to a non-distribution path keeps the credential,
+// matching the storage/CDN case called out in issue #1430.
+func TestClient_Do_Basic_Auth_BlobRedirectOffDistributionPath(t *testing.T) {
+	username := "user-a"
+	password := "pass-a"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	var targetAuthOK atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/team-a/img/blobs/sha256:abc":
+			if r.Header.Get("Authorization") != wantAuth {
+				w.Header().Set("Www-Authenticate", `Basic realm="registry"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			http.Redirect(w, r, "/storage/abc?sig=1", http.StatusTemporaryRedirect)
+		case "/storage/abc":
+			if r.Header.Get("Authorization") != wantAuth {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			targetAuthOK.Store(true)
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	tsURL, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test server: %v", err)
+	}
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+			if reg.Host() != tsURL.Host {
+				return credentials.EmptyCredential, fmt.Errorf("registry mismatch: got %v, want %v", reg, tsURL.Host)
+			}
+			return credentials.Credential{Username: username, Password: password}, nil
+		},
+	}
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v2/team-a/img/blobs/sha256:abc", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+	}
+	if !targetAuthOK.Load() {
+		t.Error("credential was not forwarded to the blob storage path")
+	}
+}
+
 func Test_validateRealm(t *testing.T) {
 	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
 	registryHTTP, _ := url.Parse("http://registry.example.com/v2/")
