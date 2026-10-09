@@ -17,6 +17,7 @@ package auth
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
@@ -85,4 +86,13 @@ func repositoryFromPath(path string) string {
 		return ""
 	}
 	return repository
+}
+
+// crossesRepository reports whether a and b address different repositories
+// under the distribution API. A URL that does not address a repository is not
+// a repository boundary.
+func crossesRepository(a, b *url.URL) bool {
+	from := repositoryFromPath(a.Path)
+	to := repositoryFromPath(b.Path)
+	return from != "" && to != "" && from != to
 }
