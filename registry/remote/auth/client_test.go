@@ -4294,9 +4294,10 @@ func Test_redirectSafeClient_RepositoryBoundary(t *testing.T) {
 			wantAuth: authorization,
 		},
 		{
-			name: "different repository drops authorization",
-			from: "/v2/team-a/image/manifests/latest",
-			to:   "/v2/team-b/image/manifests/latest",
+			name:     "different repository drops authorization",
+			from:     "/v2/team-a/image/manifests/latest",
+			to:       "/v2/team-b/image/manifests/latest",
+			wantAuth: "",
 		},
 		{
 			name:     "storage redirect preserves authorization",
@@ -4307,13 +4308,13 @@ func Test_redirectSafeClient_RepositoryBoundary(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var gotAuth string
+			var gotAuth atomic.Value
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == tt.from {
 					http.Redirect(w, r, tt.to, http.StatusTemporaryRedirect)
 					return
 				}
-				gotAuth = r.Header.Get(headerAuthorization)
+				gotAuth.Store(r.Header.Get(headerAuthorization))
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer ts.Close()
@@ -4328,10 +4329,42 @@ func Test_redirectSafeClient_RepositoryBoundary(t *testing.T) {
 				t.Fatalf("http.Client.Do() error = %v", err)
 			}
 			resp.Body.Close()
-			if gotAuth != tt.wantAuth {
-				t.Errorf("redirect target received Authorization %q, want %q", gotAuth, tt.wantAuth)
+			got, _ := gotAuth.Load().(string)
+			if got != tt.wantAuth {
+				t.Errorf("redirect target received Authorization %q, want %q", got, tt.wantAuth)
 			}
 		})
+	}
+}
+
+func Test_redirectSafeClient_MultiHopRepositoryBoundary(t *testing.T) {
+	const authorization = "Basic dGVzdDp0ZXN0"
+	var gotAuth atomic.Value
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/team-a/image/manifests/latest":
+			http.Redirect(w, r, "/storage/manifest", http.StatusTemporaryRedirect)
+		case "/storage/manifest":
+			http.Redirect(w, r, "/v2/team-b/image/manifests/latest", http.StatusTemporaryRedirect)
+		default:
+			gotAuth.Store(r.Header.Get(headerAuthorization))
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v2/team-a/image/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set(headerAuthorization, authorization)
+	resp, err := redirectSafeClient(http.DefaultClient).Do(req)
+	if err != nil {
+		t.Fatalf("http.Client.Do() error = %v", err)
+	}
+	resp.Body.Close()
+	if got, _ := gotAuth.Load().(string); got != "" {
+		t.Errorf("final redirect target received Authorization %q, want empty", got)
 	}
 }
 

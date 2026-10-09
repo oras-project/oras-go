@@ -213,8 +213,12 @@ func redirectSafeClient(client *http.Client) *http.Client {
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) > 0 {
-			previous := via[len(via)-1].URL
-			if !sameHTTPOrigin(previous, req.URL) || crossesRepository(previous, req.URL) {
+			// Compare against the original request, not the previous hop:
+			// net/http re-copies Authorization from the original request on
+			// every hop, so deleting it on one hop does not keep it off the
+			// next.
+			original := via[0].URL
+			if !sameHTTPOrigin(original, req.URL) || crossesRepository(original, req.URL) {
 				req.Header.Del(headerAuthorization)
 			}
 		}
