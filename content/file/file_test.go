@@ -17,6 +17,7 @@ package file
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha1"
 	_ "crypto/sha256"
@@ -641,6 +642,59 @@ func TestStore_Dir_Push(t *testing.T) {
 
 	if !bytes.Equal(fc, anotherFc) {
 		t.Errorf("file content mismatch")
+	}
+}
+
+// Related issue: https://github.com/oras-project/oras-go/issues/1499
+func TestStore_Dir_Push_HardLinkAcrossDirectories(t *testing.T) {
+	const title = "data"
+	raw := createTar(t, []tarEntry{
+		{name: "data/", mode: os.ModeDir | 0755},
+		{name: "data/a/", mode: os.ModeDir | 0755},
+		{name: "data/b/", mode: os.ModeDir | 0755},
+		{name: "data/a/file", content: "same content\n", mode: 0644},
+		{name: "data/b/file", linkname: "data/a/file", mode: 0644, isHardLink: true},
+	})
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	if _, err := zw.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob := gz.Bytes()
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayerGzip,
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: title,
+			AnnotationUnpack:        "true",
+			AnnotationDigest:        digest.FromBytes(raw).String(),
+		},
+	}
+
+	workDir := t.TempDir()
+	s, err := New(workDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+	if err := s.Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	a, err := os.Lstat(filepath.Join(workDir, title, "a", "file"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.Lstat(filepath.Join(workDir, title, "b", "file"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(a, b) {
+		t.Error("data/b/file is not a hard link to data/a/file")
 	}
 }
 
