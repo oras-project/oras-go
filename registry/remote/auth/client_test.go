@@ -4321,6 +4321,66 @@ func TestClient_send_PreservesCheckRedirect(t *testing.T) {
 	}
 }
 
+func TestClient_send_RedirectLimit(t *testing.T) {
+	// Stop redirecting eventually so that a regression fails instead of hanging.
+	const maxHits = 50
+	tests := []struct {
+		name          string
+		checkRedirect func(req *http.Request, via []*http.Request) error
+		wantHits      int64
+		wantErr       string
+	}{
+		{
+			name:     "default limit applies without caller CheckRedirect",
+			wantHits: 10,
+			wantErr:  "stopped after 10 redirects",
+		},
+		{
+			name: "caller CheckRedirect may exceed the default limit",
+			checkRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 20 {
+					return errors.New("stopped after 20 redirects")
+				}
+				return nil
+			},
+			wantHits: 20,
+			wantErr:  "stopped after 20 redirects",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var hits atomic.Int64
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if hits.Add(1) >= maxHits {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				http.Redirect(w, r, "/loop", http.StatusFound)
+			}))
+			defer ts.Close()
+
+			client := &Client{
+				Client: &http.Client{CheckRedirect: tt.checkRedirect},
+			}
+			req, err := http.NewRequest(http.MethodGet, ts.URL+"/loop", nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				t.Fatalf("Client.Do() error = nil, want %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Client.Do() error = %v, want %q", err, tt.wantErr)
+			}
+			if got := hits.Load(); got != tt.wantHits {
+				t.Errorf("server hits = %d, want %d", got, tt.wantHits)
+			}
+		})
+	}
+}
+
 func Test_sameHTTPOrigin(t *testing.T) {
 	tests := []struct {
 		name string
