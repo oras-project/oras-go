@@ -82,6 +82,21 @@ const (
 //   - Compatible spec: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
 const filterTypeArtifactType = "artifactType"
 
+func override[T comparable](child, parent T) T {
+	var zero T
+	if child != zero {
+		return child
+	}
+	return parent
+}
+
+func overrideSlice[T any](child, parent []T) []T {
+	if len(child) > 0 {
+		return child
+	}
+	return parent
+}
+
 // Client is an interface for a HTTP client.
 type Client interface {
 	// Do sends an HTTP request and returns an HTTP response.
@@ -229,13 +244,20 @@ func NewRepository(reference string) (*Repository, error) {
 	}, nil
 }
 
+// validate checks that the repository has a configured registry.
+func (r *Repository) validate() error {
+	if r.Registry == nil {
+		return errors.New("repository registry is nil")
+	}
+	return nil
+}
+
 // reference returns the properties reference for this repository.
 func (r *Repository) reference() properties.Reference {
-	ref := properties.Reference{Repository: r.RepositoryName}
-	if r.Registry != nil {
-		ref.Registry = r.Registry.Reference.Registry
+	return properties.Reference{
+		Registry:   r.Registry.Reference.Registry,
+		Repository: r.RepositoryName,
 	}
-	return ref
 }
 
 // Reference returns the full properties.Reference for this repository.
@@ -262,7 +284,7 @@ func (r *Repository) clone() *Repository {
 // client returns an HTTP client used to access the remote repository.
 // A default HTTP client is returned if the client is not configured.
 func (r *Repository) client() Client {
-	if r.Registry == nil || r.Registry.Client == nil {
+	if r.Registry.Client == nil {
 		return auth.DefaultClient
 	}
 	return r.Registry.Client
@@ -270,17 +292,11 @@ func (r *Repository) client() Client {
 
 // plainHTTP returns whether plain HTTP should be used.
 func (r *Repository) plainHTTP() bool {
-	if r.Registry == nil {
-		return false
-	}
 	return r.Registry.PlainHTTP
 }
 
 // maxMetadataBytes returns the maximum metadata bytes limit.
 func (r *Repository) maxMetadataBytes() int64 {
-	if r.Registry == nil {
-		return 0
-	}
 	return r.Registry.MaxMetadataBytes
 }
 
@@ -299,90 +315,48 @@ func (r *Repository) maxChunkSize() int64 {
 
 // handleWarning returns the warning handler function.
 func (r *Repository) handleWarning() func(warning Warning) {
-	if r.Registry == nil {
-		return nil
-	}
 	return r.Registry.HandleWarning
 }
 
 // policy returns the policy evaluator.
 func (r *Repository) policy() *policy.Evaluator {
-	if r.Registry == nil {
-		return nil
-	}
 	return r.Registry.Policy
 }
 
 // tagListPageSize returns the effective tag list page size.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) tagListPageSize() int {
-	if r.TagListPageSize > 0 {
-		return r.TagListPageSize
-	}
-	if r.Registry != nil {
-		return r.Registry.TagListPageSize
-	}
-	return 0
+	return override(r.TagListPageSize, r.Registry.TagListPageSize)
 }
 
 // referrerListPageSize returns the effective referrer list page size.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) referrerListPageSize() int {
-	if r.ReferrerListPageSize > 0 {
-		return r.ReferrerListPageSize
-	}
-	if r.Registry != nil {
-		return r.Registry.ReferrerListPageSize
-	}
-	return 0
+	return override(r.ReferrerListPageSize, r.Registry.ReferrerListPageSize)
 }
 
 // tagListMaxPages returns the effective maximum number of tag list pages.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) tagListMaxPages() int {
-	if r.TagListMaxPages > 0 {
-		return r.TagListMaxPages
-	}
-	if r.Registry != nil {
-		return r.Registry.TagListMaxPages
-	}
-	return 0
+	return override(r.TagListMaxPages, r.Registry.TagListMaxPages)
 }
 
 // referrerListMaxPages returns the effective maximum number of referrer list pages.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) referrerListMaxPages() int {
-	if r.ReferrerListMaxPages > 0 {
-		return r.ReferrerListMaxPages
-	}
-	if r.Registry != nil {
-		return r.Registry.ReferrerListMaxPages
-	}
-	return 0
+	return override(r.ReferrerListMaxPages, r.Registry.ReferrerListMaxPages)
 }
 
 // manifestMediaTypes returns the effective manifest media types.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) manifestMediaTypes() []string {
-	if len(r.ManifestMediaTypes) > 0 {
-		return r.ManifestMediaTypes
-	}
-	if r.Registry != nil {
-		return r.Registry.ManifestMediaTypes
-	}
-	return nil
+	return overrideSlice(r.ManifestMediaTypes, r.Registry.ManifestMediaTypes)
 }
 
 // skipReferrersGC returns the effective skip referrers GC setting.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) skipReferrersGC() bool {
-	if r.SkipReferrersGC {
-		return true
-	}
-	if r.Registry != nil {
-		return r.Registry.SkipReferrersGC
-	}
-	return false
+	return override(r.SkipReferrersGC, r.Registry.SkipReferrersGC)
 }
 
 // SetReferrersCapability indicates the Referrers API capability of the remote
@@ -466,6 +440,10 @@ func withPolicyChecked(ctx context.Context) context.Context {
 // manifest before uploading it, so its signing material must be discoverable
 // by the configured verifier at that point.
 func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
+	if err := r.validate(); err != nil {
+		return err
+	}
+
 	if ctx.Value(policyCheckedKey{}) != nil {
 		return nil
 	}
@@ -502,6 +480,9 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 // signature lookup and payload validation. Callers must first call checkPolicy
 // with the same reference because digest references are fully checked there.
 func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, desc ocispec.Descriptor) error {
+	if err := r.validate(); err != nil {
+		return err
+	}
 	if ctx.Value(policyCheckedKey{}) != nil {
 		return nil
 	}

@@ -29,6 +29,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1280,6 +1281,189 @@ func TestRepository_FetchReference(t *testing.T) {
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, index) {
 		t.Errorf("Repository.FetchReference() = %v, want %v", got, index)
+	}
+}
+
+func TestRepository_ListPaginationSettings(t *testing.T) {
+	registry := &Registry{
+		TagListPageSize:      100,
+		ReferrerListPageSize: 200,
+		TagListMaxPages:      10,
+		ReferrerListMaxPages: 20,
+	}
+
+	tests := []struct {
+		name string
+		repo *Repository
+		want int
+		got  func(*Repository) int
+	}{
+		{
+			name: "tag list page size uses repository override",
+			repo: &Repository{Registry: registry, TagListPageSize: 5},
+			want: 5,
+			got:  (*Repository).tagListPageSize,
+		},
+		{
+			name: "tag list page size inherits registry default",
+			repo: &Repository{Registry: registry},
+			want: 100,
+			got:  (*Repository).tagListPageSize,
+		},
+		{
+			name: "referrer list page size uses repository override",
+			repo: &Repository{Registry: registry, ReferrerListPageSize: 6},
+			want: 6,
+			got:  (*Repository).referrerListPageSize,
+		},
+		{
+			name: "referrer list page size inherits registry default",
+			repo: &Repository{Registry: registry},
+			want: 200,
+			got:  (*Repository).referrerListPageSize,
+		},
+		{
+			name: "tag list max pages uses repository override",
+			repo: &Repository{Registry: registry, TagListMaxPages: 3},
+			want: 3,
+			got:  (*Repository).tagListMaxPages,
+		},
+		{
+			name: "tag list max pages inherits registry default",
+			repo: &Repository{Registry: registry},
+			want: 10,
+			got:  (*Repository).tagListMaxPages,
+		},
+		{
+			name: "referrer list max pages uses repository override",
+			repo: &Repository{Registry: registry, ReferrerListMaxPages: 4},
+			want: 4,
+			got:  (*Repository).referrerListMaxPages,
+		},
+		{
+			name: "referrer list max pages inherits registry default",
+			repo: &Repository{Registry: registry},
+			want: 20,
+			got:  (*Repository).referrerListMaxPages,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.got(tt.repo); got != tt.want {
+				t.Errorf("got %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRepository_ManifestMediaTypesInheritsRegistry(t *testing.T) {
+	registry := &Registry{
+		ManifestMediaTypes: []string{"application/vnd.oci.image.manifest.v1+json"},
+	}
+	repo := &Repository{Registry: registry}
+
+	got := repo.manifestMediaTypes()
+	if !slices.Equal(got, registry.ManifestMediaTypes) {
+		t.Errorf("manifestMediaTypes() = %v, want %v",
+			got, registry.ManifestMediaTypes)
+	}
+}
+
+func TestRepository_SkipReferrersGC(t *testing.T) {
+	tests := []struct {
+		name     string
+		repo     bool
+		registry bool
+		want     bool
+	}{
+		{
+			name:     "repository overrides registry",
+			repo:     true,
+			registry: false,
+			want:     true,
+		},
+		{
+			name:     "repository inherits registry",
+			repo:     false,
+			registry: true,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &Repository{
+				Registry: &Registry{
+					SkipReferrersGC: tt.registry,
+				},
+				SkipReferrersGC: tt.repo,
+			}
+
+			if got := repo.skipReferrersGC(); got != tt.want {
+				t.Errorf("skipReferrersGC() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRepository_checkPolicy_NilRegistry(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{
+			name: "normal context",
+			ctx:  context.Background(),
+		},
+		{
+			name: "policy already checked",
+			ctx:  withPolicyChecked(context.Background()),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &Repository{}
+
+			err := repo.checkPolicy(tt.ctx, "example.com/test:latest")
+			if err == nil {
+				t.Fatal("checkPolicy() expected error for nil Registry")
+			}
+		})
+	}
+}
+
+func TestRepository_checkPolicyResolved_NilRegistry(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{
+			name: "normal context",
+			ctx:  context.Background(),
+		},
+		{
+			name: "policy already checked",
+			ctx:  withPolicyChecked(context.Background()),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &Repository{}
+
+			err := repo.checkPolicyResolved(
+				tt.ctx,
+				"example.com/test:latest",
+				ocispec.Descriptor{
+					Digest: digest.FromString("test manifest"),
+				},
+			)
+			if err == nil {
+				t.Fatal("checkPolicyResolved() expected error for nil Registry")
+			}
+		})
 	}
 }
 
