@@ -150,7 +150,8 @@ type GenericPolicy struct {
 // When the response is retryable and carries a valid Retry-After header
 // (delta-seconds or HTTP-date), Retry uses that value plus up to 10%
 // additive jitter instead of the Backoff result, capped at MaxRetryAfter
-// (or MaxWait if MaxRetryAfter is zero) and floored at MinWait. Otherwise
+// (or MaxWait if MaxRetryAfter is zero) and floored at MinWait; the cap
+// takes precedence if MinWait is larger. Otherwise
 // it uses the Backoff result, clamped to [MinWait, MaxWait].
 func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time.Duration, error) {
 	if attempt >= p.MaxRetry {
@@ -178,13 +179,22 @@ func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time
 			var h maphash.Hash
 			h.SetSeed(maphash.MakeSeed())
 			rng := rand.New(rand.NewPCG(0, h.Sum64()))
-			wait += time.Duration(rng.Int64N(int64(d)))
+			// compare the jitter with the headroom left under the cap so
+			// that the sum cannot overflow when maxCap is near the
+			// maximum time.Duration
+			if jitter := time.Duration(rng.Int64N(int64(d))); jitter > maxCap-wait {
+				wait = maxCap
+			} else {
+				wait += jitter
+			}
+		}
+		// floor before capping so that, as with the backoff path, the cap
+		// wins when MinWait is configured above it
+		if wait < p.MinWait {
+			wait = p.MinWait
 		}
 		if wait > maxCap {
 			wait = maxCap
-		}
-		if wait < p.MinWait {
-			wait = p.MinWait
 		}
 		return wait, nil
 	}

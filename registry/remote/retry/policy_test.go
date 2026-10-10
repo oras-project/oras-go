@@ -17,6 +17,7 @@ package retry
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"testing"
 	"time"
@@ -385,6 +386,43 @@ func Test_GenericPolicy_Retry(t *testing.T) {
 			resp:    respWith(http.StatusTooManyRequests, "Fri, 31 Dec 9999 23:59:59 GMT"),
 			minWait: 60 * time.Second,
 			maxWait: 60 * time.Second,
+		},
+		{
+			name: "jitter cannot overflow when MaxRetryAfter is the maximum duration",
+			policy: func() *GenericPolicy {
+				p := base()
+				p.MaxRetryAfter = time.Duration(math.MaxInt64)
+				return p
+			}(),
+			attempt: 0,
+			resp:    respWith(http.StatusTooManyRequests, "18446744074"),
+			minWait: time.Duration(math.MaxInt64),
+			maxWait: time.Duration(math.MaxInt64),
+		},
+		{
+			name: "jitter cannot overflow when MaxRetryAfter is near the maximum duration",
+			policy: func() *GenericPolicy {
+				p := base()
+				p.MaxRetryAfter = time.Duration(math.MaxInt64) - time.Second
+				return p
+			}(),
+			attempt: 0,
+			resp:    respWith(http.StatusTooManyRequests, "9223372037"),
+			minWait: time.Duration(math.MaxInt64) - time.Second,
+			maxWait: time.Duration(math.MaxInt64) - time.Second,
+		},
+		{
+			name: "MaxRetryAfter wins over a larger MinWait",
+			policy: func() *GenericPolicy {
+				p := base()
+				p.MinWait = 5 * time.Second
+				p.MaxRetryAfter = 2 * time.Second
+				return p
+			}(),
+			attempt: 0,
+			resp:    respWith(http.StatusTooManyRequests, "1"),
+			minWait: 2 * time.Second,
+			maxWait: 2 * time.Second,
 		},
 		{
 			name:   "backoff clamped to MaxWait",
