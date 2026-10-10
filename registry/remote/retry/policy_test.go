@@ -92,6 +92,33 @@ func Test_ExponentialBackoff_NoJitter(t *testing.T) {
 	}
 }
 
+func Test_ExponentialBackoff_FullJitter(t *testing.T) {
+	// a jitter of 1 spreads the backoff over [0, 2*temp)
+	backoff := ExponentialBackoff(250*time.Millisecond, 2, 1)
+	for range 100 {
+		if b := backoff(2, nil); b < 0 || b >= 2*time.Second {
+			t.Fatalf("expected backoff in [0s, 2s), got %s", b)
+		}
+	}
+}
+
+func Test_ExponentialBackoff_RetryAfter(t *testing.T) {
+	// ExponentialBackoff keeps returning a 429 Retry-After verbatim
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{"Retry-After": []string{"7"}},
+	}
+	if b := DefaultBackoff(0, resp); b != 7*time.Second {
+		t.Errorf("expected backoff to be 7s, got %s", b)
+	}
+
+	// other statuses keep using the exponential backoff
+	resp.StatusCode = http.StatusServiceUnavailable
+	if b := DefaultBackoff(0, resp); b < 225*time.Millisecond || b > 275*time.Millisecond {
+		t.Errorf("expected backoff to be 250ms ± 10%%, got %s", b)
+	}
+}
+
 func Test_GenericPolicy_Retry_NoRetry(t *testing.T) {
 	predicateErr := errors.New("predicate error")
 	testCases := []struct {
@@ -310,6 +337,54 @@ func Test_GenericPolicy_Retry(t *testing.T) {
 			resp:    respWith(http.StatusTooManyRequests, "1"),
 			minWait: 5 * time.Second,
 			maxWait: 5 * time.Second,
+		},
+		{
+			name: "delta-seconds that overflows when jitter is added capped at MaxRetryAfter",
+			policy: func() *GenericPolicy {
+				p := base()
+				p.MaxRetryAfter = 60 * time.Second
+				return p
+			}(),
+			attempt: 0,
+			resp:    respWith(http.StatusTooManyRequests, "9223372036"),
+			minWait: 60 * time.Second,
+			maxWait: 60 * time.Second,
+		},
+		{
+			name: "delta-seconds that overflows time.Duration capped at MaxRetryAfter",
+			policy: func() *GenericPolicy {
+				p := base()
+				p.MaxRetryAfter = 60 * time.Second
+				return p
+			}(),
+			attempt: 0,
+			resp:    respWith(http.StatusTooManyRequests, "9223372037"),
+			minWait: 60 * time.Second,
+			maxWait: 60 * time.Second,
+		},
+		{
+			name: "delta-seconds that wraps time.Duration to a short wait capped at MaxRetryAfter",
+			policy: func() *GenericPolicy {
+				p := base()
+				p.MaxRetryAfter = 60 * time.Second
+				return p
+			}(),
+			attempt: 0,
+			resp:    respWith(http.StatusTooManyRequests, "18446744074"),
+			minWait: 60 * time.Second,
+			maxWait: 60 * time.Second,
+		},
+		{
+			name: "far-future HTTP-date where time.Until saturates capped at MaxRetryAfter",
+			policy: func() *GenericPolicy {
+				p := base()
+				p.MaxRetryAfter = 60 * time.Second
+				return p
+			}(),
+			attempt: 0,
+			resp:    respWith(http.StatusTooManyRequests, "Fri, 31 Dec 9999 23:59:59 GMT"),
+			minWait: 60 * time.Second,
+			maxWait: 60 * time.Second,
 		},
 		{
 			name:   "backoff clamped to MaxWait",

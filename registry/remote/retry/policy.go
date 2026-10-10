@@ -146,6 +146,12 @@ type GenericPolicy struct {
 
 // Retry returns the duration to wait before retrying the request.
 // It returns -1 if the request should not be retried.
+//
+// When the response is retryable and carries a valid Retry-After header
+// (delta-seconds or HTTP-date), Retry uses that value plus up to 10%
+// additive jitter instead of the Backoff result, capped at MaxRetryAfter
+// (or MaxWait if MaxRetryAfter is zero) and floored at MinWait. Otherwise
+// it uses the Backoff result, clamped to [MinWait, MaxWait].
 func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time.Duration, error) {
 	if attempt >= p.MaxRetry {
 		return -1, nil
@@ -156,6 +162,15 @@ func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time
 		return -1, nil
 	}
 	if retryAfter, ok := parseRetryAfter(resp); ok {
+		maxCap := p.MaxRetryAfter
+		if maxCap <= 0 {
+			maxCap = p.MaxWait
+		}
+		// clamp before adding jitter so that a huge Retry-After cannot
+		// overflow time.Duration and wrap around to a short wait
+		if retryAfter > maxCap {
+			retryAfter = maxCap
+		}
 		// the server asked to back off, so honor its figure with additive
 		// jitter instead of the computed backoff
 		wait := retryAfter
@@ -164,10 +179,6 @@ func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time
 			h.SetSeed(maphash.MakeSeed())
 			rng := rand.New(rand.NewPCG(0, h.Sum64()))
 			wait += time.Duration(rng.Int64N(int64(d)))
-		}
-		maxCap := p.MaxRetryAfter
-		if maxCap <= 0 {
-			maxCap = p.MaxWait
 		}
 		if wait > maxCap {
 			wait = maxCap
@@ -202,6 +213,11 @@ func parseRetryAfter(resp *http.Response) (time.Duration, bool) {
 	if secs, err := strconv.ParseInt(v, 10, 64); err == nil {
 		if secs <= 0 {
 			return 0, false
+		}
+		// saturate instead of overflowing time.Duration; the caller caps
+		// the result at MaxRetryAfter anyway
+		if secs > int64(math.MaxInt64/time.Second) {
+			return time.Duration(math.MaxInt64), true
 		}
 		return time.Duration(secs) * time.Second, true
 	}
