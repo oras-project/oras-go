@@ -134,6 +134,10 @@ type GenericPolicy struct {
 	// MaxWait is the maximum duration to wait before retrying.
 	MaxWait time.Duration
 
+	// MaxRetryAfter is the maximum duration to honor from a Retry-After
+	// response header. If zero, MaxWait is used.
+	MaxRetryAfter time.Duration
+
 	// MaxRetry is the maximum number of retries.
 	MaxRetry int
 }
@@ -149,6 +153,28 @@ func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time
 	} else if !ok {
 		return -1, nil
 	}
+	if retryAfter, ok := parseRetryAfter(resp); ok {
+		// the server asked to back off, so honor its figure with additive
+		// jitter instead of the computed backoff
+		wait := retryAfter
+		if d := retryAfter / 10; d > 0 {
+			var h maphash.Hash
+			h.SetSeed(maphash.MakeSeed())
+			rng := rand.New(rand.NewPCG(0, h.Sum64()))
+			wait += time.Duration(rng.Int64N(int64(d)))
+		}
+		maxCap := p.MaxRetryAfter
+		if maxCap <= 0 {
+			maxCap = p.MaxWait
+		}
+		if wait > maxCap {
+			wait = maxCap
+		}
+		if wait < p.MinWait {
+			wait = p.MinWait
+		}
+		return wait, nil
+	}
 	backoff := p.Backoff(attempt, resp)
 	if backoff < p.MinWait {
 		backoff = p.MinWait
@@ -157,4 +183,32 @@ func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time
 		backoff = p.MaxWait
 	}
 	return backoff, nil
+}
+
+// parseRetryAfter parses the Retry-After header of resp, handling both the
+// delta-seconds and the IMF-fixdate forms. It reports false when the header
+// is missing, unparseable, zero, or in the past, in which case the caller
+// should fall back to its own backoff.
+func parseRetryAfter(resp *http.Response) (time.Duration, bool) {
+	if resp == nil {
+		return 0, false
+	}
+	v := resp.Header.Get(headerRetryAfter)
+	if v == "" {
+		return 0, false
+	}
+	if secs, err := strconv.ParseInt(v, 10, 64); err == nil {
+		if secs <= 0 {
+			return 0, false
+		}
+		return time.Duration(secs) * time.Second, true
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		d := time.Until(t)
+		if d <= 0 {
+			return 0, false
+		}
+		return d, true
+	}
+	return 0, false
 }
