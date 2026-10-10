@@ -265,6 +265,24 @@ effective := repo.ReferrersCapability()
 
 `remote.ErrReferrersCapabilityAlreadySet` was removed.
 
+### File store constructors
+
+`file.NewWithFallbackLimit` and `file.NewWithFallbackStorage` were removed.
+`file.New` is unchanged; every other configuration goes through
+`file.NewWithOptions`:
+
+| v2 | v3 |
+| --- | --- |
+| `file.NewWithFallbackLimit(dir, limit)` | `file.NewWithOptions(dir, file.StoreOptions{FallbackLimit: limit})` |
+| `file.NewWithFallbackStorage(dir, storage)` | `file.NewWithOptions(dir, file.StoreOptions{FallbackStorage: storage})` |
+
+`FallbackStorage` and `FallbackLimit` cannot both be set, and a negative
+`FallbackLimit` is rejected; both return `file.ErrInvalidStoreOptions`.
+For an unlimited fallback, set `FallbackStorage: memory.New()`.
+
+`StoreOptions.DigestAlgorithm` selects the algorithm for the digests that
+`Store.Add` computes (SHA-256 by default, SHA-384 or SHA-512 otherwise).
+
 ### Removed v3 development APIs
 
 Applications that tested against pre-release v3 snapshots may also need these
