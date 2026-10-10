@@ -18,10 +18,12 @@ on:
     branches:
       - main
       - release-*
+      - v2
   pull_request:
     branches:
       - main
       - release-*
+      - v2
   schedule:
     - cron: '34 13 * * 3'
 
@@ -35,7 +37,7 @@ jobs:
       security-events: write
     strategy:
       matrix:
-        go-version: ['1.24', '1.25']
+        go-version: ['1.26', '1.27']
       fail-fast: false
     steps:
       - name: Checkout repository
