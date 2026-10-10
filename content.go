@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
@@ -348,13 +349,25 @@ func FetchBytes(ctx context.Context, target ReadOnlyTarget, reference string, op
 
 // PushBytes describes the contentBytes using the given mediaType and pushes it.
 // If mediaType is not specified, "application/octet-stream" is used.
+// The digest is computed with [digest.Canonical] (SHA-256). To use another
+// algorithm, see [PushBytesWithAlgorithm].
 func PushBytes(ctx context.Context, pusher content.Pusher, mediaType string, contentBytes []byte) (ocispec.Descriptor, error) {
-	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
+	return PushBytesWithAlgorithm(ctx, pusher, mediaType, contentBytes, digest.Canonical)
+}
+
+// PushBytesWithAlgorithm is like [PushBytes], with the digest of contentBytes
+// computed using alg.
+// If alg is empty, [digest.Canonical] (SHA-256) is used. SHA-384 and SHA-512
+// are the other currently supported algorithms.
+func PushBytesWithAlgorithm(ctx context.Context, pusher content.Pusher, mediaType string, contentBytes []byte, alg digest.Algorithm) (ocispec.Descriptor, error) {
+	desc, err := content.NewDescriptorFromBytesWithAlgorithm(mediaType, contentBytes, alg)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
 	r := bytes.NewReader(contentBytes)
 	if err := pusher.Push(ctx, desc, r); err != nil {
 		return ocispec.Descriptor{}, err
 	}
-
 	return desc, nil
 }
 
@@ -366,17 +379,26 @@ type TagBytesNOptions struct {
 	// Concurrency limits the maximum number of concurrent tag tasks.
 	// If less than or equal to 0, a default (currently 5) is used.
 	Concurrency int
+
+	// DigestAlgorithm is the algorithm used to compute the digest of the
+	// content.
+	DigestAlgorithm digest.Algorithm
 }
 
 // TagBytesN describes the contentBytes using the given mediaType, pushes it,
 // and tag it with the given references.
 // If mediaType is not specified, "application/octet-stream" is used.
+// The digest algorithm is selected by opts.DigestAlgorithm; an unsupported or
+// unavailable algorithm yields an error wrapping [errdef.ErrUnsupported] and
+// nothing is pushed.
 func TagBytesN(ctx context.Context, target Target, mediaType string, contentBytes []byte, references []string, opts TagBytesNOptions) (ocispec.Descriptor, error) {
 	if len(references) == 0 {
-		return PushBytes(ctx, target, mediaType, contentBytes)
+		return PushBytesWithAlgorithm(ctx, target, mediaType, contentBytes, opts.DigestAlgorithm)
 	}
-
-	desc := content.NewDescriptorFromBytes(mediaType, contentBytes)
+	desc, err := content.NewDescriptorFromBytesWithAlgorithm(mediaType, contentBytes, opts.DigestAlgorithm)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultTagConcurrency
 	}
