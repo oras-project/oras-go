@@ -32,6 +32,7 @@ header:
     - '**/*.md'
     - 'CODEOWNERS'
     - 'LICENSE'
+    - '.github/act/release-event.json'
     - 'go.mod'
     - 'go.sum'
     - '**/testdata/**'

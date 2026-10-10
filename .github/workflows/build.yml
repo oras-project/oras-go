@@ -18,17 +18,19 @@ on:
     branches: 
       - main
       - release-*
+      - v2
   pull_request:
     branches:
       - main
       - release-*
+      - v2
 
 jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.24', '1.25']
+        go-version: ['1.26', '1.27']
       fail-fast: true
     steps:
       - name: Checkout
