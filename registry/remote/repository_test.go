@@ -1346,6 +1346,30 @@ func TestRepository_ListPaginationSettings(t *testing.T) {
 			want: 20,
 			got:  (*Repository).referrerListMaxPages,
 		},
+		{
+			name: "negative tag list page size inherits registry default",
+			repo: &Repository{Registry: registry, TagListPageSize: -5},
+			want: 100,
+			got:  (*Repository).tagListPageSize,
+		},
+		{
+			name: "negative referrer list page size inherits registry default",
+			repo: &Repository{Registry: registry, ReferrerListPageSize: -6},
+			want: 200,
+			got:  (*Repository).referrerListPageSize,
+		},
+		{
+			name: "negative tag list max pages inherits registry default",
+			repo: &Repository{Registry: registry, TagListMaxPages: -3},
+			want: 10,
+			got:  (*Repository).tagListMaxPages,
+		},
+		{
+			name: "negative referrer list max pages inherits registry default",
+			repo: &Repository{Registry: registry, ReferrerListMaxPages: -4},
+			want: 20,
+			got:  (*Repository).referrerListMaxPages,
+		},
 	}
 
 	for _, tt := range tests {
