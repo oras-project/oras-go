@@ -326,25 +326,25 @@ func (r *Repository) policy() *policy.Evaluator {
 // tagListPageSize returns the effective tag list page size.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) tagListPageSize() int {
-	return override(r.TagListPageSize, r.Registry.TagListPageSize)
+	return override(max(r.TagListPageSize, 0), r.Registry.TagListPageSize)
 }
 
 // referrerListPageSize returns the effective referrer list page size.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) referrerListPageSize() int {
-	return override(r.ReferrerListPageSize, r.Registry.ReferrerListPageSize)
+	return override(max(r.ReferrerListPageSize, 0), r.Registry.ReferrerListPageSize)
 }
 
 // tagListMaxPages returns the effective maximum number of tag list pages.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) tagListMaxPages() int {
-	return override(r.TagListMaxPages, r.Registry.TagListMaxPages)
+	return override(max(r.TagListMaxPages, 0), r.Registry.TagListMaxPages)
 }
 
 // referrerListMaxPages returns the effective maximum number of referrer list pages.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) referrerListMaxPages() int {
-	return override(r.ReferrerListMaxPages, r.Registry.ReferrerListMaxPages)
+	return override(max(r.ReferrerListMaxPages, 0), r.Registry.ReferrerListMaxPages)
 }
 
 // manifestMediaTypes returns the effective manifest media types.
@@ -483,6 +483,7 @@ func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, 
 	if err := r.validate(); err != nil {
 		return err
 	}
+
 	if ctx.Value(policyCheckedKey{}) != nil {
 		return nil
 	}
