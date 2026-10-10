@@ -63,6 +63,11 @@ var DefaultClient = &Client{
 // References: https://distribution.github.io/distribution/spec/auth/token/
 var maxResponseBytes int64 = 128 * 1024 // 128 KiB
 
+// defaultMaxRedirects mirrors the limit enforced by net/http when
+// http.Client.CheckRedirect is nil. Installing a CheckRedirect replaces that
+// default policy, so redirectSafeClient must enforce the limit itself.
+const defaultMaxRedirects = 10
+
 // defaultClientID specifies the default client ID used in OAuth2.
 // See also ClientID.
 var defaultClientID = "oras-go"
@@ -190,10 +195,11 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 
 // redirectSafeClient returns a shallow copy of client whose CheckRedirect drops
 // the Authorization header when a redirect crosses an HTTP origin (scheme,
-// host, or port). The standard library only strips sensitive headers when the
-// hostname changes, so a redirect to a different port on the same host would
-// otherwise forward credentials to an unintended endpoint. Any caller-provided
-// CheckRedirect is preserved.
+// host, or port) or moves between repositories under the distribution API.
+// The standard library only strips sensitive headers when the hostname
+// changes, so a redirect to a different port or repository on the same host
+// would otherwise forward credentials outside their intended scope. Any
+// caller-provided CheckRedirect is preserved.
 //
 // This applies to token endpoint requests as well as registry requests: the
 // distribution spec flow sends the credential to the realm as HTTP Basic.
@@ -206,11 +212,21 @@ func redirectSafeClient(client *http.Client) *http.Client {
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) > 0 && !sameHTTPOrigin(via[len(via)-1].URL, req.URL) {
-			req.Header.Del(headerAuthorization)
+		if len(via) > 0 {
+			// Compare against the original request, not the previous hop:
+			// net/http re-copies Authorization from the original request on
+			// every hop, so deleting it on one hop does not keep it off the
+			// next.
+			original := via[0].URL
+			if !sameHTTPOrigin(original, req.URL) || crossesRepository(original, req.URL) {
+				req.Header.Del(headerAuthorization)
+			}
 		}
 		if checkRedirect != nil {
 			return checkRedirect(req, via)
+		}
+		if len(via) >= defaultMaxRedirects {
+			return fmt.Errorf("stopped after %d redirects", defaultMaxRedirects)
 		}
 		return nil
 	}
@@ -358,12 +374,15 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		return resp, nil
 	}
-	// If the challenge came from a different origin than originally requested
-	// (e.g. the request was redirected to another host or port), do not resolve
-	// or send the registry credentials to that origin.
+	// If the challenge came from a different origin or repository than
+	// originally requested, do not resolve or send the registry credentials to
+	// that target.
 	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
-	if resp.Request != nil && !sameHTTPOrigin(originalReq.URL, resp.Request.URL) {
-		return resp, nil
+	if resp.Request != nil {
+		responseURL := resp.Request.URL
+		if !sameHTTPOrigin(originalReq.URL, responseURL) || crossesRepository(originalReq.URL, responseURL) {
+			return resp, nil
+		}
 	}
 
 	// attempt again with credentials for recognized schemes

@@ -17,6 +17,7 @@ package auth
 
 import (
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
@@ -155,6 +156,46 @@ func Test_requestResource(t *testing.T) {
 			req.Host = tt.host
 			if got := requestResource(req); got != tt.want {
 				t.Errorf("requestResource() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_crossesRepository(t *testing.T) {
+	tests := []struct {
+		name string
+		from string
+		to   string
+		want bool
+	}{
+		{
+			name: "same repository",
+			from: "/v2/team-a/image/manifests/latest",
+			to:   "/v2/team-a/image/blobs/sha256:deadbeef",
+		},
+		{
+			name: "different repository",
+			from: "/v2/team-a/image/manifests/latest",
+			to:   "/v2/team-b/image/manifests/latest",
+			want: true,
+		},
+		{
+			name: "repository to storage path",
+			from: "/v2/team-a/image/blobs/sha256:deadbeef",
+			to:   "/storage/sha256:deadbeef",
+		},
+		{
+			name: "storage path to repository",
+			from: "/storage/sha256:deadbeef",
+			to:   "/v2/team-a/image/blobs/sha256:deadbeef",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			from := &url.URL{Path: tt.from}
+			to := &url.URL{Path: tt.to}
+			if got := crossesRepository(from, to); got != tt.want {
+				t.Errorf("crossesRepository(%q, %q) = %v, want %v", tt.from, tt.to, got, tt.want)
 			}
 		})
 	}

@@ -4279,6 +4279,130 @@ func TestClient_Do_Basic_Auth_SameOriginRedirect(t *testing.T) {
 	}
 }
 
+func Test_redirectSafeClient_RepositoryBoundary(t *testing.T) {
+	const authorization = "Basic dGVzdDp0ZXN0"
+	tests := []struct {
+		name     string
+		from     string
+		to       string
+		wantAuth string
+	}{
+		{
+			name:     "same repository preserves authorization",
+			from:     "/v2/team-a/image/manifests/latest",
+			to:       "/v2/team-a/image/manifests/redirected",
+			wantAuth: authorization,
+		},
+		{
+			name:     "different repository drops authorization",
+			from:     "/v2/team-a/image/manifests/latest",
+			to:       "/v2/team-b/image/manifests/latest",
+			wantAuth: "",
+		},
+		{
+			name:     "storage redirect preserves authorization",
+			from:     "/v2/team-a/image/blobs/sha256:deadbeef",
+			to:       "/storage/sha256:deadbeef",
+			wantAuth: authorization,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotAuth atomic.Value
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == tt.from {
+					http.Redirect(w, r, tt.to, http.StatusTemporaryRedirect)
+					return
+				}
+				gotAuth.Store(r.Header.Get(headerAuthorization))
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer ts.Close()
+
+			req, err := http.NewRequest(http.MethodGet, ts.URL+tt.from, nil)
+			if err != nil {
+				t.Fatalf("http.NewRequest() error = %v", err)
+			}
+			req.Header.Set(headerAuthorization, authorization)
+			resp, err := redirectSafeClient(http.DefaultClient).Do(req)
+			if err != nil {
+				t.Fatalf("http.Client.Do() error = %v", err)
+			}
+			resp.Body.Close()
+			got, _ := gotAuth.Load().(string)
+			if got != tt.wantAuth {
+				t.Errorf("redirect target received Authorization %q, want %q", got, tt.wantAuth)
+			}
+		})
+	}
+}
+
+func Test_redirectSafeClient_MultiHopRepositoryBoundary(t *testing.T) {
+	const authorization = "Basic dGVzdDp0ZXN0"
+	var gotAuth atomic.Value
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v2/team-a/image/manifests/latest":
+			http.Redirect(w, r, "/storage/manifest", http.StatusTemporaryRedirect)
+		case "/storage/manifest":
+			http.Redirect(w, r, "/v2/team-b/image/manifests/latest", http.StatusTemporaryRedirect)
+		default:
+			gotAuth.Store(r.Header.Get(headerAuthorization))
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v2/team-a/image/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	req.Header.Set(headerAuthorization, authorization)
+	resp, err := redirectSafeClient(http.DefaultClient).Do(req)
+	if err != nil {
+		t.Fatalf("http.Client.Do() error = %v", err)
+	}
+	resp.Body.Close()
+	if got, _ := gotAuth.Load().(string); got != "" {
+		t.Errorf("final redirect target received Authorization %q, want empty", got)
+	}
+}
+
+func TestClient_Do_Basic_Auth_CrossRepositoryRedirectBeforeAuth(t *testing.T) {
+	var credentialCalled atomic.Bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/team-a/image/manifests/latest" {
+			http.Redirect(w, r, "/v2/team-b/image/manifests/latest", http.StatusTemporaryRedirect)
+			return
+		}
+		w.Header().Set(headerWWWAuthenticate, `Basic realm="team-b"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	client := &Client{
+		CredentialFunc: func(ctx context.Context, resource properties.Resource) (credentials.Credential, error) {
+			credentialCalled.Store(true)
+			return credentials.Credential{Username: "team-a", Password: "secret"}, nil
+		},
+	}
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/v2/team-a/image/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("Client.Do() status = %v, want %v", resp.StatusCode, http.StatusUnauthorized)
+	}
+	if credentialCalled.Load() {
+		t.Error("credential was resolved for a challenge reached through a cross-repository redirect")
+	}
+}
+
 // TestClient_send_PreservesCheckRedirect verifies that a caller-provided
 // CheckRedirect callback on the underlying HTTP client is still invoked.
 func TestClient_send_PreservesCheckRedirect(t *testing.T) {
@@ -4318,6 +4442,66 @@ func TestClient_send_PreservesCheckRedirect(t *testing.T) {
 	}
 	if !called.Load() {
 		t.Error("caller-provided CheckRedirect was not invoked")
+	}
+}
+
+func TestClient_send_RedirectLimit(t *testing.T) {
+	// Stop redirecting eventually so that a regression fails instead of hanging.
+	const maxHits = 50
+	tests := []struct {
+		name          string
+		checkRedirect func(req *http.Request, via []*http.Request) error
+		wantHits      int64
+		wantErr       string
+	}{
+		{
+			name:     "default limit applies without caller CheckRedirect",
+			wantHits: 10,
+			wantErr:  "stopped after 10 redirects",
+		},
+		{
+			name: "caller CheckRedirect may exceed the default limit",
+			checkRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 20 {
+					return errors.New("stopped after 20 redirects")
+				}
+				return nil
+			},
+			wantHits: 20,
+			wantErr:  "stopped after 20 redirects",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var hits atomic.Int64
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if hits.Add(1) >= maxHits {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				http.Redirect(w, r, "/loop", http.StatusFound)
+			}))
+			defer ts.Close()
+
+			client := &Client{
+				Client: &http.Client{CheckRedirect: tt.checkRedirect},
+			}
+			req, err := http.NewRequest(http.MethodGet, ts.URL+"/loop", nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				t.Fatalf("Client.Do() error = nil, want %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Client.Do() error = %v, want %q", err, tt.wantErr)
+			}
+			if got := hits.Load(); got != tt.wantHits {
+				t.Errorf("server hits = %d, want %d", got, tt.wantHits)
+			}
+		})
 	}
 }
 
