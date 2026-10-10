@@ -18,7 +18,6 @@ package file
 import (
 	"bytes"
 	"context"
-	_ "crypto/sha256"
 	_ "crypto/sha512"
 	"errors"
 	"io"
