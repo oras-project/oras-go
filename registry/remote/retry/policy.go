@@ -29,13 +29,15 @@ import (
 const headerRetryAfter = "Retry-After"
 
 // DefaultPolicy is a policy with fine-tuned retry parameters.
-// It uses an exponential backoff with jitter.
+// It uses an exponential backoff with jitter, and honors the Retry-After
+// response header of a retryable response up to MaxRetryAfter.
 var DefaultPolicy Policy = &GenericPolicy{
-	Retryable: DefaultPredicate,
-	Backoff:   DefaultBackoff,
-	MinWait:   200 * time.Millisecond,
-	MaxWait:   3 * time.Second,
-	MaxRetry:  5,
+	Retryable:     DefaultPredicate,
+	Backoff:       DefaultBackoff,
+	MinWait:       200 * time.Millisecond,
+	MaxWait:       10 * time.Second,
+	MaxRetryAfter: 60 * time.Second,
+	MaxRetry:      5,
 }
 
 // DefaultPredicate is a predicate that retries on 5xx errors, 429 Too Many
