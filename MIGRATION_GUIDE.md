@@ -313,10 +313,8 @@ The dual-key format maintains compatibility with older clients while allowing v3
   empty current value falls back to the legacy value; for the digest, the
   legacy value is used only when the current key is absent. Artifacts pushed
   by earlier releases continue to work.
-- If both digest keys are set to different values, the push fails rather than
-  picking one. This check runs whether or not `Store.SkipUnpack` is set.
-- `Store.SkipUnpack` still overrides the unpack annotation, for both the new and
-  the deprecated keys.
+- If both digest keys are set to different values and unpacking is enabled, the push fails rather than picking one. This validation applies whether or not `Store.SkipUnpack` is set.
+- `Store.SkipUnpack` still overrides the unpack annotation, for both the new and the deprecated keys. It controls extraction, not digest-annotation conflict validation.
 
 Two consequences are worth planning for:
 

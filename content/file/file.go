@@ -55,8 +55,16 @@ const (
 	AnnotationDigest = "land.oras.content.digest"
 	// AnnotationUnpack is the annotation key for indication of unpacking.
 	AnnotationUnpack = "land.oras.content.unpack"
+	// AnnotationDigestLegacy is the annotation key used before v3 for the
+	// digest of the uncompressed content. It is still written by Add and read
+	// by Push so that artifacts interoperate with older clients.
+	//
 	// Deprecated: use AnnotationDigest instead.
 	AnnotationDigestLegacy = "io.deis.oras.content.digest"
+	// AnnotationUnpackLegacy is the annotation key used before v3 for the
+	// indication of unpacking. It is still written by Add and read by Push so
+	// that artifacts interoperate with older clients.
+	//
 	// Deprecated: use AnnotationUnpack instead.
 	AnnotationUnpackLegacy = "io.deis.oras.content.unpack"
 	// defaultBlobMediaType specifies the default blob media type.
@@ -359,7 +367,7 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 	}
 
 	if dirAnnots.unpack && !s.SkipUnpack {
-		err = s.pushDir(name, target, expected, dirAnnots.checksum, content)
+		err = s.pushDir(name, target, expected, dirAnnots.checksumKey, dirAnnots.checksum, content)
 	} else {
 		err = s.pushFile(target, expected, content)
 	}
@@ -584,36 +592,64 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 	return nil
 }
 
+// dirAnnotations holds the directory annotations of a descriptor, resolved
+// from both the current and the deprecated annotation keys.
 type dirAnnotations struct {
-	unpack   bool
-	checksum string
+	unpack      bool
+	checksum    string
+	checksumKey string
 }
 
+// resolveDirAnnotations resolves the directory annotations of a descriptor.
+// [AnnotationDigest] and [AnnotationUnpack] take precedence over
+// [AnnotationDigestLegacy] and [AnnotationUnpackLegacy], respectively.
+// It returns an error if both unpack annotations contain conflicting valid
+// boolean values, or if both digest annotations have different values while
+// unpacking is enabled.
 func resolveDirAnnotations(annotations map[string]string) (dirAnnotations, error) {
 	var resolved dirAnnotations
+
+	unpack, hasCurrent := annotations[AnnotationUnpack]
+	legacyUnpack, hasLegacy := annotations[AnnotationUnpackLegacy]
+
+	if hasCurrent && hasLegacy &&
+		(unpack == "true" || unpack == "false") &&
+		(legacyUnpack == "true" || legacyUnpack == "false") &&
+		unpack != legacyUnpack {
+		return resolved, fmt.Errorf("conflicting %s and %s annotations: %q != %q",
+			AnnotationUnpack, AnnotationUnpackLegacy, unpack, legacyUnpack)
+	}
+
+	if unpack == "" {
+		unpack = legacyUnpack
+	}
+	resolved.unpack = unpack == "true"
+
+	if !resolved.unpack {
+		return resolved, nil
+	}
 
 	checksum, hasCurrent := annotations[AnnotationDigest]
 	legacyChecksum, hasLegacy := annotations[AnnotationDigestLegacy]
 
 	switch {
 	case hasCurrent && hasLegacy && checksum != legacyChecksum:
-		return resolved, fmt.Errorf("conflicting %s and %s annotations: %q != %q",
-			AnnotationDigest, AnnotationDigestLegacy, checksum, legacyChecksum)
+		return resolved, fmt.Errorf("conflicting %s and %s annotations: %q != %q: %w",
+			AnnotationDigest, AnnotationDigestLegacy, checksum, legacyChecksum, errdef.ErrInvalidDigest)
 	case hasCurrent:
 		resolved.checksum = checksum
+		resolved.checksumKey = AnnotationDigest
 	case hasLegacy:
 		resolved.checksum = legacyChecksum
+		resolved.checksumKey = AnnotationDigestLegacy
 	}
-	unpack := annotations[AnnotationUnpack]
-	if unpack == "" {
-		unpack = annotations[AnnotationUnpackLegacy]
-	}
-	resolved.unpack = unpack == "true"
 
 	return resolved, nil
 }
 
-func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, checksum string, content io.Reader) (err error) {
+// pushDir saves content matching the descriptor to the target directory.
+// checksum, when not empty, is the expected digest of the uncompressed content.
+func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, checksumKey, checksum string, content io.Reader) (err error) {
 	if err := ensureDir(target); err != nil {
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
@@ -631,7 +667,7 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, checks
 
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := extractTarGzip(target, name, gzPath, checksum, *buf, s.PreservePermissions); err != nil {
+	if err := extractTarGzip(target, name, gzPath, checksumKey, checksum, *buf, s.PreservePermissions); err != nil {
 		return fmt.Errorf("failed to extract tar to %s: %w", target, err)
 	}
 	return nil
@@ -710,7 +746,7 @@ func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir stri
 		Digest:    gzDigest, // digest for the compressed content
 		Size:      fi.Size(),
 		Annotations: map[string]string{
-			AnnotationDigest:       tarDigest, // digest fot the uncompressed content
+			AnnotationDigest:       tarDigest, // digest for the uncompressed content
 			AnnotationUnpack:       "true",    // the content needs to be unpacked
 			AnnotationDigestLegacy: tarDigest,
 			AnnotationUnpackLegacy: "true",

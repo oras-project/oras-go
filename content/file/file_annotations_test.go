@@ -150,7 +150,7 @@ func TestStore_Dir_Push_AnnotationKeys(t *testing.T) {
 					AnnotationDigestLegacy: digest.FromString("other").String(),
 				}
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "conflicting digests are rejected with SkipUnpack",
@@ -187,7 +187,7 @@ func TestStore_Dir_Push_AnnotationKeys(t *testing.T) {
 			wantUnpack: false,
 		},
 		{
-			name: "current key wins over legacy unpack flag",
+			name: "conflicting current and legacy unpack flags",
 			annotations: func(d digest.Digest) map[string]string {
 				return map[string]string{
 					AnnotationUnpack:       "false",
@@ -196,7 +196,7 @@ func TestStore_Dir_Push_AnnotationKeys(t *testing.T) {
 					AnnotationDigestLegacy: d.String(),
 				}
 			},
-			wantUnpack: false,
+			wantErr: true,
 		},
 		{
 			name: "conflicting current and legacy digests",
@@ -394,11 +394,12 @@ func Test_resolveDirAnnotations(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "empty current digest conflicts with legacy",
+			name: "conflicting digests without unpack are ignored",
 			annotations: map[string]string{
-				AnnotationDigest: "", AnnotationDigestLegacy: other,
+				AnnotationDigest:       "",
+				AnnotationDigestLegacy: other,
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "empty current keys conflict with legacy keys",
@@ -415,6 +416,22 @@ func Test_resolveDirAnnotations(t *testing.T) {
 				AnnotationUnpackLegacy: "true",
 			},
 			wantUnpack: true,
+		},
+		{
+			name: "conflicting current and legacy unpack flags",
+			annotations: map[string]string{
+				AnnotationUnpack:       "false",
+				AnnotationUnpackLegacy: "true",
+			},
+			wantErr: true,
+		},
+		{
+			name: "conflicting legacy and current unpack flags",
+			annotations: map[string]string{
+				AnnotationUnpack:       "true",
+				AnnotationUnpackLegacy: "false",
+			},
+			wantErr: true,
 		},
 		{
 			name:        "unpack flag false",
