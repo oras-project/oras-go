@@ -52,9 +52,13 @@ var bufPool = sync.Pool{
 
 const (
 	// AnnotationDigest is the annotation key for the digest of the uncompressed content.
-	AnnotationDigest = "io.deis.oras.content.digest"
+	AnnotationDigest = "land.oras.content.digest"
 	// AnnotationUnpack is the annotation key for indication of unpacking.
-	AnnotationUnpack = "io.deis.oras.content.unpack"
+	AnnotationUnpack = "land.oras.content.unpack"
+	// Deprecated: use AnnotationDigest instead.
+	AnnotationDigestLegacy = "io.deis.oras.content.digest"
+	// Deprecated: use AnnotationUnpack instead.
+	AnnotationUnpackLegacy = "io.deis.oras.content.unpack"
 	// defaultBlobMediaType specifies the default blob media type.
 	defaultBlobMediaType = ocispec.MediaTypeImageLayer
 	// defaultBlobDirMediaType specifies the default blob directory media type.
@@ -344,13 +348,18 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 		return fmt.Errorf("%s: %w", name, ErrDuplicateName)
 	}
 
+	dirAnnots, err := resolveDirAnnotations(expected.Annotations)
+	if err != nil {
+		return err
+	}
+
 	target, err := s.resolveWritePath(name)
 	if err != nil {
 		return fmt.Errorf("failed to resolve path for writing: %w", err)
 	}
 
-	if needUnpack := expected.Annotations[AnnotationUnpack]; needUnpack == "true" && !s.SkipUnpack {
-		err = s.pushDir(name, target, expected, content)
+	if dirAnnots.unpack && !s.SkipUnpack {
+		err = s.pushDir(name, target, expected, dirAnnots.checksum, content)
 	} else {
 		err = s.pushFile(target, expected, content)
 	}
@@ -575,8 +584,36 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 	return nil
 }
 
-// pushDir saves content matching the descriptor to the target directory.
-func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, content io.Reader) (err error) {
+type dirAnnotations struct {
+	unpack   bool
+	checksum string
+}
+
+func resolveDirAnnotations(annotations map[string]string) (dirAnnotations, error) {
+	var resolved dirAnnotations
+
+	checksum, hasCurrent := annotations[AnnotationDigest]
+	legacyChecksum, hasLegacy := annotations[AnnotationDigestLegacy]
+
+	switch {
+	case hasCurrent && hasLegacy && checksum != legacyChecksum:
+		return resolved, fmt.Errorf("conflicting %s and %s annotations: %q != %q",
+			AnnotationDigest, AnnotationDigestLegacy, checksum, legacyChecksum)
+	case hasCurrent:
+		resolved.checksum = checksum
+	case hasLegacy:
+		resolved.checksum = legacyChecksum
+	}
+	unpack := annotations[AnnotationUnpack]
+	if unpack == "" {
+		unpack = annotations[AnnotationUnpackLegacy]
+	}
+	resolved.unpack = unpack == "true"
+
+	return resolved, nil
+}
+
+func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, checksum string, content io.Reader) (err error) {
 	if err := ensureDir(target); err != nil {
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
@@ -592,7 +629,6 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 		return fmt.Errorf("failed to save gzip to %s: %w", gzPath, err)
 	}
 
-	checksum := expected.Annotations[AnnotationDigest]
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
 	if err := extractTarGzip(target, name, gzPath, checksum, *buf, s.PreservePermissions); err != nil {
@@ -668,13 +704,16 @@ func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir stri
 		mediaType = defaultBlobDirMediaType
 	}
 
+	tarDigest := tarDigester.Digest().String()
 	return ocispec.Descriptor{
 		MediaType: mediaType,
 		Digest:    gzDigest, // digest for the compressed content
 		Size:      fi.Size(),
 		Annotations: map[string]string{
-			AnnotationDigest: tarDigester.Digest().String(), // digest fot the uncompressed content
-			AnnotationUnpack: "true",                        // the content needs to be unpacked
+			AnnotationDigest:       tarDigest, // digest fot the uncompressed content
+			AnnotationUnpack:       "true",    // the content needs to be unpacked
+			AnnotationDigestLegacy: tarDigest,
+			AnnotationUnpackLegacy: "true",
 		},
 	}, nil
 }

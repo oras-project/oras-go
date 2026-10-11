@@ -227,10 +227,11 @@ The file store, available in the [`content/file`](https://pkg.go.dev/oras.land/o
 When a file or directory is added, the file store creates a descriptor containing annotations with essential metadata. The process differs depending on whether a file or a directory is added:
 
 - **File Addition**: When a file is added, its contents are stored as a blob. A descriptor is generated from the blob with an `"org.opencontainers.image.title"` annotation indicating the original file name.
-- **Directory Addition**: When a directory is added, it is first tar-archived and compressed into a blob. The descriptor generated for a directory includes multiple annotations:
+- **Directory Addition**: When a directory is added, it is first tar-archived and compressed into a blob. In v3, the descriptor generated for a directory includes the following annotations:
   - `"org.opencontainers.image.title"`: Indicates the original directory name.
-  - `"io.deis.oras.content.digest"`**(ORAS-specific)**: Represents the digest of the tar'ed content before compression.
-  - `"io.deis.oras.content.unpack"`**(ORAS-specific)**: A flag indicating that the blob represents a directory that needs to be decompressed and un-tar'ed.
+  - `"land.oras.content.digest"` (**ORAS-specific**): Represents the digest of the tarred content before compression.
+  - `"land.oras.content.unpack"` (**ORAS-specific**): A flag indicating that the blob represents a directory that needs to be decompressed and untarred.
+  - `"io.deis.oras.content.digest"` and `"io.deis.oras.content.unpack"` (**deprecated**): The same two values under the keys used by oras-go v2 and the oras CLI. They are still written so that older clients can unpack directories created by this version, and are still read when the `land.oras` keys are absent. Artifacts that set both `land.oras.content.digest` and `io.deis.oras.content.digest` to different values are rejected.
 
 For example, consider the following directory structure on disk:
 
@@ -273,12 +274,20 @@ Adding the directory `mydir` results in a tar-archived and compressed blob with 
   "digest": "sha256:b14fa80f5afd3822dce52a711566586c8f89e5dc211e4b0d2819f219b102fe7a",
   "size": 164,
   "annotations": {
+    "land.oras.content.digest": "sha256:9d418a0549e5bc45d195aacec889d30e520b9f2bd9feab57d57de6d9cdd66172",
+    "land.oras.content.unpack": "true",
     "io.deis.oras.content.digest": "sha256:9d418a0549e5bc45d195aacec889d30e520b9f2bd9feab57d57de6d9cdd66172",
     "io.deis.oras.content.unpack": "true",
     "org.opencontainers.image.title": "mydir"
   }
 }
 ```
+
+> [!NOTE]
+> The digests above are illustrative. The layer digest covers the compressed
+> blob and is unaffected by the annotations, but the annotations are part of
+> the manifest that references the layer, so a directory manifest's digest
+> differs from the one produced by oras-go v2.
 
 To create an artifact, a manifest needs to be [packed](https://pkg.go.dev/oras.land/oras-go/v2#PackManifest) to reference the two blobs and will also be stored in the file store. The manifest content might look like this:
 
@@ -307,6 +316,8 @@ To create an artifact, a manifest needs to be [packed](https://pkg.go.dev/oras.l
       "digest": "sha256:b14fa80f5afd3822dce52a711566586c8f89e5dc211e4b0d2819f219b102fe7a",
       "size": 164,
       "annotations": {
+        "land.oras.content.digest": "sha256:9d418a0549e5bc45d195aacec889d30e520b9f2bd9feab57d57de6d9cdd66172",
+        "land.oras.content.unpack": "true",
         "io.deis.oras.content.digest": "sha256:9d418a0549e5bc45d195aacec889d30e520b9f2bd9feab57d57de6d9cdd66172",
         "io.deis.oras.content.unpack": "true",
         "org.opencontainers.image.title": "mydir"
