@@ -1209,7 +1209,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 		if size := resp.ContentLength; size != -1 && size != target.Size {
 			return nil, fmt.Errorf("%s %q: mismatch Content-Length", resp.Request.Method, resp.Request.URL)
 		}
-		if err := verifyContentDigest(resp, target.Digest); err != nil {
+		if err := verifyPullDigestHeader(resp, target.Digest); err != nil {
 			return nil, err
 		}
 
@@ -1575,7 +1575,7 @@ func generateBlobDescriptor(resp *http.Response, refDigest digest.Digest) (ocisp
 		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
 	}
 
-	if err := verifyContentDigest(resp, refDigest); err != nil {
+	if err := verifyPullDigestHeader(resp, refDigest); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
@@ -2286,7 +2286,7 @@ func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected di
 	}
 	canonical, err := digest.Parse(headerStr)
 	if err != nil || canonical.Algorithm() == expected.Algorithm() {
-		return verifyContentDigest(resp, expected)
+		return verifyPullDigestHeader(resp, expected)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(limitReader(resp.Body, s.repo.maxMetadataBytes()))
@@ -2387,16 +2387,47 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest, alternates
 				return nil
 			}
 		}
-		return fmt.Errorf(
-			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q; %w",
-			resp.Request.Method, resp.Request.URL,
-			headerDockerContentDigest, contentDigest,
-			expected,
-			content.ErrMismatchedDigest,
-		)
+		return &digestHeaderMismatchError{
+			method:   resp.Request.Method,
+			url:      resp.Request.URL,
+			received: contentDigest,
+			expected: expected,
+		}
 	}
 
 	return nil
+}
+
+// digestHeaderMismatchError is returned by [verifyContentDigest] when the
+// "Docker-Content-Digest" header disagrees with the expected digest.
+//
+// It deliberately does not wrap [content.ErrMismatchedDigest]: on push, mount
+// and delete the registry is disagreeing about content the client sent, not
+// serving bad content. Pull paths add the sentinel through
+// [verifyPullDigestHeader].
+type digestHeaderMismatchError struct {
+	method   string
+	url      *url.URL
+	received digest.Digest
+	expected digest.Digest
+}
+
+func (e *digestHeaderMismatchError) Error() string {
+	return fmt.Sprintf("%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
+		e.method, e.url, headerDockerContentDigest, e.received, e.expected)
+}
+
+// verifyPullDigestHeader is [verifyContentDigest] for pull paths: a digest
+// mismatch also satisfies errors.Is(err, [content.ErrMismatchedDigest]), since
+// the registry served content that does not match the requested digest. A
+// malformed header is returned unwrapped.
+func verifyPullDigestHeader(resp *http.Response, expected digest.Digest) error {
+	err := verifyContentDigest(resp, expected)
+	var mismatch *digestHeaderMismatchError
+	if errors.As(err, &mismatch) {
+		return fmt.Errorf("%w; %w", err, content.ErrMismatchedDigest)
+	}
+	return err
 }
 
 // generateIndex generates an image index containing the given manifests list.
