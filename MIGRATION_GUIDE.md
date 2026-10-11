@@ -320,6 +320,14 @@ changes:
   `ExtendedCopyGraphOptions.FindPredecessors` and the source storage it queries
   may be called from several goroutines. Implementations that keep state must
   synchronize access to it. In v2 the lookups ran one node at a time.
+- The default retry policy honors the `Retry-After` response header of any
+  retryable response (including 429 and 503), in both delta-seconds and
+  HTTP-date forms, up to the new `retry.GenericPolicy.MaxRetryAfter`
+  (60 seconds by default). `MaxWait` is raised from 3 seconds to 10 seconds,
+  so the worst-case total wait rises from ~7 seconds to ~5 minutes for
+  callers without a context deadline. Callers who want the old fail-fast
+  behavior can set `Transport.Policy` or `ClientBuilder.RetryPolicy` to a
+  `retry.GenericPolicy` literal with the old values.
 
 ## Major additions in v3
 
