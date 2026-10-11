@@ -27,6 +27,7 @@ import (
 
 	. "github.com/oras-project/oras-go/v3/registry/internal/doc"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 const (
@@ -197,12 +198,17 @@ func ExampleClient_Do_clientConfigurations() {
 	// Tokens carry restrictions about what resources they can access and how.
 	// Such restrictions are represented and enforced as Scopes.
 	// Reference: https://distribution.github.io/distribution/spec/auth/scope/
-	scopes := []string{
-		"repository:dst:pull,push",
-		"repository:src:pull",
+	scopes := []Scope{
+		ScopeRepository("dst", ActionPull, ActionPush),
+		ScopeRepository("src", ActionPull),
 	}
-	// WithScopesForHost returns a context with scopes added for a registry host.
-	ctx := WithScopesForHost(context.Background(), expectedHostAddress, scopes...)
+	// WithScopesForResource returns a context with scopes added for a registry
+	// resource. Here the whole registry is hinted; narrowing the resource to a
+	// namespace or a repository keeps the scopes off the token requests made for
+	// anything else on the same registry.
+	// expectedHostAddress is of form ipaddr:port
+	resource := properties.Resource{Registry: expectedHostAddress}
+	ctx := WithScopesForResource(context.Background(), resource, scopes...)
 
 	// clientConfigTargetURL can be any URL. For example, https://registry.wabbit-networks.io/v2/
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientConfigTargetURL, nil)

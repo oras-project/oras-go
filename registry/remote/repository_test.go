@@ -411,6 +411,71 @@ func TestRepository_Mount(t *testing.T) {
 	}
 }
 
+// scopeRecordingClient records the scope hints that apply to each request it
+// sends, as the auth client would resolve them.
+type scopeRecordingClient struct {
+	client Client
+	scopes map[string][]auth.Scope
+}
+
+func (c *scopeRecordingClient) Do(req *http.Request) (*http.Response, error) {
+	resource := properties.Resource{
+		Registry: req.URL.Host,
+		Path:     strings.SplitN(strings.TrimPrefix(req.URL.Path, "/v2/"), "/blobs/", 2)[0],
+	}
+	if c.scopes == nil {
+		c.scopes = make(map[string][]auth.Scope)
+	}
+	c.scopes[resource.Path] = auth.GetScopesForResource(req.Context(), resource)
+	return c.client.Do(req)
+}
+
+// TestRepository_Mount_ScopeHints checks that a cross-repository mount still
+// asks for pull on the source repository. The hints are keyed by resource now,
+// so the source scope has to be registered against the target repository, which
+// is the repository the mount request is made to.
+func TestRepository_Mount_ScopeHints(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/test2/blobs/uploads/" {
+			t.Errorf("unexpected URL for mount request %q", r.URL)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set(headerDockerContentDigest, blobDesc.Digest.String())
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test2")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	recorder := &scopeRecordingClient{client: repo.client()}
+	repo.Registry.Client = recorder
+
+	if err := repo.Mount(context.Background(), blobDesc, "test", nil); err != nil {
+		t.Fatalf("Repository.Mount() error = %v", err)
+	}
+
+	want := []auth.Scope{
+		auth.ScopeRepository("test", auth.ActionPull),
+		auth.ScopeRepository("test2", auth.ActionPull, auth.ActionPush),
+	}
+	if got := recorder.scopes["test2"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("scope hints on the mount request = %v, want %v", got, want)
+	}
+}
+
 func TestRepository_Mount_Fallback(t *testing.T) {
 	// This test checks the case where the server does not know
 	// about the mount query parameters, so the call falls back to

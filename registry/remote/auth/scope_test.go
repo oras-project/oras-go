@@ -17,18 +17,207 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
+
+func TestParseScope(t *testing.T) {
+	tests := []struct {
+		name  string
+		scope string
+		want  Scope
+	}{
+		{
+			name:  "single action",
+			scope: "repository:foo:pull",
+			want:  Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"pull"}},
+		},
+		{
+			name:  "multiple actions",
+			scope: "repository:foo:pull,push",
+			want:  Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"pull", "push"}},
+		},
+		{
+			name:  "unordered and duplicated actions",
+			scope: "repository:foo:push,pull,push",
+			want:  Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"pull", "push"}},
+		},
+		{
+			name:  "wildcard absorbs the other actions",
+			scope: "repository:foo:pull,*,push",
+			want:  Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"*"}},
+		},
+		{
+			name:  "registry catalog",
+			scope: "registry:catalog:*",
+			want:  Scope{ResourceType: "registry", ResourceName: "catalog", Actions: []string{"*"}},
+		},
+		{
+			name:  "namespaced repository",
+			scope: "repository:namespace/foo:pull",
+			want:  Scope{ResourceType: "repository", ResourceName: "namespace/foo", Actions: []string{"pull"}},
+		},
+		{
+			name:  "resource name containing a colon",
+			scope: "repository:foo:bar:pull",
+			want:  Scope{ResourceType: "repository", ResourceName: "foo:bar", Actions: []string{"pull"}},
+		},
+		{
+			name:  "empty action in the action list is dropped",
+			scope: "repository:foo:pull,,push",
+			want:  Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"pull", "push"}},
+		},
+		{
+			// public.ecr.aws challenges with this
+			name:  "opaque scope",
+			scope: "aws",
+			want:  Scope{ResourceType: "aws"},
+		},
+		{
+			name:  "two-part scope is opaque",
+			scope: "repository:foo",
+			want:  Scope{ResourceType: "repository:foo"},
+		},
+		{
+			name:  "empty action list is opaque",
+			scope: "no:actions:",
+			want:  Scope{ResourceType: "no:actions:"},
+		},
+		{
+			name:  "only empty actions is opaque",
+			scope: "repository:foo:,",
+			want:  Scope{ResourceType: "repository:foo:,"},
+		},
+		{
+			name:  "no resource type is opaque",
+			scope: ":foo:pull",
+			want:  Scope{ResourceType: ":foo:pull"},
+		},
+		{
+			name:  "empty resource name is opaque",
+			scope: "repository::pull",
+			want:  Scope{ResourceType: "repository::pull"},
+		},
+		{
+			name:  "comma in resource type is opaque",
+			scope: "repo,sitory:foo:pull",
+			want:  Scope{ResourceType: "repo,sitory:foo:pull"},
+		},
+		{
+			name:  "comma in resource name is opaque",
+			scope: "repository:foo,bar:pull",
+			want:  Scope{ResourceType: "repository:foo,bar:pull"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseScope(tt.scope)
+			if err != nil {
+				t.Fatal("ParseScope() error =", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ParseScope() = %v, want %v", got, tt.want)
+			}
+			// a parsed scope round trips through its wire form
+			if roundTrip := got.String(); roundTrip != tt.scope {
+				if reParsed, err := ParseScope(roundTrip); err != nil || !reflect.DeepEqual(reParsed, got) {
+					t.Errorf("ParseScope(%q.String()) = %v, %v, want %v", tt.scope, reParsed, err, got)
+				}
+			}
+		})
+	}
+}
+
+// TestParseScope_invalid covers the only scopes ParseScope rejects: those that
+// cannot round trip through the space-separated wire form. Everything else
+// outside the grammar falls back to an opaque scope, covered by TestParseScope.
+func TestParseScope_invalid(t *testing.T) {
+	tests := []struct {
+		name  string
+		scope string
+	}{
+		{name: "empty", scope: ""},
+		{name: "space alone", scope: " "},
+		{name: "space in resource name", scope: "repository:foo bar:pull"},
+		{name: "space in action", scope: "repository:foo:pull push"},
+		{name: "tab in resource name", scope: "repository:foo\tbar:pull"},
+		{name: "newline in action", scope: "repository:foo:pull\npush"},
+		{name: "space in an otherwise opaque scope", scope: "opaque scope"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseScope(tt.scope)
+			if !errors.Is(err, errdef.ErrInvalidScope) {
+				t.Errorf("ParseScope(%q) error = %v, want %v", tt.scope, err, errdef.ErrInvalidScope)
+			}
+			if !reflect.DeepEqual(got, Scope{}) {
+				t.Errorf("ParseScope(%q) = %v, want the zero Scope", tt.scope, got)
+			}
+		})
+	}
+}
+
+func TestScope_String(t *testing.T) {
+	tests := []struct {
+		name  string
+		scope Scope
+		want  string
+	}{
+		{
+			name: "zero scope",
+		},
+		{
+			name:  "no resource type",
+			scope: Scope{ResourceName: "foo", Actions: []string{"pull"}},
+		},
+		{
+			name:  "no resource name",
+			scope: Scope{ResourceType: "repository", Actions: []string{"pull"}},
+		},
+		{
+			name:  "no actions",
+			scope: Scope{ResourceType: "repository", ResourceName: "foo"},
+		},
+		{
+			name:  "opaque scope",
+			scope: Scope{ResourceType: "aws"},
+			want:  "aws",
+		},
+		{
+			name:  "single action",
+			scope: Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"pull"}},
+			want:  "repository:foo:pull",
+		},
+		{
+			name:  "multiple actions",
+			scope: Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"pull", "push"}},
+			want:  "repository:foo:pull,push",
+		},
+		{
+			name:  "registry catalog",
+			scope: ScopeRegistryCatalog(),
+			want:  "registry:catalog:*",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.scope.String(); got != tt.want {
+				t.Errorf("Scope.String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestScopeRepository(t *testing.T) {
 	tests := []struct {
 		name       string
 		repository string
 		actions    []string
-		want       string
+		want       Scope
 	}{
 		{
 			name: "empty repository",
@@ -41,17 +230,12 @@ func TestScopeRepository(t *testing.T) {
 			repository: "foo",
 		},
 		{
-			name:       "empty actions",
-			repository: "foo",
-			actions:    []string{},
-		},
-		{
 			name:       "empty actions list",
 			repository: "foo",
 			actions:    []string{},
 		},
 		{
-			name:       "empty actions",
+			name:       "empty action",
 			repository: "foo",
 			actions: []string{
 				"",
@@ -63,7 +247,7 @@ func TestScopeRepository(t *testing.T) {
 			actions: []string{
 				"pull",
 			},
-			want: "repository:foo:pull",
+			want: Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"pull"}},
 		},
 		{
 			name:       "multiple actions",
@@ -72,7 +256,7 @@ func TestScopeRepository(t *testing.T) {
 				"pull",
 				"push",
 			},
-			want: "repository:foo:pull,push",
+			want: Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"pull", "push"}},
 		},
 		{
 			name:       "unordered actions",
@@ -81,7 +265,7 @@ func TestScopeRepository(t *testing.T) {
 				"push",
 				"pull",
 			},
-			want: "repository:foo:pull,push",
+			want: Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"pull", "push"}},
 		},
 		{
 			name:       "duplicated actions",
@@ -93,15 +277,38 @@ func TestScopeRepository(t *testing.T) {
 				"delete",
 				"push",
 			},
-			want: "repository:foo:delete,pull,push",
+			want: Scope{ResourceType: "repository", ResourceName: "foo", Actions: []string{"delete", "pull", "push"}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ScopeRepository(tt.repository, tt.actions...); got != tt.want {
+			if got := ScopeRepository(tt.repository, tt.actions...); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ScopeRepository() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestScopeRepository_noActionAliasing ensures the caller's action slice is not
+// reordered underneath it, as cleanActions sorts in place.
+func TestScopeRepository_noActionAliasing(t *testing.T) {
+	actions := []string{ActionPush, ActionPull}
+	ScopeRepository("foo", actions...)
+	if want := []string{ActionPush, ActionPull}; !reflect.DeepEqual(actions, want) {
+		t.Errorf("ScopeRepository() reordered the caller's actions to %v, want %v", actions, want)
+	}
+}
+
+func TestScopeRegistryCatalog(t *testing.T) {
+	want := Scope{ResourceType: "registry", ResourceName: "catalog", Actions: []string{"*"}}
+	got := ScopeRegistryCatalog()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ScopeRegistryCatalog() = %v, want %v", got, want)
+	}
+	// mutating the returned scope must not affect a later call
+	got.Actions[0] = ActionPull
+	if again := ScopeRegistryCatalog(); !reflect.DeepEqual(again, want) {
+		t.Errorf("ScopeRegistryCatalog() = %v after the previous result was mutated, want %v", again, want)
 	}
 }
 
@@ -117,330 +324,466 @@ func TestAppendRepositoryScope(t *testing.T) {
 	}
 
 	// with single scope
-	want1 := []string{
-		"repository:foo:pull",
+	want1 := []Scope{
+		ScopeRepository("foo", ActionPull),
 	}
-	want2 := []string{
-		"repository:foo:push",
+	want2 := []Scope{
+		ScopeRepository("foo", ActionPush),
 	}
 	ctx = AppendRepositoryScope(ctx, ref1, ActionPull)
 	ctx = AppendRepositoryScope(ctx, ref2, ActionPush)
-	if got := GetScopesForHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want1)
+	if got := GetScopesForResource(ctx, ref1.Resource()); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(AppendRepositoryScope()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesForHost(ctx, ref2.Host()); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want2)
+	if got := GetScopesForResource(ctx, ref2.Resource()); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesForResource(AppendRepositoryScope()) = %v, want %v", got, want2)
 	}
 
 	// with duplicated scopes
-	scopes1 := []string{
+	actions1 := []string{
 		ActionDelete,
 		ActionDelete,
 		ActionPull,
 	}
-	want1 = []string{
-		"repository:foo:delete,pull",
+	want1 = []Scope{
+		ScopeRepository("foo", ActionDelete, ActionPull),
 	}
-	scopes2 := []string{
+	actions2 := []string{
 		ActionPush,
 		ActionPush,
 		ActionDelete,
 	}
-	want2 = []string{
-		"repository:foo:delete,push",
+	want2 = []Scope{
+		ScopeRepository("foo", ActionDelete, ActionPush),
 	}
-	ctx = AppendRepositoryScope(ctx, ref1, scopes1...)
-	ctx = AppendRepositoryScope(ctx, ref2, scopes2...)
-	if got := GetScopesForHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want1)
+	ctx = AppendRepositoryScope(ctx, ref1, actions1...)
+	ctx = AppendRepositoryScope(ctx, ref2, actions2...)
+	if got := GetScopesForResource(ctx, ref1.Resource()); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(AppendRepositoryScope()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesForHost(ctx, ref2.Host()); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want2)
+	if got := GetScopesForResource(ctx, ref2.Resource()); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesForResource(AppendRepositoryScope()) = %v, want %v", got, want2)
 	}
 
 	// append empty scopes
 	ctx = AppendRepositoryScope(ctx, ref1)
 	ctx = AppendRepositoryScope(ctx, ref2)
-	if got := GetScopesForHost(ctx, ref1.Host()); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want1)
+	if got := GetScopesForResource(ctx, ref1.Resource()); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(AppendRepositoryScope()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesForHost(ctx, ref2.Host()); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesForHost(AppendRepositoryScope()) = %v, want %v", got, want2)
+	if got := GetScopesForResource(ctx, ref2.Resource()); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesForResource(AppendRepositoryScope()) = %v, want %v", got, want2)
 	}
 }
 
-func TestWithScopesForHost(t *testing.T) {
+// TestAppendRepositoryScope_namespaceIsolation is the case #1376 is about: two
+// namespaces of one registry threaded through a single context must not disclose
+// each other's repositories in a token request.
+func TestAppendRepositoryScope_namespaceIsolation(t *testing.T) {
 	ctx := context.Background()
-	reg1 := "registry1.example.com"
-	reg2 := "registry2.example.com"
+	ref1, err := properties.NewReference("harbor.local/namespace1/app")
+	if err != nil {
+		t.Fatal("properties.NewReference() error =", err)
+	}
+	ref2, err := properties.NewReference("harbor.local/namespace2/app")
+	if err != nil {
+		t.Fatal("properties.NewReference() error =", err)
+	}
+	ctx = AppendRepositoryScope(ctx, ref1, ActionPull, ActionPush)
+	ctx = AppendRepositoryScope(ctx, ref2, ActionPull, ActionPush)
+
+	want1 := []Scope{ScopeRepository("namespace1/app", ActionPull, ActionPush)}
+	if got := GetScopesForResource(ctx, ref1.Resource()); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(namespace1/app) = %v, want %v", got, want1)
+	}
+	want2 := []Scope{ScopeRepository("namespace2/app", ActionPull, ActionPush)}
+	if got := GetScopesForResource(ctx, ref2.Resource()); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesForResource(namespace2/app) = %v, want %v", got, want2)
+	}
+}
+
+func TestWithScopesForResource(t *testing.T) {
+	ctx := context.Background()
+	res1 := properties.Resource{Registry: "registry1.example.com"}
+	res2 := properties.Resource{Registry: "registry2.example.com"}
 
 	// with single scope
-	want1 := []string{
-		"repository:foo:pull",
+	want1 := []Scope{ScopeRepository("foo", ActionPull)}
+	want2 := []Scope{ScopeRepository("foo", ActionPush)}
+	ctx = WithScopesForResource(ctx, res1, want1...)
+	ctx = WithScopesForResource(ctx, res2, want2...)
+	if got := GetScopesForResource(ctx, res1); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(WithScopesForResource()) = %v, want %v", got, want1)
 	}
-	want2 := []string{
-		"repository:foo:push",
+	if got := GetScopesForResource(ctx, res2); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesForResource(WithScopesForResource()) = %v, want %v", got, want2)
 	}
-	ctx = WithScopesForHost(ctx, reg1, want1...)
-	ctx = WithScopesForHost(ctx, reg2, want2...)
-	if got := GetScopesForHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want1)
-	}
-	if got := GetScopesForHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want2)
-	}
-	if got := GetScopesForHost(ctx, "registry3.example.com"); got != nil {
-		t.Errorf("GetScopesForHost() = %v for an unrelated host, want nil", got)
+	unrelated := properties.Resource{Registry: "registry3.example.com"}
+	if got := GetScopesForResource(ctx, unrelated); got != nil {
+		t.Errorf("GetScopesForResource() = %v for an unrelated registry, want nil", got)
 	}
 
 	// overwrite scopes
-	want1 = []string{
-		"repository:bar:push",
+	want1 = []Scope{ScopeRepository("bar", ActionPush)}
+	want2 = []Scope{ScopeRepository("bar", ActionPull)}
+	ctx = WithScopesForResource(ctx, res1, want1...)
+	ctx = WithScopesForResource(ctx, res2, want2...)
+	if got := GetScopesForResource(ctx, res1); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(WithScopesForResource()) = %v, want %v", got, want1)
 	}
-	want2 = []string{
-		"repository:bar:pull",
-	}
-	ctx = WithScopesForHost(ctx, reg1, want1...)
-	ctx = WithScopesForHost(ctx, reg2, want2...)
-	if got := GetScopesForHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want1)
-	}
-	if got := GetScopesForHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want2)
+	if got := GetScopesForResource(ctx, res2); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesForResource(WithScopesForResource()) = %v, want %v", got, want2)
 	}
 
 	// overwrite scopes with de-duplication
-	scopes1 := []string{
-		"repository:hello-world:push",
-		"repository:alpine:delete",
-		"repository:hello-world:pull",
-		"repository:alpine:delete",
+	scopes1 := []Scope{
+		ScopeRepository("hello-world", ActionPush),
+		ScopeRepository("alpine", ActionDelete),
+		ScopeRepository("hello-world", ActionPull),
+		ScopeRepository("alpine", ActionDelete),
 	}
-	want1 = []string{
-		"repository:alpine:delete",
-		"repository:hello-world:pull,push",
+	want1 = []Scope{
+		ScopeRepository("alpine", ActionDelete),
+		ScopeRepository("hello-world", ActionPull, ActionPush),
 	}
-	scopes2 := []string{
-		"repository:goodbye-world:push",
-		"repository:nginx:delete",
-		"repository:goodbye-world:pull",
-		"repository:nginx:delete",
-	}
-	want2 = []string{
-		"repository:goodbye-world:pull,push",
-		"repository:nginx:delete",
-	}
-	ctx = WithScopesForHost(ctx, reg1, scopes1...)
-	ctx = WithScopesForHost(ctx, reg2, scopes2...)
-	if got := GetScopesForHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want1)
-	}
-	if got := GetScopesForHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want2)
+	ctx = WithScopesForResource(ctx, res1, scopes1...)
+	if got := GetScopesForResource(ctx, res1); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(WithScopesForResource()) = %v, want %v", got, want1)
 	}
 
 	// clean scopes
-	var want []string
-	ctx = WithScopesForHost(ctx, reg1, want...)
-	ctx = WithScopesForHost(ctx, reg2, want...)
-	if got := GetScopesForHost(ctx, reg1); !reflect.DeepEqual(got, want) {
-		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want)
+	ctx = WithScopesForResource(ctx, res1)
+	if got := GetScopesForResource(ctx, res1); got != nil {
+		t.Errorf("GetScopesForResource(WithScopesForResource()) = %v, want nil", got)
 	}
-	if got := GetScopesForHost(ctx, reg2); !reflect.DeepEqual(got, want) {
-		t.Errorf("GetScopesPerRegistry(WithScopesPerRegistry()) = %v, want %v", got, want)
+	// removing the hints of one resource leaves the others alone
+	if got := GetScopesForResource(ctx, res2); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesForResource() = %v after another resource was cleared, want %v", got, want2)
 	}
 }
 
-func TestAppendScopesForHost(t *testing.T) {
+// TestWithScopesForResource_copyOnWrite ensures a derived context does not
+// change what its parent sees.
+func TestWithScopesForResource_copyOnWrite(t *testing.T) {
+	res := properties.Resource{Registry: "registry.example.com"}
+	narrow := properties.Resource{Registry: "registry.example.com", Path: "foo"}
+	want := []Scope{ScopeRepository("foo", ActionPull)}
+
+	parent := WithScopesForResource(context.Background(), res, want...)
+	_ = WithScopesForResource(parent, narrow, ScopeRepository("foo", ActionPush))
+	_ = WithScopesForResource(parent, res, ScopeRepository("bar", ActionPush))
+	if got := GetScopesForResource(parent, res); !reflect.DeepEqual(got, want) {
+		t.Errorf("GetScopesForResource(parent) = %v after deriving children, want %v", got, want)
+	}
+}
+
+func TestAppendScopesForResource(t *testing.T) {
 	ctx := context.Background()
-	reg1 := "registry1.example.com"
-	reg2 := "registry2.example.com"
+	res1 := properties.Resource{Registry: "registry1.example.com"}
+	res2 := properties.Resource{Registry: "registry2.example.com"}
 
 	// with single scope
-	want1 := []string{
-		"repository:foo:pull",
+	want1 := []Scope{ScopeRepository("foo", ActionPull)}
+	want2 := []Scope{ScopeRepository("foo", ActionPush)}
+	ctx = AppendScopesForResource(ctx, res1, want1...)
+	ctx = AppendScopesForResource(ctx, res2, want2...)
+	if got := GetScopesForResource(ctx, res1); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(AppendScopesForResource()) = %v, want %v", got, want1)
 	}
-	want2 := []string{
-		"repository:foo:push",
-	}
-	ctx = AppendScopesForHost(ctx, reg1, want1...)
-	ctx = AppendScopesForHost(ctx, reg2, want2...)
-	if got := GetScopesForHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want1)
-	}
-	if got := GetScopesForHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want2)
+	if got := GetScopesForResource(ctx, res2); !reflect.DeepEqual(got, want2) {
+		t.Errorf("GetScopesForResource(AppendScopesForResource()) = %v, want %v", got, want2)
 	}
 
 	// append scopes with de-duplication
-	scopes1 := []string{
-		"repository:hello-world:push",
-		"repository:alpine:delete",
-		"repository:hello-world:pull",
-		"repository:alpine:delete",
+	scopes1 := []Scope{
+		ScopeRepository("hello-world", ActionPush),
+		ScopeRepository("alpine", ActionDelete),
+		ScopeRepository("hello-world", ActionPull),
+		ScopeRepository("alpine", ActionDelete),
 	}
-	want1 = []string{
-		"repository:alpine:delete",
-		"repository:foo:pull",
-		"repository:hello-world:pull,push",
+	want1 = []Scope{
+		ScopeRepository("alpine", ActionDelete),
+		ScopeRepository("foo", ActionPull),
+		ScopeRepository("hello-world", ActionPull, ActionPush),
 	}
-	scopes2 := []string{
-		"repository:goodbye-world:push",
-		"repository:nginx:delete",
-		"repository:goodbye-world:pull",
-		"repository:nginx:delete",
-	}
-	want2 = []string{
-		"repository:foo:push",
-		"repository:goodbye-world:pull,push",
-		"repository:nginx:delete",
-	}
-	ctx = AppendScopesForHost(ctx, reg1, scopes1...)
-	ctx = AppendScopesForHost(ctx, reg2, scopes2...)
-	if got := GetScopesForHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want1)
-	}
-	if got := GetScopesForHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want2)
+	ctx = AppendScopesForResource(ctx, res1, scopes1...)
+	if got := GetScopesForResource(ctx, res1); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(AppendScopesForResource()) = %v, want %v", got, want1)
 	}
 
 	// append empty scopes
-	ctx = AppendScopesForHost(ctx, reg1)
-	ctx = AppendScopesForHost(ctx, reg2)
-	if got := GetScopesForHost(ctx, reg1); !reflect.DeepEqual(got, want1) {
-		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want1)
+	ctx = AppendScopesForResource(ctx, res1)
+	if got := GetScopesForResource(ctx, res1); !reflect.DeepEqual(got, want1) {
+		t.Errorf("GetScopesForResource(AppendScopesForResource()) = %v, want %v", got, want1)
 	}
-	if got := GetScopesForHost(ctx, reg2); !reflect.DeepEqual(got, want2) {
-		t.Errorf("GetScopesPerRegistry(AppendScopesPerRegistry()) = %v, want %v", got, want2)
+}
+
+// TestAppendScopesForResource_exactBucket checks that appending to a narrow
+// resource does not copy the inherited hints down into it, which would re-grow
+// the narrow bucket on every append.
+func TestAppendScopesForResource_exactBucket(t *testing.T) {
+	registry := properties.Resource{Registry: "registry.example.com"}
+	repository := properties.Resource{Registry: "registry.example.com", Path: "ns/app"}
+
+	ctx := WithScopesForResource(context.Background(), registry, ScopeRegistryCatalog())
+	ctx = AppendScopesForResource(ctx, repository, ScopeRepository("ns/app", ActionPull))
+	// the registry hints still apply, but only once
+	want := []Scope{
+		ScopeRegistryCatalog(),
+		ScopeRepository("ns/app", ActionPull),
+	}
+	if got := GetScopesForResource(ctx, repository); !reflect.DeepEqual(got, want) {
+		t.Errorf("GetScopesForResource() = %v, want %v", got, want)
+	}
+	// clearing the registry hints drops them from the narrow lookup too
+	ctx = WithScopesForResource(ctx, registry)
+	want = []Scope{ScopeRepository("ns/app", ActionPull)}
+	if got := GetScopesForResource(ctx, repository); !reflect.DeepEqual(got, want) {
+		t.Errorf("GetScopesForResource() = %v after clearing the registry hints, want %v", got, want)
+	}
+}
+
+func TestGetScopesForResource_hierarchy(t *testing.T) {
+	const registry = "harbor.local"
+	ctx := context.Background()
+	ctx = WithScopesForResource(ctx, properties.Resource{Registry: registry}, ScopeRegistryCatalog())
+	ctx = WithScopesForResource(ctx, properties.Resource{Registry: registry, Path: "ns"},
+		ScopeRepository("ns/shared", ActionPull))
+	ctx = WithScopesForResource(ctx, properties.Resource{Registry: registry, Path: "ns/app"},
+		ScopeRepository("ns/app", ActionPull, ActionPush))
+	ctx = WithScopesForResource(ctx, properties.Resource{Registry: registry, Path: "nsother"},
+		ScopeRepository("nsother/app", ActionPull))
+
+	tests := []struct {
+		name string
+		path string
+		want []Scope
+	}{
+		{
+			name: "registry only sees the registry hints",
+			want: []Scope{ScopeRegistryCatalog()},
+		},
+		{
+			name: "namespace inherits from the registry",
+			path: "ns",
+			want: []Scope{
+				ScopeRegistryCatalog(),
+				ScopeRepository("ns/shared", ActionPull),
+			},
+		},
+		{
+			name: "repository inherits from its namespace and the registry",
+			path: "ns/app",
+			want: []Scope{
+				ScopeRegistryCatalog(),
+				ScopeRepository("ns/app", ActionPull, ActionPush),
+				ScopeRepository("ns/shared", ActionPull),
+			},
+		},
+		{
+			name: "a sibling namespace does not leak",
+			path: "nsother/app",
+			want: []Scope{
+				ScopeRegistryCatalog(),
+				ScopeRepository("nsother/app", ActionPull),
+			},
+		},
+		{
+			name: "a prefix that is not a path segment does not match",
+			path: "nsopqr",
+			want: []Scope{ScopeRegistryCatalog()},
+		},
+		{
+			name: "an unrelated repository only inherits from the registry",
+			path: "other/app",
+			want: []Scope{ScopeRegistryCatalog()},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resource := properties.Resource{Registry: registry, Path: tt.path}
+			if got := GetScopesForResource(ctx, resource); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetScopesForResource(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestGetScopesForResource_canonicalRegistry pins the canonicalization of the
+// registry name on both sides of the lookup. A regression here fails open: every
+// lookup misses, the hints silently stop working, and nothing errors.
+func TestGetScopesForResource_canonicalRegistry(t *testing.T) {
+	want := []Scope{ScopeRepository("foo", ActionPull)}
+	ctx := WithScopesForResource(context.Background(),
+		properties.Resource{Registry: "docker.io", Path: "foo"}, want...)
+
+	for _, registry := range []string{"docker.io", "registry-1.docker.io", "Registry-1.Docker.IO", "DOCKER.IO"} {
+		resource := properties.Resource{Registry: registry, Path: "foo"}
+		if got := GetScopesForResource(ctx, resource); !reflect.DeepEqual(got, want) {
+			t.Errorf("GetScopesForResource(%q) = %v, want %v", registry, got, want)
+		}
+	}
+}
+
+// TestGetScopesForResource_noAliasing covers decision 2 of #1451: the actions of
+// a returned scope must not be the slice held in the context, or a caller
+// mutating them would corrupt every later request on that context.
+func TestGetScopesForResource_noAliasing(t *testing.T) {
+	resource := properties.Resource{Registry: "registry.example.com", Path: "foo"}
+	want := []Scope{ScopeRepository("foo", ActionPull)}
+	ctx := WithScopesForResource(context.Background(), resource, want...)
+
+	got := GetScopesForResource(ctx, resource)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetScopesForResource() = %v, want %v", got, want)
+	}
+	got[0].Actions[0] = "corrupted"
+	if again := GetScopesForResource(ctx, resource); !reflect.DeepEqual(again, want) {
+		t.Errorf("GetScopesForResource() = %v after the previous result was mutated, want %v", again, want)
 	}
 }
 
 func TestCleanScopes(t *testing.T) {
 	tests := []struct {
 		name   string
-		scopes []string
-		want   []string
+		scopes []Scope
+		want   []Scope
 	}{
 		{
 			name: "nil scope",
 		},
 		{
 			name:   "empty scope",
-			scopes: []string{},
+			scopes: []Scope{},
 		},
 		{
-			name: "single scope",
-			scopes: []string{
-				"repository:foo:pull",
+			name:   "zero scope is dropped",
+			scopes: []Scope{{}},
+		},
+		{
+			name:   "scope without a resource name is dropped",
+			scopes: []Scope{{ResourceType: "repository", Actions: []string{ActionPull}}},
+		},
+		{
+			name:   "scope without a resource type is dropped",
+			scopes: []Scope{{ResourceName: "foo", Actions: []string{ActionPull}}},
+		},
+		{
+			name:   "scope without actions is dropped",
+			scopes: []Scope{{ResourceType: "repository", ResourceName: "foo"}},
+		},
+		{
+			name:   "scope with only empty actions is dropped",
+			scopes: []Scope{{ResourceType: "repository", ResourceName: "foo", Actions: []string{"", ""}}},
+		},
+		{
+			name:   "opaque scope is kept",
+			scopes: []Scope{{ResourceType: "aws"}},
+			want:   []Scope{{ResourceType: "aws"}},
+		},
+		{
+			name: "opaque scope is de-duplicated and does not merge with a named one",
+			scopes: []Scope{
+				{ResourceType: "aws"},
+				{ResourceType: "aws"},
+				{ResourceType: "aws", ResourceName: "x", Actions: []string{ActionPull}},
 			},
-			want: []string{
-				"repository:foo:pull",
+			want: []Scope{
+				{ResourceType: "aws"},
+				{ResourceType: "aws", ResourceName: "x", Actions: []string{ActionPull}},
 			},
+		},
+		{
+			name:   "single scope",
+			scopes: []Scope{ScopeRepository("foo", ActionPull)},
+			want:   []Scope{ScopeRepository("foo", ActionPull)},
 		},
 		{
 			name: "single scope with unordered actions",
-			scopes: []string{
-				"repository:foo:push,pull,delete",
+			scopes: []Scope{
+				{ResourceType: "repository", ResourceName: "foo", Actions: []string{"push", "pull", "delete"}},
 			},
-			want: []string{
-				"repository:foo:delete,pull,push",
-			},
+			want: []Scope{ScopeRepository("foo", ActionDelete, ActionPull, ActionPush)},
 		},
 		{
 			name: "single scope with duplicated actions",
-			scopes: []string{
-				"repository:foo:push,pull,push,pull,push,push,pull",
+			scopes: []Scope{
+				{ResourceType: "repository", ResourceName: "foo", Actions: []string{"push", "pull", "push", "pull"}},
 			},
-			want: []string{
-				"repository:foo:pull,push",
-			},
+			want: []Scope{ScopeRepository("foo", ActionPull, ActionPush)},
 		},
 		{
-			name: "single scope with wild cards",
-			scopes: []string{
-				"repository:foo:pull,*,push",
+			name: "wildcard absorbs the other actions of the same resource",
+			scopes: []Scope{
+				ScopeRepository("foo", ActionPull),
+				{ResourceType: "repository", ResourceName: "foo", Actions: []string{"*"}},
+				ScopeRepository("foo", ActionPush),
 			},
-			want: []string{
-				"repository:foo:*",
-			},
-		},
-		{
-			name: "single scope with no actions",
-			scopes: []string{
-				"repository:foo:,",
-			},
-			want: nil,
+			want: []Scope{{ResourceType: "repository", ResourceName: "foo", Actions: []string{"*"}}},
 		},
 		{
 			name: "multiple scopes",
-			scopes: []string{
-				"repository:bar:push",
-				"repository:foo:pull",
+			scopes: []Scope{
+				ScopeRepository("bar", ActionPush),
+				ScopeRepository("foo", ActionPull),
 			},
-			want: []string{
-				"repository:bar:push",
-				"repository:foo:pull",
+			want: []Scope{
+				ScopeRepository("bar", ActionPush),
+				ScopeRepository("foo", ActionPull),
 			},
 		},
 		{
 			name: "multiple unordered scopes",
-			scopes: []string{
-				"repository:foo:pull",
-				"repository:bar:push",
+			scopes: []Scope{
+				ScopeRepository("foo", ActionPull),
+				ScopeRepository("bar", ActionPush),
 			},
-			want: []string{
-				"repository:bar:push",
-				"repository:foo:pull",
+			want: []Scope{
+				ScopeRepository("bar", ActionPush),
+				ScopeRepository("foo", ActionPull),
 			},
 		},
 		{
 			name: "multiple scopes with duplicates",
-			scopes: []string{
-				"repository:foo:pull",
-				"repository:bar:push",
-				"repository:foo:push",
-				"repository:bar:push,delete,pull",
-				"repository:bar:delete,pull",
-				"repository:foo:pull",
-				"registry:catalog:*",
-				"registry:catalog:pull",
+			scopes: []Scope{
+				ScopeRepository("foo", ActionPull),
+				ScopeRepository("bar", ActionPush),
+				ScopeRepository("foo", ActionPush),
+				ScopeRepository("bar", ActionPush, ActionDelete, ActionPull),
+				ScopeRepository("bar", ActionDelete, ActionPull),
+				ScopeRepository("foo", ActionPull),
+				ScopeRegistryCatalog(),
+				{ResourceType: "registry", ResourceName: "catalog", Actions: []string{ActionPull}},
 			},
-			want: []string{
-				"registry:catalog:*",
-				"repository:bar:delete,pull,push",
-				"repository:foo:pull,push",
-			},
-		},
-		{
-			name: "multiple scopes with no actions",
-			scopes: []string{
-				"repository:foo:,",
-				"repository:bar:,",
-			},
-			want: nil,
-		},
-		{
-			name: "single unknown or invalid scope",
-			scopes: []string{
-				"unknown",
-			},
-			want: []string{
-				"unknown",
+			want: []Scope{
+				ScopeRegistryCatalog(),
+				ScopeRepository("bar", ActionDelete, ActionPull, ActionPush),
+				ScopeRepository("foo", ActionPull, ActionPush),
 			},
 		},
 		{
-			name: "multiple unknown or invalid scopes",
-			scopes: []string{
-				"repository:foo:pull",
-				"unknown",
-				"invalid:scope",
-				"no:actions:",
-				"repository:foo:push",
+			// Sorting on the (type, name) tuple rather than on the serialized
+			// string: ':' is 0x3a and '-' is 0x2d, so "foo-bar" sorts before
+			// "foo" as a string and after it as a name.
+			name: "sorted on the resource tuple, not on the wire form",
+			scopes: []Scope{
+				ScopeRepository("foo-bar", ActionPull),
+				ScopeRepository("foo", ActionPull),
 			},
-			want: []string{
-				"invalid:scope",
-				"repository:foo:pull,push",
-				"unknown",
+			want: []Scope{
+				ScopeRepository("foo", ActionPull),
+				ScopeRepository("foo-bar", ActionPull),
+			},
+		},
+		{
+			name: "sorted on the resource type first",
+			scopes: []Scope{
+				ScopeRepository("aaa", ActionPull),
+				ScopeRegistryCatalog(),
+			},
+			want: []Scope{
+				ScopeRegistryCatalog(),
+				ScopeRepository("aaa", ActionPull),
 			},
 		},
 	}
@@ -448,6 +791,153 @@ func TestCleanScopes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := CleanScopes(tt.scopes); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("CleanScopes() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCleanScopes_deduplicatesEveryScope is the bug reported in #1451: the
+// string implementation let a scope it could not parse through twice, so two
+// semantically identical contexts produced different bearer cache keys. A typed
+// scope has no unparseable bucket to fall into, so de-duplication is uniform.
+func TestCleanScopes_deduplicatesEveryScope(t *testing.T) {
+	tests := []struct {
+		name   string
+		scopes []Scope
+		want   []Scope
+	}{
+		{
+			name: "one scope",
+			scopes: []Scope{
+				{ResourceType: "repository", ResourceName: "foo", Actions: []string{ActionPull}},
+			},
+			want: []Scope{ScopeRepository("foo", ActionPull)},
+		},
+		{
+			name: "the same scope twice",
+			scopes: []Scope{
+				{ResourceType: "repository", ResourceName: "foo", Actions: []string{ActionPull}},
+				{ResourceType: "repository", ResourceName: "foo", Actions: []string{ActionPull}},
+			},
+			want: []Scope{ScopeRepository("foo", ActionPull)},
+		},
+		{
+			name: "the same scope twice alongside another",
+			scopes: []Scope{
+				{ResourceType: "repository", ResourceName: "foo", Actions: []string{ActionPull}},
+				{ResourceType: "repository", ResourceName: "foo", Actions: []string{ActionPull}},
+				ScopeRepository("bar", ActionPull),
+			},
+			want: []Scope{
+				ScopeRepository("bar", ActionPull),
+				ScopeRepository("foo", ActionPull),
+			},
+		},
+		{
+			name: "the registry catalog scope twice",
+			scopes: []Scope{
+				ScopeRegistryCatalog(),
+				ScopeRegistryCatalog(),
+			},
+			want: []Scope{ScopeRegistryCatalog()},
+		},
+		{
+			// in=["badscope" "badscope"] -> out=["badscope" "badscope"] before
+			name: "an opaque scope twice",
+			scopes: []Scope{
+				{ResourceType: "badscope"},
+				{ResourceType: "badscope"},
+			},
+			want: []Scope{{ResourceType: "badscope"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CleanScopes(tt.scopes)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("CleanScopes() = %v, want %v", got, tt.want)
+			}
+			// the same scopes in the reverse order yield the same cache key
+			reversed := make([]Scope, len(tt.scopes))
+			for i, scope := range tt.scopes {
+				reversed[len(tt.scopes)-1-i] = scope
+			}
+			if want, got := joinScopes(got), joinScopes(CleanScopes(reversed)); got != want {
+				t.Errorf("cache key of the reversed scopes = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestCleanScopes_noAliasing covers decision 2 of #1451: CleanScopes must never
+// retain or reorder a caller-supplied Actions slice.
+func TestCleanScopes_noAliasing(t *testing.T) {
+	actions := []string{ActionPush, ActionPull}
+	scopes := []Scope{{ResourceType: "repository", ResourceName: "foo", Actions: actions}}
+
+	cleaned := CleanScopes(scopes)
+	if want := []string{ActionPush, ActionPull}; !reflect.DeepEqual(actions, want) {
+		t.Errorf("CleanScopes() reordered the caller's actions to %v, want %v", actions, want)
+	}
+	cleaned[0].Actions[0] = "corrupted"
+	if want := []string{ActionPush, ActionPull}; !reflect.DeepEqual(actions, want) {
+		t.Errorf("CleanScopes() aliased the caller's actions, now %v, want %v", actions, want)
+	}
+}
+
+func Test_scopeHintApplies(t *testing.T) {
+	tests := []struct {
+		hintPath string
+		reqPath  string
+		want     bool
+	}{
+		{hintPath: "", reqPath: "", want: true},
+		{hintPath: "", reqPath: "ns/app", want: true},
+		{hintPath: "ns", reqPath: "ns", want: true},
+		{hintPath: "ns", reqPath: "ns/app", want: true},
+		{hintPath: "ns", reqPath: "ns/sub/app", want: true},
+		{hintPath: "ns", reqPath: "nsother", want: false},
+		{hintPath: "ns", reqPath: "nsother/app", want: false},
+		{hintPath: "ns/app", reqPath: "ns", want: false},
+		{hintPath: "ns/app", reqPath: "", want: false},
+		{hintPath: "ns/app", reqPath: "ns/application", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.hintPath+"|"+tt.reqPath, func(t *testing.T) {
+			if got := scopeHintApplies(tt.hintPath, tt.reqPath); got != tt.want {
+				t.Errorf("scopeHintApplies(%q, %q) = %v, want %v", tt.hintPath, tt.reqPath, got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_joinScopes(t *testing.T) {
+	tests := []struct {
+		name   string
+		scopes []Scope
+		want   string
+	}{
+		{
+			name: "nil scopes",
+		},
+		{
+			name:   "a scope with no wire form is omitted",
+			scopes: []Scope{{}, ScopeRepository("foo", ActionPull), {ResourceName: "bar", Actions: []string{ActionPull}}},
+			want:   "repository:foo:pull",
+		},
+		{
+			name: "multiple scopes are space-separated",
+			scopes: []Scope{
+				ScopeRegistryCatalog(),
+				ScopeRepository("foo", ActionPull, ActionPush),
+			},
+			want: "registry:catalog:* repository:foo:pull,push",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := joinScopes(tt.scopes); got != tt.want {
+				t.Errorf("joinScopes() = %q, want %q", got, tt.want)
 			}
 		})
 	}
