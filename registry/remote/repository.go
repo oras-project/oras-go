@@ -244,14 +244,6 @@ func NewRepository(reference string) (*Repository, error) {
 	}, nil
 }
 
-// validate checks that the repository has a configured registry.
-func (r *Repository) validate() error {
-	if r.Registry == nil {
-		return errors.New("repository registry is nil")
-	}
-	return nil
-}
-
 // reference returns the properties reference for this repository.
 func (r *Repository) reference() properties.Reference {
 	return properties.Reference{
@@ -304,13 +296,7 @@ func (r *Repository) maxMetadataBytes() int64 {
 // blob upload. A value <= 0 disables chunking.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) maxChunkSize() int64 {
-	if r.MaxChunkSize > 0 {
-		return r.MaxChunkSize
-	}
-	if r.Registry != nil {
-		return r.Registry.MaxChunkSize
-	}
-	return 0
+	return override(max(r.MaxChunkSize, 0), r.Registry.MaxChunkSize)
 }
 
 // handleWarning returns the warning handler function.
@@ -440,10 +426,6 @@ func withPolicyChecked(ctx context.Context) context.Context {
 // manifest before uploading it, so its signing material must be discoverable
 // by the configured verifier at that point.
 func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
-	if err := r.validate(); err != nil {
-		return err
-	}
-
 	if ctx.Value(policyCheckedKey{}) != nil {
 		return nil
 	}
@@ -480,10 +462,6 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 // signature lookup and payload validation. Callers must first call checkPolicy
 // with the same reference because digest references are fully checked there.
 func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, desc ocispec.Descriptor) error {
-	if err := r.validate(); err != nil {
-		return err
-	}
-
 	if ctx.Value(policyCheckedKey{}) != nil {
 		return nil
 	}

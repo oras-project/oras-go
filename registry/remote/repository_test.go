@@ -1431,66 +1431,6 @@ func TestRepository_SkipReferrersGC(t *testing.T) {
 	}
 }
 
-func TestRepository_checkPolicy_NilRegistry(t *testing.T) {
-	tests := []struct {
-		name string
-		ctx  context.Context
-	}{
-		{
-			name: "normal context",
-			ctx:  context.Background(),
-		},
-		{
-			name: "policy already checked",
-			ctx:  withPolicyChecked(context.Background()),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := &Repository{}
-
-			err := repo.checkPolicy(tt.ctx, "example.com/test:latest")
-			if err == nil {
-				t.Fatal("checkPolicy() expected error for nil Registry")
-			}
-		})
-	}
-}
-
-func TestRepository_checkPolicyResolved_NilRegistry(t *testing.T) {
-	tests := []struct {
-		name string
-		ctx  context.Context
-	}{
-		{
-			name: "normal context",
-			ctx:  context.Background(),
-		},
-		{
-			name: "policy already checked",
-			ctx:  withPolicyChecked(context.Background()),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := &Repository{}
-
-			err := repo.checkPolicyResolved(
-				tt.ctx,
-				"example.com/test:latest",
-				ocispec.Descriptor{
-					Digest: digest.FromString("test manifest"),
-				},
-			)
-			if err == nil {
-				t.Fatal("checkPolicyResolved() expected error for nil Registry")
-			}
-		})
-	}
-}
-
 func TestRepository_Tags(t *testing.T) {
 	tagSet := [][]string{
 		{"the", "quick", "brown", "fox"},

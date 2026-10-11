@@ -560,14 +560,58 @@ func TestRegistry_Repository_Push_ChunkedDefault(t *testing.T) {
 	}
 }
 
-func TestRepository_MaxChunkSizeWithoutRegistry(t *testing.T) {
-	repo := &Repository{}
-	if got := repo.maxChunkSize(); got != 0 {
-		t.Errorf("maxChunkSize() = %d, want 0", got)
+func TestRepository_MaxChunkSize(t *testing.T) {
+	tests := []struct {
+		name   string
+		child  int64
+		parent int64
+		want   int64
+	}{
+		{
+			name:   "child overrides parent",
+			child:  4,
+			parent: 8,
+			want:   4,
+		},
+		{
+			name:   "falls back to parent",
+			child:  0,
+			parent: 8,
+			want:   8,
+		},
+		{
+			name:   "zero when both are zero",
+			child:  0,
+			parent: 0,
+			want:   0,
+		},
+		{
+			name:   "negative child falls back to parent",
+			child:  -1,
+			parent: 8,
+			want:   8,
+		},
+		{
+			name:   "negative child and zero parent",
+			child:  -1,
+			parent: 0,
+			want:   0,
+		},
 	}
-	repo.MaxChunkSize = 4
-	if got := repo.maxChunkSize(); got != 4 {
-		t.Errorf("maxChunkSize() = %d, want 4", got)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &Repository{
+				MaxChunkSize: tt.child,
+				Registry: &Registry{
+					MaxChunkSize: tt.parent,
+				},
+			}
+
+			if got := repo.maxChunkSize(); got != tt.want {
+				t.Errorf("maxChunkSize() = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }
 
