@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/ioutil"
 )
 
@@ -117,6 +118,16 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, modTime
 // extractTarGzip decompresses the gzip
 // and extracts tar file to a directory specified by the `dir` parameter.
 func extractTarGzip(dirPath, dirName, gzPath, checksum string, buf []byte, preservePermissions bool) (err error) {
+	// A non-empty checksum that cannot be parsed must not silently disable
+	// the verification of the tar stream.
+	var expectedDigest digest.Digest
+	if checksum != "" {
+		expectedDigest, err = parseTarDigest(checksum)
+		if err != nil {
+			return err
+		}
+	}
+
 	fp, err := os.Open(gzPath)
 	if err != nil {
 		return err
@@ -142,10 +153,8 @@ func extractTarGzip(dirPath, dirName, gzPath, checksum string, buf []byte, prese
 	var r io.Reader = gzr
 	var verifier digest.Verifier
 	if checksum != "" {
-		if digest, err := digest.Parse(checksum); err == nil {
-			verifier = digest.Verifier()
-			r = io.TeeReader(r, verifier)
-		}
+		verifier = expectedDigest.Verifier()
+		r = io.TeeReader(r, verifier)
 	}
 	if err := extractTarDirectory(dirPath, dirName, r, buf, preservePermissions); err != nil {
 		return err
@@ -382,4 +391,20 @@ func writeFile(path string, r io.Reader, perm os.FileMode, buf []byte) (err erro
 
 	_, err = ioutil.CopyWithBuffer(file, r, buf)
 	return err
+}
+
+// parseTarDigest parses the digest of an uncompressed tar stream, as recorded
+// in the [AnnotationDigest] annotation. It returns an error wrapping
+// [errdef.ErrUnsupported] if the digest algorithm is not available, and an
+// error wrapping [errdef.ErrInvalidDigest] if the value is malformed.
+func parseTarDigest(checksum string) (digest.Digest, error) {
+	d, err := digest.Parse(checksum)
+	switch {
+	case err == nil:
+		return d, nil
+	case errors.Is(err, digest.ErrDigestUnsupported):
+		return "", fmt.Errorf("%s %q: %v: %w", AnnotationDigest, checksum, err, errdef.ErrUnsupported)
+	default:
+		return "", fmt.Errorf("%s %q: %v: %w", AnnotationDigest, checksum, err, errdef.ErrInvalidDigest)
+	}
 }
