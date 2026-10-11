@@ -109,7 +109,13 @@ func ExponentialBackoff(backoff time.Duration, factor, jitter float64) Backoff {
 
 		// do exponential backoff with jitter
 		temp := float64(backoff) * math.Pow(factor, float64(attempt))
-		return time.Duration(temp*(1-jitter)) + time.Duration(rand.Int64N(int64(2*jitter*temp)))
+		interval := time.Duration(temp * (1 - jitter))
+		// skip the random term when the jitter range is zero,
+		// as rand.Int64N panics on a zero range
+		if jitterRange := int64(2 * jitter * temp); jitterRange > 0 {
+			interval += time.Duration(rand.Int64N(jitterRange))
+		}
+		return interval
 	}
 }
 

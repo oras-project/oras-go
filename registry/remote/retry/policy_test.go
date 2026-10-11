@@ -62,3 +62,30 @@ func Test_ExponentialBackoff(t *testing.T) {
 		})
 	}
 }
+
+func Test_ExponentialBackoff_NoJitter(t *testing.T) {
+	// a zero jitter should not panic and should return the exact
+	// exponential backoff
+	backoff := ExponentialBackoff(250*time.Millisecond, 2, 0)
+	testCases := []struct {
+		name            string
+		attempt         int
+		expectedBackoff time.Duration
+	}{
+		{
+			name:    "attempt 0 should have a backoff of 0,25s",
+			attempt: 0, expectedBackoff: 250 * time.Millisecond,
+		},
+		{
+			name:    "attempt 4 should have a backoff of 4s",
+			attempt: 4, expectedBackoff: 4 * time.Second,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if b := backoff(tc.attempt, nil); b != tc.expectedBackoff {
+				t.Errorf("expected backoff to be %s, got %s", tc.expectedBackoff, b)
+			}
+		})
+	}
+}
