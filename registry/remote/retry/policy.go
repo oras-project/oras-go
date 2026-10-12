@@ -29,13 +29,15 @@ import (
 const headerRetryAfter = "Retry-After"
 
 // DefaultPolicy is a policy with fine-tuned retry parameters.
-// It uses an exponential backoff with jitter.
+// It uses an exponential backoff with jitter, and honors the Retry-After
+// response header of a retryable response up to MaxRetryAfter.
 var DefaultPolicy Policy = &GenericPolicy{
-	Retryable: DefaultPredicate,
-	Backoff:   DefaultBackoff,
-	MinWait:   200 * time.Millisecond,
-	MaxWait:   3 * time.Second,
-	MaxRetry:  5,
+	Retryable:     DefaultPredicate,
+	Backoff:       DefaultBackoff,
+	MinWait:       200 * time.Millisecond,
+	MaxWait:       10 * time.Second,
+	MaxRetryAfter: 60 * time.Second,
+	MaxRetry:      5,
 }
 
 // DefaultPredicate is a predicate that retries on 5xx errors, 429 Too Many
@@ -109,7 +111,13 @@ func ExponentialBackoff(backoff time.Duration, factor, jitter float64) Backoff {
 
 		// do exponential backoff with jitter
 		temp := float64(backoff) * math.Pow(factor, float64(attempt))
-		return time.Duration(temp*(1-jitter)) + time.Duration(rand.Int64N(int64(2*jitter*temp)))
+		interval := time.Duration(temp * (1 - jitter))
+		// skip the random term when the jitter range is zero,
+		// as rand.Int64N panics on a zero range
+		if jitterRange := int64(2 * jitter * temp); jitterRange > 0 {
+			interval += time.Duration(rand.Int64N(jitterRange))
+		}
+		return interval
 	}
 }
 
@@ -128,12 +136,23 @@ type GenericPolicy struct {
 	// MaxWait is the maximum duration to wait before retrying.
 	MaxWait time.Duration
 
+	// MaxRetryAfter is the maximum duration to honor from a Retry-After
+	// response header. If zero, MaxWait is used.
+	MaxRetryAfter time.Duration
+
 	// MaxRetry is the maximum number of retries.
 	MaxRetry int
 }
 
 // Retry returns the duration to wait before retrying the request.
 // It returns -1 if the request should not be retried.
+//
+// When the response is retryable and carries a valid Retry-After header
+// (delta-seconds or HTTP-date), Retry uses that value plus up to 10%
+// additive jitter instead of the Backoff result, capped at MaxRetryAfter
+// (or MaxWait if MaxRetryAfter is zero) and floored at MinWait; the cap
+// takes precedence if MinWait is larger. Otherwise
+// it uses the Backoff result, clamped to [MinWait, MaxWait].
 func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time.Duration, error) {
 	if attempt >= p.MaxRetry {
 		return -1, nil
@@ -143,6 +162,42 @@ func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time
 	} else if !ok {
 		return -1, nil
 	}
+	if retryAfter, ok := parseRetryAfter(resp); ok {
+		maxCap := p.MaxRetryAfter
+		if maxCap <= 0 {
+			maxCap = p.MaxWait
+		}
+		// clamp before adding jitter so that a huge Retry-After cannot
+		// overflow time.Duration and wrap around to a short wait
+		if retryAfter > maxCap {
+			retryAfter = maxCap
+		}
+		// the server asked to back off, so honor its figure with additive
+		// jitter instead of the computed backoff
+		wait := retryAfter
+		if d := retryAfter / 10; d > 0 {
+			var h maphash.Hash
+			h.SetSeed(maphash.MakeSeed())
+			rng := rand.New(rand.NewPCG(0, h.Sum64()))
+			// compare the jitter with the headroom left under the cap so
+			// that the sum cannot overflow when maxCap is near the
+			// maximum time.Duration
+			if jitter := time.Duration(rng.Int64N(int64(d))); jitter > maxCap-wait {
+				wait = maxCap
+			} else {
+				wait += jitter
+			}
+		}
+		// floor before capping so that, as with the backoff path, the cap
+		// wins when MinWait is configured above it
+		if wait < p.MinWait {
+			wait = p.MinWait
+		}
+		if wait > maxCap {
+			wait = maxCap
+		}
+		return wait, nil
+	}
 	backoff := p.Backoff(attempt, resp)
 	if backoff < p.MinWait {
 		backoff = p.MinWait
@@ -151,4 +206,37 @@ func (p *GenericPolicy) Retry(attempt int, resp *http.Response, err error) (time
 		backoff = p.MaxWait
 	}
 	return backoff, nil
+}
+
+// parseRetryAfter parses the Retry-After header of resp, handling both the
+// delta-seconds and the IMF-fixdate forms. It reports false when the header
+// is missing, unparseable, zero, or in the past, in which case the caller
+// should fall back to its own backoff.
+func parseRetryAfter(resp *http.Response) (time.Duration, bool) {
+	if resp == nil {
+		return 0, false
+	}
+	v := resp.Header.Get(headerRetryAfter)
+	if v == "" {
+		return 0, false
+	}
+	if secs, err := strconv.ParseInt(v, 10, 64); err == nil {
+		if secs <= 0 {
+			return 0, false
+		}
+		// saturate instead of overflowing time.Duration; the caller caps
+		// the result at MaxRetryAfter anyway
+		if secs > int64(math.MaxInt64/time.Second) {
+			return time.Duration(math.MaxInt64), true
+		}
+		return time.Duration(secs) * time.Second, true
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		d := time.Until(t)
+		if d <= 0 {
+			return 0, false
+		}
+		return d, true
+	}
+	return 0, false
 }

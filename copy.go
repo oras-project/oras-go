@@ -43,6 +43,8 @@ const defaultConcurrency int = 3 // This value is consistent with dockerd and co
 var SkipNode = errors.New("skip node")
 
 // DefaultCopyOptions provides the default CopyOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultCopyOptions CopyOptions = CopyOptions{
 	CopyGraphOptions: DefaultCopyGraphOptions,
 }
@@ -92,6 +94,8 @@ func (opts *CopyOptions) WithTargetPlatform(p *ocispec.Platform) {
 const defaultCopyMaxMetadataBytes int64 = 4 * 1024 * 1024 // 4 MiB
 
 // DefaultCopyGraphOptions provides the default CopyGraphOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultCopyGraphOptions CopyGraphOptions
 
 // CopyGraphOptions contains parameters for [oras.CopyGraph].

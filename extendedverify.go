@@ -28,6 +28,8 @@ import (
 )
 
 // DefaultExtendedVerifyOptions provides the default ExtendedVerifyOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultExtendedVerifyOptions ExtendedVerifyOptions = ExtendedVerifyOptions{
 	ExtendedVerifyGraphOptions: DefaultExtendedVerifyGraphOptions,
 }
@@ -38,6 +40,8 @@ type ExtendedVerifyOptions struct {
 }
 
 // DefaultExtendedVerifyGraphOptions provides the default ExtendedVerifyGraphOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultExtendedVerifyGraphOptions ExtendedVerifyGraphOptions = ExtendedVerifyGraphOptions{
 	VerifyGraphOptions: DefaultVerifyGraphOptions,
 }

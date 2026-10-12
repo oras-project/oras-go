@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func Test_Client(t *testing.T) {
@@ -93,5 +94,54 @@ func Test_Client(t *testing.T) {
 				t.Errorf("expected attempts %d, got %d", tc.attempts, count)
 			}
 		})
+	}
+}
+
+func Test_Client_RetryAfterHonored(t *testing.T) {
+	count := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count == 1 {
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "error", http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	// MaxWait is well below the asked Retry-After of 1s, which must be
+	// honored up to MaxRetryAfter
+	policy := &GenericPolicy{
+		Retryable:     DefaultPredicate,
+		Backoff:       DefaultBackoff,
+		MinWait:       200 * time.Millisecond,
+		MaxWait:       250 * time.Millisecond,
+		MaxRetryAfter: 1200 * time.Millisecond,
+		MaxRetry:      5,
+	}
+	client := &http.Client{
+		Transport: &Transport{
+			Policy: func() Policy { return policy },
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL, bytes.NewReader([]byte("test")))
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("failed to do test request: %v", err)
+	}
+	resp.Body.Close()
+	if count != 2 {
+		t.Errorf("expected attempts 2, got %d", count)
+	}
+	// the retry must wait for the Retry-After of 1s, not for MaxWait
+	if elapsed := time.Since(start); elapsed < time.Second {
+		t.Errorf("expected the retry to honor the Retry-After of 1s, took %s", elapsed)
 	}
 }

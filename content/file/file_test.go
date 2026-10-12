@@ -827,9 +827,9 @@ func TestStore_Push_NoName_ExceedLimit(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s, err := NewWithFallbackLimit(tempDir, 1)
+	s, err := NewWithOptions(tempDir, StoreOptions{FallbackLimit: 1})
 	if err != nil {
-		t.Fatal("Store.NewWithFallbackLimit() error =", err)
+		t.Fatal("NewWithOptions() error =", err)
 	}
 	defer s.Close()
 	ctx := context.Background()
@@ -850,9 +850,9 @@ func TestStore_Push_NoName_SizeNotMatch(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	s, err := NewWithFallbackLimit(tempDir, 1)
+	s, err := NewWithOptions(tempDir, StoreOptions{FallbackLimit: 1})
 	if err != nil {
-		t.Fatal("Store.NewWithFallbackLimit() error =", err)
+		t.Fatal("NewWithOptions() error =", err)
 	}
 	defer s.Close()
 	ctx := context.Background()
@@ -1796,9 +1796,9 @@ func TestStore_File_Push_RestoreDuplicates_DuplicateName(t *testing.T) {
 	fallbackMock := &storageMock{
 		Storage: cas.NewMemory(),
 	}
-	s, err := NewWithFallbackStorage(tempDir, fallbackMock)
+	s, err := NewWithOptions(tempDir, StoreOptions{FallbackStorage: fallbackMock})
 	if err != nil {
-		t.Fatal("NewWithFallbackStorage() error =", err)
+		t.Fatal("NewWithOptions() error =", err)
 	}
 	defer s.Close()
 	ctx := context.Background()
@@ -1867,9 +1867,9 @@ func TestStore_File_Push_RestoreDuplicates_Failure(t *testing.T) {
 	fallbackMock := &storageMock{
 		Storage: cas.NewMemory(),
 	}
-	s, err := NewWithFallbackStorage(tempDir, fallbackMock)
+	s, err := NewWithOptions(tempDir, StoreOptions{FallbackStorage: fallbackMock})
 	if err != nil {
-		t.Fatal("NewWithFallbackStorage() error =", err)
+		t.Fatal("NewWithOptions() error =", err)
 	}
 	defer s.Close()
 	ctx := context.Background()

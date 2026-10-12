@@ -29,6 +29,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -408,6 +409,71 @@ func TestRepository_Mount(t *testing.T) {
 	}
 	if gotMount != 1 {
 		t.Errorf("did not get expected mount request")
+	}
+}
+
+// scopeRecordingClient records the scope hints that apply to each request it
+// sends, as the auth client would resolve them.
+type scopeRecordingClient struct {
+	client Client
+	scopes map[string][]auth.Scope
+}
+
+func (c *scopeRecordingClient) Do(req *http.Request) (*http.Response, error) {
+	resource := properties.Resource{
+		Registry: req.URL.Host,
+		Path:     strings.SplitN(strings.TrimPrefix(req.URL.Path, "/v2/"), "/blobs/", 2)[0],
+	}
+	if c.scopes == nil {
+		c.scopes = make(map[string][]auth.Scope)
+	}
+	c.scopes[resource.Path] = auth.GetScopesForResource(req.Context(), resource)
+	return c.client.Do(req)
+}
+
+// TestRepository_Mount_ScopeHints checks that a cross-repository mount still
+// asks for pull on the source repository. The hints are keyed by resource now,
+// so the source scope has to be registered against the target repository, which
+// is the repository the mount request is made to.
+func TestRepository_Mount_ScopeHints(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/test2/blobs/uploads/" {
+			t.Errorf("unexpected URL for mount request %q", r.URL)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set(headerDockerContentDigest, blobDesc.Digest.String())
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test2")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	recorder := &scopeRecordingClient{client: repo.client()}
+	repo.Registry.Client = recorder
+
+	if err := repo.Mount(context.Background(), blobDesc, "test", nil); err != nil {
+		t.Fatalf("Repository.Mount() error = %v", err)
+	}
+
+	want := []auth.Scope{
+		auth.ScopeRepository("test", auth.ActionPull),
+		auth.ScopeRepository("test2", auth.ActionPull, auth.ActionPush),
+	}
+	if got := recorder.scopes["test2"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("scope hints on the mount request = %v, want %v", got, want)
 	}
 }
 
@@ -1280,6 +1346,153 @@ func TestRepository_FetchReference(t *testing.T) {
 	}
 	if got := buf.Bytes(); !bytes.Equal(got, index) {
 		t.Errorf("Repository.FetchReference() = %v, want %v", got, index)
+	}
+}
+
+func TestRepository_ListPaginationSettings(t *testing.T) {
+	registry := &Registry{
+		TagListPageSize:      100,
+		ReferrerListPageSize: 200,
+		TagListMaxPages:      10,
+		ReferrerListMaxPages: 20,
+	}
+
+	tests := []struct {
+		name string
+		repo *Repository
+		want int
+		got  func(*Repository) int
+	}{
+		{
+			name: "tag list page size uses repository override",
+			repo: &Repository{Registry: registry, TagListPageSize: 5},
+			want: 5,
+			got:  (*Repository).tagListPageSize,
+		},
+		{
+			name: "tag list page size inherits registry default",
+			repo: &Repository{Registry: registry},
+			want: 100,
+			got:  (*Repository).tagListPageSize,
+		},
+		{
+			name: "referrer list page size uses repository override",
+			repo: &Repository{Registry: registry, ReferrerListPageSize: 6},
+			want: 6,
+			got:  (*Repository).referrerListPageSize,
+		},
+		{
+			name: "referrer list page size inherits registry default",
+			repo: &Repository{Registry: registry},
+			want: 200,
+			got:  (*Repository).referrerListPageSize,
+		},
+		{
+			name: "tag list max pages uses repository override",
+			repo: &Repository{Registry: registry, TagListMaxPages: 3},
+			want: 3,
+			got:  (*Repository).tagListMaxPages,
+		},
+		{
+			name: "tag list max pages inherits registry default",
+			repo: &Repository{Registry: registry},
+			want: 10,
+			got:  (*Repository).tagListMaxPages,
+		},
+		{
+			name: "referrer list max pages uses repository override",
+			repo: &Repository{Registry: registry, ReferrerListMaxPages: 4},
+			want: 4,
+			got:  (*Repository).referrerListMaxPages,
+		},
+		{
+			name: "referrer list max pages inherits registry default",
+			repo: &Repository{Registry: registry},
+			want: 20,
+			got:  (*Repository).referrerListMaxPages,
+		},
+		{
+			name: "negative tag list page size inherits registry default",
+			repo: &Repository{Registry: registry, TagListPageSize: -5},
+			want: 100,
+			got:  (*Repository).tagListPageSize,
+		},
+		{
+			name: "negative referrer list page size inherits registry default",
+			repo: &Repository{Registry: registry, ReferrerListPageSize: -6},
+			want: 200,
+			got:  (*Repository).referrerListPageSize,
+		},
+		{
+			name: "negative tag list max pages inherits registry default",
+			repo: &Repository{Registry: registry, TagListMaxPages: -3},
+			want: 10,
+			got:  (*Repository).tagListMaxPages,
+		},
+		{
+			name: "negative referrer list max pages inherits registry default",
+			repo: &Repository{Registry: registry, ReferrerListMaxPages: -4},
+			want: 20,
+			got:  (*Repository).referrerListMaxPages,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.got(tt.repo); got != tt.want {
+				t.Errorf("got %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRepository_ManifestMediaTypesInheritsRegistry(t *testing.T) {
+	registry := &Registry{
+		ManifestMediaTypes: []string{"application/vnd.oci.image.manifest.v1+json"},
+	}
+	repo := &Repository{Registry: registry}
+
+	got := repo.manifestMediaTypes()
+	if !slices.Equal(got, registry.ManifestMediaTypes) {
+		t.Errorf("manifestMediaTypes() = %v, want %v",
+			got, registry.ManifestMediaTypes)
+	}
+}
+
+func TestRepository_SkipReferrersGC(t *testing.T) {
+	tests := []struct {
+		name     string
+		repo     bool
+		registry bool
+		want     bool
+	}{
+		{
+			name:     "repository overrides registry",
+			repo:     true,
+			registry: false,
+			want:     true,
+		},
+		{
+			name:     "repository inherits registry",
+			repo:     false,
+			registry: true,
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &Repository{
+				Registry: &Registry{
+					SkipReferrersGC: tt.registry,
+				},
+				SkipReferrersGC: tt.repo,
+			}
+
+			if got := repo.skipReferrersGC(); got != tt.want {
+				t.Errorf("skipReferrersGC() = %t, want %t", got, tt.want)
+			}
+		})
 	}
 }
 

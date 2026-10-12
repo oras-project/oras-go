@@ -23,6 +23,7 @@ var (
 	ErrPathTraversalDisallowed = errors.New("path traversal disallowed")
 	ErrOverwriteDisallowed     = errors.New("overwrite disallowed")
 	ErrStoreClosed             = errors.New("store already closed")
+	ErrInvalidStoreOptions     = errors.New("invalid store options")
 )
 
 var errSkipUnnamed = errors.New("unnamed descriptor skipped")
