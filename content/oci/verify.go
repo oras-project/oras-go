@@ -215,7 +215,7 @@ func verifyBlob(ctx context.Context, fsys fs.FS, p string, dgst digest.Digest) e
 			}
 		}
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return err
