@@ -117,12 +117,12 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, modTime
 
 // extractTarGzip decompresses the gzip
 // and extracts tar file to a directory specified by the `dir` parameter.
-func extractTarGzip(dirPath, dirName, gzPath, checksum string, buf []byte, preservePermissions bool) (err error) {
+func extractTarGzip(dirPath, dirName, gzPath, checksumKey, checksum string, buf []byte, preservePermissions bool) (err error) {
 	// A non-empty checksum that cannot be parsed must not silently disable
 	// the verification of the tar stream.
 	var expectedDigest digest.Digest
 	if checksum != "" {
-		expectedDigest, err = parseTarDigest(checksum)
+		expectedDigest, err = parseTarDigest(checksumKey, checksum)
 		if err != nil {
 			return err
 		}
@@ -394,17 +394,17 @@ func writeFile(path string, r io.Reader, perm os.FileMode, buf []byte) (err erro
 }
 
 // parseTarDigest parses the digest of an uncompressed tar stream, as recorded
-// in the [AnnotationDigest] annotation. It returns an error wrapping
+// in the specified directory digest annotation. It returns an error wrapping
 // [errdef.ErrUnsupported] if the digest algorithm is not available, and an
 // error wrapping [errdef.ErrInvalidDigest] if the value is malformed.
-func parseTarDigest(checksum string) (digest.Digest, error) {
+func parseTarDigest(key, checksum string) (digest.Digest, error) {
 	d, err := digest.Parse(checksum)
 	switch {
 	case err == nil:
 		return d, nil
 	case errors.Is(err, digest.ErrDigestUnsupported):
-		return "", fmt.Errorf("%s %q: %v: %w", AnnotationDigest, checksum, err, errdef.ErrUnsupported)
+		return "", fmt.Errorf("%s %q: %v: %w", key, checksum, err, errdef.ErrUnsupported)
 	default:
-		return "", fmt.Errorf("%s %q: %v: %w", AnnotationDigest, checksum, err, errdef.ErrInvalidDigest)
+		return "", fmt.Errorf("%s %q: %v: %w", key, checksum, err, errdef.ErrInvalidDigest)
 	}
 }

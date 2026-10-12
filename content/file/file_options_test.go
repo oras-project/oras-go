@@ -209,6 +209,12 @@ func TestStore_Dir_Add_DigestAlgorithm(t *testing.T) {
 			if got := tarDigest.Algorithm(); got != alg {
 				t.Errorf("tar digest algorithm = %v, want %v", got, alg)
 			}
+			if legacy := desc.Annotations[AnnotationDigestLegacy]; legacy != desc.Annotations[AnnotationDigest] {
+				t.Errorf("%s annotation = %q, want %q", AnnotationDigestLegacy, legacy, desc.Annotations[AnnotationDigest])
+			}
+			if got := desc.Annotations[AnnotationUnpackLegacy]; got != "true" {
+				t.Errorf("%s annotation = %q, want %q", AnnotationUnpackLegacy, got, "true")
+			}
 
 			// round trip: pack with the same algorithm, copy into a default
 			// file store and check the directory is unpacked and verified.
@@ -275,7 +281,9 @@ func TestStore_Dir_Push_DigestAlgorithm_TarMismatch(t *testing.T) {
 	}
 
 	// tamper with the SHA-512 tar digest: extraction must fail.
-	desc.Annotations[AnnotationDigest] = digest.SHA512.FromString("tampered").String()
+	tampered := digest.SHA512.FromString("tampered").String()
+	desc.Annotations[AnnotationDigest] = tampered
+	desc.Annotations[AnnotationDigestLegacy] = tampered
 	dst, err := New(t.TempDir())
 	if err != nil {
 		t.Fatal("New() error =", err)
