@@ -329,6 +329,62 @@ For an unlimited fallback, set `FallbackStorage: memory.New()`.
 `StoreOptions.DigestAlgorithm` selects the algorithm for the digests that
 `Store.Add` computes (SHA-256 by default, SHA-384 or SHA-512 otherwise).
 
+### File store directory annotation keys
+
+The file store marks a packed directory with two annotations: a digest of the
+uncompressed tar and a flag that triggers unpacking. In v3 these keys move from
+the `io.deis.oras.content` namespace, which the project does not control, to
+`land.oras.content` under a domain owned by the project. The `io.deis` values
+remain available as deprecated constants:
+
+| v2 | v3 |
+| --- | --- |
+| `file.AnnotationDigest` = `io.deis.oras.content.digest` | `file.AnnotationDigest` = `land.oras.content.digest` |
+| `file.AnnotationUnpack` = `io.deis.oras.content.unpack` | `file.AnnotationUnpack` = `land.oras.content.unpack` |
+| — | `file.AnnotationDigestLegacy` = `io.deis.oras.content.digest` (deprecated) |
+| — | `file.AnnotationUnpackLegacy` = `io.deis.oras.content.unpack` (deprecated) |
+
+The existing constant names and types are unchanged, so code that references
+them still compiles. However, their values have changed. Code that hardcodes
+the `io.deis` strings, or that compares a descriptor's annotations against
+those strings, must be updated.
+
+The dual-key format maintains compatibility with older clients while allowing v3 to read legacy artifacts:
+
+- `Store.Add` writes **both** key pairs for a directory. Artifacts created by
+  v3 can still be unpacked by oras-go v2 and the oras CLI, which only read the
+  `io.deis` keys. Without this, an older client would pull a v3 directory
+  artifact and silently save it as a single `.tar.gz`.
+- On unpack, the `land.oras` keys take precedence when their values are
+  non-empty. For both the unpack flag and the digest, an empty value falls
+  back to the other key. Artifacts pushed by earlier releases continue to
+  work.
+- If both unpack keys are present with non-empty values that disagree, such as
+  `"true"` and `"false"`, or `"TRUE"` and `"true"`, the push fails rather than
+  letting v2 and v3 unpack the same artifact differently.
+- If both digest keys are set to different values and the unpack annotation is
+  `true`, the push fails rather than picking one. This validation applies
+  whether or not `Store.SkipUnpack` is set.
+- `Store.SkipUnpack` still overrides the unpack annotation, for both the new and
+  the deprecated keys. It controls extraction, not digest-annotation conflict
+  validation.
+
+Two consequences are worth planning for:
+
+- **Manifest digests change for directory layers.** The extra annotations are
+  part of the manifest that references the layer. The layer digest itself, which
+  covers the compressed blob, does not change. Code that pins or compares
+  manifest digests for artifacts containing a directory, including users of
+  `Store.TarReproducible` and `Store.TarModTime`, will see different values
+  across v2 and v3.
+- **Descriptors for a directory now carry four annotations** instead of two
+  (five with `org.opencontainers.image.title`). Consumers that assume a fixed
+  annotation set should be checked.
+
+The legacy annotation keys will continue to be read. Removing the legacy keys,
+and eventually dropping the deprecated constants, is deferred to a later major
+release.
+
 ### Removed v3 development APIs
 
 Applications that tested against pre-release v3 snapshots may also need these
@@ -352,6 +408,10 @@ changes:
 
 ## Observable behavior changes
 
+- `content/file` writes the directory annotation keys under both `land.oras` and
+  `io.deis`, and reads the former in preference to the latter. Manifests that
+  reference a directory layer therefore have a different digest in v3 than in
+  v2. See [File store directory annotation keys](#file-store-directory-annotation-keys).
 - `remote.NewRepository` returns an error wrapping `errdef.ErrInvalidReference`
   when the reference contains a tag or digest (e.g.
   `localhost:5000/example:v1`). In v2 such a reference was accepted and the

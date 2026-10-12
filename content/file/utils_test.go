@@ -244,7 +244,7 @@ func Test_ensureLinkPath(t *testing.T) {
 
 func Test_extractTarGzip_Error(t *testing.T) {
 	t.Run("Non-existing file", func(t *testing.T) {
-		err := extractTarGzip("", "", "non-existing-file", "", nil, false)
+		err := extractTarGzip("", "", "non-existing-file", "", "", nil, false)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -312,7 +312,7 @@ func Test_extractTarGzip_Checksum(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dirPath := filepath.Join(t.TempDir(), "base")
 			buf := make([]byte, 32*1024)
-			err := extractTarGzip(dirPath, "base", gzPath, tt.checksum, buf, false)
+			err := extractTarGzip(dirPath, "base", gzPath, AnnotationDigest, tt.checksum, buf, false)
 			switch {
 			case tt.wantErr != nil:
 				if !errors.Is(err, tt.wantErr) {
@@ -332,6 +332,17 @@ func Test_extractTarGzip_Checksum(t *testing.T) {
 				t.Fatalf("extracted file exists = %v, want %v (stat error: %v)", gotFile, tt.wantFile, statErr)
 			}
 		})
+	}
+}
+
+func Test_parseTarDigest_UsesAnnotationKey(t *testing.T) {
+	_, err := parseTarDigest(AnnotationDigestLegacy, "not-a-digest")
+	if err == nil {
+		t.Fatal("parseTarDigest() error = nil, want invalid digest error")
+	}
+	if !strings.Contains(err.Error(), AnnotationDigestLegacy) {
+		t.Errorf("parseTarDigest() error = %q, want annotation key %q",
+			err, AnnotationDigestLegacy)
 	}
 }
 
