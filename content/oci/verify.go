@@ -163,8 +163,8 @@ func Verify(ctx context.Context, fsys fs.FS, opts VerifyOptions) (*VerifyReport,
 				acc.addUnverifiable(entryPath, fmt.Errorf("digest algorithm %q: %w", alg, errdef.ErrUnsupported))
 				continue
 			}
-			if digestEntry.IsDir() {
-				acc.addUnverifiable(entryPath, fmt.Errorf("expected a blob file, found a directory"))
+			if !digestEntry.Type().IsRegular() {
+				acc.addUnverifiable(entryPath, fmt.Errorf("expected a regular blob file, found %s", digestEntry.Type()))
 				continue
 			}
 			blobDigest := digest.NewDigestFromEncoded(alg, digestEntry.Name())
