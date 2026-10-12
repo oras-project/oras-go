@@ -37,6 +37,14 @@ ORAS Go is a Go SDK for OCI artifact management and serves as an OCI registry cl
 - **Content stores:** Content-addressable storage pattern
 - **Graph operations:** Handle artifact dependencies
 
+## Configuration
+
+Existing APIs mix several configuration styles. New code follows these rules:
+
+- **Library functions** take an options struct (`XOptions`) whose zero value means "use the defaults".
+- **Client construction** goes through `remote.ClientBuilder`.
+- **New APIs** don't add functional options. Existing ones, such as `policy.NewEvaluator`, stay as they are.
+
 ## Repository Structure
 
 **Key directories** (not exhaustive):

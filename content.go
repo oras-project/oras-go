@@ -53,6 +53,8 @@ const (
 )
 
 // DefaultTagNOptions provides the default TagNOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultTagNOptions TagNOptions
 
 // parseReferenceForScope parses a reference for the authentication API. The
@@ -193,6 +195,8 @@ func Tag(ctx context.Context, target Target, src, dst string) (ocispec.Descripto
 }
 
 // DefaultResolveOptions provides the default ResolveOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultResolveOptions ResolveOptions
 
 // ResolveOptions contains parameters for [oras.Resolve].
@@ -264,6 +268,8 @@ func resolve(ctx context.Context, target ReadOnlyTarget, proxy *cas.Proxy, refer
 }
 
 // DefaultFetchOptions provides the default FetchOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultFetchOptions FetchOptions
 
 // FetchOptions contains parameters for [oras.Fetch].
@@ -309,6 +315,8 @@ func Fetch(ctx context.Context, target ReadOnlyTarget, reference string, opts Fe
 }
 
 // DefaultFetchBytesOptions provides the default FetchBytesOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultFetchBytesOptions FetchBytesOptions
 
 // FetchBytesOptions contains parameters for [oras.FetchBytes].
@@ -372,6 +380,8 @@ func PushBytesWithAlgorithm(ctx context.Context, pusher content.Pusher, mediaTyp
 }
 
 // DefaultTagBytesNOptions provides the default TagBytesNOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultTagBytesNOptions TagBytesNOptions
 
 // TagBytesNOptions contains parameters for [oras.TagBytesN].
@@ -448,6 +458,8 @@ func tagBytesN(ctx context.Context, target Target, desc ocispec.Descriptor, cont
 // TagBytes describes the contentBytes using the given mediaType, pushes it,
 // and tag it with the given reference.
 // If mediaType is not specified, "application/octet-stream" is used.
+// The digest is computed with [digest.Canonical]; use [TagBytesN] to choose
+// another algorithm.
 func TagBytes(ctx context.Context, target Target, mediaType string, contentBytes []byte, reference string) (ocispec.Descriptor, error) {
-	return TagBytesN(ctx, target, mediaType, contentBytes, []string{reference}, DefaultTagBytesNOptions)
+	return TagBytesN(ctx, target, mediaType, contentBytes, []string{reference}, TagBytesNOptions{})
 }

@@ -643,7 +643,7 @@ func TestClientBuilder_Build_WithInvalidClientCert(t *testing.T) {
 	}
 }
 
-func TestNewRepositoryWithProperties(t *testing.T) {
+func TestClientBuilder_NewRepository(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -654,13 +654,13 @@ func TestNewRepositoryWithProperties(t *testing.T) {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
 
-	repo, err := NewRepositoryWithProperties(props, nil)
+	repo, err := NewClientBuilder().NewRepository(props)
 	if err != nil {
-		t.Fatalf("NewRepositoryWithProperties() error = %v", err)
+		t.Fatalf("ClientBuilder.NewRepository() error = %v", err)
 	}
 
 	if repo == nil {
-		t.Fatal("NewRepositoryWithProperties() returned nil repository")
+		t.Fatal("ClientBuilder.NewRepository() returned nil repository")
 	}
 	if repo.Registry.Reference.Registry != "example.com" {
 		t.Errorf("Reference.Registry = %s, want example.com", repo.Registry.Reference.Registry)
@@ -670,14 +670,14 @@ func TestNewRepositoryWithProperties(t *testing.T) {
 	}
 }
 
-func TestNewRepositoryWithProperties_NilProps(t *testing.T) {
-	_, err := NewRepositoryWithProperties(nil, nil)
+func TestClientBuilder_NewRepository_NilProps(t *testing.T) {
+	_, err := NewClientBuilder().NewRepository(nil)
 	if err == nil {
-		t.Error("NewRepositoryWithProperties(nil, nil) should return error")
+		t.Error("NewClientBuilder().NewRepository(nil) should return error")
 	}
 }
 
-func TestNewRepositoryWithProperties_PlainHTTP(t *testing.T) {
+func TestClientBuilder_NewRepository_PlainHTTP(t *testing.T) {
 	props := &properties.Registry{
 		Reference: properties.Reference{
 			Registry:   "localhost:5000",
@@ -688,9 +688,9 @@ func TestNewRepositoryWithProperties_PlainHTTP(t *testing.T) {
 		},
 	}
 
-	repo, err := NewRepositoryWithProperties(props, nil)
+	repo, err := NewClientBuilder().NewRepository(props)
 	if err != nil {
-		t.Fatalf("NewRepositoryWithProperties() error = %v", err)
+		t.Fatalf("ClientBuilder.NewRepository() error = %v", err)
 	}
 
 	if !repo.Registry.PlainHTTP {
@@ -698,7 +698,7 @@ func TestNewRepositoryWithProperties_PlainHTTP(t *testing.T) {
 	}
 }
 
-func TestNewRepositoryWithProperties_ReferrersAPISupported(t *testing.T) {
+func TestClientBuilder_NewRepository_ReferrersAPISupported(t *testing.T) {
 	props := &properties.Registry{
 		Reference: properties.Reference{
 			Registry:   "example.com",
@@ -709,9 +709,9 @@ func TestNewRepositoryWithProperties_ReferrersAPISupported(t *testing.T) {
 		},
 	}
 
-	repo, err := NewRepositoryWithProperties(props, nil)
+	repo, err := NewClientBuilder().NewRepository(props)
 	if err != nil {
-		t.Fatalf("NewRepositoryWithProperties() error = %v", err)
+		t.Fatalf("ClientBuilder.NewRepository() error = %v", err)
 	}
 
 	// Conflicting set is silently ignored; capability should remain supported.
@@ -721,7 +721,7 @@ func TestNewRepositoryWithProperties_ReferrersAPISupported(t *testing.T) {
 	}
 }
 
-func TestNewRepositoryWithProperties_ReferrersAPIUnsupported(t *testing.T) {
+func TestClientBuilder_NewRepository_ReferrersAPIUnsupported(t *testing.T) {
 	props := &properties.Registry{
 		Reference: properties.Reference{
 			Registry:   "example.com",
@@ -732,9 +732,9 @@ func TestNewRepositoryWithProperties_ReferrersAPIUnsupported(t *testing.T) {
 		},
 	}
 
-	repo, err := NewRepositoryWithProperties(props, nil)
+	repo, err := NewClientBuilder().NewRepository(props)
 	if err != nil {
-		t.Fatalf("NewRepositoryWithProperties() error = %v", err)
+		t.Fatalf("ClientBuilder.NewRepository() error = %v", err)
 	}
 
 	// Conflicting set is silently ignored; capability should remain unsupported.
@@ -744,7 +744,7 @@ func TestNewRepositoryWithProperties_ReferrersAPIUnsupported(t *testing.T) {
 	}
 }
 
-func TestNewRepositoryWithProperties_WithBuilder(t *testing.T) {
+func TestClientBuilder_NewRepository_WithBuilder(t *testing.T) {
 	builder := NewClientBuilder()
 	builder.UserAgent = "test-agent/1.0"
 
@@ -755,17 +755,17 @@ func TestNewRepositoryWithProperties_WithBuilder(t *testing.T) {
 		},
 	}
 
-	repo, err := NewRepositoryWithProperties(props, builder)
+	repo, err := builder.NewRepository(props)
 	if err != nil {
-		t.Fatalf("NewRepositoryWithProperties() error = %v", err)
+		t.Fatalf("ClientBuilder.NewRepository() error = %v", err)
 	}
 
 	if repo == nil {
-		t.Fatal("NewRepositoryWithProperties() returned nil repository")
+		t.Fatal("ClientBuilder.NewRepository() returned nil repository")
 	}
 }
 
-func TestNewRepositoryWithProperties_WithPolicyEvaluator(t *testing.T) {
+func TestClientBuilder_NewRepository_WithPolicyEvaluator(t *testing.T) {
 	pol := policy.NewInsecureAcceptAnythingPolicy()
 	evaluator, err := policy.NewEvaluator(pol)
 	if err != nil {
@@ -782,9 +782,9 @@ func TestNewRepositoryWithProperties_WithPolicyEvaluator(t *testing.T) {
 		},
 	}
 
-	repo, err := NewRepositoryWithProperties(props, builder)
+	repo, err := builder.NewRepository(props)
 	if err != nil {
-		t.Fatalf("NewRepositoryWithProperties() error = %v", err)
+		t.Fatalf("ClientBuilder.NewRepository() error = %v", err)
 	}
 
 	if repo.Registry.Policy != evaluator {
@@ -792,7 +792,7 @@ func TestNewRepositoryWithProperties_WithPolicyEvaluator(t *testing.T) {
 	}
 }
 
-func TestNewRegistryWithProperties_WithPolicyEvaluator(t *testing.T) {
+func TestClientBuilder_NewRegistry_WithPolicyEvaluator(t *testing.T) {
 	pol := policy.NewInsecureAcceptAnythingPolicy()
 	evaluator, err := policy.NewEvaluator(pol)
 	if err != nil {
@@ -808,9 +808,9 @@ func TestNewRegistryWithProperties_WithPolicyEvaluator(t *testing.T) {
 		},
 	}
 
-	reg, err := NewRegistryWithProperties(props, builder)
+	reg, err := builder.NewRegistry(props)
 	if err != nil {
-		t.Fatalf("NewRegistryWithProperties() error = %v", err)
+		t.Fatalf("ClientBuilder.NewRegistry() error = %v", err)
 	}
 
 	if reg.Policy != evaluator {
@@ -862,9 +862,9 @@ func TestClientBuilder_LoggerRouting(t *testing.T) {
 		builder.BaseTransport = baseTransport
 		builder.WarningLogger = newLogger(&warningLogs, slog.LevelWarn)
 
-		reg, err := NewRegistryWithProperties(props, builder)
+		reg, err := builder.NewRegistry(props)
 		if err != nil {
-			t.Fatalf("NewRegistryWithProperties() error = %v", err)
+			t.Fatalf("ClientBuilder.NewRegistry() error = %v", err)
 		}
 		if _, ok := clientTransport(t, reg).(*LoggingTransport); ok {
 			t.Fatal("WarningLogger should not enable HTTP debug logging")
@@ -884,9 +884,9 @@ func TestClientBuilder_LoggerRouting(t *testing.T) {
 		builder.BaseTransport = baseTransport
 		builder.Logger = newLogger(&logs, slog.LevelDebug)
 
-		reg, err := NewRegistryWithProperties(props, builder)
+		reg, err := builder.NewRegistry(props)
 		if err != nil {
-			t.Fatalf("NewRegistryWithProperties() error = %v", err)
+			t.Fatalf("ClientBuilder.NewRegistry() error = %v", err)
 		}
 		transport := clientTransport(t, reg)
 		if _, ok := transport.(*LoggingTransport); !ok {
@@ -907,9 +907,9 @@ func TestClientBuilder_LoggerRouting(t *testing.T) {
 		builder.Logger = newLogger(&debugLogs, slog.LevelDebug)
 		builder.WarningLogger = newLogger(&warningLogs, slog.LevelWarn)
 
-		reg, err := NewRegistryWithProperties(props, builder)
+		reg, err := builder.NewRegistry(props)
 		if err != nil {
-			t.Fatalf("NewRegistryWithProperties() error = %v", err)
+			t.Fatalf("ClientBuilder.NewRegistry() error = %v", err)
 		}
 		reg.HandleWarning(warning)
 		doRequest(t, clientTransport(t, reg))

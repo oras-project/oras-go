@@ -89,11 +89,10 @@ error wrapping `errdef.ErrInvalidReference`. Parse such input with
 `properties.NewReference` and keep the tag or digest for the operation that
 needs it.
 
-`remote.NewRegistryWithProperties` and
-`remote.NewRepositoryWithProperties` are the preferred constructors when
-configuration comes from `registries.conf`, Docker configuration, certificates,
-or policy files. They use `remote.ClientBuilder` to apply the same client and
-transport rules to the primary registry and its mirrors.
+`remote.ClientBuilder.NewRegistry` and `remote.ClientBuilder.NewRepository`
+are the preferred constructors when configuration comes from `registries.conf`,
+Docker configuration, certificates, or policy files. They apply the builder's
+client and transport rules to the primary registry and its mirrors.
 
 ### Authentication and credentials
 
@@ -402,6 +401,10 @@ changes:
   `properties.Attributes.ForceBasicAuth`. The option was never consumed. The
   registry's `WWW-Authenticate` challenge selects the authentication scheme;
   `token-flow` selects how a bearer token is acquired.
+- Replace `remote.NewRegistryWithProperties(props, builder)` and
+  `remote.NewRepositoryWithProperties(props, builder)` with
+  `builder.NewRegistry(props)` and `builder.NewRepository(props)`. A nil
+  builder used to mean `remote.NewClientBuilder()`; call it explicitly.
 
 ## Observable behavior changes
 
