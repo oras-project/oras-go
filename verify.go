@@ -32,6 +32,8 @@ import (
 )
 
 // DefaultVerifyOptions provides the default VerifyOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultVerifyOptions VerifyOptions = VerifyOptions{
 	VerifyGraphOptions: DefaultVerifyGraphOptions,
 }
@@ -42,6 +44,8 @@ type VerifyOptions struct {
 }
 
 // DefaultVerifyGraphOptions provides the default VerifyGraphOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultVerifyGraphOptions VerifyGraphOptions
 
 // VerifyGraphOptions contains parameters for [oras.VerifyGraph].

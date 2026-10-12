@@ -2496,3 +2496,20 @@ func TestTagBytes(t *testing.T) {
 		t.Errorf("Memory.Fetch() = %v, want %v", got, content)
 	}
 }
+
+func TestTagBytes_IgnoresDefaultTagBytesNOptions(t *testing.T) {
+	// Not parallel: this test modifies a package-level variable.
+	saved := oras.DefaultTagBytesNOptions
+	t.Cleanup(func() { oras.DefaultTagBytesNOptions = saved })
+	oras.DefaultTagBytesNOptions.DigestAlgorithm = "unknown"
+
+	s := memory.New()
+	content := []byte("hello world")
+	gotDesc, err := oras.TagBytes(context.Background(), s, "test", content, "foobar")
+	if err != nil {
+		t.Fatal("oras.TagBytes() error =", err)
+	}
+	if want := digest.FromBytes(content); gotDesc.Digest != want {
+		t.Errorf("oras.TagBytes() digest = %v, want %v", gotDesc.Digest, want)
+	}
+}
