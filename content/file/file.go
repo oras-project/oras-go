@@ -358,7 +358,7 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 
 	dirAnnots, err := resolveDirAnnotations(expected.Annotations)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: %w", name, err)
 	}
 
 	target, err := s.resolveWritePath(name)
@@ -608,10 +608,10 @@ type dirAnnotations struct {
 func resolveDirAnnotations(annotations map[string]string) (dirAnnotations, error) {
 	var resolved dirAnnotations
 
-	unpack, hasCurrent := annotations[AnnotationUnpack]
-	legacyUnpack, hasLegacy := annotations[AnnotationUnpackLegacy]
+	unpack := annotations[AnnotationUnpack]
+	legacyUnpack := annotations[AnnotationUnpackLegacy]
 
-	if hasCurrent && hasLegacy && unpack != "" &&
+	if unpack != "" && legacyUnpack != "" &&
 		(unpack == "true") != (legacyUnpack == "true") {
 		return resolved, fmt.Errorf("conflicting %s and %s annotations: %q != %q",
 			AnnotationUnpack, AnnotationUnpackLegacy, unpack, legacyUnpack)

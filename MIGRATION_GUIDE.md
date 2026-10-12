@@ -310,9 +310,12 @@ The dual-key format maintains compatibility with older clients while allowing v3
   `io.deis` keys. Without this, an older client would pull a v3 directory
   artifact and silently save it as a single `.tar.gz`.
 - On unpack, the `land.oras` keys take precedence when their values are
-  non-empty. For both the unpack flag and the digest, an empty current value
-  falls back to the legacy value. Artifacts pushed by earlier releases
-  continue to work.
+  non-empty. For both the unpack flag and the digest, an empty value falls
+  back to the other key. Artifacts pushed by earlier releases continue to
+  work.
+- If both unpack keys are present with non-empty values that disagree, such as
+  `"true"` and `"false"`, or `"TRUE"` and `"true"`, the push fails rather than
+  letting v2 and v3 unpack the same artifact differently.
 - If both digest keys are set to different values and the unpack annotation is
   `true`, the push fails rather than picking one. This validation applies
   whether or not `Store.SkipUnpack` is set.

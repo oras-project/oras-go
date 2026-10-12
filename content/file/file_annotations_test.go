@@ -374,14 +374,6 @@ func Test_resolveDirAnnotations(t *testing.T) {
 			wantDigest: other,
 		},
 		{
-			name: "current true conflicts with empty legacy unpack",
-			annotations: map[string]string{
-				AnnotationUnpack:       "true",
-				AnnotationUnpackLegacy: "",
-			},
-			wantErr: true,
-		},
-		{
 			name: "both digests conflicting",
 			annotations: map[string]string{
 				AnnotationUnpack: "true",
@@ -425,6 +417,14 @@ func Test_resolveDirAnnotations(t *testing.T) {
 			annotations: map[string]string{
 				AnnotationUnpack:       "",
 				AnnotationUnpackLegacy: "true",
+			},
+			wantUnpack: true,
+		},
+		{
+			name: "empty legacy unpack falls back to current",
+			annotations: map[string]string{
+				AnnotationUnpack:       "true",
+				AnnotationUnpackLegacy: "",
 			},
 			wantUnpack: true,
 		},

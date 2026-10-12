@@ -231,7 +231,7 @@ When a file or directory is added, the file store creates a descriptor containin
   - `"org.opencontainers.image.title"`: Indicates the original directory name.
   - `"land.oras.content.digest"` (**ORAS-specific**): Represents the digest of the tarred content before compression.
   - `"land.oras.content.unpack"` (**ORAS-specific**): A flag indicating that the blob represents a directory that needs to be decompressed and untarred.
-  - `"io.deis.oras.content.digest"` and `"io.deis.oras.content.unpack"` (**deprecated**): The same two values under the keys used by oras-go v2 and the oras CLI. They are still written so that older clients can unpack directories created by this version, and are still read when the `land.oras` keys are absent. Artifacts that set both `land.oras.content.digest` and `io.deis.oras.content.digest` to different values are rejected.
+  - `"io.deis.oras.content.digest"` and `"io.deis.oras.content.unpack"` (**deprecated**): The same two values under the keys used by oras-go v2 and the oras CLI. They are still written so that older clients can unpack directories created by this version, and are still read when the `land.oras` keys are absent. Artifacts that set both `land.oras.content.digest` and `io.deis.oras.content.digest` to different values are rejected, as are artifacts whose two unpack annotations disagree.
 
 For example, consider the following directory structure on disk:
 
