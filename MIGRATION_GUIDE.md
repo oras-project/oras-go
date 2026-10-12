@@ -268,9 +268,14 @@ The exported reference surfaces in `registry/remote` use the properties type:
 | `remote.Repository.ParseReference(string) (registry.Reference, error)` | `remote.Repository.ParseReference(string) (properties.Reference, error)` |
 
 Custom targets that expose a `ParseReference` method should update its return
-type to `properties.Reference`. ORAS temporarily recognizes the legacy method
-signature when adding authentication scope hints, so existing implementations
-retain that behavior during migration.
+type to `properties.Reference`. During the transition, ORAS also recognizes the
+legacy `ParseReference(string) (registry.Reference, error)` signature when
+adding authentication scope hints in `oras.Tag` and `oras.TagN`, so existing
+implementations keep receiving scope hints while they migrate. Support for the
+legacy signature will be removed together with the deprecated
+`registry.Reference` type in a future major release; after that, targets that
+still return `registry.Reference` silently stop receiving scope hints rather
+than failing to compile.
 
 ### Repository interfaces, predecessors, and untagging
 
@@ -405,6 +410,11 @@ changes:
   `remote.NewRepositoryWithProperties(props, builder)` with
   `builder.NewRegistry(props)` and `builder.NewRepository(props)`. A nil
   builder used to mean `remote.NewClientBuilder()`; call it explicitly.
+- `remote.ClientBuilder.CredentialStore`, introduced in `v3.0.0-rc.1` as a
+  `credentials.Store`, is now a `credentials.Getter`, since the builder only
+  reads credentials. Assigning a `credentials.Store` still compiles, and a
+  custom store now only needs a `Get` method. Code that reads the field back
+  and calls `Put` or `Delete` on it must keep its own reference to the store.
 
 ## Observable behavior changes
 
