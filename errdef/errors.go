@@ -23,6 +23,7 @@ var (
 	ErrInvalidDigest      = errors.New("invalid digest")
 	ErrInvalidReference   = errors.New("invalid reference")
 	ErrInvalidMediaType   = errors.New("invalid media type")
+	ErrInvalidScope       = errors.New("invalid scope")
 	ErrMissingReference   = errors.New("missing reference")
 	ErrNotFound           = errors.New("not found")
 	ErrSizeExceedsLimit   = errors.New("size exceeds limit")

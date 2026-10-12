@@ -191,8 +191,8 @@ func (r *Registry) Ping(ctx context.Context) error {
 //
 // Reference: https://distribution.github.io/distribution/spec/api/#catalog
 func (r *Registry) Repositories(ctx context.Context, last string, fn func(repos []string) error) error {
-	ctx = auth.AppendScopesForHost(ctx, r.Reference.Host(), auth.ScopeRegistryCatalog)
 	ref := properties.Reference{Registry: r.Reference.Registry}
+	ctx = auth.AppendScopesForResource(ctx, ref.Resource(), auth.ScopeRegistryCatalog())
 	url := buildRegistryCatalogURL(r.PlainHTTP, ref)
 	var err error
 	maxPages := r.RepositoryListMaxPages

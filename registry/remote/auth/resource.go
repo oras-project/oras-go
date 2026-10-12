@@ -48,16 +48,24 @@ func requestResource(req *http.Request) properties.Resource {
 	if host == "" && req.URL != nil {
 		host = req.URL.Host
 	}
-	host = strings.ToLower(host)
 	// Store the canonical name; Resource.Host() maps it back for dialing.
-	if host == "registry-1.docker.io" {
-		host = "docker.io"
-	}
-	resource := properties.Resource{Registry: host}
+	resource := properties.Resource{Registry: canonicalRegistry(host)}
 	if req.URL != nil {
 		resource.Path = repositoryFromPath(req.URL.Path)
 	}
 	return resource
+}
+
+// canonicalRegistry returns the canonical name of a registry host: lower-cased,
+// as registry host names are case-insensitive, with the Docker Hub endpoint
+// mapped back to the name it is addressed by. Resource.Host() maps it back for
+// dialing.
+func canonicalRegistry(host string) string {
+	host = strings.ToLower(host)
+	if host == "registry-1.docker.io" {
+		return "docker.io"
+	}
+	return host
 }
 
 // repositoryFromPath returns the repository named by a distribution API path,

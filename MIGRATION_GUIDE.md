@@ -113,16 +113,63 @@ function type explicit.
 | `credentials.ServerAddressFromHostname` | `remote.ServerAddressFromHostname` |
 | `credentials.ServerAddressFromRegistry` | `remote.ServerAddressFromRegistry` |
 | `credentials.ErrClientTypeUnsupported` | `remote.ErrClientTypeUnsupported` |
-| `auth.WithScopes(ctx, scopes...)` | `auth.WithScopesForHost(ctx, host, scopes...)` |
-| `auth.AppendScopes(ctx, scopes...)` | `auth.AppendScopesForHost(ctx, host, scopes...)` |
-| `auth.GetScopes(ctx)` | `auth.GetScopesForHost(ctx, host)` |
-| `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForHost(ctx, host)` |
+| `auth.WithScopes(ctx, scopes...)` | `auth.WithScopesForResource(ctx, properties.Resource, scopes...)` |
+| `auth.AppendScopes(ctx, scopes...)` | `auth.AppendScopesForResource(ctx, properties.Resource, scopes...)` |
+| `auth.GetScopes(ctx)` | `auth.GetScopesForResource(ctx, properties.Resource)` |
+| `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForResource(ctx, properties.Resource)` |
 | `auth.AppendRepositoryScope(ctx, registry.Reference, actions...)` | `auth.AppendRepositoryScope(ctx, properties.Reference, actions...)` |
+| `string` scope, e.g. `"repository:hello-world:pull,push"` | `auth.Scope`, built with `auth.ScopeRepository` or `auth.ParseScope` |
+| `auth.ScopeRepository(repo, actions...) string` | `auth.ScopeRepository(repo, actions...) auth.Scope` |
+| `auth.ScopeRegistryCatalog` (const) | `auth.ScopeRegistryCatalog()` (function) |
+| `auth.CleanScopes([]string) []string` | `auth.CleanScopes([]auth.Scope) []auth.Scope` |
+| `auth.TokenParams.Scopes []string` | `auth.TokenParams.Scopes []auth.Scope` |
 
-Scope hints are host-specific in v3. Pass the host of the registry request,
-normally from `properties.Reference.Host()`, to the replacement functions. The
-host must match the request host; for example, a `docker.io` reference resolves
-to `registry-1.docker.io`.
+#### Scopes are values, not strings
+
+A scope is an `auth.Scope` in v3 rather than a `"<type>:<name>:<actions>"`
+string. Build one with `auth.ScopeRepository`, `auth.ScopeRegistryCatalog` or,
+for a scope that arrives as a string, `auth.ParseScope`, which returns an error
+wrapping `errdef.ErrInvalidScope`:
+
+```go
+// v2
+scope := auth.ScopeRepository("hello-world", auth.ActionPull, auth.ActionPush)
+
+// v3
+scope := auth.ScopeRepository("hello-world", auth.ActionPull, auth.ActionPush)
+scope, err := auth.ParseScope("repository:hello-world:pull,push") // from a string
+```
+
+An implementation of `auth.TokenFetcher` receives `[]auth.Scope` and serializes
+them with `Scope.String()`; it no longer has to parse scope strings apart.
+
+A malformed `scope` parameter in a registry's `WWW-Authenticate` challenge now
+fails the request instead of being forwarded to the token server verbatim. A
+single token with no colon is not malformed: `public.ecr.aws` challenges with
+`scope="aws"`, which is parsed as an opaque scope and forwarded unchanged.
+
+#### Scope hints are keyed by resource
+
+Scope hints were keyed by host in v2 and in `v3.0.0-rc.1`, so every namespace of
+one registry shared a single bucket. They are keyed by `properties.Resource` in
+v3, matching the credential lookup. Pass the resource the request addresses,
+normally from `properties.Reference.Resource()`:
+
+```go
+// hints for a whole registry, equivalent to the v2 per-host behavior
+ctx = auth.WithScopesForResource(ctx, properties.Resource{Registry: "registry.example.com"}, scopes...)
+
+// hints for one namespace, which do not ride along on requests to another
+ctx = auth.WithScopesForResource(ctx, properties.Resource{
+	Registry: "registry.example.com",
+	Path:     "myspace",
+}, scopes...)
+```
+
+A hint applies to the resource it was registered for and to everything below it,
+so registry-wide hints still reach every request. Unlike the host key, the
+resource `Registry` is the canonical registry name rather than the dialed host:
+use `docker.io`, not `registry-1.docker.io`.
 
 For example:
 

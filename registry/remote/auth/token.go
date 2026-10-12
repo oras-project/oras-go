@@ -39,8 +39,10 @@ type TokenParams struct {
 	Realm string
 	// Service is the service parameter from the WWW-Authenticate header.
 	Service string
-	// Scopes are the requested scopes for the token.
-	Scopes []string
+	// Scopes are the requested scopes for the token. They are serialized into
+	// the wire form by the fetcher, so an implementation does not parse or
+	// re-serialize scope strings.
+	Scopes []Scope
 }
 
 // TokenFetcher abstracts the token acquisition strategy.
@@ -116,7 +118,9 @@ func (f *DistributionTokenFetcher) FetchToken(ctx context.Context, params TokenP
 		q.Set("service", params.Service)
 	}
 	for _, scope := range params.Scopes {
-		q.Add("scope", scope)
+		if s := scope.String(); s != "" {
+			q.Add("scope", s)
+		}
 	}
 	req.URL.RawQuery = q.Encode()
 
@@ -165,8 +169,8 @@ func (f *OAuth2TokenFetcher) FetchToken(ctx context.Context, params TokenParams,
 		clientID = defaultClientID
 	}
 	form.Set("client_id", clientID)
-	if len(params.Scopes) != 0 {
-		form.Set("scope", strings.Join(params.Scopes, " "))
+	if scope := joinScopes(params.Scopes); scope != "" {
+		form.Set("scope", scope)
 	}
 	body := strings.NewReader(form.Encode())
 
