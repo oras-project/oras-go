@@ -199,18 +199,6 @@ func TestStore_Dir_Push_AnnotationKeys(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "conflicting current and legacy digests",
-			annotations: func(tarDigest digest.Digest) map[string]string {
-				return map[string]string{
-					AnnotationUnpack:       "true",
-					AnnotationDigest:       digest.FromString("tampered").String(),
-					AnnotationUnpackLegacy: "true",
-					AnnotationDigestLegacy: tarDigest.String(),
-				}
-			},
-			wantErr: true,
-		},
-		{
 			name: "SkipUnpack keeps the gz",
 			annotations: func(d digest.Digest) map[string]string {
 				return map[string]string{
@@ -386,6 +374,14 @@ func Test_resolveDirAnnotations(t *testing.T) {
 			wantDigest: other,
 		},
 		{
+			name: "current true conflicts with empty legacy unpack",
+			annotations: map[string]string{
+				AnnotationUnpack:       "true",
+				AnnotationUnpackLegacy: "",
+			},
+			wantErr: true,
+		},
+		{
 			name: "both digests conflicting",
 			annotations: map[string]string{
 				AnnotationUnpack: "true",
@@ -394,20 +390,35 @@ func Test_resolveDirAnnotations(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "conflicting digests without unpack are ignored",
+			name: "empty current digest falls back to legacy",
 			annotations: map[string]string{
+				AnnotationUnpack:       "true",
 				AnnotationDigest:       "",
+				AnnotationUnpackLegacy: "true",
 				AnnotationDigestLegacy: other,
 			},
-			wantErr: false,
+			wantUnpack: true,
+			wantDigest: other,
 		},
 		{
-			name: "empty current keys conflict with legacy keys",
+			name: "empty legacy digest falls back to current",
 			annotations: map[string]string{
-				AnnotationUnpack: "", AnnotationDigest: "",
-				AnnotationUnpackLegacy: "true", AnnotationDigestLegacy: other,
+				AnnotationUnpack:       "true",
+				AnnotationDigest:       other,
+				AnnotationUnpackLegacy: "true",
+				AnnotationDigestLegacy: "",
 			},
-			wantErr: true,
+			wantUnpack: true,
+			wantDigest: other,
+		},
+		{
+			name: "both digests empty",
+			annotations: map[string]string{
+				AnnotationUnpack:       "true",
+				AnnotationDigest:       "",
+				AnnotationDigestLegacy: "",
+			},
+			wantUnpack: true,
 		},
 		{
 			name: "empty current unpack falls back to legacy",
@@ -436,6 +447,14 @@ func Test_resolveDirAnnotations(t *testing.T) {
 		{
 			name:        "unpack flag false",
 			annotations: map[string]string{AnnotationUnpack: "false"},
+		},
+		{
+			name: "uppercase current true conflicts with legacy true",
+			annotations: map[string]string{
+				AnnotationUnpack:       "TRUE",
+				AnnotationUnpackLegacy: "true",
+			},
+			wantErr: true,
 		},
 		{
 			name:        "legacy unpack flag false",

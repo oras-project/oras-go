@@ -602,20 +602,17 @@ type dirAnnotations struct {
 
 // resolveDirAnnotations resolves the directory annotations of a descriptor.
 // [AnnotationDigest] and [AnnotationUnpack] take precedence over
-// [AnnotationDigestLegacy] and [AnnotationUnpackLegacy], respectively.
-// It returns an error if both unpack annotations contain conflicting valid
-// boolean values, or if both digest annotations have different values while
-// unpacking is enabled.
+// [AnnotationDigestLegacy] and [AnnotationUnpackLegacy] when non-empty.
+// It returns an error if both unpack annotations imply different decisions
+// or both non-empty digest annotations conflict while unpacking is enabled.
 func resolveDirAnnotations(annotations map[string]string) (dirAnnotations, error) {
 	var resolved dirAnnotations
 
 	unpack, hasCurrent := annotations[AnnotationUnpack]
 	legacyUnpack, hasLegacy := annotations[AnnotationUnpackLegacy]
 
-	if hasCurrent && hasLegacy &&
-		(unpack == "true" || unpack == "false") &&
-		(legacyUnpack == "true" || legacyUnpack == "false") &&
-		unpack != legacyUnpack {
+	if hasCurrent && hasLegacy && unpack != "" &&
+		(unpack == "true") != (legacyUnpack == "true") {
 		return resolved, fmt.Errorf("conflicting %s and %s annotations: %q != %q",
 			AnnotationUnpack, AnnotationUnpackLegacy, unpack, legacyUnpack)
 	}
@@ -629,17 +626,17 @@ func resolveDirAnnotations(annotations map[string]string) (dirAnnotations, error
 		return resolved, nil
 	}
 
-	checksum, hasCurrent := annotations[AnnotationDigest]
-	legacyChecksum, hasLegacy := annotations[AnnotationDigestLegacy]
+	checksum := annotations[AnnotationDigest]
+	legacyChecksum := annotations[AnnotationDigestLegacy]
 
 	switch {
-	case hasCurrent && hasLegacy && checksum != legacyChecksum:
+	case checksum != "" && legacyChecksum != "" && checksum != legacyChecksum:
 		return resolved, fmt.Errorf("conflicting %s and %s annotations: %q != %q: %w",
 			AnnotationDigest, AnnotationDigestLegacy, checksum, legacyChecksum, errdef.ErrInvalidDigest)
-	case hasCurrent:
+	case checksum != "":
 		resolved.checksum = checksum
 		resolved.checksumKey = AnnotationDigest
-	case hasLegacy:
+	case legacyChecksum != "":
 		resolved.checksum = legacyChecksum
 		resolved.checksumKey = AnnotationDigestLegacy
 	}

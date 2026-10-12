@@ -309,12 +309,16 @@ The dual-key format maintains compatibility with older clients while allowing v3
   v3 can still be unpacked by oras-go v2 and the oras CLI, which only read the
   `io.deis` keys. Without this, an older client would pull a v3 directory
   artifact and silently save it as a single `.tar.gz`.
-- On unpack, the `land.oras` keys take precedence. For the unpack flag, an
-  empty current value falls back to the legacy value; for the digest, the
-  legacy value is used only when the current key is absent. Artifacts pushed
-  by earlier releases continue to work.
-- If both digest keys are set to different values and unpacking is enabled, the push fails rather than picking one. This validation applies whether or not `Store.SkipUnpack` is set.
-- `Store.SkipUnpack` still overrides the unpack annotation, for both the new and the deprecated keys. It controls extraction, not digest-annotation conflict validation.
+- On unpack, the `land.oras` keys take precedence when their values are
+  non-empty. For both the unpack flag and the digest, an empty current value
+  falls back to the legacy value. Artifacts pushed by earlier releases
+  continue to work.
+- If both digest keys are set to different values and the unpack annotation is
+  `true`, the push fails rather than picking one. This validation applies
+  whether or not `Store.SkipUnpack` is set.
+- `Store.SkipUnpack` still overrides the unpack annotation, for both the new and
+  the deprecated keys. It controls extraction, not digest-annotation conflict
+  validation.
 
 Two consequences are worth planning for:
 
