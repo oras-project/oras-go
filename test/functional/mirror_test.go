@@ -105,9 +105,9 @@ func newMirrorSetupRepo(t *testing.T, mirrorHost, repoName string) *remote.Repos
 		Transport: mirrorTransport(t, mirrorHost),
 	}
 	builder := remote.NewClientBuilder()
-	repo, err := remote.NewRepositoryWithProperties(props, builder)
+	repo, err := builder.NewRepository(props)
 	if err != nil {
-		t.Fatalf("NewRepositoryWithProperties (mirror setup, %s/%s): %v", mirrorHost, repoName, err)
+		t.Fatalf("builder.NewRepository (mirror setup, %s/%s): %v", mirrorHost, repoName, err)
 	}
 	return repo
 }
@@ -135,9 +135,9 @@ func newMirroredRepository(t *testing.T, repoName, mirrorHost, pullPolicy string
 		},
 	}
 	builder := remote.NewClientBuilder()
-	repo, err := remote.NewRepositoryWithProperties(props, builder)
+	repo, err := builder.NewRepository(props)
 	if err != nil {
-		t.Fatalf("NewRepositoryWithProperties (primary-with-mirror, %s): %v", repoName, err)
+		t.Fatalf("builder.NewRepository (primary-with-mirror, %s): %v", repoName, err)
 	}
 	return repo
 }
