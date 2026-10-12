@@ -82,6 +82,21 @@ const (
 //   - Compatible spec: https://github.com/opencontainers/distribution-spec/blob/v1.1.0-rc1/spec.md#listing-referrers
 const filterTypeArtifactType = "artifactType"
 
+func override[T comparable](child, parent T) T {
+	var zero T
+	if child != zero {
+		return child
+	}
+	return parent
+}
+
+func overrideSlice[T any](child, parent []T) []T {
+	if len(child) > 0 {
+		return child
+	}
+	return parent
+}
+
 // Client is an interface for a HTTP client.
 type Client interface {
 	// Do sends an HTTP request and returns an HTTP response.
@@ -231,11 +246,10 @@ func NewRepository(reference string) (*Repository, error) {
 
 // reference returns the properties reference for this repository.
 func (r *Repository) reference() properties.Reference {
-	ref := properties.Reference{Repository: r.RepositoryName}
-	if r.Registry != nil {
-		ref.Registry = r.Registry.Reference.Registry
+	return properties.Reference{
+		Registry:   r.Registry.Reference.Registry,
+		Repository: r.RepositoryName,
 	}
-	return ref
 }
 
 // Reference returns the full properties.Reference for this repository.
@@ -262,7 +276,7 @@ func (r *Repository) clone() *Repository {
 // client returns an HTTP client used to access the remote repository.
 // A default HTTP client is returned if the client is not configured.
 func (r *Repository) client() Client {
-	if r.Registry == nil || r.Registry.Client == nil {
+	if r.Registry.Client == nil {
 		return auth.DefaultClient
 	}
 	return r.Registry.Client
@@ -270,17 +284,11 @@ func (r *Repository) client() Client {
 
 // plainHTTP returns whether plain HTTP should be used.
 func (r *Repository) plainHTTP() bool {
-	if r.Registry == nil {
-		return false
-	}
 	return r.Registry.PlainHTTP
 }
 
 // maxMetadataBytes returns the maximum metadata bytes limit.
 func (r *Repository) maxMetadataBytes() int64 {
-	if r.Registry == nil {
-		return 0
-	}
 	return r.Registry.MaxMetadataBytes
 }
 
@@ -288,101 +296,53 @@ func (r *Repository) maxMetadataBytes() int64 {
 // blob upload. A value <= 0 disables chunking.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) maxChunkSize() int64 {
-	if r.MaxChunkSize > 0 {
-		return r.MaxChunkSize
-	}
-	if r.Registry != nil {
-		return r.Registry.MaxChunkSize
-	}
-	return 0
+	return override(max(r.MaxChunkSize, 0), r.Registry.MaxChunkSize)
 }
 
 // handleWarning returns the warning handler function.
 func (r *Repository) handleWarning() func(warning Warning) {
-	if r.Registry == nil {
-		return nil
-	}
 	return r.Registry.HandleWarning
 }
 
 // policy returns the policy evaluator.
 func (r *Repository) policy() *policy.Evaluator {
-	if r.Registry == nil {
-		return nil
-	}
 	return r.Registry.Policy
 }
 
 // tagListPageSize returns the effective tag list page size.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) tagListPageSize() int {
-	if r.TagListPageSize > 0 {
-		return r.TagListPageSize
-	}
-	if r.Registry != nil {
-		return r.Registry.TagListPageSize
-	}
-	return 0
+	return override(max(r.TagListPageSize, 0), r.Registry.TagListPageSize)
 }
 
 // referrerListPageSize returns the effective referrer list page size.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) referrerListPageSize() int {
-	if r.ReferrerListPageSize > 0 {
-		return r.ReferrerListPageSize
-	}
-	if r.Registry != nil {
-		return r.Registry.ReferrerListPageSize
-	}
-	return 0
+	return override(max(r.ReferrerListPageSize, 0), r.Registry.ReferrerListPageSize)
 }
 
 // tagListMaxPages returns the effective maximum number of tag list pages.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) tagListMaxPages() int {
-	if r.TagListMaxPages > 0 {
-		return r.TagListMaxPages
-	}
-	if r.Registry != nil {
-		return r.Registry.TagListMaxPages
-	}
-	return 0
+	return override(max(r.TagListMaxPages, 0), r.Registry.TagListMaxPages)
 }
 
 // referrerListMaxPages returns the effective maximum number of referrer list pages.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) referrerListMaxPages() int {
-	if r.ReferrerListMaxPages > 0 {
-		return r.ReferrerListMaxPages
-	}
-	if r.Registry != nil {
-		return r.Registry.ReferrerListMaxPages
-	}
-	return 0
+	return override(max(r.ReferrerListMaxPages, 0), r.Registry.ReferrerListMaxPages)
 }
 
 // manifestMediaTypes returns the effective manifest media types.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) manifestMediaTypes() []string {
-	if len(r.ManifestMediaTypes) > 0 {
-		return r.ManifestMediaTypes
-	}
-	if r.Registry != nil {
-		return r.Registry.ManifestMediaTypes
-	}
-	return nil
+	return overrideSlice(r.ManifestMediaTypes, r.Registry.ManifestMediaTypes)
 }
 
 // skipReferrersGC returns the effective skip referrers GC setting.
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) skipReferrersGC() bool {
-	if r.SkipReferrersGC {
-		return true
-	}
-	if r.Registry != nil {
-		return r.Registry.SkipReferrersGC
-	}
-	return false
+	return override(r.SkipReferrersGC, r.Registry.SkipReferrersGC)
 }
 
 // SetReferrersCapability indicates the Referrers API capability of the remote
@@ -1209,7 +1169,7 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 		if size := resp.ContentLength; size != -1 && size != target.Size {
 			return nil, fmt.Errorf("%s %q: mismatch Content-Length", resp.Request.Method, resp.Request.URL)
 		}
-		if err := verifyContentDigest(resp, target.Digest); err != nil {
+		if err := verifyPullDigestHeader(resp, target.Digest); err != nil {
 			return nil, err
 		}
 
@@ -1575,7 +1535,7 @@ func generateBlobDescriptor(resp *http.Response, refDigest digest.Digest) (ocisp
 		return ocispec.Descriptor{}, fmt.Errorf("%s %q: unknown response Content-Length", resp.Request.Method, resp.Request.URL)
 	}
 
-	if err := verifyContentDigest(resp, refDigest); err != nil {
+	if err := verifyPullDigestHeader(resp, refDigest); err != nil {
 		return ocispec.Descriptor{}, err
 	}
 
@@ -2286,7 +2246,7 @@ func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected di
 	}
 	canonical, err := digest.Parse(headerStr)
 	if err != nil || canonical.Algorithm() == expected.Algorithm() {
-		return verifyContentDigest(resp, expected)
+		return verifyPullDigestHeader(resp, expected)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(limitReader(resp.Body, s.repo.maxMetadataBytes()))
@@ -2387,16 +2347,47 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest, alternates
 				return nil
 			}
 		}
-		return fmt.Errorf(
-			"%s %q: invalid response; digest mismatch in %s: received %q when expecting %q; %w",
-			resp.Request.Method, resp.Request.URL,
-			headerDockerContentDigest, contentDigest,
-			expected,
-			content.ErrMismatchedDigest,
-		)
+		return &digestHeaderMismatchError{
+			method:   resp.Request.Method,
+			url:      resp.Request.URL,
+			received: contentDigest,
+			expected: expected,
+		}
 	}
 
 	return nil
+}
+
+// digestHeaderMismatchError is returned by [verifyContentDigest] when the
+// "Docker-Content-Digest" header disagrees with the expected digest.
+//
+// It deliberately does not wrap [content.ErrMismatchedDigest]: on push, mount
+// and delete the registry is disagreeing about content the client sent, not
+// serving bad content. Pull paths add the sentinel through
+// [verifyPullDigestHeader].
+type digestHeaderMismatchError struct {
+	method   string
+	url      *url.URL
+	received digest.Digest
+	expected digest.Digest
+}
+
+func (e *digestHeaderMismatchError) Error() string {
+	return fmt.Sprintf("%s %q: invalid response; digest mismatch in %s: received %q when expecting %q",
+		e.method, e.url, headerDockerContentDigest, e.received, e.expected)
+}
+
+// verifyPullDigestHeader is [verifyContentDigest] for pull paths: a digest
+// mismatch also satisfies errors.Is(err, [content.ErrMismatchedDigest]), since
+// the registry served content that does not match the requested digest. A
+// malformed header is returned unwrapped.
+func verifyPullDigestHeader(resp *http.Response, expected digest.Digest) error {
+	err := verifyContentDigest(resp, expected)
+	var mismatch *digestHeaderMismatchError
+	if errors.As(err, &mismatch) {
+		return fmt.Errorf("%w; %w", err, content.ErrMismatchedDigest)
+	}
+	return err
 }
 
 // generateIndex generates an image index containing the given manifests list.

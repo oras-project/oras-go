@@ -1796,6 +1796,180 @@ func TestPushBytes_Repository(t *testing.T) {
 	}
 }
 
+func TestPushBytesWithAlgorithm_Memory(t *testing.T) {
+	content := []byte("hello world")
+	mediaType := "test"
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+		alg  digest.Algorithm
+		want digest.Digest
+	}{
+		{"sha256", digest.SHA256, digest.SHA256.FromBytes(content)},
+		{"sha384", digest.SHA384, digest.SHA384.FromBytes(content)},
+		{"sha512", digest.SHA512, digest.SHA512.FromBytes(content)},
+		{"empty algorithm defaults to canonical", "", digest.Canonical.FromBytes(content)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := cas.NewMemory()
+			wantDesc := ocispec.Descriptor{
+				MediaType: mediaType,
+				Digest:    tt.want,
+				Size:      int64(len(content)),
+			}
+
+			// test PushBytesWithAlgorithm
+			gotDesc, err := oras.PushBytesWithAlgorithm(ctx, s, mediaType, content, tt.alg)
+			if err != nil {
+				t.Fatal("oras.PushBytesWithAlgorithm() error =", err)
+			}
+			if !reflect.DeepEqual(gotDesc, wantDesc) {
+				t.Errorf("oras.PushBytesWithAlgorithm() = %v, want %v", gotDesc, wantDesc)
+			}
+			rc, err := s.Fetch(ctx, gotDesc)
+			if err != nil {
+				t.Fatal("Memory.Fetch() error =", err)
+			}
+			got, err := io.ReadAll(rc)
+			if err != nil {
+				t.Fatal("Memory.Fetch().Read() error =", err)
+			}
+			err = rc.Close()
+			if err != nil {
+				t.Error("Memory.Fetch().Close() error =", err)
+			}
+			if !bytes.Equal(got, content) {
+				t.Errorf("Memory.Fetch() = %v, want %v", got, content)
+			}
+
+			// test PushBytesWithAlgorithm with existing content
+			_, err = oras.PushBytesWithAlgorithm(ctx, s, mediaType, content, tt.alg)
+			if !errors.Is(err, errdef.ErrAlreadyExists) {
+				t.Errorf("oras.PushBytesWithAlgorithm() error = %v, wantErr %v", err, errdef.ErrAlreadyExists)
+			}
+		})
+	}
+
+	// test PushBytesWithAlgorithm with empty media type
+	s := cas.NewMemory()
+	descOctet := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.SHA512.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+	gotDesc, err := oras.PushBytesWithAlgorithm(ctx, s, "", content, digest.SHA512)
+	if err != nil {
+		t.Fatal("oras.PushBytesWithAlgorithm() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descOctet) {
+		t.Errorf("oras.PushBytesWithAlgorithm() = %v, want %v", gotDesc, descOctet)
+	}
+
+	// test PushBytesWithAlgorithm with empty content
+	descEmpty := ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.SHA512.FromBytes(nil),
+		Size:      0,
+	}
+	gotDesc, err = oras.PushBytesWithAlgorithm(ctx, s, mediaType, nil, digest.SHA512)
+	if err != nil {
+		t.Fatal("oras.PushBytesWithAlgorithm() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, descEmpty) {
+		t.Errorf("oras.PushBytesWithAlgorithm() = %v, want %v", gotDesc, descEmpty)
+	}
+}
+
+func TestPushBytesWithAlgorithm_UnsupportedAlgorithm(t *testing.T) {
+	s := cas.NewMemory()
+	content := []byte("hello world")
+	mediaType := "test"
+	ctx := context.Background()
+
+	// test PushBytesWithAlgorithm with unsupported or unavailable algorithms
+	for _, alg := range []digest.Algorithm{"sha1", "md5", "blake3", "unknown"} {
+		gotDesc, err := oras.PushBytesWithAlgorithm(ctx, s, mediaType, content, alg)
+		if !errors.Is(err, errdef.ErrUnsupported) {
+			t.Errorf("oras.PushBytesWithAlgorithm(%q) error = %v, wantErr %v", alg, err, errdef.ErrUnsupported)
+		}
+		if !reflect.DeepEqual(gotDesc, ocispec.Descriptor{}) {
+			t.Errorf("oras.PushBytesWithAlgorithm(%q) = %v, want empty descriptor", alg, gotDesc)
+		}
+	}
+
+	// test that nothing was pushed
+	for _, alg := range []digest.Algorithm{digest.SHA256, digest.SHA384, digest.SHA512} {
+		desc := ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    alg.FromBytes(content),
+			Size:      int64(len(content)),
+		}
+		exists, err := s.Exists(ctx, desc)
+		if err != nil {
+			t.Fatal("Memory.Exists() error =", err)
+		}
+		if exists {
+			t.Errorf("Memory.Exists(%s) = true, want false", desc.Digest)
+		}
+	}
+}
+func TestPushBytesWithAlgorithm_Repository(t *testing.T) {
+	index := []byte(`{"manifests":[]}`)
+	indexMediaType := ocispec.MediaTypeImageIndex
+	indexDesc := ocispec.Descriptor{
+		MediaType: indexMediaType,
+		Digest:    digest.SHA512.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	var gotIndex []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
+			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			gotIndex = buf.Bytes()
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := remote.NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	ctx := context.Background()
+
+	// test PushBytesWithAlgorithm with manifest
+	gotDesc, err := oras.PushBytesWithAlgorithm(ctx, repo, indexMediaType, index, digest.SHA512)
+	if err != nil {
+		t.Fatal("oras.PushBytesWithAlgorithm() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("oras.PushBytesWithAlgorithm() = %v, want %v", gotDesc, indexDesc)
+	}
+	if !bytes.Equal(gotIndex, index) {
+		t.Errorf("oras.PushBytesWithAlgorithm() = %v, want %v", gotIndex, index)
+	}
+}
+
 func TestTagBytesN_Memory(t *testing.T) {
 	s := memory.New()
 
@@ -2061,6 +2235,220 @@ func TestTagBytesN_Repository(t *testing.T) {
 	}
 	if !bytes.Equal(got, index) {
 		t.Errorf("Repository.Fetch() = %v, want %v", got, index)
+	}
+}
+
+func TestTagBytesN_DigestAlgorithm_Memory(t *testing.T) {
+	content := []byte("hello world")
+	mediaType := "test"
+	refs := []string{"foo", "bar"}
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+		alg  digest.Algorithm
+		want digest.Digest
+	}{
+		{"sha256", digest.SHA256, digest.SHA256.FromBytes(content)},
+		{"sha384", digest.SHA384, digest.SHA384.FromBytes(content)},
+		{"sha512", digest.SHA512, digest.SHA512.FromBytes(content)},
+		{"empty algorithm defaults to canonical", "", digest.Canonical.FromBytes(content)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := memory.New()
+			wantDesc := ocispec.Descriptor{
+				MediaType: mediaType,
+				Digest:    tt.want,
+				Size:      int64(len(content)),
+			}
+			opts := oras.TagBytesNOptions{DigestAlgorithm: tt.alg}
+
+			// test TagBytesN with no reference
+			gotDesc, err := oras.TagBytesN(ctx, s, mediaType, content, nil, opts)
+			if err != nil {
+				t.Fatal("oras.TagBytesN() error =", err)
+			}
+			if !reflect.DeepEqual(gotDesc, wantDesc) {
+				t.Errorf("oras.TagBytesN() = %v, want %v", gotDesc, wantDesc)
+			}
+			exists, err := s.Exists(ctx, wantDesc)
+			if err != nil {
+				t.Fatal("Memory.Exists() error =", err)
+			}
+			if !exists {
+				t.Errorf("Memory.Exists(%s) = false, want true", wantDesc.Digest)
+			}
+
+			// test TagBytesN with multiple references
+			s = memory.New()
+			gotDesc, err = oras.TagBytesN(ctx, s, mediaType, content, refs, opts)
+			if err != nil {
+				t.Fatal("oras.TagBytesN() error =", err)
+			}
+			if !reflect.DeepEqual(gotDesc, wantDesc) {
+				t.Fatalf("oras.TagBytesN() = %v, want %v", gotDesc, wantDesc)
+			}
+			for _, ref := range refs {
+				gotDesc, err := s.Resolve(ctx, ref)
+				if err != nil {
+					t.Fatal("Memory.Resolve() error =", err)
+				}
+				if !reflect.DeepEqual(gotDesc, wantDesc) {
+					t.Fatalf("Memory.Resolve() = %v, want %v", gotDesc, wantDesc)
+				}
+			}
+			rc, err := s.Fetch(ctx, wantDesc)
+			if err != nil {
+				t.Fatal("Memory.Fetch() error =", err)
+			}
+			got, err := io.ReadAll(rc)
+			if err != nil {
+				t.Fatal("Memory.Fetch().Read() error =", err)
+			}
+			err = rc.Close()
+			if err != nil {
+				t.Error("Memory.Fetch().Close() error =", err)
+			}
+			if !bytes.Equal(got, content) {
+				t.Errorf("Memory.Fetch() = %v, want %v", got, content)
+			}
+		})
+	}
+}
+
+func TestTagBytesN_DigestAlgorithm_Unsupported(t *testing.T) {
+	s := memory.New()
+	content := []byte("hello world")
+	mediaType := "test"
+	ctx := context.Background()
+
+	// test TagBytesN with unsupported or unavailable algorithms,
+	// with and without references
+	for _, alg := range []digest.Algorithm{"sha1", "md5", "blake3", "unknown"} {
+		for _, refs := range [][]string{nil, {"foo", "bar"}} {
+			opts := oras.TagBytesNOptions{DigestAlgorithm: alg}
+			gotDesc, err := oras.TagBytesN(ctx, s, mediaType, content, refs, opts)
+			if !errors.Is(err, errdef.ErrUnsupported) {
+				t.Errorf("oras.TagBytesN(%q, refs=%v) error = %v, wantErr %v", alg, refs, err, errdef.ErrUnsupported)
+			}
+			if !reflect.DeepEqual(gotDesc, ocispec.Descriptor{}) {
+				t.Errorf("oras.TagBytesN(%q, refs=%v) = %v, want empty descriptor", alg, refs, gotDesc)
+			}
+		}
+	}
+
+	// test that nothing was pushed or tagged
+	for _, alg := range []digest.Algorithm{digest.SHA256, digest.SHA384, digest.SHA512} {
+		desc := ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    alg.FromBytes(content),
+			Size:      int64(len(content)),
+		}
+		exists, err := s.Exists(ctx, desc)
+		if err != nil {
+			t.Fatal("Memory.Exists() error =", err)
+		}
+		if exists {
+			t.Errorf("Memory.Exists(%s) = true, want false", desc.Digest)
+		}
+	}
+	for _, ref := range []string{"foo", "bar"} {
+		if _, err := s.Resolve(ctx, ref); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Memory.Resolve(%q) error = %v, wantErr %v", ref, err, errdef.ErrNotFound)
+		}
+	}
+}
+
+func TestTagBytesN_DigestAlgorithm_Repository(t *testing.T) {
+	index := []byte(`{"manifests":[]}`)
+	indexMediaType := ocispec.MediaTypeImageIndex
+	indexDesc := ocispec.Descriptor{
+		MediaType: indexMediaType,
+		Digest:    digest.SHA512.FromBytes(index),
+		Size:      int64(len(index)),
+	}
+	refFoo := "foo"
+	refBar := "bar"
+	refs := []string{refFoo, refBar}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut &&
+			(r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String() ||
+				r.URL.Path == "/v2/test/manifests/"+refFoo ||
+				r.URL.Path == "/v2/test/manifests/"+refBar):
+			if contentType := r.Header.Get("Content-Type"); contentType != indexDesc.MediaType {
+				w.WriteHeader(http.StatusBadRequest)
+				break
+			}
+			buf := bytes.NewBuffer(nil)
+			if _, err := buf.ReadFrom(r.Body); err != nil {
+				t.Errorf("fail to read: %v", err)
+			}
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		case (r.Method == http.MethodHead || r.Method == http.MethodGet) &&
+			(r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String() ||
+				r.URL.Path == "/v2/test/manifests/"+refFoo ||
+				r.URL.Path == "/v2/test/manifests/"+refBar):
+			if accept := r.Header.Get("Accept"); !strings.Contains(accept, indexDesc.MediaType) {
+				t.Errorf("manifest not convertable: %s", accept)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", indexDesc.MediaType)
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.Header().Set("Content-Length", strconv.Itoa(int(indexDesc.Size)))
+			if r.Method == http.MethodGet {
+				if _, err := w.Write(index); err != nil {
+					t.Errorf("failed to write %q: %v", r.URL, err)
+				}
+			}
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	repo, err := remote.NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	ctx := context.Background()
+	opts := oras.TagBytesNOptions{DigestAlgorithm: digest.SHA512}
+
+	// test TagBytesN with no reference
+	gotDesc, err := oras.TagBytesN(ctx, repo, indexMediaType, index, nil, opts)
+	if err != nil {
+		t.Fatal("oras.TagBytesN() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Errorf("oras.TagBytesN() = %v, want %v", gotDesc, indexDesc)
+	}
+
+	// test TagBytesN with multiple references
+	gotDesc, err = oras.TagBytesN(ctx, repo, indexMediaType, index, refs, opts)
+	if err != nil {
+		t.Fatal("oras.TagBytesN() error =", err)
+	}
+	if !reflect.DeepEqual(gotDesc, indexDesc) {
+		t.Fatalf("oras.TagBytesN() = %v, want %v", gotDesc, indexDesc)
+	}
+	for _, ref := range refs {
+		gotDesc, err := repo.Resolve(ctx, ref)
+		if err != nil {
+			t.Fatal("Repository.Resolve() error =", err)
+		}
+		if !reflect.DeepEqual(gotDesc, indexDesc) {
+			t.Fatalf("Repository.Resolve() = %v, want %v", gotDesc, indexDesc)
+		}
 	}
 }
 
