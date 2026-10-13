@@ -32,6 +32,7 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/cas"
+	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/internal/graph"
 	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/resolver"
@@ -51,9 +52,21 @@ var bufPool = sync.Pool{
 
 const (
 	// AnnotationDigest is the annotation key for the digest of the uncompressed content.
-	AnnotationDigest = "io.deis.oras.content.digest"
+	AnnotationDigest = "land.oras.content.digest"
 	// AnnotationUnpack is the annotation key for indication of unpacking.
-	AnnotationUnpack = "io.deis.oras.content.unpack"
+	AnnotationUnpack = "land.oras.content.unpack"
+	// AnnotationDigestLegacy is the annotation key used before v3 for the
+	// digest of the uncompressed content. It is still written by Add and read
+	// by Push so that artifacts interoperate with older clients.
+	//
+	// Deprecated: use AnnotationDigest instead.
+	AnnotationDigestLegacy = "io.deis.oras.content.digest"
+	// AnnotationUnpackLegacy is the annotation key used before v3 for the
+	// indication of unpacking. It is still written by Add and read by Push so
+	// that artifacts interoperate with older clients.
+	//
+	// Deprecated: use AnnotationUnpack instead.
+	AnnotationUnpackLegacy = "io.deis.oras.content.unpack"
 	// defaultBlobMediaType specifies the default blob media type.
 	defaultBlobMediaType = ocispec.MediaTypeImageLayer
 	// defaultBlobDirMediaType specifies the default blob directory media type.
@@ -123,11 +136,12 @@ type Store struct {
 	// disregarding the active umask, similar to tar's `--preserve-permissions`
 	PreservePermissions bool
 
-	workingDir   string   // the working directory of the file store
-	closed       int32    // if the store is closed - 0: false, 1: true.
-	digestToPath sync.Map // map[digest.Digest]string
-	nameToStatus sync.Map // map[string]*nameStatus
-	tmpFiles     sync.Map // map[string]bool
+	workingDir      string           // the working directory of the file store
+	digestAlgorithm digest.Algorithm // the algorithm for digests computed by Add
+	closed          int32            // if the store is closed - 0: false, 1: true.
+	digestToPath    sync.Map         // map[digest.Digest]string
+	nameToStatus    sync.Map         // map[string]*nameStatus
+	tmpFiles        sync.Map         // map[string]bool
 
 	fallbackStorage content.Storage
 	resolver        content.TagResolver
@@ -141,34 +155,90 @@ type nameStatus struct {
 	exists bool
 }
 
-// New creates a file store, using a default limited memory CAS
-// as the fallback storage for contents without names.
-// When pushing content without names, the size of content being pushed
-// cannot exceed the default size limit: 4 MiB.
-func New(workingDir string) (*Store, error) {
-	return NewWithFallbackLimit(workingDir, defaultFallbackPushSizeLimit)
-}
-
-// NewWithFallbackLimit creates a file store, using a default
+// New creates a file store with the default options: SHA-256 digests and a
 // limited memory CAS as the fallback storage for contents without names.
 // When pushing content without names, the size of content being pushed
-// cannot exceed the size limit specified by the `limit` parameter.
-func NewWithFallbackLimit(workingDir string, limit int64) (*Store, error) {
-	m := cas.NewMemory()
-	ls := content.LimitStorage(m, limit)
-	return NewWithFallbackStorage(workingDir, ls)
+// cannot exceed the default size limit: 4 MiB.
+//
+// Use [NewWithOptions] to configure the store.
+func New(workingDir string) (*Store, error) {
+	return NewWithOptions(workingDir, StoreOptions{})
 }
 
-// NewWithFallbackStorage creates a file store,
-// using the provided fallback storage for contents without names.
-func NewWithFallbackStorage(workingDir string, fallbackStorage content.Storage) (*Store, error) {
+// StoreOptions contains options for [NewWithOptions].
+// The zero value gives the same store as [New].
+type StoreOptions struct {
+	// DigestAlgorithm is the algorithm used for the digests that [Store.Add]
+	// computes: the digest of an added file, and both the digest of a packed
+	// directory and its [AnnotationDigest] annotation.
+	//
+	// It governs Add only. Content received via [Store.Push] keeps the digest
+	// of its descriptor, whatever the algorithm, so a file store is not
+	// guaranteed to hold content of a single algorithm.
+	//
+	// If empty, [digest.Canonical] (SHA-256) is used. Otherwise it must be
+	// one of SHA-256, SHA-384 and SHA-512, and must be available, which
+	// requires its hash package to be linked into the binary (for example by
+	// importing crypto/sha512). Unsupported or unavailable algorithms make
+	// [NewWithOptions] return [errdef.ErrUnsupported].
+	DigestAlgorithm digest.Algorithm
+
+	// FallbackStorage is the storage for contents without names.
+	// If nil, a limited memory CAS is used, with the size limit set by
+	// FallbackLimit.
+	//
+	// For a fallback storage without a size limit, set it to an unlimited
+	// store such as memory.New() from package
+	// github.com/oras-project/oras-go/v3/content/memory.
+	//
+	// FallbackStorage and FallbackLimit cannot both be set.
+	FallbackStorage content.Storage
+
+	// FallbackLimit is the size limit, in bytes, of the default fallback
+	// storage, which is used when FallbackStorage is nil.
+	// If zero, the default size limit, 4 MiB, is used. It must not be
+	// negative.
+	//
+	// FallbackStorage and FallbackLimit cannot both be set.
+	FallbackLimit int64
+}
+
+// NewWithOptions creates a file store with the given options.
+//
+// It returns [errdef.ErrUnsupported] if opts.DigestAlgorithm is not supported
+// or not available, and [ErrInvalidStoreOptions] if both opts.FallbackStorage
+// and opts.FallbackLimit are set, or if opts.FallbackLimit is negative.
+func NewWithOptions(workingDir string, opts StoreOptions) (*Store, error) {
+	alg := opts.DigestAlgorithm
+	if alg == "" {
+		alg = digest.Canonical
+	}
+	if !descriptor.IsSupportedAlgorithm(alg) || !alg.Available() {
+		return nil, fmt.Errorf("digest algorithm %q: %w", alg, errdef.ErrUnsupported)
+	}
+	if opts.FallbackLimit < 0 {
+		return nil, fmt.Errorf("negative FallbackLimit %d: %w", opts.FallbackLimit, ErrInvalidStoreOptions)
+	}
+	if opts.FallbackStorage != nil && opts.FallbackLimit != 0 {
+		return nil, fmt.Errorf("FallbackStorage and FallbackLimit are mutually exclusive: %w", ErrInvalidStoreOptions)
+	}
+
+	fallbackStorage := opts.FallbackStorage
+	if fallbackStorage == nil {
+		limit := opts.FallbackLimit
+		if limit == 0 {
+			limit = defaultFallbackPushSizeLimit
+		}
+		fallbackStorage = content.LimitStorage(cas.NewMemory(), limit)
+	}
+
 	workingDirAbs, err := filepath.Abs(workingDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", workingDir, err)
 	}
-
 	return &Store{
 		workingDir:      workingDirAbs,
+		digestAlgorithm: alg,
 		fallbackStorage: fallbackStorage,
 		resolver:        resolver.NewMemory(),
 		graph:           graph.NewMemory(),
@@ -286,13 +356,18 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 		return fmt.Errorf("%s: %w", name, ErrDuplicateName)
 	}
 
+	dirAnnots, err := resolveDirAnnotations(expected.Annotations)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+
 	target, err := s.resolveWritePath(name)
 	if err != nil {
 		return fmt.Errorf("failed to resolve path for writing: %w", err)
 	}
 
-	if needUnpack := expected.Annotations[AnnotationUnpack]; needUnpack == "true" && !s.SkipUnpack {
-		err = s.pushDir(name, target, expected, content)
+	if dirAnnots.unpack && !s.SkipUnpack {
+		err = s.pushDir(name, target, expected, dirAnnots.checksumKey, dirAnnots.checksum, content)
 	} else {
 		err = s.pushFile(target, expected, content)
 	}
@@ -517,8 +592,61 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 	return nil
 }
 
+// dirAnnotations holds the directory annotations of a descriptor, resolved
+// from both the current and the deprecated annotation keys.
+type dirAnnotations struct {
+	unpack      bool
+	checksum    string
+	checksumKey string
+}
+
+// resolveDirAnnotations resolves the directory annotations of a descriptor.
+// [AnnotationDigest] and [AnnotationUnpack] take precedence over
+// [AnnotationDigestLegacy] and [AnnotationUnpackLegacy] when non-empty.
+// It returns an error if both unpack annotations imply different decisions
+// or both non-empty digest annotations conflict while unpacking is enabled.
+func resolveDirAnnotations(annotations map[string]string) (dirAnnotations, error) {
+	var resolved dirAnnotations
+
+	unpack := annotations[AnnotationUnpack]
+	legacyUnpack := annotations[AnnotationUnpackLegacy]
+
+	if unpack != "" && legacyUnpack != "" &&
+		(unpack == "true") != (legacyUnpack == "true") {
+		return resolved, fmt.Errorf("conflicting %s and %s annotations: %q != %q",
+			AnnotationUnpack, AnnotationUnpackLegacy, unpack, legacyUnpack)
+	}
+
+	if unpack == "" {
+		unpack = legacyUnpack
+	}
+	resolved.unpack = unpack == "true"
+
+	if !resolved.unpack {
+		return resolved, nil
+	}
+
+	checksum := annotations[AnnotationDigest]
+	legacyChecksum := annotations[AnnotationDigestLegacy]
+
+	switch {
+	case checksum != "" && legacyChecksum != "" && checksum != legacyChecksum:
+		return resolved, fmt.Errorf("conflicting %s and %s annotations: %q != %q: %w",
+			AnnotationDigest, AnnotationDigestLegacy, checksum, legacyChecksum, errdef.ErrInvalidDigest)
+	case checksum != "":
+		resolved.checksum = checksum
+		resolved.checksumKey = AnnotationDigest
+	case legacyChecksum != "":
+		resolved.checksum = legacyChecksum
+		resolved.checksumKey = AnnotationDigestLegacy
+	}
+
+	return resolved, nil
+}
+
 // pushDir saves content matching the descriptor to the target directory.
-func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, content io.Reader) (err error) {
+// checksum, when not empty, is the expected digest of the uncompressed content.
+func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, checksumKey, checksum string, content io.Reader) (err error) {
 	if err := ensureDir(target); err != nil {
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
@@ -534,10 +662,9 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, conten
 		return fmt.Errorf("failed to save gzip to %s: %w", gzPath, err)
 	}
 
-	checksum := expected.Annotations[AnnotationDigest]
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := extractTarGzip(target, name, gzPath, checksum, *buf, s.PreservePermissions); err != nil {
+	if err := extractTarGzip(target, name, gzPath, checksumKey, checksum, *buf, s.PreservePermissions); err != nil {
 		return fmt.Errorf("failed to extract tar to %s: %w", target, err)
 	}
 	return nil
@@ -571,7 +698,7 @@ func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir stri
 	}()
 
 	// compress the directory
-	gzDigester := digest.Canonical.Digester()
+	gzDigester := s.digestAlgorithm.Digester()
 	gzw := gzip.NewWriter(io.MultiWriter(gz, gzDigester.Hash()))
 	defer func() {
 		closeErr := gzw.Close()
@@ -580,7 +707,7 @@ func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir stri
 		}
 	}()
 
-	tarDigester := digest.Canonical.Digester()
+	tarDigester := s.digestAlgorithm.Digester()
 	tw := io.MultiWriter(gzw, tarDigester.Hash())
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
@@ -610,13 +737,16 @@ func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir stri
 		mediaType = defaultBlobDirMediaType
 	}
 
+	tarDigest := tarDigester.Digest().String()
 	return ocispec.Descriptor{
 		MediaType: mediaType,
 		Digest:    gzDigest, // digest for the compressed content
 		Size:      fi.Size(),
 		Annotations: map[string]string{
-			AnnotationDigest: tarDigester.Digest().String(), // digest fot the uncompressed content
-			AnnotationUnpack: "true",                        // the content needs to be unpacked
+			AnnotationDigest:       tarDigest, // digest for the uncompressed content
+			AnnotationUnpack:       "true",    // the content needs to be unpacked
+			AnnotationDigestLegacy: tarDigest,
+			AnnotationUnpackLegacy: "true",
 		},
 	}, nil
 }
@@ -634,7 +764,7 @@ func (s *Store) descriptorFromFile(fi os.FileInfo, mediaType, path string) (desc
 		}
 	}()
 
-	dgst, err := digest.FromReader(fp)
+	dgst, err := s.digestAlgorithm.FromReader(fp)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}

@@ -78,7 +78,7 @@ func TestDistributionTokenFetcher_FetchToken(t *testing.T) {
 		Resource: properties.Resource{Registry: "test-registry"},
 		Realm:    ts.URL,
 		Service:  wantService,
-		Scopes:   []string{wantScope},
+		Scopes:   mustParseScopes(wantScope),
 	}
 	cred := credentials.Credential{
 		Username: username,
@@ -125,7 +125,7 @@ func TestDistributionTokenFetcher_FetchToken_Anonymous(t *testing.T) {
 		Resource: properties.Resource{Registry: "test-registry"},
 		Realm:    ts.URL,
 		Service:  "test_service",
-		Scopes:   []string{"repository:test:pull"},
+		Scopes:   mustParseScopes("repository:test:pull"),
 	}
 
 	token, err := fetcher.FetchToken(context.Background(), params, credentials.EmptyCredential)
@@ -257,7 +257,7 @@ func TestOAuth2TokenFetcher_FetchToken_Password(t *testing.T) {
 		Resource: properties.Resource{Registry: "test-registry"},
 		Realm:    ts.URL,
 		Service:  wantService,
-		Scopes:   []string{wantScope},
+		Scopes:   mustParseScopes(wantScope),
 	}
 	cred := credentials.Credential{
 		Username: username,
@@ -790,7 +790,7 @@ func TestDistributionTokenFetcher_FetchToken_MultipleScopes(t *testing.T) {
 
 	params := TokenParams{
 		Realm:  ts.URL,
-		Scopes: []string{"repository:test:pull", "repository:test:push"},
+		Scopes: mustParseScopes("repository:test:pull", "repository:test:push"),
 	}
 
 	token, err := fetcher.FetchToken(context.Background(), params, credentials.EmptyCredential)

@@ -27,6 +27,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/errdef"
 )
 
 func Test_tarDirectory(t *testing.T) {
@@ -241,11 +244,106 @@ func Test_ensureLinkPath(t *testing.T) {
 
 func Test_extractTarGzip_Error(t *testing.T) {
 	t.Run("Non-existing file", func(t *testing.T) {
-		err := extractTarGzip("", "", "non-existing-file", "", nil, false)
+		err := extractTarGzip("", "", "non-existing-file", "", "", nil, false)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
 	})
+}
+
+func Test_extractTarGzip_Checksum(t *testing.T) {
+	tarData := createTar(t, []tarEntry{
+		{name: "base/", mode: os.ModeDir | 0777},
+		{name: "base/test.txt", content: "hello world", mode: 0666},
+	})
+	var gzBuf bytes.Buffer
+	gw := gzip.NewWriter(&gzBuf)
+	if _, err := gw.Write(tarData); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gzPath := filepath.Join(t.TempDir(), "base.tar.gz")
+	if err := os.WriteFile(gzPath, gzBuf.Bytes(), 0666); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		checksum    string
+		wantErr     error // nil means success
+		wantErrText string
+		wantFile    bool
+	}{
+		{
+			name:     "no checksum skips verification",
+			checksum: "",
+			wantFile: true,
+		},
+		{
+			name:     "matching checksum",
+			checksum: digest.FromBytes(tarData).String(),
+			wantFile: true,
+		},
+		{
+			name:        "mismatched checksum",
+			checksum:    digest.FromString("something else").String(),
+			wantErrText: "content digest mismatch",
+			wantFile:    true,
+		},
+		{
+			name:     "malformed encoded value",
+			checksum: "sha256:not-hex",
+			wantErr:  errdef.ErrInvalidDigest,
+		},
+		{
+			name:     "missing algorithm",
+			checksum: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			wantErr:  errdef.ErrInvalidDigest,
+		},
+		{
+			name:     "unavailable algorithm",
+			checksum: "unknown:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			wantErr:  errdef.ErrUnsupported,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dirPath := filepath.Join(t.TempDir(), "base")
+			buf := make([]byte, 32*1024)
+			err := extractTarGzip(dirPath, "base", gzPath, AnnotationDigest, tt.checksum, buf, false)
+			switch {
+			case tt.wantErr != nil:
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("extractTarGzip() error = %v, want %v", err, tt.wantErr)
+				}
+			case tt.wantErrText != "":
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrText) {
+					t.Fatalf("extractTarGzip() error = %v, want %q", err, tt.wantErrText)
+				}
+			default:
+				if err != nil {
+					t.Fatalf("extractTarGzip() error = %v", err)
+				}
+			}
+			_, statErr := os.Stat(filepath.Join(dirPath, "test.txt"))
+			if gotFile := statErr == nil; gotFile != tt.wantFile {
+				t.Fatalf("extracted file exists = %v, want %v (stat error: %v)", gotFile, tt.wantFile, statErr)
+			}
+		})
+	}
+}
+
+func Test_parseTarDigest_UsesAnnotationKey(t *testing.T) {
+	_, err := parseTarDigest(AnnotationDigestLegacy, "not-a-digest")
+	if err == nil {
+		t.Fatal("parseTarDigest() error = nil, want invalid digest error")
+	}
+	if !strings.Contains(err.Error(), AnnotationDigestLegacy) {
+		t.Errorf("parseTarDigest() error = %q, want annotation key %q",
+			err, AnnotationDigestLegacy)
+	}
 }
 
 func Test_extractTarDirectory(t *testing.T) {

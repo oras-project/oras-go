@@ -89,11 +89,10 @@ error wrapping `errdef.ErrInvalidReference`. Parse such input with
 `properties.NewReference` and keep the tag or digest for the operation that
 needs it.
 
-`remote.NewRegistryWithProperties` and
-`remote.NewRepositoryWithProperties` are the preferred constructors when
-configuration comes from `registries.conf`, Docker configuration, certificates,
-or policy files. They use `remote.ClientBuilder` to apply the same client and
-transport rules to the primary registry and its mirrors.
+`remote.ClientBuilder.NewRegistry` and `remote.ClientBuilder.NewRepository`
+are the preferred constructors when configuration comes from `registries.conf`,
+Docker configuration, certificates, or policy files. They apply the builder's
+client and transport rules to the primary registry and its mirrors.
 
 ### Authentication and credentials
 
@@ -113,16 +112,63 @@ function type explicit.
 | `credentials.ServerAddressFromHostname` | `remote.ServerAddressFromHostname` |
 | `credentials.ServerAddressFromRegistry` | `remote.ServerAddressFromRegistry` |
 | `credentials.ErrClientTypeUnsupported` | `remote.ErrClientTypeUnsupported` |
-| `auth.WithScopes(ctx, scopes...)` | `auth.WithScopesForHost(ctx, host, scopes...)` |
-| `auth.AppendScopes(ctx, scopes...)` | `auth.AppendScopesForHost(ctx, host, scopes...)` |
-| `auth.GetScopes(ctx)` | `auth.GetScopesForHost(ctx, host)` |
-| `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForHost(ctx, host)` |
+| `auth.WithScopes(ctx, scopes...)` | `auth.WithScopesForResource(ctx, properties.Resource, scopes...)` |
+| `auth.AppendScopes(ctx, scopes...)` | `auth.AppendScopesForResource(ctx, properties.Resource, scopes...)` |
+| `auth.GetScopes(ctx)` | `auth.GetScopesForResource(ctx, properties.Resource)` |
+| `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForResource(ctx, properties.Resource)` |
 | `auth.AppendRepositoryScope(ctx, registry.Reference, actions...)` | `auth.AppendRepositoryScope(ctx, properties.Reference, actions...)` |
+| `string` scope, e.g. `"repository:hello-world:pull,push"` | `auth.Scope`, built with `auth.ScopeRepository` or `auth.ParseScope` |
+| `auth.ScopeRepository(repo, actions...) string` | `auth.ScopeRepository(repo, actions...) auth.Scope` |
+| `auth.ScopeRegistryCatalog` (const) | `auth.ScopeRegistryCatalog()` (function) |
+| `auth.CleanScopes([]string) []string` | `auth.CleanScopes([]auth.Scope) []auth.Scope` |
+| `auth.TokenParams.Scopes []string` | `auth.TokenParams.Scopes []auth.Scope` |
 
-Scope hints are host-specific in v3. Pass the host of the registry request,
-normally from `properties.Reference.Host()`, to the replacement functions. The
-host must match the request host; for example, a `docker.io` reference resolves
-to `registry-1.docker.io`.
+#### Scopes are values, not strings
+
+A scope is an `auth.Scope` in v3 rather than a `"<type>:<name>:<actions>"`
+string. Build one with `auth.ScopeRepository`, `auth.ScopeRegistryCatalog` or,
+for a scope that arrives as a string, `auth.ParseScope`, which returns an error
+wrapping `errdef.ErrInvalidScope`:
+
+```go
+// v2
+scope := auth.ScopeRepository("hello-world", auth.ActionPull, auth.ActionPush)
+
+// v3
+scope := auth.ScopeRepository("hello-world", auth.ActionPull, auth.ActionPush)
+scope, err := auth.ParseScope("repository:hello-world:pull,push") // from a string
+```
+
+An implementation of `auth.TokenFetcher` receives `[]auth.Scope` and serializes
+them with `Scope.String()`; it no longer has to parse scope strings apart.
+
+A malformed `scope` parameter in a registry's `WWW-Authenticate` challenge now
+fails the request instead of being forwarded to the token server verbatim. A
+single token with no colon is not malformed: `public.ecr.aws` challenges with
+`scope="aws"`, which is parsed as an opaque scope and forwarded unchanged.
+
+#### Scope hints are keyed by resource
+
+Scope hints were keyed by host in v2 and in `v3.0.0-rc.1`, so every namespace of
+one registry shared a single bucket. They are keyed by `properties.Resource` in
+v3, matching the credential lookup. Pass the resource the request addresses,
+normally from `properties.Reference.Resource()`:
+
+```go
+// hints for a whole registry, equivalent to the v2 per-host behavior
+ctx = auth.WithScopesForResource(ctx, properties.Resource{Registry: "registry.example.com"}, scopes...)
+
+// hints for one namespace, which do not ride along on requests to another
+ctx = auth.WithScopesForResource(ctx, properties.Resource{
+	Registry: "registry.example.com",
+	Path:     "myspace",
+}, scopes...)
+```
+
+A hint applies to the resource it was registered for and to everything below it,
+so registry-wide hints still reach every request. Unlike the host key, the
+resource `Registry` is the canonical registry name rather than the dialed host:
+use `docker.io`, not `registry-1.docker.io`.
 
 For example:
 
@@ -265,6 +311,80 @@ effective := repo.ReferrersCapability()
 
 `remote.ErrReferrersCapabilityAlreadySet` was removed.
 
+### File store constructors
+
+`file.NewWithFallbackLimit` and `file.NewWithFallbackStorage` were removed.
+`file.New` is unchanged; every other configuration goes through
+`file.NewWithOptions`:
+
+| v2 | v3 |
+| --- | --- |
+| `file.NewWithFallbackLimit(dir, limit)` | `file.NewWithOptions(dir, file.StoreOptions{FallbackLimit: limit})` |
+| `file.NewWithFallbackStorage(dir, storage)` | `file.NewWithOptions(dir, file.StoreOptions{FallbackStorage: storage})` |
+
+`FallbackStorage` and `FallbackLimit` cannot both be set, and a negative
+`FallbackLimit` is rejected; both return `file.ErrInvalidStoreOptions`.
+For an unlimited fallback, set `FallbackStorage: memory.New()`.
+
+`StoreOptions.DigestAlgorithm` selects the algorithm for the digests that
+`Store.Add` computes (SHA-256 by default, SHA-384 or SHA-512 otherwise).
+
+### File store directory annotation keys
+
+The file store marks a packed directory with two annotations: a digest of the
+uncompressed tar and a flag that triggers unpacking. In v3 these keys move from
+the `io.deis.oras.content` namespace, which the project does not control, to
+`land.oras.content` under a domain owned by the project. The `io.deis` values
+remain available as deprecated constants:
+
+| v2 | v3 |
+| --- | --- |
+| `file.AnnotationDigest` = `io.deis.oras.content.digest` | `file.AnnotationDigest` = `land.oras.content.digest` |
+| `file.AnnotationUnpack` = `io.deis.oras.content.unpack` | `file.AnnotationUnpack` = `land.oras.content.unpack` |
+| — | `file.AnnotationDigestLegacy` = `io.deis.oras.content.digest` (deprecated) |
+| — | `file.AnnotationUnpackLegacy` = `io.deis.oras.content.unpack` (deprecated) |
+
+The existing constant names and types are unchanged, so code that references
+them still compiles. However, their values have changed. Code that hardcodes
+the `io.deis` strings, or that compares a descriptor's annotations against
+those strings, must be updated.
+
+The dual-key format maintains compatibility with older clients while allowing v3 to read legacy artifacts:
+
+- `Store.Add` writes **both** key pairs for a directory. Artifacts created by
+  v3 can still be unpacked by oras-go v2 and the oras CLI, which only read the
+  `io.deis` keys. Without this, an older client would pull a v3 directory
+  artifact and silently save it as a single `.tar.gz`.
+- On unpack, the `land.oras` keys take precedence when their values are
+  non-empty. For both the unpack flag and the digest, an empty value falls
+  back to the other key. Artifacts pushed by earlier releases continue to
+  work.
+- If both unpack keys are present with non-empty values that disagree, such as
+  `"true"` and `"false"`, or `"TRUE"` and `"true"`, the push fails rather than
+  letting v2 and v3 unpack the same artifact differently.
+- If both digest keys are set to different values and the unpack annotation is
+  `true`, the push fails rather than picking one. This validation applies
+  whether or not `Store.SkipUnpack` is set.
+- `Store.SkipUnpack` still overrides the unpack annotation, for both the new and
+  the deprecated keys. It controls extraction, not digest-annotation conflict
+  validation.
+
+Two consequences are worth planning for:
+
+- **Manifest digests change for directory layers.** The extra annotations are
+  part of the manifest that references the layer. The layer digest itself, which
+  covers the compressed blob, does not change. Code that pins or compares
+  manifest digests for artifacts containing a directory, including users of
+  `Store.TarReproducible` and `Store.TarModTime`, will see different values
+  across v2 and v3.
+- **Descriptors for a directory now carry four annotations** instead of two
+  (five with `org.opencontainers.image.title`). Consumers that assume a fixed
+  annotation set should be checked.
+
+The legacy annotation keys will continue to be read. Removing the legacy keys,
+and eventually dropping the deprecated constants, is deferred to a later major
+release.
+
 ### Removed v3 development APIs
 
 Applications that tested against pre-release v3 snapshots may also need these
@@ -281,9 +401,17 @@ changes:
   `properties.Attributes.ForceBasicAuth`. The option was never consumed. The
   registry's `WWW-Authenticate` challenge selects the authentication scheme;
   `token-flow` selects how a bearer token is acquired.
+- Replace `remote.NewRegistryWithProperties(props, builder)` and
+  `remote.NewRepositoryWithProperties(props, builder)` with
+  `builder.NewRegistry(props)` and `builder.NewRepository(props)`. A nil
+  builder used to mean `remote.NewClientBuilder()`; call it explicitly.
 
 ## Observable behavior changes
 
+- `content/file` writes the directory annotation keys under both `land.oras` and
+  `io.deis`, and reads the former in preference to the latter. Manifests that
+  reference a directory layer therefore have a different digest in v3 than in
+  v2. See [File store directory annotation keys](#file-store-directory-annotation-keys).
 - `remote.NewRepository` returns an error wrapping `errdef.ErrInvalidReference`
   when the reference contains a tag or digest (e.g.
   `localhost:5000/example:v1`). In v2 such a reference was accepted and the
@@ -302,6 +430,14 @@ changes:
   `ExtendedCopyGraphOptions.FindPredecessors` and the source storage it queries
   may be called from several goroutines. Implementations that keep state must
   synchronize access to it. In v2 the lookups ran one node at a time.
+- The default retry policy honors the `Retry-After` response header of any
+  retryable response (including 429 and 503), in both delta-seconds and
+  HTTP-date forms, up to the new `retry.GenericPolicy.MaxRetryAfter`
+  (60 seconds by default). `MaxWait` is raised from 3 seconds to 10 seconds,
+  so the worst-case total wait rises from ~7 seconds to ~5 minutes for
+  callers without a context deadline. Callers who want the old fail-fast
+  behavior can set `Transport.Policy` or `ClientBuilder.RetryPolicy` to a
+  `retry.GenericPolicy` literal with the old values.
 
 ## Major additions in v3
 

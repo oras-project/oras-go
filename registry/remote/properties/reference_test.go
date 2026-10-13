@@ -433,6 +433,64 @@ func TestReference_Host(t *testing.T) {
 	}
 }
 
+func TestReference_Resource(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  Reference
+		want Resource
+	}{
+		{
+			name: "registry only",
+			ref: Reference{
+				Registry: "registry.example.com",
+			},
+			want: Resource{Registry: "registry.example.com"},
+		},
+		{
+			name: "repository",
+			ref: Reference{
+				Registry:   "registry.example.com",
+				Repository: "namespace/app",
+			},
+			want: Resource{Registry: "registry.example.com", Path: "namespace/app"},
+		},
+		{
+			name: "tag and digest are dropped",
+			ref: Reference{
+				Registry:   "registry.example.com",
+				Repository: "app",
+				Tag:        "latest",
+				Digest:     "sha256:b5b2b2c507a0944348e0303114d8d93aaaa081732b86451d9bce1f432a537bc7",
+			},
+			want: Resource{Registry: "registry.example.com", Path: "app"},
+		},
+		{
+			name: "registry is lower-cased",
+			ref: Reference{
+				Registry:   "Registry.Example.COM",
+				Repository: "app",
+			},
+			want: Resource{Registry: "registry.example.com", Path: "app"},
+		},
+		{
+			name: "docker.io keeps its canonical name",
+			ref: Reference{
+				Registry:   "docker.io",
+				Repository: "library/hello-world",
+			},
+			want: Resource{Registry: "docker.io", Path: "library/hello-world"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.ref.Resource(); got != tt.want {
+				t.Errorf("Resource() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestReference_String(t *testing.T) {
 	tests := []struct {
 		name string

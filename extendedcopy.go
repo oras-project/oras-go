@@ -44,6 +44,8 @@ type findRootsOptions struct {
 }
 
 // DefaultExtendedCopyOptions provides the default ExtendedCopyOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultExtendedCopyOptions ExtendedCopyOptions = ExtendedCopyOptions{
 	ExtendedCopyGraphOptions: DefaultExtendedCopyGraphOptions,
 }
@@ -54,6 +56,8 @@ type ExtendedCopyOptions struct {
 }
 
 // DefaultExtendedCopyGraphOptions provides the default ExtendedCopyGraphOptions.
+// It is the zero value, provided for convenience. Do not modify it: the
+// change would apply to every caller in the process that passes it.
 var DefaultExtendedCopyGraphOptions ExtendedCopyGraphOptions = ExtendedCopyGraphOptions{
 	CopyGraphOptions: DefaultCopyGraphOptions,
 }

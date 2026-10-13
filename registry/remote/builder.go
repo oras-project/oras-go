@@ -62,7 +62,7 @@ type ClientBuilder struct {
 	TokenFetcher auth.TokenFetcher
 
 	// PolicyEvaluator is an optional policy evaluator for allow/deny decisions.
-	// If set, repositories created by NewRepositoryWithProperties will
+	// If set, repositories created by NewRepository will
 	// automatically enforce policy on read/write operations.
 	PolicyEvaluator *policy.Evaluator
 
@@ -285,18 +285,17 @@ func (b *ClientBuilder) buildHeader(transport properties.Transport) http.Header 
 	return header
 }
 
-// NewRegistryWithProperties creates a Registry from registry properties
-// using the given ClientBuilder.
-func NewRegistryWithProperties(props *properties.Registry, builder *ClientBuilder) (*Registry, error) {
+// NewRegistry creates a Registry from registry properties using the
+// configuration of b. Unlike the package-level [NewRegistry], which takes a
+// registry name, it applies the TLS, credential, retry and policy settings
+// from props and b.
+func (b *ClientBuilder) NewRegistry(props *properties.Registry) (*Registry, error) {
 	if props == nil {
 		return nil, fmt.Errorf("registry properties cannot be nil")
 	}
-	if builder == nil {
-		builder = NewClientBuilder()
-	}
 
 	// Build auth client
-	client, err := builder.Build(props)
+	client, err := b.Build(props)
 	if err != nil {
 		return nil, err
 	}
@@ -306,26 +305,24 @@ func NewRegistryWithProperties(props *properties.Registry, builder *ClientBuilde
 		Client:    client,
 		Reference: properties.Reference{Registry: props.Reference.Registry},
 		PlainHTTP: props.Transport.PlainHTTP,
-		Policy:    builder.PolicyEvaluator,
+		Policy:    b.PolicyEvaluator,
 	}
 
-	if logger := builder.warningLogger(); logger != nil {
+	if logger := b.warningLogger(); logger != nil {
 		reg.HandleWarning = NewWarningLogger(props.Reference.Registry, logger)
 	}
 
 	return reg, nil
 }
 
-// NewRepositoryWithProperties creates a Repository from registry properties
-// using the given ClientBuilder.
-func NewRepositoryWithProperties(props *properties.Registry, builder *ClientBuilder) (*Repository, error) {
-	if builder == nil {
-		builder = NewClientBuilder()
-	}
-
-	// Share one construction path with NewRegistryWithProperties so the two
-	// cannot drift in what they configure.
-	reg, err := NewRegistryWithProperties(props, builder)
+// NewRepository creates a Repository from registry properties using the
+// configuration of b. Unlike the package-level [NewRepository], which takes a
+// reference string, it applies the TLS, credential, retry, policy and mirror
+// settings from props and b.
+func (b *ClientBuilder) NewRepository(props *properties.Registry) (*Repository, error) {
+	// Share one construction path with NewRegistry so the two cannot drift in
+	// what they configure.
+	reg, err := b.NewRegistry(props)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +342,7 @@ func NewRepositoryWithProperties(props *properties.Registry, builder *ClientBuil
 	}
 
 	// Build mirror repositories
-	mirrors, err := buildMirrorRepositories(props, builder)
+	mirrors, err := buildMirrorRepositories(props, b)
 	if err != nil {
 		return nil, err
 	}
