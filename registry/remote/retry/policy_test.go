@@ -314,7 +314,9 @@ func Test_GenericPolicy_Retry(t *testing.T) {
 			}(),
 			attempt: 0,
 			resp:    respWith(http.StatusTooManyRequests, future),
-			minWait: 29 * time.Second,
+			// future loses its sub-second part as an HTTP-date, so the wait
+			// can dip just below 29s
+			minWait: 28 * time.Second,
 			maxWait: 33 * time.Second,
 		},
 		{
