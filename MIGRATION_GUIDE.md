@@ -405,6 +405,10 @@ changes:
   `remote.NewRepositoryWithProperties(props, builder)` with
   `builder.NewRegistry(props)` and `builder.NewRepository(props)`. A nil
   builder used to mean `remote.NewClientBuilder()`; call it explicitly.
+- Remove uses of `oras.CopyOptions.PolicyCheck` and run the check before
+  calling `oras.Copy` instead.
+- Remove uses of `remote.RepositoryMiddleware` and `remote.Compose`; neither
+  has a replacement.
 
 ## Observable behavior changes
 
@@ -464,9 +468,8 @@ changes:
   logging with sensitive-header redaction and bounded response bodies.
 - **Tag deletion:** `remote.Repository.Untag` deletes a tag without deleting
   the referenced manifest.
-- **Copy diagnostics and policy:** `oras.CopyError.Descriptor` identifies the
-  failing content, and `oras.CopyOptions.PolicyCheck` can reject a copy before
-  content transfer begins.
+- **Copy diagnostics:** `oras.CopyError.Descriptor` identifies the failing
+  content.
 
 For current API documentation and examples, see
 [pkg.go.dev](https://pkg.go.dev/github.com/oras-project/oras-go/v3).
