@@ -17,8 +17,13 @@ package retry
 
 import (
 	"errors"
+	"io"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -122,6 +127,13 @@ func Test_ExponentialBackoff_RetryAfter(t *testing.T) {
 
 func Test_GenericPolicy_Retry_NoRetry(t *testing.T) {
 	predicateErr := errors.New("predicate error")
+	unrelatedErr := errors.New("unrelated error")
+	// a connection refused wrapped the way net/http returns it
+	refusedErr := &url.Error{
+		Op:  "Get",
+		URL: "https://registry.example/v2/repo/tags/list",
+		Err: &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)},
+	}
 	testCases := []struct {
 		name    string
 		policy  *GenericPolicy
@@ -167,6 +179,32 @@ func Test_GenericPolicy_Retry_NoRetry(t *testing.T) {
 			attempt: 0,
 			wantErr: predicateErr,
 		},
+		{
+			name: "no retry on an unrelated error",
+			policy: &GenericPolicy{
+				Retryable: DefaultPredicate,
+				Backoff:   DefaultBackoff,
+				MinWait:   200 * time.Millisecond,
+				MaxWait:   3 * time.Second,
+				MaxRetry:  5,
+			},
+			attempt: 0,
+			err:     unrelatedErr,
+			wantErr: unrelatedErr,
+		},
+		{
+			name: "no retry on connection refused",
+			policy: &GenericPolicy{
+				Retryable: DefaultPredicate,
+				Backoff:   DefaultBackoff,
+				MinWait:   200 * time.Millisecond,
+				MaxWait:   3 * time.Second,
+				MaxRetry:  5,
+			},
+			attempt: 0,
+			err:     refusedErr,
+			wantErr: refusedErr,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -207,6 +245,7 @@ func Test_GenericPolicy_Retry(t *testing.T) {
 		policy  *GenericPolicy
 		attempt int
 		resp    *http.Response
+		err     error
 		minWait time.Duration
 		maxWait time.Duration
 	}{
@@ -445,12 +484,38 @@ func Test_GenericPolicy_Retry(t *testing.T) {
 			minWait: 500 * time.Millisecond,
 			maxWait: 500 * time.Millisecond,
 		},
+		{
+			name:    "connection reset by peer retried with the backoff",
+			policy:  base(),
+			attempt: 0,
+			// wrapped the way net/http returns a reset read on a fresh
+			// connection, which it does not retry on its own
+			err: &url.Error{
+				Op:  "Get",
+				URL: "https://registry.example/v2/repo/tags/list",
+				Err: &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)},
+			},
+			minWait: 225 * time.Millisecond,
+			maxWait: 275 * time.Millisecond,
+		},
+		{
+			name:    "unexpected EOF retried with the backoff",
+			policy:  base(),
+			attempt: 0,
+			err: &url.Error{
+				Op:  "Get",
+				URL: "https://registry.example/v2/repo/tags/list",
+				Err: io.ErrUnexpectedEOF,
+			},
+			minWait: 225 * time.Millisecond,
+			maxWait: 275 * time.Millisecond,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// iterate so that bounds hold for every jitter outcome
 			for range 100 {
-				wait, err := tc.policy.Retry(tc.attempt, tc.resp, nil)
+				wait, err := tc.policy.Retry(tc.attempt, tc.resp, tc.err)
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
