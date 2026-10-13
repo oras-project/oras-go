@@ -62,6 +62,17 @@ type VerifyReport struct {
 	// or the entry is not a blob file. These are the paths [Store.GC] would
 	// skip.
 	Unverifiable []VerifyEntry
+	// Layout lists problems with the structure of the layout outside of
+	// blobs/: a missing or invalid oci-layout or index.json, and the
+	// leftovers of interrupted writes (files in ingest/ and temporary
+	// index.json or oci-layout files in the layout root). Nothing is deleted,
+	// so no leftover expiry applies; each leftover carries its modification
+	// time instead.
+	//
+	// Layout findings do not indicate corrupt content, and a layout that once
+	// had a write killed is not corrupt, so they are kept apart from Failed.
+	// A layout problem never stops the verification of blobs.
+	Layout []LayoutFinding
 }
 
 // VerifyEntry is the result of inspecting a single path under blobs/.
@@ -84,6 +95,7 @@ type verifyAccumulator struct {
 	verified     []VerifyEntry
 	failed       []VerifyEntry
 	unverifiable []VerifyEntry
+	layout       []LayoutFinding
 }
 
 func (a *verifyAccumulator) addVerified(p string) {
@@ -104,6 +116,12 @@ func (a *verifyAccumulator) addUnverifiable(p string, reason error) {
 	a.mu.Unlock()
 }
 
+func (a *verifyAccumulator) addLayout(f LayoutFinding) {
+	a.mu.Lock()
+	a.layout = append(a.layout, f)
+	a.mu.Unlock()
+}
+
 func (a *verifyAccumulator) report() *VerifyReport {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -111,18 +129,22 @@ func (a *verifyAccumulator) report() *VerifyReport {
 		Verified:     append([]VerifyEntry(nil), a.verified...),
 		Failed:       append([]VerifyEntry(nil), a.failed...),
 		Unverifiable: append([]VerifyEntry(nil), a.unverifiable...),
+		Layout:       append([]LayoutFinding(nil), a.layout...),
 	}
 }
 
 // Verify walks the blobs directory of an OCI image layout in fsys and checks
 // that each blob's content matches the digest named by its path.
 //
-// Verify is read-only: it does not create, modify, or remove any file in fsys.
-// It does not read index.json and does not compute reachability.
+// It also reports problems with the structure of the layout itself in
+// [VerifyReport.Layout].
 //
-// A blob that fails verification does not stop the sweep. The returned error
-// is reserved for context cancellation and for a blobs directory that cannot
-// be read. On cancellation after the walk has started, the report describes
+// Verify is read-only: it does not create, modify, or remove any file in fsys.
+// It does not compute reachability.
+//
+// A blob that fails verification, or a problem with the layout files, does not
+// stop the sweep. The returned error is reserved for context cancellation and
+// for a layout root or blobs directory that cannot be read. On cancellation after the walk has started, the report describes
 // the entries processed before the sweep stopped.
 func Verify(ctx context.Context, fsys fs.FS, opts VerifyOptions) (*VerifyReport, error) {
 	if err := isContextDone(ctx); err != nil {
@@ -133,12 +155,16 @@ func Verify(ctx context.Context, fsys fs.FS, opts VerifyOptions) (*VerifyReport,
 		concurrency = defaultVerifyConcurrency
 	}
 
+	acc := &verifyAccumulator{}
+	if err := verifyLayout(ctx, fsys, acc); err != nil {
+		return nil, err
+	}
+
 	algDirs, err := fs.ReadDir(fsys, ocispec.ImageBlobsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", ocispec.ImageBlobsDir, err)
 	}
 
-	acc := &verifyAccumulator{}
 	var toHash []hashItem
 	for _, algDir := range algDirs {
 		if err := isContextDone(ctx); err != nil {
