@@ -16,6 +16,12 @@ limitations under the License.
 package retry
 
 import (
+	"errors"
+	"io"
+	"net"
+	"net/url"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -85,6 +91,66 @@ func Test_ExponentialBackoff_NoJitter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if b := backoff(tc.attempt, nil); b != tc.expectedBackoff {
 				t.Errorf("expected backoff to be %s, got %s", tc.expectedBackoff, b)
+			}
+		})
+	}
+}
+
+func Test_DefaultPredicate(t *testing.T) {
+	unrelatedErr := errors.New("unrelated error")
+	// connection errors wrapped the way net/http returns them
+	resetErr := &url.Error{
+		Op:  "Get",
+		URL: "https://registry.example/v2/repo/tags/list",
+		Err: &net.OpError{Op: "read", Net: "tcp", Err: os.NewSyscallError("read", syscall.ECONNRESET)},
+	}
+	unexpectedEOFErr := &url.Error{
+		Op:  "Get",
+		URL: "https://registry.example/v2/repo/tags/list",
+		Err: io.ErrUnexpectedEOF,
+	}
+	refusedErr := &url.Error{
+		Op:  "Get",
+		URL: "https://registry.example/v2/repo/tags/list",
+		Err: &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)},
+	}
+	testCases := []struct {
+		name      string
+		err       error
+		wantRetry bool
+		wantErr   error
+	}{
+		{
+			// a reset read on a fresh connection, which net/http does not
+			// retry on its own
+			name:      "connection reset by peer should be retried",
+			err:       resetErr,
+			wantRetry: true,
+		},
+		{
+			name:      "unexpected EOF should be retried",
+			err:       unexpectedEOFErr,
+			wantRetry: true,
+		},
+		{
+			name:    "connection refused should not be retried",
+			err:     refusedErr,
+			wantErr: refusedErr,
+		},
+		{
+			name:    "an unrelated error should not be retried",
+			err:     unrelatedErr,
+			wantErr: unrelatedErr,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			retry, err := DefaultPredicate(nil, tc.err)
+			if err != tc.wantErr {
+				t.Errorf("expected error %v, got %v", tc.wantErr, err)
+			}
+			if retry != tc.wantRetry {
+				t.Errorf("expected retry %v, got %v", tc.wantRetry, retry)
 			}
 		})
 	}

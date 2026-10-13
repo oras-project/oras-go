@@ -16,12 +16,15 @@ limitations under the License.
 package retry
 
 import (
+	"errors"
 	"hash/maphash"
+	"io"
 	"math"
 	"math/rand/v2"
 	"net"
 	"net/http"
 	"strconv"
+	"syscall"
 	"time"
 )
 
@@ -39,11 +42,18 @@ var DefaultPolicy Policy = &GenericPolicy{
 }
 
 // DefaultPredicate is a predicate that retries on 5xx errors, 429 Too Many
-// Requests, 408 Request Timeout and on network dial timeout.
+// Requests, 408 Request Timeout, on network dial timeout, and on a connection
+// reset by peer or an unexpected EOF, which net/http does not retry on its own
+// when the connection was not reused.
 var DefaultPredicate Predicate = func(resp *http.Response, err error) (bool, error) {
 	if err != nil {
 		// retry on Dial timeout
 		if err, ok := err.(net.Error); ok && err.Timeout() {
+			return true, nil
+		}
+		// retry on connection reset by peer and unexpected EOF, which
+		// net/http only retries on its own for a reused connection
+		if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return true, nil
 		}
 		return false, err
