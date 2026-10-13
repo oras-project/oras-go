@@ -2168,6 +2168,84 @@ func TestRepository_Referrers_TagSchemaFallback_NotFound(t *testing.T) {
 	}
 }
 
+func TestRepository_Referrers_TagSchemaFallback_NameUnknown(t *testing.T) {
+	// Some registries answer the Referrers API with 404 NAME_UNKNOWN for an
+	// existing repository. Referrers stored with the tag schema must still be
+	// found, and the Referrers API capability must not be cached.
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	referrers := []ocispec.Descriptor{
+		{
+			MediaType:    ocispec.MediaTypeImageManifest,
+			Digest:       "sha256:baf18f0d9f3f6d8bdfe2a9a9a2bd5ee2a1a8bd43ec5e2a4e1e5e83b6a8ab9c7d",
+			Size:         3,
+			ArtifactType: "application/vnd.test",
+		},
+	}
+	index := ocispec.Index{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: referrers,
+	}
+	indexJSON, err := json.Marshal(index)
+	if err != nil {
+		t.Fatalf("failed to marshal index: %v", err)
+	}
+	var referrersAPICalls int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		referrersUrl := "/v2/test/referrers/" + manifestDesc.Digest.String()
+		referrersTag := strings.Replace(manifestDesc.Digest.String(), ":", "-", 1)
+		tagSchemaUrl := "/v2/test/manifests/" + referrersTag
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == referrersUrl:
+			referrersAPICalls++
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{ "errors": [ { "code": "NAME_UNKNOWN", "message": "repository name not known to registry" } ] }`))
+		case r.Method == http.MethodGet && r.URL.Path == tagSchemaUrl:
+			w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+			w.Header().Set("Docker-Content-Digest", digest.FromBytes(indexJSON).String())
+			w.Write(indexJSON)
+		default:
+			t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	ctx := context.Background()
+
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	for i := range 2 {
+		var got []ocispec.Descriptor
+		if err := repo.Referrers(ctx, manifestDesc, "", func(page []ocispec.Descriptor) error {
+			got = append(got, page...)
+			return nil
+		}); err != nil {
+			t.Fatalf("Repository.Referrers() call %d error = %v", i, err)
+		}
+		if !reflect.DeepEqual(got, referrers) {
+			t.Errorf("Repository.Referrers() call %d = %v, want %v", i, got, referrers)
+		}
+		if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
+			t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
+		}
+	}
+	if referrersAPICalls != 2 {
+		t.Errorf("Referrers API calls = %d, want 2", referrersAPICalls)
+	}
+}
+
 func TestRepository_Referrers_TagSchemaFallback_ContentType(t *testing.T) {
 	manifest := []byte(`{"layers":[]}`)
 	manifestDesc := ocispec.Descriptor{
@@ -2543,7 +2621,8 @@ func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	// test auto detect
-	// repository not found, should return error
+	// repository not found, should fall back to the tag schema without error
+	// and without caching the Referrers API capability
 	repo, err := NewRepository(uri.Host + "/test")
 	if err != nil {
 		t.Fatalf("NewRepository() error = %v", err)
@@ -2553,9 +2632,10 @@ func TestRepository_Referrers_RepositoryNotFound(t *testing.T) {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
 	}
 	if err := repo.Referrers(ctx, manifestDesc, "", func(got []ocispec.Descriptor) error {
+		t.Errorf("Repository.Referrers() fn called with %v, want no referrers", got)
 		return nil
-	}); err == nil {
-		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, true)
+	}); err != nil {
+		t.Errorf("Repository.Referrers() error = %v, wantErr %v", err, nil)
 	}
 	if state := repo.loadReferrersState(); state != properties.ReferrersAPIUnknown {
 		t.Errorf("Repository.loadReferrersState() = %v, want %v", state, properties.ReferrersAPIUnknown)
