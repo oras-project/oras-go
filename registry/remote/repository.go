@@ -893,6 +893,15 @@ func (r *Repository) Referrers(ctx context.Context, desc ocispec.Descriptor, art
 			r.SetReferrersCapability(false)
 			return r.referrersByTagSchema(ctx, desc, artifactType, fn)
 		}
+		if errutil.IsErrorCode(err, errcode.ErrorCodeNameUnknown) {
+			// The registry answered 404 NAME_UNKNOWN. The distribution spec
+			// requires a fallback to the referrers tag schema on any 404 from
+			// the Referrers API, but NAME_UNKNOWN may only mean that the
+			// repository does not exist yet, so the Referrers API capability
+			// stays unknown and is probed again next time.
+			// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#unavailable-referrers-api
+			return r.referrersByTagSchema(ctx, desc, artifactType, fn)
+		}
 		return err
 	}
 
