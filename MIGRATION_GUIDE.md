@@ -259,6 +259,19 @@ fmt.Println(ref.Registry, ref.Repository, ref.Tag)
 
 The parsers also accept `oci://`, `http://`, and `https://` prefixes.
 
+During the transition, `oras.Tag` and `oras.TagN` also honor the legacy parser
+signature:
+
+```go
+ParseReference(string) (registry.Reference, error)
+```
+
+Targets that expose this method continue to receive repository authentication
+scope hints while they migrate to `properties.Reference`. This compatibility is
+temporary and will be removed together with the deprecated `registry.Reference`
+type in a future major release. After removal, targets that still expose only
+the legacy signature silently stop receiving those scope hints.
+
 The exported reference surfaces in `registry/remote` use the properties type:
 
 | Deprecated type | Replacement |
@@ -389,6 +402,11 @@ release.
 
 Applications that tested against pre-release v3 snapshots may also need these
 changes:
+
+- Update `remote.ClientBuilder.CredentialStore` assignments from
+  `credentials.Store` to `credentials.Getter`. The field was introduced during
+  `v3.0.0-rc.1` development and now requires only the store's `Get` method, so a
+  read-only credential provider no longer needs to implement store mutation APIs.
 
 - Remove calls to `credentials.SetDefaultConfigLoader`. The credentials
   package now loads configuration directly.
