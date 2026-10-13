@@ -198,7 +198,7 @@ func Test_GenericPolicy_Retry(t *testing.T) {
 			MaxRetry:  5,
 		}
 	}
-	future := time.Now().Add(30 * time.Second).UTC().Format(http.TimeFormat)
+	future := time.Now().Truncate(time.Second).Add(31 * time.Second).UTC().Format(http.TimeFormat)
 	farFuture := time.Now().Add(10 * time.Minute).UTC().Format(http.TimeFormat)
 	past := time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)
 
