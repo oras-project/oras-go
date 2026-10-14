@@ -56,7 +56,7 @@ jobs:
         # Writes a kubeconfig to the default path (~/.kube/config), which the
         # suite's buildKubeConfig() reads. TestMain deploys zot into the
         # cluster from test/functional/testdata/k8s.
-        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
       - name: Run k8sfunctional tests
         working-directory: test/functional
         # The suite is behind the k8sfunctional build tag; without it go test
@@ -78,7 +78,7 @@ jobs:
           go-version: '1.26'
           check-latest: true
       - name: Create kind cluster
-        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
       - name: Deploy registries and run functional tests
         working-directory: test/functional
         # setup.sh backgrounds the port-forwards, so deploy and test share one
