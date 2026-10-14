@@ -7,7 +7,7 @@ require (
 	github.com/distribution/distribution/v3 v3.1.2
 	github.com/docker/cli v29.9.0+incompatible
 	github.com/docker/distribution v2.8.3+incompatible
-	github.com/docker/go-connections v0.8.1
+	github.com/docker/go-connections v0.8.2
 	github.com/moby/moby/api v1.56.1
 	github.com/moby/moby/v2 v2.0.0-beta.21
 	github.com/opencontainers/go-digest v1.0.0
