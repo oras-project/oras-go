@@ -9460,6 +9460,17 @@ type readerOnly struct {
 	io.Reader
 }
 
+// readSeekCloserOnly is a seekable io.ReadCloser that is NOT a stdlib built-in.
+// Wrapped in io.NopCloser it is the shape where completePushAfterInitialPost's
+// "undo unwrap if the nopCloser is intended" guard reverts the request body
+// back to the NopCloser (the unwrapped inner is a ReadCloser), so the Seeker is
+// only visible on the unwrapped value.
+type readSeekCloserOnly struct {
+	io.ReadSeeker
+}
+
+func (readSeekCloserOnly) Close() error { return nil }
+
 // roundTripperFunc adapts a function to http.RoundTripper.
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
@@ -9499,6 +9510,11 @@ func Test_BlobStore_Push_GetBody(t *testing.T) {
 			name:        "seekable non-built-in",
 			content:     func() io.Reader { return readSeekerOnly{bytes.NewReader(blob)} },
 			wantGetBody: true, // set by the seekable-GetBody wiring
+		},
+		{
+			name:        "seekable ReadCloser wrapped in io.NopCloser",
+			content:     func() io.Reader { return io.NopCloser(readSeekCloserOnly{bytes.NewReader(blob)}) },
+			wantGetBody: true, // detected on the unwrapped source despite the guard revert
 		},
 		{
 			name:        "non-seekable",
