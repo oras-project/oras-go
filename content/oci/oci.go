@@ -619,7 +619,7 @@ func (s *Store) GC(ctx context.Context) error {
 				// remove the blob from storage if it does not exist in Store
 				blobPath := path.Join(algPath, dgst)
 				if err := os.Remove(blobPath); err != nil {
-					return fmt.Errorf("failed to remove %s: %w", blobPath, err)
+					return fmt.Errorf("unable to remove %s: %w", blobPath, err)
 				}
 			}
 		}
