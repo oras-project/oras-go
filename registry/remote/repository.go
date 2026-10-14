@@ -197,7 +197,8 @@ type Repository struct {
 	// directly has no mirrors.
 	mirrors []mirrorRepository
 
-	// NOTE: Must keep fields in sync with clone().
+	// The fields below are not copied by clone(); it resets them.
+	// TestRepository_clone_copiesEveryField covers both groups.
 
 	// referrersState indicates whether the repository supports the Referrers
 	// API. It stores a properties.ReferrersAPI value.

@@ -8972,28 +8972,77 @@ func TestRegistry_newRepository(t *testing.T) {
 	})
 }
 
-func TestRepository_clone(t *testing.T) {
-	repo, err := NewRepository("localhost:1234/repo/image")
-	if err != nil {
-		t.Fatalf("invalid repository: %v", err)
+// TestRepository_clone_copiesEveryField fails when a field is added to
+// Repository but not to clone(), which would otherwise be silently dropped on
+// cloned repositories. Exported fields and mirrors must be copied; the
+// referrers state, ping lock and merge pool must be fresh in the clone.
+func TestRepository_clone_copiesEveryField(t *testing.T) {
+	orig := &Repository{
+		Registry:             &Registry{},
+		RepositoryName:       "repo/image",
+		ManifestMediaTypes:   []string{ocispec.MediaTypeImageManifest},
+		TagListPageSize:      1,
+		ReferrerListPageSize: 2,
+		TagListMaxPages:      3,
+		ReferrerListMaxPages: 4,
+		SkipReferrersGC:      true,
+		MaxChunkSize:         5,
+		mirrors:              []mirrorRepository{{Repository: &Repository{}, pullFromMirror: "all"}},
+	}
+	atomic.StoreInt32(&orig.referrersState, int32(properties.ReferrersAPISupported))
+	orig.referrersPingLock.Lock()
+	defer orig.referrersPingLock.Unlock()
+
+	clone := orig.clone()
+
+	origValue := reflect.ValueOf(orig).Elem()
+	cloneValue := reflect.ValueOf(clone).Elem()
+	repoType := origValue.Type()
+	wantUnexported := map[string]bool{
+		"mirrors":            true,
+		"referrersState":     true,
+		"referrersPingLock":  true,
+		"referrersMergePool": true,
+	}
+	for i := range repoType.NumField() {
+		field := repoType.Field(i)
+		if !field.IsExported() {
+			if !wantUnexported[field.Name] {
+				t.Errorf("test needs updating: new unexported field %s needs a deliberate copy-or-reset decision in clone()", field.Name)
+			}
+			continue
+		}
+		if origValue.Field(i).IsZero() {
+			t.Fatalf("test needs updating: original.%s is zero, so clone cannot be checked for it", field.Name)
+		}
+		if cloneValue.Field(i).IsZero() {
+			t.Errorf("clone() did not copy exported field %s", field.Name)
+		}
 	}
 
-	crepo := repo.clone()
-
-	if repo.Registry != crepo.Registry {
-		t.Fatal("Registry should be the same")
+	if clone.Registry != orig.Registry {
+		t.Error("clone().Registry should share the original pointer")
+	}
+	if len(orig.mirrors) == 0 {
+		t.Fatal("test needs updating: original.mirrors is empty")
+	}
+	if len(clone.mirrors) != len(orig.mirrors) {
+		t.Errorf("len(clone().mirrors) = %d, want %d", len(clone.mirrors), len(orig.mirrors))
 	}
 
-	if repo.RepositoryName != crepo.RepositoryName {
-		t.Fatal("RepositoryName should be the same")
+	clone.ManifestMediaTypes[0] = "changed"
+	if orig.ManifestMediaTypes[0] != ocispec.MediaTypeImageManifest {
+		t.Error("clone().ManifestMediaTypes should be an independent copy")
 	}
 
-	if !reflect.DeepEqual(&repo.referrersPingLock, &crepo.referrersPingLock) {
-		t.Fatal("referrersPingLock should be different")
+	if got := clone.loadReferrersState(); got != properties.ReferrersAPIUnknown {
+		t.Errorf("clone().referrersState = %v, want %v", got, properties.ReferrersAPIUnknown)
 	}
-
-	if !reflect.DeepEqual(&repo.referrersMergePool, &crepo.referrersMergePool) {
-		t.Fatal("referrersMergePool should be different")
+	if !clone.referrersPingLock.TryLock() {
+		t.Error("clone().referrersPingLock should be unlocked")
+	}
+	if !reflect.ValueOf(&clone.referrersMergePool).Elem().IsZero() {
+		t.Error("clone().referrersMergePool should be zero")
 	}
 }
 
