@@ -3338,6 +3338,39 @@ func TestStore_GCSkipsEmptyDigestNamedDirectory(t *testing.T) {
 	}
 }
 
+func TestStore_GCRemoveError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	garbage := []byte("garbage blob")
+	garbageDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, garbage)
+	if err := s.storage.Push(ctx, garbageDesc, bytes.NewReader(garbage)); err != nil {
+		t.Fatal(err)
+	}
+
+	algPath := path.Join(tempDir, ocispec.ImageBlobsDir, garbageDesc.Digest.Algorithm().String())
+	if err := os.Chmod(algPath, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(algPath, 0777) })
+
+	blobPath := path.Join(algPath, garbageDesc.Digest.Encoded())
+	err = s.GC(ctx)
+	if err == nil {
+		t.Fatal("GC() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), blobPath) {
+		t.Fatalf("GC() error = %v, want it to mention %s", err, blobPath)
+	}
+}
+
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
 	if len(actual) != len(expected) {
 		return false
