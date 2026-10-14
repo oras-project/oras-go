@@ -54,9 +54,12 @@ type Store struct {
 	//      1. pushing a manifest
 	//      2. calling Tag(), Delete(), or GC()
 	//   - If AutoSaveIndex is set to false, it's the caller's responsibility
-	//     to manually call SaveIndex() when needed. Callers doing bulk work can
-	//     avoid rewriting the index after every operation by saving it once
-	//     after the work is complete.
+	//     to manually call SaveIndex() when needed. This switch is store-wide,
+	//     so it also defers the saves of every other goroutine using the same
+	//     Store. Use it only when the Store is used exclusively by the caller.
+	//   - Callers doing bulk work on a shared Store should prefer
+	//     WithDeferredIndex, which defers only the saves made with its own
+	//     context and always saves the index when it returns.
 	//   - Default value: true.
 	AutoSaveIndex bool
 
@@ -93,6 +96,43 @@ type Store struct {
 	sync sync.RWMutex
 	// indexLock ensures that only one go-routine is writing to the index.
 	indexLock sync.Mutex
+}
+
+// indexDeferral is the state of one WithDeferredIndex scope. It travels in the
+// context passed to the scope's function.
+type indexDeferral struct {
+	store       *Store
+	mu          sync.Mutex
+	active      bool // saves are deferred while true
+	pendingSave bool // a save was deferred and has not been flushed
+}
+
+type indexDeferralKey struct{}
+
+// flush ends the deferral and saves the index if a save was deferred.
+func (d *indexDeferral) flush() error {
+	d.mu.Lock()
+	d.active = false
+	pendingSave := d.pendingSave
+	d.pendingSave = false
+	d.mu.Unlock()
+
+	if !pendingSave {
+		return nil
+	}
+	return d.store.SaveIndex()
+}
+
+// tryDefer records that a save is deferred and reports true while the scope is
+// active.
+func (d *indexDeferral) tryDefer() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.active {
+		return false
+	}
+	d.pendingSave = true
+	return true
 }
 
 // New creates a new OCI store with context.Background().
@@ -287,10 +327,7 @@ func (s *Store) tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 	if err := s.tagResolver.Tag(ctx, desc, reference); err != nil {
 		return err
 	}
-	if s.AutoSaveIndex {
-		return s.saveIndex()
-	}
-	return nil
+	return s.autoSaveIndex(ctx)
 }
 
 // Resolve resolves a reference to a descriptor.
@@ -347,10 +384,7 @@ func (s *Store) Untag(ctx context.Context, reference string) error {
 	}
 
 	s.tagResolver.Untag(reference)
-	if s.AutoSaveIndex {
-		return s.saveIndex()
-	}
-	return nil
+	return s.autoSaveIndex(ctx)
 }
 
 // Predecessors returns the nodes directly pointing to the current node.
@@ -490,9 +524,8 @@ func (s *Store) resetIndexFile() error {
 //     the OCI store will automatically save the changes to `index.json`
 //     on Tag(), Delete(), and GC() calls, and when pushing a manifest.
 //   - If AutoSaveIndex is set to false, it's the caller's responsibility
-//     to manually call this method when needed. Callers doing bulk work can
-//     avoid rewriting the index after every operation by saving it once after
-//     the work is complete.
+//     to manually call this method when needed. Callers doing bulk work on a
+//     shared Store should prefer WithDeferredIndex.
 func (s *Store) SaveIndex() error {
 	s.sync.RLock()
 	defer s.sync.RUnlock()
@@ -502,6 +535,20 @@ func (s *Store) SaveIndex() error {
 
 func (s *Store) saveIndex() error {
 	return s.saveIndexFrom(s.tagResolver)
+}
+
+// autoSaveIndex saves the index after an operation if AutoSaveIndex is set,
+// unless ctx belongs to an active WithDeferredIndex scope of s. The operation
+// has always updated the in-memory state before calling it, so a flush that
+// observes the deferral also observes that update.
+func (s *Store) autoSaveIndex(ctx context.Context) error {
+	if !s.AutoSaveIndex {
+		return nil
+	}
+	if d, ok := ctx.Value(indexDeferralKey{}).(*indexDeferral); ok && d.store == s && d.tryDefer() {
+		return nil
+	}
+	return s.saveIndex()
 }
 
 // saveIndexFrom writes the `index.json` file from the references in tagResolver.
@@ -763,6 +810,40 @@ func (s *Store) isTagged(desc ocispec.Descriptor) bool {
 		return len(tagSet) > 1
 	}
 	return len(tagSet) > 0
+}
+
+// WithDeferredIndex calls fn with a context derived from ctx, and defers the
+// saves of `index.json` made by Push and Tag (and Untag) on s with that
+// context, or a context derived from it, until fn returns. It then saves the
+// index once. For a bulk operation such as copying an image index with many
+// manifests, this replaces one whole-file write per manifest with a single
+// write.
+//
+// fn must not return until all operations it starts with the provided context
+// have completed. In particular, fn must wait for any goroutines that perform
+// store operations with that context. Operations still in flight when fn
+// returns are not covered by the final flush.
+//
+// The index is saved when fn returns, whether it succeeded, failed or
+// panicked, since the blobs fn pushed are already on disk and would otherwise
+// be left unreferenced and be removed by the next GC. The error of that save is
+// joined with the error of fn. Nothing is saved if no save was deferred, and
+// nothing is deferred (or saved) if AutoSaveIndex is false, since the caller
+// then owns saving the index.
+//
+// The context passed to fn can outlive the call; calls made with it afterwards
+// save immediately.
+//
+// The index file is only guaranteed to be up to date once WithDeferredIndex
+// returns. A process that exits before then loses the tags of the scope, but
+// never leaves a torn file.
+func (s *Store) WithDeferredIndex(ctx context.Context, fn func(ctx context.Context) error) (err error) {
+	d := &indexDeferral{store: s, active: true}
+	// deferred, so that the index is also saved if fn panics
+	defer func() {
+		err = errors.Join(err, d.flush())
+	}()
+	return fn(context.WithValue(ctx, indexDeferralKey{}, d))
 }
 
 // unsafeStore is used to bypass lock restrictions in Delete.
