@@ -17,8 +17,11 @@ package retry
 
 import (
 	"bytes"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -143,5 +146,44 @@ func Test_Client_RetryAfterHonored(t *testing.T) {
 	// the retry must wait for the Retry-After of 1s, not for MaxWait
 	if elapsed := time.Since(start); elapsed < time.Second {
 		t.Errorf("expected the retry to honor the Retry-After of 1s, took %s", elapsed)
+	}
+}
+
+func Test_Client_RetryOnConnectionReset(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a reset surfaces as WSAECONNRESET on windows, which is not retried")
+	}
+	// the two attempts are served on different connections, hence the atomic
+	var count atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if count.Add(1) > 1 {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// reset the fresh connection instead of answering, which net/http
+		// does not retry on its own
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("failed to hijack the connection: %v", err)
+			return
+		}
+		// a zero linger makes Close send a RST instead of a FIN
+		if err := conn.(*net.TCPConn).SetLinger(0); err != nil {
+			t.Errorf("failed to set linger: %v", err)
+		}
+		conn.Close()
+	}))
+	defer ts.Close()
+
+	resp, err := DefaultClient.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("failed to do test request: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	if n := count.Load(); n != 2 {
+		t.Errorf("expected attempts 2, got %d", n)
 	}
 }

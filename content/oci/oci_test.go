@@ -3256,18 +3256,118 @@ func TestStore_GCErrorPath(t *testing.T) {
 	if err = s.GC(ctx); err != nil {
 		t.Fatal("this error should be silently ignored")
 	}
+}
 
-	// os.Remove() error
-	badDigest := digest.FromBytes([]byte("bad digest")).Encoded()
-	badPath := path.Join(algPath, "sha256", badDigest)
-	if err := os.Mkdir(badPath, 0777); err != nil {
+func TestStore_GCSkipsNonEmptyDigestNamedDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	kept := []byte(`{"layers":[]}`)
+	keptDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, kept)
+	if err := s.Push(ctx, keptDesc, bytes.NewReader(kept)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path.Join(badPath, "whatever"), []byte("extra content"), 0444); err != nil {
-		t.Fatal("error calling WriteFile(), error =", err)
+	if err := s.Tag(ctx, keptDesc, "kept"); err != nil {
+		t.Fatal(err)
 	}
-	if err = s.GC(ctx); err == nil {
-		t.Fatal("expect an error when os.Remove()")
+
+	garbage := []byte("garbage blob")
+	garbageDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, garbage)
+	if err := s.storage.Push(ctx, garbageDesc, bytes.NewReader(garbage)); err != nil {
+		t.Fatal(err)
+	}
+
+	dirDigest := digest.FromBytes([]byte("directory named like a digest"))
+	dirPath := path.Join(tempDir, ocispec.ImageBlobsDir, dirDigest.Algorithm().String(), dirDigest.Encoded())
+	if err := os.Mkdir(dirPath, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path.Join(dirPath, "whatever"), []byte("extra content"), 0444); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.GC(ctx); err != nil {
+		t.Fatal("GC() error =", err)
+	}
+
+	if _, err := os.Stat(dirPath); err != nil {
+		t.Fatalf("digest-named directory should remain: %v", err)
+	}
+
+	exists, err := s.Exists(ctx, garbageDesc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("unreachable blob should have been collected")
+	}
+
+	exists, err = s.Exists(ctx, keptDesc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatal("reachable blob should remain")
+	}
+}
+
+func TestStore_GCSkipsEmptyDigestNamedDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	dirDigest := digest.FromBytes([]byte("empty directory named like a digest"))
+	dirPath := path.Join(tempDir, ocispec.ImageBlobsDir, dirDigest.Algorithm().String(), dirDigest.Encoded())
+	if err := os.MkdirAll(dirPath, 0777); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.GC(ctx); err != nil {
+		t.Fatal("GC() error =", err)
+	}
+
+	if _, err := os.Stat(dirPath); err != nil {
+		t.Fatalf("empty digest-named directory should remain: %v", err)
+	}
+}
+
+func TestStore_GCRemoveError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+
+	garbage := []byte("garbage blob")
+	garbageDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, garbage)
+	if err := s.storage.Push(ctx, garbageDesc, bytes.NewReader(garbage)); err != nil {
+		t.Fatal(err)
+	}
+
+	algPath := path.Join(tempDir, ocispec.ImageBlobsDir, garbageDesc.Digest.Algorithm().String())
+	if err := os.Chmod(algPath, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(algPath, 0777) })
+
+	blobPath := path.Join(algPath, garbageDesc.Digest.Encoded())
+	err = s.GC(ctx)
+	if err == nil {
+		t.Fatal("GC() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), blobPath) {
+		t.Fatalf("GC() error = %v, want it to mention %s", err, blobPath)
 	}
 }
 
@@ -4108,5 +4208,392 @@ func TestStore_GCIndexReferrerIndexAllFailure(t *testing.T) {
 
 	if err := s.GC(ctx); err == nil {
 		t.Fatal("GC() = nil, want an error from re-indexing a referrer's successors")
+	}
+}
+
+// countIndexWrites replaces fileWrite so that the writes of `index.json` are
+// counted, optionally failing them with err. The returned function reads the
+// count. It restores fileWrite when the test ends.
+func countIndexWrites(t *testing.T, failWith error) func() int64 {
+	t.Helper()
+
+	var n atomic.Int64
+	original := fileWrite
+	fileWrite = func(f *os.File, data []byte) (int, error) {
+		if isTempFileOf(filepath.Base(f.Name()), ocispec.ImageIndexFile) {
+			n.Add(1)
+			if failWith != nil {
+				return 0, failWith
+			}
+		}
+		return original(f, data)
+	}
+	t.Cleanup(func() { fileWrite = original })
+	return n.Load
+}
+
+// pushImage pushes the blobs of an image made by newImage to target and
+// returns the manifest descriptor, which is the last one.
+func pushImage(t *testing.T, ctx context.Context, target oras.Target, name string) ocispec.Descriptor {
+	t.Helper()
+
+	descs, blobs := newImage(t, name, 2)
+	for i, desc := range descs {
+		if err := target.Push(ctx, desc, bytes.NewReader(blobs[i])); err != nil {
+			t.Fatalf("Push(%s) error = %v", name, err)
+		}
+	}
+	return descs[len(descs)-1]
+}
+
+// reloadedTags returns the references recorded in a fresh Store on dir, and
+// so the references that survive a restart.
+func reloadedTags(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	tags := map[string]bool{}
+	for ref := range s.tagResolver.Map() {
+		tags[ref] = true
+	}
+	return tags
+}
+
+func TestStore_WithDeferredIndex_SavesOnce(t *testing.T) {
+	const manifests = 20
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	writes := countIndexWrites(t, nil)
+	ctx := context.Background()
+
+	var mfs []ocispec.Descriptor
+	err = s.WithDeferredIndex(ctx, func(ctx context.Context) error {
+		for i := range manifests {
+			mfs = append(mfs, pushImage(t, ctx, s, "image"+strconv.Itoa(i)))
+		}
+		if err := s.Tag(ctx, mfs[0], "latest"); err != nil {
+			return err
+		}
+		if got := writes(); got != 0 {
+			t.Errorf("index writes inside the scope = %d, want 0", got)
+		}
+		// the in-memory state is visible straight away
+		if _, err := s.Resolve(ctx, "latest"); err != nil {
+			t.Errorf("Resolve(latest) inside the scope error = %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal("WithDeferredIndex() error =", err)
+	}
+	if got := writes(); got != 1 {
+		t.Errorf("index writes = %d, want 1", got)
+	}
+
+	tags := reloadedTags(t, dir)
+	for _, m := range mfs {
+		if !tags[m.Digest.String()] {
+			t.Errorf("manifest %s is missing from the saved index", m.Digest)
+		}
+	}
+	if !tags["latest"] {
+		t.Error(`tag "latest" is missing from the saved index`)
+	}
+}
+
+func TestStore_WithDeferredIndex_NothingDeferredNoWrite(t *testing.T) {
+	for _, autoSave := range []bool{true, false} {
+		t.Run("AutoSaveIndex="+strconv.FormatBool(autoSave), func(t *testing.T) {
+			s, err := New(t.TempDir())
+			if err != nil {
+				t.Fatal("New() error =", err)
+			}
+			s.AutoSaveIndex = autoSave
+			writes := countIndexWrites(t, nil)
+
+			err = s.WithDeferredIndex(context.Background(), func(ctx context.Context) error {
+				if !autoSave {
+					pushImage(t, ctx, s, "image")
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal("WithDeferredIndex() error =", err)
+			}
+			// an empty scope writes nothing, and with AutoSaveIndex off the
+			// caller owns saving the index
+			if got := writes(); got != 0 {
+				t.Errorf("index writes = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestStore_WithDeferredIndex_FlushesOnError(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	fnErr := errors.New("copy failed")
+
+	var m ocispec.Descriptor
+	err = s.WithDeferredIndex(context.Background(), func(ctx context.Context) error {
+		m = pushImage(t, ctx, s, "image")
+		return fnErr
+	})
+	if !errors.Is(err, fnErr) {
+		t.Fatalf("WithDeferredIndex() error = %v, want %v", err, fnErr)
+	}
+	// the blobs are on disk, so the index must reference them, otherwise GC
+	// would remove content that was pushed successfully
+	if !reloadedTags(t, dir)[m.Digest.String()] {
+		t.Error("manifest pushed before the error is missing from the saved index")
+	}
+}
+
+func TestStore_WithDeferredIndex_JoinsFlushError(t *testing.T) {
+	flushErr := errors.New("no space left on device")
+	fnErr := errors.New("copy failed")
+
+	for _, tt := range []struct {
+		name  string
+		fnErr error
+	}{
+		{"fn error and flush error", fnErr},
+		{"flush error only", nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := New(t.TempDir())
+			if err != nil {
+				t.Fatal("New() error =", err)
+			}
+
+			err = s.WithDeferredIndex(context.Background(), func(ctx context.Context) error {
+				pushImage(t, ctx, s, "image")
+				// fail only the flush: nothing was written by the deferred pushes
+				countIndexWrites(t, flushErr)
+				return tt.fnErr
+			})
+			if !errors.Is(err, flushErr) {
+				t.Errorf("WithDeferredIndex() error = %v, want it to wrap %v", err, flushErr)
+			}
+			if tt.fnErr != nil && !errors.Is(err, tt.fnErr) {
+				t.Errorf("WithDeferredIndex() error = %v, want it to wrap %v", err, tt.fnErr)
+			}
+		})
+	}
+}
+
+func TestStore_WithDeferredIndex_FlushesOnPanic(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+
+	var m ocispec.Descriptor
+	func() {
+		defer func() {
+			if r := recover(); r != "boom" {
+				t.Errorf("recover() = %v, want the original panic", r)
+			}
+		}()
+		_ = s.WithDeferredIndex(context.Background(), func(ctx context.Context) error {
+			m = pushImage(t, ctx, s, "image")
+			panic("boom")
+		})
+	}()
+	if !reloadedTags(t, dir)[m.Digest.String()] {
+		t.Error("manifest pushed before the panic is missing from the saved index")
+	}
+}
+
+// A save made with another context is not deferred, and because it rebuilds
+// the index from every tag, it also publishes the work of the scope.
+func TestStore_WithDeferredIndex_ConcurrentTagSavesImmediately(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	writes := countIndexWrites(t, nil)
+	ctx := context.Background()
+
+	other := pushImage(t, ctx, s, "other") // saved immediately: one write
+	base := writes()
+
+	err = s.WithDeferredIndex(ctx, func(sctx context.Context) error {
+		scoped := pushImage(t, sctx, s, "scoped")
+		if got := writes(); got != base {
+			t.Errorf("index writes after a deferred push = %d, want %d", got, base)
+		}
+
+		// another goroutine tags with its own context
+		done := make(chan error)
+		go func() { done <- s.Tag(ctx, other, "from-outside") }()
+		if err := <-done; err != nil {
+			return err
+		}
+		if got := writes(); got != base+1 {
+			t.Errorf("index writes after the outside Tag = %d, want %d", got, base+1)
+		}
+
+		// the immediate save published the deferred manifest as well
+		tags := reloadedTags(t, dir)
+		if !tags["from-outside"] || !tags[scoped.Digest.String()] {
+			t.Errorf("saved index tags = %v, want from-outside and the deferred manifest", tags)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal("WithDeferredIndex() error =", err)
+	}
+}
+
+// A scope belongs to one Store: its context must not defer the saves of
+// another Store.
+func TestStore_WithDeferredIndex_OtherStoreNotDeferred(t *testing.T) {
+	s1, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	dir2 := t.TempDir()
+	s2, err := New(dir2)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+
+	err = s1.WithDeferredIndex(context.Background(), func(ctx context.Context) error {
+		m := pushImage(t, ctx, s2, "image")
+		if !reloadedTags(t, dir2)[m.Digest.String()] {
+			t.Error("a push to another Store with the scope's context was deferred")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal("WithDeferredIndex() error =", err)
+	}
+}
+
+func TestStore_WithDeferredIndex_Untag(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+	m := pushImage(t, ctx, s, "image")
+	if err := s.Tag(ctx, m, "v1"); err != nil {
+		t.Fatal("Tag() error =", err)
+	}
+	writes := countIndexWrites(t, nil)
+
+	err = s.WithDeferredIndex(ctx, func(ctx context.Context) error {
+		if err := s.Untag(ctx, "v1"); err != nil {
+			return err
+		}
+		if got := writes(); got != 0 {
+			t.Errorf("index writes after a deferred Untag = %d, want 0", got)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal("WithDeferredIndex() error =", err)
+	}
+	if got := writes(); got != 1 {
+		t.Errorf("index writes = %d, want 1", got)
+	}
+	if reloadedTags(t, dir)["v1"] {
+		t.Error(`tag "v1" is still in the saved index`)
+	}
+}
+
+// A context that outlives its scope must not keep deferring, or the saves made
+// with it would never be written.
+func TestStore_WithDeferredIndex_ContextAfterScope(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	writes := countIndexWrites(t, nil)
+	var escaped context.Context
+	if err := s.WithDeferredIndex(context.Background(), func(ctx context.Context) error {
+		escaped = ctx
+		return nil
+	}); err != nil {
+		t.Fatal("WithDeferredIndex() error =", err)
+	}
+
+	m := pushImage(t, escaped, s, "image")
+	if got := writes(); got == 0 {
+		t.Error("push with an expired scope context did not save the index immediately")
+	}
+	if !reloadedTags(t, dir)[m.Digest.String()] {
+		t.Error("a push with the context of an ended scope was not saved")
+	}
+}
+
+// oras.Copy writes from several goroutines; every manifest it pushes with the
+// scope's context must be in the index afterwards, with a single write.
+func TestStore_WithDeferredIndex_ConcurrentCopy(t *testing.T) {
+	const manifests = 30
+	ctx := context.Background()
+	src := memory.New()
+	var children []ocispec.Descriptor
+	for i := range manifests {
+		descs, blobs := newImage(t, "image"+strconv.Itoa(i), 2)
+		for j, desc := range descs {
+			if err := src.Push(ctx, desc, bytes.NewReader(blobs[j])); err != nil {
+				t.Fatal("Push() error =", err)
+			}
+		}
+		children = append(children, descs[len(descs)-1])
+	}
+	idx := ocispec.Index{MediaType: ocispec.MediaTypeImageIndex, Manifests: children}
+	idxJSON, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idxDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, idxJSON)
+	if err := src.Push(ctx, idxDesc, bytes.NewReader(idxJSON)); err != nil {
+		t.Fatal("Push() error =", err)
+	}
+	if err := src.Tag(ctx, idxDesc, "multi"); err != nil {
+		t.Fatal("Tag() error =", err)
+	}
+
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	writes := countIndexWrites(t, nil)
+
+	err = s.WithDeferredIndex(ctx, func(ctx context.Context) error {
+		_, err := oras.Copy(ctx, src, "multi", s, "multi", oras.DefaultCopyOptions)
+		return err
+	})
+	if err != nil {
+		t.Fatal("oras.Copy() error =", err)
+	}
+	if got := writes(); got != 1 {
+		t.Errorf("index writes = %d, want 1", got)
+	}
+	tags := reloadedTags(t, dir)
+	if !tags["multi"] {
+		t.Error(`tag "multi" is missing from the saved index`)
+	}
+	for _, c := range children {
+		if !tags[c.Digest.String()] {
+			t.Errorf("manifest %s is missing from the saved index", c.Digest)
+		}
 	}
 }
