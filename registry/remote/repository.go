@@ -1409,6 +1409,12 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 	if req.GetBody == nil {
 		if seeker, ok := body.(io.Seeker); ok {
 			if start, err := seeker.Seek(0, io.SeekCurrent); err == nil {
+				// The transport closes req.Body after each attempt. If body is an
+				// io.ReadCloser (e.g. an *os.File from the oci/file stores) that
+				// would close the underlying source, so a replay could no longer
+				// seek it. Shield the source with a no-op closer; the caller still
+				// owns closing content.
+				req.Body = io.NopCloser(body)
 				req.GetBody = func() (io.ReadCloser, error) {
 					if _, err := seeker.Seek(start, io.SeekStart); err != nil {
 						return nil, err
