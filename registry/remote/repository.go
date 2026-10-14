@@ -1385,13 +1385,38 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 		return err
 	}
 	url := location.String()
-	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, content)
+	// unwrap the content for optimizations of built-in types, so that a wrapped
+	// built-in reader (e.g. io.NopCloser(*bytes.Reader)) regains the stdlib
+	// auto-GetBody and a wrapped io.Seeker stays visible to the check below.
+	body := ioutil.UnwrapNopCloser(content)
+	if _, ok := body.(io.ReadCloser); ok {
+		// undo unwrap if the nopCloser is intended.
+		body = content
+	}
+	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, body)
 	if err != nil {
 		return err
 	}
 	if req.GetBody != nil && req.ContentLength != expected.Size {
 		// short circuit a size mismatch for built-in types.
 		return fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, expected.Size)
+	}
+	// If the stdlib did not set GetBody (i.e. body is not a built-in type) but
+	// the content is seekable, wire GetBody to re-seek the source so the request
+	// body can be replayed without buffering. net/http relies on GetBody to
+	// resend the body on a redirect or an HTTP/2 connection recycle, and a
+	// retrying RoundTripper relies on it to resend after a failed attempt.
+	if req.GetBody == nil {
+		if seeker, ok := body.(io.Seeker); ok {
+			if start, err := seeker.Seek(0, io.SeekCurrent); err == nil {
+				req.GetBody = func() (io.ReadCloser, error) {
+					if _, err := seeker.Seek(start, io.SeekStart); err != nil {
+						return nil, err
+					}
+					return io.NopCloser(body), nil
+				}
+			}
+		}
 	}
 	req.ContentLength = expected.Size
 	// the expected media type is ignored as in the API doc.
