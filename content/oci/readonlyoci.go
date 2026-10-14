@@ -130,18 +130,26 @@ func (s *ReadOnlyStore) Tags(ctx context.Context, last string, fn func(tags []st
 
 // validateOCILayoutFile validates the `oci-layout` file.
 func (s *ReadOnlyStore) validateOCILayoutFile() error {
-	layoutFile, err := s.fsys.Open(ocispec.ImageLayoutFile)
+	layout, err := readOCILayoutFile(s.fsys)
 	if err != nil {
-		return fmt.Errorf("failed to open OCI layout file: %w", err)
+		return err
+	}
+	return validateOCILayout(layout)
+}
+
+// readOCILayoutFile reads and decodes the `oci-layout` file in fsys.
+func readOCILayoutFile(fsys fs.FS) (*ocispec.ImageLayout, error) {
+	layoutFile, err := fsys.Open(ocispec.ImageLayoutFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open OCI layout file: %w", err)
 	}
 	defer layoutFile.Close()
 
 	var layout ocispec.ImageLayout
-	err = json.NewDecoder(layoutFile).Decode(&layout)
-	if err != nil {
-		return fmt.Errorf("failed to decode OCI layout file: %w", err)
+	if err := json.NewDecoder(layoutFile).Decode(&layout); err != nil {
+		return nil, fmt.Errorf("failed to decode OCI layout file: %w", err)
 	}
-	return validateOCILayout(&layout)
+	return &layout, nil
 }
 
 // validateOCILayout validates layout.
@@ -154,17 +162,26 @@ func validateOCILayout(layout *ocispec.ImageLayout) error {
 
 // loadIndexFile reads index.json from s.fsys.
 func (s *ReadOnlyStore) loadIndexFile(ctx context.Context) error {
-	indexFile, err := s.fsys.Open(ocispec.ImageIndexFile)
+	index, err := readIndexFile(s.fsys)
 	if err != nil {
-		return fmt.Errorf("failed to open index file: %w", err)
+		return err
+	}
+	return loadIndex(ctx, index, s.storage, s.tagResolver, s.graph)
+}
+
+// readIndexFile reads and decodes index.json in fsys.
+func readIndexFile(fsys fs.FS) (*ocispec.Index, error) {
+	indexFile, err := fsys.Open(ocispec.ImageIndexFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open index file: %w", err)
 	}
 	defer indexFile.Close()
 
 	var index ocispec.Index
 	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
-		return fmt.Errorf("failed to decode index file: %w", err)
+		return nil, fmt.Errorf("failed to decode index file: %w", err)
 	}
-	return loadIndex(ctx, &index, s.storage, s.tagResolver, s.graph)
+	return &index, nil
 }
 
 // loadIndex loads index into memory.

@@ -52,6 +52,10 @@ type Storage struct {
 	ingestRoot string
 }
 
+// ingestDirName is the name of the directory, in the root of the layout, that
+// holds the temporary files of blob writes in progress.
+const ingestDirName = "ingest"
+
 // NewStorage creates a new CAS based on file system with the OCI-Image layout.
 func NewStorage(root string) (*Storage, error) {
 	rootAbs, err := filepath.Abs(root)
@@ -62,7 +66,7 @@ func NewStorage(root string) (*Storage, error) {
 	return &Storage{
 		ReadOnlyStorage: NewStorageFromFS(os.DirFS(rootAbs)),
 		root:            rootAbs,
-		ingestRoot:      filepath.Join(rootAbs, "ingest"),
+		ingestRoot:      filepath.Join(rootAbs, ingestDirName),
 	}, nil
 }
 
