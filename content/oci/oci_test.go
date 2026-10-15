@@ -4643,3 +4643,36 @@ func TestStore_WithDeferredIndex_ConcurrentCopy(t *testing.T) {
 		}
 	}
 }
+
+// TestStore_Fetch_Seekable guards the contract that a directory-backed Store
+// returns a seekable blob reader. The remote blob push relies on this to set a
+// replayable Request.GetBody, so the body can be resent (on a redirect, an
+// HTTP/2 connection recycle, or a retry) without buffering. If Fetch ever
+// wraps the content in a non-seekable type, retryable blob push silently
+// breaks.
+func TestStore_Fetch_Seekable(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	ctx := context.Background()
+	if err := s.Push(ctx, desc, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	defer rc.Close()
+	if _, ok := rc.(io.Seeker); !ok {
+		t.Errorf("Store.Fetch() returned %T, which is not io.Seeker", rc)
+	}
+}
