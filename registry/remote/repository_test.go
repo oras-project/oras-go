@@ -34,6 +34,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -9698,4 +9699,89 @@ func Test_BlobStore_Push_RetriesSeekableBody(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test_BlobStore_Push_GetBody_ConcurrentReplay verifies that, for a ReaderAt
+// source (e.g. the *os.File the oci/file stores return), the request body and
+// every GetBody replay are independent readers over the shared source. A failed
+// attempt still reading must not race a retry's replay. Meaningful under -race:
+// the previous single-shared-seeker wiring would race here.
+func Test_BlobStore_Push_GetBody_ConcurrentReplay(t *testing.T) {
+	blob := []byte("hello world, a ReaderAt-backed seekable blob payload")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	f, err := os.CreateTemp(t.TempDir(), "blob")
+	if err != nil {
+		t.Fatalf("CreateTemp() error = %v", err)
+	}
+	defer f.Close()
+	if _, err := f.Write(blob); err != nil {
+		t.Fatalf("write temp blob error = %v", err)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		t.Fatalf("seek temp blob error = %v", err)
+	}
+
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	var putReq *http.Request
+	client := &auth.Client{Client: &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		resp := &http.Response{Request: req, Header: http.Header{}, Body: http.NoBody}
+		switch {
+		case req.Method == http.MethodPost:
+			resp.StatusCode = http.StatusAccepted
+			resp.Header.Set("Location", "/v2/test/blobs/uploads/"+uuid)
+		case req.Method == http.MethodPut:
+			putReq = req
+			resp.StatusCode = http.StatusCreated
+			resp.Header.Set("Docker-Content-Digest", blobDesc.Digest.String())
+		default:
+			resp.StatusCode = http.StatusForbidden
+		}
+		return resp, nil
+	})}}
+
+	repo, err := NewRepository("registry.example.com/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	repo.Registry.Client = client
+
+	if err := repo.Blobs().Push(context.Background(), blobDesc, f); err != nil {
+		t.Fatalf("Blobs.Push() error = %v", err)
+	}
+	if putReq == nil || putReq.GetBody == nil || putReq.Body == nil {
+		t.Fatal("GetBody/Body not set for a ReaderAt source")
+	}
+
+	// Read the first-attempt body alongside several replays, concurrently.
+	readers := []io.Reader{putReq.Body}
+	for range 4 {
+		rc, err := putReq.GetBody()
+		if err != nil {
+			t.Fatalf("GetBody() error = %v", err)
+		}
+		defer rc.Close()
+		readers = append(readers, rc)
+	}
+	var wg sync.WaitGroup
+	for _, r := range readers {
+		wg.Add(1)
+		go func(r io.Reader) {
+			defer wg.Done()
+			got, err := io.ReadAll(r)
+			if err != nil {
+				t.Errorf("read error = %v", err)
+				return
+			}
+			if !bytes.Equal(got, blob) {
+				t.Errorf("replay = %q, want %q", got, blob)
+			}
+		}(r)
+	}
+	wg.Wait()
 }

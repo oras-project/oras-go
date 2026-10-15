@@ -1408,17 +1408,27 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 	if req.GetBody == nil {
 		if seeker, ok := unwrapped.(io.Seeker); ok {
 			if start, err := seeker.Seek(0, io.SeekCurrent); err == nil {
-				// The transport closes req.Body after each attempt. If body is an
-				// io.ReadCloser (e.g. an *os.File from the oci/file stores) that
-				// would close the underlying source, so a replay could no longer
-				// seek it. Shield the source with a no-op closer; the caller still
-				// owns closing content.
-				req.Body = io.NopCloser(unwrapped)
-				req.GetBody = func() (io.ReadCloser, error) {
-					if _, err := seeker.Seek(start, io.SeekStart); err != nil {
-						return nil, err
+				if ra, ok := unwrapped.(io.ReaderAt); ok {
+					// Give each attempt its own reader over the shared source.
+					// io.ReaderAt.ReadAt is safe for concurrent use and carries no
+					// shared offset, so a failed attempt still reading cannot race
+					// the replay's read. Covers *os.File and *bytes.Reader, i.e. the
+					// oci/file and memory stores.
+					req.Body = io.NopCloser(io.NewSectionReader(ra, start, expected.Size))
+					req.GetBody = func() (io.ReadCloser, error) {
+						return io.NopCloser(io.NewSectionReader(ra, start, expected.Size)), nil
 					}
-					return io.NopCloser(unwrapped), nil
+				} else {
+					// Non-ReaderAt seekable source: re-seek one shared reader. Shield
+					// it from the transport's per-attempt Body.Close so a replay can
+					// still seek it; the caller still owns closing content.
+					req.Body = io.NopCloser(unwrapped)
+					req.GetBody = func() (io.ReadCloser, error) {
+						if _, err := seeker.Seek(start, io.SeekStart); err != nil {
+							return nil, err
+						}
+						return io.NopCloser(unwrapped), nil
+					}
 				}
 			}
 		}
