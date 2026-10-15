@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -174,6 +175,76 @@ func Test_mirrorReference(t *testing.T) {
 				t.Errorf("mirrorReference(%q) = %q, want %q", tt.reference, got, tt.want)
 			}
 		})
+	}
+}
+
+// With no mirrors, the primary receives the reference unchanged, exactly once.
+func Test_tryMirrorsRef_noMirrors(t *testing.T) {
+	const reference = "primary.example.com/library/app:v1"
+	want := ocispec.Descriptor{Digest: "sha256:abc", Size: 3}
+	primary := &Repository{}
+	var calls int
+	var gotRepo *Repository
+	var gotRef string
+
+	desc, err := tryMirrorsRef(nil, primary, reference,
+		func(repo *Repository, ref string) (ocispec.Descriptor, error) {
+			calls++
+			gotRepo = repo
+			gotRef = ref
+			return want, nil
+		})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if desc.Digest != want.Digest {
+		t.Errorf("got desc %v, want %v", desc, want)
+	}
+	if calls != 1 {
+		t.Errorf("op called %d times, want 1", calls)
+	}
+	if gotRepo != primary {
+		t.Errorf("op received repo %p, want primary %p", gotRepo, primary)
+	}
+	if gotRef != reference {
+		t.Errorf("op received ref %q, want %q", gotRef, reference)
+	}
+}
+
+// A mirror receives the reference reduced to a bare tag, and the primary it
+// falls back to receives the reference unchanged.
+func Test_tryMirrorsRef_retargetsMirrorOnly(t *testing.T) {
+	const reference = "primary.example.com/library/app:v1"
+	want := ocispec.Descriptor{Digest: "sha256:abc", Size: 3}
+	mirror := &Repository{}
+	primary := &Repository{}
+	mirrors := []mirrorRepository{{Repository: mirror, pullFromMirror: PullFromMirrorAll}}
+	var gotMirrorRef, gotPrimaryRef string
+
+	desc, err := tryMirrorsRef(mirrors, primary, reference,
+		func(repo *Repository, ref string) (ocispec.Descriptor, error) {
+			switch repo {
+			case mirror:
+				gotMirrorRef = ref
+				return ocispec.Descriptor{}, errors.New("mirror unavailable")
+			case primary:
+				gotPrimaryRef = ref
+				return want, nil
+			}
+			t.Fatalf("op received unexpected repo %p", repo)
+			return ocispec.Descriptor{}, nil
+		})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if desc.Digest != want.Digest {
+		t.Errorf("got desc %v, want %v", desc, want)
+	}
+	if gotMirrorRef != "v1" {
+		t.Errorf("mirror received ref %q, want bare tag %q", gotMirrorRef, "v1")
+	}
+	if gotPrimaryRef != reference {
+		t.Errorf("primary received ref %q, want %q", gotPrimaryRef, reference)
 	}
 }
 

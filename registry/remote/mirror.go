@@ -150,6 +150,28 @@ func tryMirrors[T any](
 	return primaryOp(primary)
 }
 
+// tryMirrorsRef is tryMirrors for an operation that takes a reference. Mirrors
+// receive the reference reduced by mirrorReference, and the primary receives it
+// unchanged.
+func tryMirrorsRef[T any](
+	mirrors []mirrorRepository,
+	primary *Repository,
+	reference string,
+	op func(*Repository, string) (T, error),
+) (T, error) {
+	return tryMirrors(
+		mirrors,
+		primary,
+		reference,
+		func(repo *Repository) (T, error) { return op(repo, mirrorReference(reference)) },
+		func(repo *Repository) (T, error) { return op(repo, reference) },
+		acceptAll[T],
+	)
+}
+
+// acceptAll is a tryMirrors accept function that accepts every result.
+func acceptAll[T any](T) bool { return true }
+
 // withMirrorFallbackResolve tries to resolve the reference against each
 // applicable mirror in order, falling back to the primary repository on error.
 func withMirrorFallbackResolve(
