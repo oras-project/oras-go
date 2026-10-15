@@ -1592,7 +1592,7 @@ type manifestStore struct {
 // response is verified and buffered up to MaxMetadataBytes before return.
 // Each such in-flight fetch may hold that much data in memory.
 func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
-	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, target.Digest.String(), target); err != nil {
 		return nil, err
 	}
 	return s.fetch(ctx, target)
@@ -1649,7 +1649,7 @@ func (s *manifestStore) fetch(ctx context.Context, target ocispec.Descriptor) (r
 
 // Push pushes the content, matching the expected descriptor.
 func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	if err := s.repo.checkManifestPolicy(ctx, "", expected); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, expected.Digest.String(), expected); err != nil {
 		return err
 	}
 	return s.pushWithIndexing(ctx, expected, content, expected.Digest.String())
@@ -1657,7 +1657,7 @@ func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, c
 
 // Exists returns true if the described content exists.
 func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, target.Digest.String(), target); err != nil {
 		return false, err
 	}
 	_, err := s.resolve(ctx, target.Digest.String())
@@ -1672,7 +1672,7 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 
 // Delete removes the manifest content identified by the descriptor.
 func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	if err := s.repo.checkManifestPolicy(ctx, "", target); err != nil {
+	if err := s.repo.checkManifestPolicy(ctx, target.Digest.String(), target); err != nil {
 		return err
 	}
 	return s.deleteWithIndexing(ctx, target)

@@ -1758,3 +1758,114 @@ func TestRepository_PolicyScope_DigestEntryAppliesToDescriptor(t *testing.T) {
 	assertPolicyDenied(t, repo.checkDescriptorPolicy(context.Background(), desc),
 		"checkDescriptorPolicy() on the digest named by the policy")
 }
+
+func TestRepository_PolicyScope_DigestEntryAppliesToManifestOperations(t *testing.T) {
+	content := []byte(`{"layers":[]}`)
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	tests := []struct {
+		name      string
+		operation func(context.Context, *Repository) error
+	}{
+		{
+			name: "Repository.Fetch",
+			operation: func(ctx context.Context, repo *Repository) error {
+				rc, err := repo.Fetch(ctx, desc)
+				if err == nil {
+					rc.Close()
+				}
+				return err
+			},
+		},
+		{
+			name: "Repository.Push",
+			operation: func(ctx context.Context, repo *Repository) error {
+				return repo.Push(ctx, desc, bytes.NewReader(content))
+			},
+		},
+		{
+			name: "Repository.Exists",
+			operation: func(ctx context.Context, repo *Repository) error {
+				_, err := repo.Exists(ctx, desc)
+				return err
+			},
+		},
+		{
+			name: "Repository.Delete",
+			operation: func(ctx context.Context, repo *Repository) error {
+				return repo.Delete(ctx, desc)
+			},
+		},
+		{
+			name: "Manifests().Fetch",
+			operation: func(ctx context.Context, repo *Repository) error {
+				rc, err := repo.Manifests().Fetch(ctx, desc)
+				if err == nil {
+					rc.Close()
+				}
+				return err
+			},
+		},
+		{
+			name: "Manifests().Push",
+			operation: func(ctx context.Context, repo *Repository) error {
+				return repo.Manifests().Push(ctx, desc, bytes.NewReader(content))
+			},
+		},
+		{
+			name: "Manifests().Exists",
+			operation: func(ctx context.Context, repo *Repository) error {
+				_, err := repo.Manifests().Exists(ctx, desc)
+				return err
+			},
+		},
+		{
+			name: "Manifests().Delete",
+			operation: func(ctx context.Context, repo *Repository) error {
+				return repo.Manifests().Delete(ctx, desc)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requests := 0
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+			repo, err := NewRepository(uri.Host + "/test")
+			if err != nil {
+				t.Fatalf("NewRepository() error = %v", err)
+			}
+			repo.Registry.PlainHTTP = true
+			pol := &policy.Policy{
+				Default: policy.PolicyRequirements{&policy.InsecureAcceptAnything{}},
+				Transports: map[policy.TransportName]policy.TransportScopes{
+					policy.TransportNameDocker: {
+						uri.Host + "/test@" + desc.Digest.String(): policy.PolicyRequirements{&policy.Reject{}},
+					},
+				},
+			}
+			repo.Registry.Policy, err = policy.NewEvaluator(pol)
+			if err != nil {
+				t.Fatalf("failed to create evaluator: %v", err)
+			}
+
+			err = tt.operation(context.Background(), repo)
+			assertPolicyDenied(t, err, tt.name+"()")
+			if requests != 0 {
+				t.Errorf("registry requests = %d, want none", requests)
+			}
+		})
+	}
+}
