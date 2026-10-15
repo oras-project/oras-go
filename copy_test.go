@@ -373,7 +373,7 @@ func TestCopyGraph_SkipExistsCheckBelowSize(t *testing.T) {
 	rootContent := []byte("root-data")
 	small := ocispec.Descriptor{MediaType: "test/small", Digest: digest.FromBytes(smallContent), Size: int64(len(smallContent))}
 	large := ocispec.Descriptor{MediaType: "test/large", Digest: digest.FromBytes(largeContent), Size: int64(len(largeContent))}
-	root := ocispec.Descriptor{MediaType: "test/root", Digest: digest.FromBytes(rootContent), Size: int64(len(rootContent))}
+	root := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageManifest, Digest: digest.FromBytes(rootContent), Size: int64(len(rootContent))}
 	for _, item := range []struct {
 		desc    ocispec.Descriptor
 		content []byte
@@ -393,7 +393,7 @@ func TestCopyGraph_SkipExistsCheckBelowSize(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var preCopyCount, postCopyCount, skippedCount atomic.Int64
+	var preCopyCount, postCopyCount, skippedCount, findSuccessorsCount atomic.Int64
 	dstTracker := &storageTracker{Storage: dst}
 	opts := oras.CopyGraphOptions{
 		SkipExistsCheckBelowSize: small.Size,
@@ -410,6 +410,7 @@ func TestCopyGraph_SkipExistsCheckBelowSize(t *testing.T) {
 			return nil
 		},
 		FindSuccessors: func(_ context.Context, _ content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			findSuccessorsCount.Add(1)
 			if content.Equal(desc, root) {
 				return []ocispec.Descriptor{small, large}, nil
 			}
@@ -439,6 +440,7 @@ func TestCopyGraph_SkipExistsCheckBelowSize(t *testing.T) {
 	// check and prunes the complete sub-DAG when already present.
 	dstTracker = &storageTracker{Storage: dst}
 	skippedCount.Store(0)
+	findSuccessorsCount.Store(0)
 	opts.SkipExistsCheckBelowSize = root.Size
 	if err := oras.CopyGraph(ctx, src, dstTracker, root, opts); err != nil {
 		t.Fatal(err)
@@ -451,6 +453,9 @@ func TestCopyGraph_SkipExistsCheckBelowSize(t *testing.T) {
 	}
 	if got, want := skippedCount.Load(), int64(1); got != want {
 		t.Errorf("count(OnCopySkipped()) = %d, want %d", got, want)
+	}
+	if got := findSuccessorsCount.Load(); got != 0 {
+		t.Errorf("count(FindSuccessors()) = %d, want 0", got)
 	}
 }
 

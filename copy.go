@@ -263,10 +263,10 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 			return nil
 		}
 
-		// Find successors first for nodes eligible for the small-blob
-		// optimization. Non-leaf nodes still need an existence check so that an
-		// existing rooted sub-DAG can be pruned.
-		findSuccessorsFirst := opts.SkipExistsCheckBelowSize > 0 && desc.Size >= 0 && desc.Size <= opts.SkipExistsCheckBelowSize
+		// Find successors first for non-manifest nodes eligible for the
+		// small-blob optimization. Manifests keep the existence check first so an
+		// existing rooted sub-DAG is pruned without fetching it from the source.
+		findSuccessorsFirst := opts.SkipExistsCheckBelowSize > 0 && !descriptor.IsManifest(desc) && desc.Size >= 0 && desc.Size <= opts.SkipExistsCheckBelowSize
 		if findSuccessorsFirst {
 			if err := findSuccessors(); err != nil {
 				return err
