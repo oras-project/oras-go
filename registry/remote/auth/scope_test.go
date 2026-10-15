@@ -18,7 +18,9 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/errdef"
@@ -882,6 +884,69 @@ func TestCleanScopes_noAliasing(t *testing.T) {
 	cleaned[0].Actions[0] = "corrupted"
 	if want := []string{ActionPush, ActionPull}; !reflect.DeepEqual(actions, want) {
 		t.Errorf("CleanScopes() aliased the caller's actions, now %v, want %v", actions, want)
+	}
+}
+
+func BenchmarkCleanScopes(b *testing.B) {
+	var many []Scope
+	var manyWant []string
+	for i := range 32 {
+		name := fmt.Sprintf("repo%02d", i)
+		many = append(many, Scope{ResourceType: "repository", ResourceName: name, Actions: []string{ActionPull}})
+		manyWant = append(manyWant, "repository:"+name+":pull")
+	}
+	tests := []struct {
+		name   string
+		scopes []Scope
+		want   string
+	}{
+		{
+			name:   "pull",
+			scopes: []Scope{{ResourceType: "repository", ResourceName: "hello-world", Actions: []string{ActionPull}}},
+			want:   "repository:hello-world:pull",
+		},
+		{
+			// a push that mounts from another repository
+			name: "push_mount",
+			scopes: []Scope{
+				{ResourceType: "repository", ResourceName: "app", Actions: []string{ActionPush, ActionPull}},
+				{ResourceType: "repository", ResourceName: "base", Actions: []string{ActionPull}},
+				{ResourceType: "repository", ResourceName: "app", Actions: []string{ActionPull}},
+			},
+			want: "repository:app:pull,push repository:base:pull",
+		},
+		{
+			name:   "32_scopes",
+			scopes: many,
+			want:   strings.Join(manyWant, " "),
+		},
+		{
+			name: "wildcard",
+			scopes: []Scope{
+				{ResourceType: "repository", ResourceName: "app", Actions: []string{ActionPull, ActionPush}},
+				{ResourceType: "repository", ResourceName: "app", Actions: []string{"*"}},
+			},
+			want: "repository:app:*",
+		},
+		{
+			name:   "opaque",
+			scopes: []Scope{{ResourceType: "aws"}},
+			want:   "aws",
+		},
+	}
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			// the input is reused by every iteration, which TestCleanScopes_noAliasing
+			// makes safe
+			if got := joinScopes(CleanScopes(tt.scopes)); got != tt.want {
+				b.Fatalf("CleanScopes() = %q, want %q", got, tt.want)
+			}
+
+			b.ReportAllocs()
+			for b.Loop() {
+				CleanScopes(tt.scopes)
+			}
+		})
 	}
 }
 
