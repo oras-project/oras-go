@@ -85,8 +85,8 @@ func (m *Memory) Index(ctx context.Context, fetcher content.Fetcher, node ocispe
 	return err
 }
 
-// Index indexes predecessors for all the successors of the given node.
-func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node ocispec.Descriptor) error {
+// IndexAll indexes predecessors for all successors of the given nodes.
+func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, nodes ...ocispec.Descriptor) error {
 	// track content status
 	tracker := status.NewTracker()
 	var fn syncutil.GoFunc[ocispec.Descriptor]
@@ -116,7 +116,7 @@ func (m *Memory) IndexAll(ctx context.Context, fetcher content.Fetcher, node oci
 		}
 		return nil
 	}
-	return syncutil.Go(ctx, m.indexLimiter, fn, node)
+	return syncutil.Go(ctx, m.indexLimiter, fn, nodes...)
 }
 
 // Predecessors returns the nodes directly pointing to the current node.

@@ -739,6 +739,69 @@ func TestMemory_IndexAllDeepChainNoDeadlock(t *testing.T) {
 	}
 }
 
+func TestMemory_IndexAllMultipleRoots(t *testing.T) {
+	ctx := context.Background()
+	backing := cas.NewMemory()
+	childJSON := []byte(`{"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"test config","digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000","size":0}}`)
+	child := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(childJSON),
+		Size:      int64(len(childJSON)),
+	}
+	if err := backing.Push(ctx, child, bytes.NewReader(childJSON)); err != nil {
+		t.Fatal(err)
+	}
+
+	roots := make([]ocispec.Descriptor, 0, defaultIndexConcurrency+1)
+	for i := 0; i < int(defaultIndexConcurrency)+1; i++ {
+		rootJSON, err := json.Marshal(ocispec.Index{
+			Manifests:   []ocispec.Descriptor{child},
+			Annotations: map[string]string{"root": strconv.Itoa(i)},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := ocispec.Descriptor{
+			MediaType: ocispec.MediaTypeImageIndex,
+			Digest:    digest.FromBytes(rootJSON),
+			Size:      int64(len(rootJSON)),
+		}
+		if err := backing.Push(ctx, root, bytes.NewReader(rootJSON)); err != nil {
+			t.Fatal(err)
+		}
+		roots = append(roots, root)
+	}
+
+	var childFetches atomic.Int64
+	tracking := content.FetcherFunc(func(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+		if target.Digest == child.Digest {
+			childFetches.Add(1)
+		}
+		return backing.Fetch(ctx, target)
+	})
+	testMemory := NewMemory()
+	done := make(chan error, 1)
+	go func() {
+		done <- testMemory.IndexAll(ctx, tracking, roots...)
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("IndexAll() error = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("IndexAll() did not return, likely deadlocked on multiple roots")
+	}
+	if got := childFetches.Load(); got != 1 {
+		t.Errorf("shared child fetches = %d, want 1", got)
+	}
+	for _, root := range roots {
+		if !testMemory.Exists(root) {
+			t.Errorf("root %s was not indexed", root.Digest)
+		}
+	}
+}
+
 func TestMemory_DigestSet(t *testing.T) {
 	testFetcher := cas.NewMemory()
 	testMemory := NewMemory()
