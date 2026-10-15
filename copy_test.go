@@ -363,6 +363,97 @@ func TestCopyGraph_FullCopy(t *testing.T) {
 	}
 }
 
+func TestCopyGraph_SkipExistsCheckBelowSize(t *testing.T) {
+	ctx := context.Background()
+	src := cas.NewMemory()
+	dst := cas.NewMemory()
+
+	smallContent := []byte("foo")
+	largeContent := []byte("large")
+	rootContent := []byte("root-data")
+	small := ocispec.Descriptor{MediaType: "test/small", Digest: digest.FromBytes(smallContent), Size: int64(len(smallContent))}
+	large := ocispec.Descriptor{MediaType: "test/large", Digest: digest.FromBytes(largeContent), Size: int64(len(largeContent))}
+	root := ocispec.Descriptor{MediaType: "test/root", Digest: digest.FromBytes(rootContent), Size: int64(len(rootContent))}
+	for _, item := range []struct {
+		desc    ocispec.Descriptor
+		content []byte
+	}{
+		{small, smallContent},
+		{large, largeContent},
+		{root, rootContent},
+	} {
+		if err := src.Push(ctx, item.desc, bytes.NewReader(item.content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Pre-populate the qualifying small blob. CopyGraph should still run the
+	// copy callbacks for it instead of checking existence and calling
+	// OnCopySkipped.
+	if err := dst.Push(ctx, small, bytes.NewReader(smallContent)); err != nil {
+		t.Fatal(err)
+	}
+
+	var preCopyCount, postCopyCount, skippedCount atomic.Int64
+	dstTracker := &storageTracker{Storage: dst}
+	opts := oras.CopyGraphOptions{
+		SkipExistsCheckBelowSize: small.Size,
+		PreCopy: func(context.Context, ocispec.Descriptor) error {
+			preCopyCount.Add(1)
+			return nil
+		},
+		PostCopy: func(context.Context, ocispec.Descriptor) error {
+			postCopyCount.Add(1)
+			return nil
+		},
+		OnCopySkipped: func(context.Context, ocispec.Descriptor) error {
+			skippedCount.Add(1)
+			return nil
+		},
+		FindSuccessors: func(_ context.Context, _ content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			if content.Equal(desc, root) {
+				return []ocispec.Descriptor{small, large}, nil
+			}
+			return nil, nil
+		},
+	}
+	if err := oras.CopyGraph(ctx, src, dstTracker, root, opts); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := dstTracker.exists, int64(2); got != want {
+		t.Errorf("count(Exists()) = %d, want %d", got, want)
+	}
+	if got, want := dstTracker.push, int64(3); got != want {
+		t.Errorf("count(Push()) = %d, want %d", got, want)
+	}
+	if got, want := preCopyCount.Load(), int64(3); got != want {
+		t.Errorf("count(PreCopy()) = %d, want %d", got, want)
+	}
+	if got, want := postCopyCount.Load(), int64(3); got != want {
+		t.Errorf("count(PostCopy()) = %d, want %d", got, want)
+	}
+	if got := skippedCount.Load(); got != 0 {
+		t.Errorf("count(OnCopySkipped()) = %d, want 0", got)
+	}
+
+	// Even when a manifest is within the threshold, it retains its existence
+	// check and prunes the complete sub-DAG when already present.
+	dstTracker = &storageTracker{Storage: dst}
+	skippedCount.Store(0)
+	opts.SkipExistsCheckBelowSize = root.Size
+	if err := oras.CopyGraph(ctx, src, dstTracker, root, opts); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := dstTracker.exists, int64(1); got != want {
+		t.Errorf("count(Exists()) = %d, want %d", got, want)
+	}
+	if got := dstTracker.push; got != 0 {
+		t.Errorf("count(Push()) = %d, want 0", got)
+	}
+	if got, want := skippedCount.Load(), int64(1); got != want {
+		t.Errorf("count(OnCopySkipped()) = %d, want %d", got, want)
+	}
+}
+
 func TestCopyGraph_PartialCopy(t *testing.T) {
 	src := cas.NewMemory()
 	dst := cas.NewMemory()

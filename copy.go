@@ -101,6 +101,19 @@ type CopyGraphOptions struct {
 	// cached in the memory.
 	// If less than or equal to 0, a default (currently 4 MiB) is used.
 	MaxMetadataBytes int64
+	// SkipExistsCheckBelowSize skips the destination existence check for leaf
+	// nodes whose size is less than or equal to the configured value. This can
+	// reduce round trips when copying small blobs to remote destinations.
+	//
+	// A positive value enables this optimization. Non-leaf nodes are still
+	// checked so that existing sub-DAGs can be pruned. As a result,
+	// FindSuccessors is called before the existence check for nodes within the
+	// size limit; a custom FindSuccessors implementation that fetches leaf
+	// content can offset the saved destination request.
+	//
+	// Existing qualifying blobs are passed through PreCopy and PostCopy instead
+	// of OnCopySkipped. If MountFrom is set, a mount is attempted for them.
+	SkipExistsCheckBelowSize int64
 	// PreCopy handles the current descriptor before it is copied. PreCopy can
 	// return a SkipNode to signal that desc should be skipped when it already
 	// exists in the target.
@@ -232,31 +245,54 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 			}
 		}()
 
-		// skip if a rooted sub-DAG exists
-		exists, err := dst.Exists(ctx, desc)
-		if err != nil {
-			return newCopyError("Exists", CopyErrorOriginDestination, desc, err)
-		}
-		if exists {
-			if opts.OnCopySkipped != nil {
-				if err := opts.OnCopySkipped(ctx, desc); err != nil {
-					return err
+		var successors []ocispec.Descriptor
+		findSuccessors := func() error {
+			var err error
+			successors, err = opts.FindSuccessors(ctx, proxy, desc)
+			if err != nil {
+				return newCopyError("FindSuccessors", CopyErrorOriginSource, desc, err)
+			}
+			successors = removeForeignLayers(successors)
+			for _, successor := range successors {
+				if err := validateSuccessor(successor); err != nil {
+					return newCopyError("FindSuccessors", CopyErrorOriginSource, desc,
+						fmt.Errorf("invalid successor descriptor: successor media type: %s; successor size: %d; successor digest: %s: %w",
+							successor.MediaType, successor.Size, successor.Digest, err))
 				}
 			}
 			return nil
 		}
 
-		// find successors while non-leaf nodes will be fetched and cached
-		successors, err := opts.FindSuccessors(ctx, proxy, desc)
-		if err != nil {
-			return newCopyError("FindSuccessors", CopyErrorOriginSource, desc, err)
+		// Find successors first for nodes eligible for the small-blob
+		// optimization. Non-leaf nodes still need an existence check so that an
+		// existing rooted sub-DAG can be pruned.
+		findSuccessorsFirst := opts.SkipExistsCheckBelowSize > 0 && desc.Size >= 0 && desc.Size <= opts.SkipExistsCheckBelowSize
+		if findSuccessorsFirst {
+			if err := findSuccessors(); err != nil {
+				return err
+			}
 		}
-		successors = removeForeignLayers(successors)
-		for _, successor := range successors {
-			if err := validateSuccessor(successor); err != nil {
-				return newCopyError("FindSuccessors", CopyErrorOriginSource, desc,
-					fmt.Errorf("invalid successor descriptor: successor media type: %s; successor size: %d; successor digest: %s: %w",
-						successor.MediaType, successor.Size, successor.Digest, err))
+
+		if !findSuccessorsFirst || len(successors) != 0 {
+			// skip if a rooted sub-DAG exists
+			exists, err := dst.Exists(ctx, desc)
+			if err != nil {
+				return newCopyError("Exists", CopyErrorOriginDestination, desc, err)
+			}
+			if exists {
+				if opts.OnCopySkipped != nil {
+					if err := opts.OnCopySkipped(ctx, desc); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+		}
+
+		// find successors while non-leaf nodes will be fetched and cached
+		if !findSuccessorsFirst {
+			if err := findSuccessors(); err != nil {
+				return err
 			}
 		}
 
@@ -282,7 +318,7 @@ func copyGraph(ctx context.Context, src content.ReadOnlyStorage, dst content.Sto
 			}
 		}
 
-		exists, err = proxy.Cache.Exists(ctx, desc)
+		exists, err := proxy.Cache.Exists(ctx, desc)
 		if err != nil {
 			return fmt.Errorf("failed to check cache existence: %s: %w", desc.Digest, err)
 		}
