@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -676,6 +677,12 @@ func TestLoad_InvalidJSON(t *testing.T) {
 
 // Test Policy.Save with invalid path
 func TestPolicy_Save_ErrorCases(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce Unix directory permission bits")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to a read-only directory")
+	}
 	tmpDir := t.TempDir()
 
 	// Test with read-only directory
