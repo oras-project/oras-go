@@ -34,6 +34,7 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/cas"
+	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/resolver"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 	"golang.org/x/sync/errgroup"
@@ -490,4 +491,35 @@ func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descript
 		}
 	}
 	return true
+}
+
+// TestStore_Fetch_UnwrapsToSeekable guards the contract that an in-memory Store
+// returns blob content that, once unwrapped from io.NopCloser, is a seekable
+// built-in reader. The remote blob push unwraps the content so net/http sets a
+// replayable Request.GetBody, letting the body be resent (on a redirect, an
+// HTTP/2 connection recycle, or a retry). If Fetch ever returns content that
+// does not unwrap to a seekable built-in, retryable blob push silently breaks
+// for this store.
+func TestStore_Fetch_UnwrapsToSeekable(t *testing.T) {
+	content := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
+
+	s := New()
+	ctx := context.Background()
+	if err := s.Push(ctx, desc, bytes.NewReader(content)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	defer rc.Close()
+	if _, ok := ioutil.UnwrapNopCloser(rc).(io.ReadSeeker); !ok {
+		t.Errorf("Store.Fetch() returned %T, which does not unwrap to io.ReadSeeker", rc)
+	}
 }

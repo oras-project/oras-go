@@ -1396,13 +1396,53 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 		return err
 	}
 	url := location.String()
-	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, content)
+	// unwrap once; detect seekable/built-in on the unwrapped value.
+	unwrapped := ioutil.UnwrapNopCloser(content)
+	body := unwrapped
+	if _, ok := body.(io.ReadCloser); ok {
+		// undo unwrap if the nopCloser is intended.
+		body = content
+	}
+	req, err = http.NewRequestWithContext(ctx, http.MethodPut, url, body)
 	if err != nil {
 		return err
 	}
 	if req.GetBody != nil && req.ContentLength != expected.Size {
 		// short circuit a size mismatch for built-in types.
 		return fmt.Errorf("mismatch content length %d: expect %d", req.ContentLength, expected.Size)
+	}
+	// If the stdlib did not set GetBody (i.e. body is not a built-in type) but
+	// the content is seekable, wire GetBody to re-seek the source so the request
+	// body can be replayed without buffering. net/http relies on GetBody to
+	// resend the body on a redirect or an HTTP/2 connection recycle, and a
+	// retrying RoundTripper relies on it to resend after a failed attempt.
+	if req.GetBody == nil {
+		if seeker, ok := unwrapped.(io.Seeker); ok {
+			if start, err := seeker.Seek(0, io.SeekCurrent); err == nil {
+				if ra, ok := unwrapped.(io.ReaderAt); ok {
+					// Give each attempt its own reader over the shared source.
+					// io.ReaderAt.ReadAt is safe for concurrent use and carries no
+					// shared offset, so a failed attempt still reading cannot race
+					// the replay's read. Covers *os.File and *bytes.Reader, i.e. the
+					// oci/file and memory stores.
+					req.Body = io.NopCloser(io.NewSectionReader(ra, start, expected.Size))
+					req.GetBody = func() (io.ReadCloser, error) {
+						return io.NopCloser(io.NewSectionReader(ra, start, expected.Size)), nil
+					}
+				} else {
+					// Non-ReaderAt seekable source: re-seek one shared reader. Shield
+					// it from the transport's per-attempt Body.Close so a replay can
+					// still seek it; the caller still owns closing content.
+					req.Body = io.NopCloser(unwrapped)
+					req.GetBody = func() (io.ReadCloser, error) {
+						if _, err := seeker.Seek(start, io.SeekStart); err != nil {
+							return nil, err
+						}
+						return io.NopCloser(unwrapped), nil
+					}
+				}
+			}
+		}
 	}
 	req.ContentLength = expected.Size
 	// the expected media type is ignored as in the API doc.
