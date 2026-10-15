@@ -506,6 +506,9 @@ func (s *Store) GC(ctx context.Context) error {
 			if err := isContextDone(ctx); err != nil {
 				return err
 			}
+			if digestEntry.IsDir() {
+				continue
+			}
 			dgst := digestEntry.Name()
 			blobDigest := digest.NewDigestFromEncoded(digest.Algorithm(alg), dgst)
 			if err := blobDigest.Validate(); err != nil {
@@ -514,9 +517,9 @@ func (s *Store) GC(ctx context.Context) error {
 			}
 			if !reachableNodes.Contains(blobDigest) {
 				// remove the blob from storage if it does not exist in Store
-				err = os.Remove(path.Join(algPath, dgst))
-				if err != nil {
-					return err
+				blobPath := path.Join(algPath, dgst)
+				if err := os.Remove(blobPath); err != nil {
+					return fmt.Errorf("unable to remove %s: %w", blobPath, err)
 				}
 			}
 		}
