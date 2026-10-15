@@ -129,21 +129,20 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 	})
 }
 
-func TestRepository_PolicyCheckedContext(t *testing.T) {
-	// Verify that policyCheckedKey in context skips the check
+func TestRepository_InPolicyEvaluationContext(t *testing.T) {
+	// A verifier calling back into the repository must not evaluate the
+	// policy again.
 	repo := newRejectPolicyRepo(t)
 
-	// Without the key, policy should reject
 	err := repo.checkPolicy(context.Background(), "")
 	if err == nil {
-		t.Error("checkPolicy() should fail without policyCheckedKey")
+		t.Error("checkPolicy() should fail outside a policy evaluation")
 	}
 
-	// With the key set, policy should be skipped
-	ctx := withPolicyChecked(context.Background())
+	ctx := withInPolicyEvaluation(context.Background())
 	err = repo.checkPolicy(ctx, "")
 	if err != nil {
-		t.Errorf("checkPolicy() should be skipped with policyCheckedKey, got: %v", err)
+		t.Errorf("checkPolicy() should be skipped inside a policy evaluation, got: %v", err)
 	}
 }
 

@@ -405,14 +405,15 @@ func (r *Repository) blobStore(desc ocispec.Descriptor) registry.BlobStore {
 	return r.Blobs()
 }
 
-// policyCheckedKey is a context key that marks policy as already checked
-// in the current call chain, preventing redundant evaluations when
-// Repository methods delegate to sub-stores.
-type policyCheckedKey struct{}
+// inPolicyEvaluationKey is a context key set while the policy verifies an
+// image, so that a verifier fetching signature artifacts from this
+// repository does not evaluate the policy again.
+type inPolicyEvaluationKey struct{}
 
-// withPolicyChecked returns a context that marks policy as already checked.
-func withPolicyChecked(ctx context.Context) context.Context {
-	return context.WithValue(ctx, policyCheckedKey{}, true)
+// withInPolicyEvaluation returns a context marked as inside a policy
+// evaluation.
+func withInPolicyEvaluation(ctx context.Context) context.Context {
+	return context.WithValue(ctx, inPolicyEvaluationKey{}, true)
 }
 
 // checkPolicy validates repository access before network I/O. It evaluates
@@ -427,7 +428,7 @@ func withPolicyChecked(ctx context.Context) context.Context {
 // manifest before uploading it, so its signing material must be discoverable
 // by the configured verifier at that point.
 func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
-	if ctx.Value(policyCheckedKey{}) != nil {
+	if ctx.Value(inPolicyEvaluationKey{}) != nil {
 		return nil
 	}
 
@@ -446,7 +447,7 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 	}
 	imageRef.Digest = r.policyDigest(reference)
 	if imageRef.Digest != "" {
-		allowed, err = pol.IsResolvedImageAllowed(withPolicyChecked(ctx), imageRef)
+		allowed, err = pol.IsResolvedImageAllowed(withInPolicyEvaluation(ctx), imageRef)
 		if err != nil {
 			return fmt.Errorf("policy check failed: %w", err)
 		}
@@ -463,7 +464,7 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 // signature lookup and payload validation. Callers must first call checkPolicy
 // with the same reference because digest references are fully checked there.
 func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, desc ocispec.Descriptor) error {
-	if ctx.Value(policyCheckedKey{}) != nil {
+	if ctx.Value(inPolicyEvaluationKey{}) != nil {
 		return nil
 	}
 	// Digest references are fully evaluated by checkPolicy before any
@@ -484,10 +485,10 @@ func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, 
 	imageRef := r.policyImageReference(policyReference)
 	imageRef.Digest = desc.Digest
 
-	// Mark the context as checked so verifiers that call back into this
-	// repository (e.g. to fetch signature artifacts) do not recursively
-	// evaluate policy.
-	allowed, err := pol.IsResolvedImageAllowed(withPolicyChecked(ctx), imageRef)
+	// Mark the context as inside a policy evaluation so verifiers that call
+	// back into this repository (e.g. to fetch signature artifacts) do not
+	// recursively evaluate policy.
+	allowed, err := pol.IsResolvedImageAllowed(withInPolicyEvaluation(ctx), imageRef)
 	if err != nil {
 		return fmt.Errorf("policy check failed: %w", err)
 	}
