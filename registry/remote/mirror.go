@@ -18,11 +18,9 @@ package remote
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 
 	"github.com/opencontainers/go-digest"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/registry"
 )
@@ -171,112 +169,3 @@ func tryMirrorsRef[T any](
 
 // acceptAll is a tryMirrors accept function that accepts every result.
 func acceptAll[T any](T) bool { return true }
-
-// withMirrorFallbackResolve tries to resolve the reference against each
-// applicable mirror in order, falling back to the primary repository on error.
-func withMirrorFallbackResolve(
-	ctx context.Context,
-	mirrors []mirrorRepository,
-	primary *Repository,
-	reference string,
-	resolve func(ctx context.Context, repo *Repository, reference string) (ocispec.Descriptor, error),
-) (ocispec.Descriptor, error) {
-	mirrorRef := mirrorReference(reference)
-	return tryMirrors(
-		mirrors,
-		primary,
-		reference,
-		func(repo *Repository) (ocispec.Descriptor, error) { return resolve(ctx, repo, mirrorRef) },
-		func(repo *Repository) (ocispec.Descriptor, error) { return resolve(ctx, repo, reference) },
-		func(ocispec.Descriptor) bool { return true },
-	)
-}
-
-// withMirrorFallbackFetch tries to fetch the descriptor from each applicable
-// mirror in order, falling back to the primary repository on error.
-func withMirrorFallbackFetch(
-	ctx context.Context,
-	mirrors []mirrorRepository,
-	primary *Repository,
-	target ocispec.Descriptor,
-	fetch func(ctx context.Context, repo *Repository, target ocispec.Descriptor) (io.ReadCloser, error),
-) (io.ReadCloser, error) {
-	// Fetch by descriptor is always a digest-based operation.
-	reference := target.Digest.String()
-	return tryMirrors(
-		mirrors,
-		primary,
-		reference,
-		func(repo *Repository) (io.ReadCloser, error) { return fetch(ctx, repo, target) },
-		func(repo *Repository) (io.ReadCloser, error) { return fetch(ctx, repo, target) },
-		func(io.ReadCloser) bool { return true },
-	)
-}
-
-// withMirrorFallbackFetchReference tries to fetch by reference from each
-// applicable mirror in order, falling back to the primary repository on error.
-func withMirrorFallbackFetchReference(
-	ctx context.Context,
-	mirrors []mirrorRepository,
-	primary *Repository,
-	reference string,
-	fetch func(ctx context.Context, repo *Repository, reference string) (ocispec.Descriptor, io.ReadCloser, error),
-) (ocispec.Descriptor, io.ReadCloser, error) {
-	mirrorRef := mirrorReference(reference)
-
-	type fallbackResult struct {
-		desc ocispec.Descriptor
-		rc   io.ReadCloser
-	}
-	result, err := tryMirrors(
-		mirrors,
-		primary,
-		reference,
-		func(repo *Repository) (fallbackResult, error) {
-			desc, rc, err := fetch(ctx, repo, mirrorRef)
-			return fallbackResult{desc: desc, rc: rc}, err
-		},
-		func(repo *Repository) (fallbackResult, error) {
-			desc, rc, err := fetch(ctx, repo, reference)
-			return fallbackResult{desc: desc, rc: rc}, err
-		},
-		func(fallbackResult) bool { return true },
-	)
-	if err != nil {
-		return ocispec.Descriptor{}, nil, err
-	}
-
-	return result.desc, result.rc, nil
-}
-
-// withMirrorFallbackExists tries to check existence against each applicable
-// mirror in order, falling back to the primary repository on error.
-func withMirrorFallbackExists(
-	ctx context.Context,
-	mirrors []mirrorRepository,
-	primary *Repository,
-	target ocispec.Descriptor,
-	exists func(ctx context.Context, repo *Repository, target ocispec.Descriptor) (bool, error),
-) (bool, error) {
-	// Exists by descriptor is always a digest-based operation.
-	reference := target.Digest.String()
-
-	return tryMirrors(
-		mirrors,
-		primary,
-		reference,
-		func(repo *Repository) (bool, error) {
-			return exists(ctx, repo, target)
-		},
-		func(repo *Repository) (bool, error) {
-			return exists(ctx, repo, target)
-		},
-		func(ok bool) bool {
-			// Only a positive result is authoritative. A mirror that does not
-			// have the content says nothing about the primary, so keep
-			// looking; treating "absent here" as "absent everywhere" would
-			// report content that exists as missing.
-			return ok
-		},
-	)
-}
