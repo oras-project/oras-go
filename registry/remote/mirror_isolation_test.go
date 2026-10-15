@@ -29,11 +29,11 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
-// Test_withMirrorFallbackExists_mirrorMissing_fallsToPrimary covers a mirror
+// Test_Repository_Exists_mirrorMissing_fallsToPrimary covers a mirror
 // that answers authoritatively "not here". That is not an error, so the
 // fallback loop has to distinguish it from a hit: content present on the
 // primary but absent from the mirror must still be reported as existing.
-func Test_withMirrorFallbackExists_mirrorMissing_fallsToPrimary(t *testing.T) {
+func Test_Repository_Exists_mirrorMissing_fallsToPrimary(t *testing.T) {
 	content := []byte("only on the primary")
 	contentDigest := digest.FromBytes(content)
 
@@ -55,10 +55,10 @@ func Test_withMirrorFallbackExists_mirrorMissing_fallsToPrimary(t *testing.T) {
 	}))
 	defer primaryServer.Close()
 
-	mirrors := []mirrorRepository{
+	primary := repoFromServer(t, primaryServer)
+	primary.mirrors = []mirrorRepository{
 		{Repository: repoFromServer(t, mirrorServer), pullFromMirror: PullFromMirrorAll},
 	}
-	primaryRepo := repoFromServer(t, primaryServer)
 
 	target := ocispec.Descriptor{
 		MediaType: "application/octet-stream",
@@ -66,10 +66,7 @@ func Test_withMirrorFallbackExists_mirrorMissing_fallsToPrimary(t *testing.T) {
 		Size:      int64(len(content)),
 	}
 
-	ok, err := withMirrorFallbackExists(context.Background(), mirrors, primaryRepo, target,
-		func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (bool, error) {
-			return repo.blobStore(t).Exists(ctx, t)
-		})
+	ok, err := primary.Exists(context.Background(), target)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -78,9 +75,9 @@ func Test_withMirrorFallbackExists_mirrorMissing_fallsToPrimary(t *testing.T) {
 	}
 }
 
-// Test_withMirrorFallbackExists_allMiss reports false only once every mirror
+// Test_Repository_Exists_allMiss reports false only once every mirror
 // and the primary have been consulted.
-func Test_withMirrorFallbackExists_allMiss(t *testing.T) {
+func Test_Repository_Exists_allMiss(t *testing.T) {
 	notFound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -93,7 +90,8 @@ func Test_withMirrorFallbackExists_allMiss(t *testing.T) {
 	}))
 	defer primaryServer.Close()
 
-	mirrors := []mirrorRepository{
+	primary := repoFromServer(t, primaryServer)
+	primary.mirrors = []mirrorRepository{
 		{Repository: repoFromServer(t, notFound), pullFromMirror: PullFromMirrorAll},
 	}
 
@@ -103,10 +101,7 @@ func Test_withMirrorFallbackExists_allMiss(t *testing.T) {
 		Size:      7,
 	}
 
-	ok, err := withMirrorFallbackExists(context.Background(), mirrors, repoFromServer(t, primaryServer), target,
-		func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (bool, error) {
-			return repo.blobStore(t).Exists(ctx, t)
-		})
+	ok, err := primary.Exists(context.Background(), target)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
