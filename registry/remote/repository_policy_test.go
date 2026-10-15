@@ -1089,6 +1089,97 @@ func TestRepository_SignedByPolicy_MirrorPaths(t *testing.T) {
 	}
 }
 
+func TestRepository_SignedByPolicy_ChecksOnce(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation func(context.Context, *Repository, ocispec.Descriptor) error
+	}{
+		{
+			name: "Fetch",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				rc, err := repo.Fetch(ctx, desc)
+				if err == nil {
+					rc.Close()
+				}
+				return err
+			},
+		},
+		{
+			name: "Exists",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				_, err := repo.Exists(ctx, desc)
+				return err
+			},
+		},
+		{
+			name: "Resolve",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				_, err := repo.Resolve(ctx, "signed")
+				return err
+			},
+		},
+		{
+			name: "FetchReference by tag",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				_, rc, err := repo.FetchReference(ctx, "signed")
+				if err == nil {
+					rc.Close()
+				}
+				return err
+			},
+		},
+		{
+			name: "FetchReference by digest",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				_, rc, err := repo.FetchReference(ctx, "@"+desc.Digest.String())
+				if err == nil {
+					rc.Close()
+				}
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		for _, withMirror := range []bool{false, true} {
+			name := tt.name
+			if withMirror {
+				name += " falling back from a mirror"
+			}
+			t.Run(name, func(t *testing.T) {
+				verifier := &recordingSignedByVerifier{allow: true}
+				repo, desc, requests := newSignedByTestServerWithRequests(t, verifier)
+				if withMirror {
+					ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.WriteHeader(http.StatusNotFound)
+					}))
+					defer ts.Close()
+					uri, err := url.Parse(ts.URL)
+					if err != nil {
+						t.Fatalf("invalid test http server: %v", err)
+					}
+					mirror, err := NewRepository(uri.Host + "/test")
+					if err != nil {
+						t.Fatalf("NewRepository() error = %v", err)
+					}
+					mirror.Registry.PlainHTTP = true
+					repo.mirrors = []mirrorRepository{{Repository: mirror, pullFromMirror: PullFromMirrorAll}}
+				}
+
+				if err := tt.operation(context.Background(), repo, desc); err != nil {
+					t.Fatalf("%s() error = %v", tt.name, err)
+				}
+				if *requests == 0 {
+					t.Errorf("registry requests = 0, want the primary to be reached")
+				}
+				if len(verifier.seen) != 1 || verifier.seen[0].Digest != desc.Digest {
+					t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, desc.Digest)
+				}
+			})
+		}
+	}
+}
+
 func TestRepository_RejectPolicy_MirrorPaths(t *testing.T) {
 	// Mirrors have no policy of their own, so the primary's policy must deny
 	// the operation before any request reaches a mirror or the primary.

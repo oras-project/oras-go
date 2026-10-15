@@ -561,22 +561,26 @@ func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.R
 	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return nil, err
 	}
-	ctx = withPolicyChecked(ctx)
 	if len(r.mirrors) > 0 {
 		return withMirrorFallbackFetch(ctx, r.mirrors, r, target,
 			func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (io.ReadCloser, error) {
-				return repo.blobStore(t).Fetch(ctx, t)
+				return repo.fetch(ctx, t)
 			})
 	}
-	return r.blobStore(target).Fetch(ctx, target)
+	return r.fetch(ctx, target)
+}
+
+// fetch is Fetch without the policy check and the mirrors.
+func (r *Repository) fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	if isManifest(r.manifestMediaTypes(), target) {
+		return r.manifests().fetch(ctx, target)
+	}
+	return r.blobs().fetch(ctx, target)
 }
 
 // Push pushes the content, matching the expected descriptor.
 func (r *Repository) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	if err := r.checkDescriptorPolicy(ctx, expected); err != nil {
-		return err
-	}
-	return r.blobStore(expected).Push(withPolicyChecked(ctx), expected, content)
+	return r.blobStore(expected).Push(ctx, expected, content)
 }
 
 // Mount makes the blob with the given digest in fromRepo
@@ -589,14 +593,11 @@ func (r *Repository) Push(ctx context.Context, expected ocispec.Descriptor, cont
 // repository. If getContent returns an error, it will be wrapped inside the error
 // returned from Mount.
 func (r *Repository) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo string, getContent func() (io.ReadCloser, error)) error {
-	if err := r.checkPolicy(ctx, ""); err != nil {
-		return err
-	}
 	mounter, ok := r.Blobs().(registry.Mounter)
 	if !ok {
 		return errors.New("blob store does not support mounting")
 	}
-	return mounter.Mount(withPolicyChecked(ctx), desc, fromRepo, getContent)
+	return mounter.Mount(ctx, desc, fromRepo, getContent)
 }
 
 // Exists returns true if the described content exists.
@@ -605,22 +606,26 @@ func (r *Repository) Exists(ctx context.Context, target ocispec.Descriptor) (boo
 	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return false, err
 	}
-	ctx = withPolicyChecked(ctx)
 	if len(r.mirrors) > 0 {
 		return withMirrorFallbackExists(ctx, r.mirrors, r, target,
 			func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (bool, error) {
-				return repo.blobStore(t).Exists(ctx, t)
+				return repo.exists(ctx, t)
 			})
 	}
-	return r.blobStore(target).Exists(ctx, target)
+	return r.exists(ctx, target)
+}
+
+// exists is Exists without the policy check and the mirrors.
+func (r *Repository) exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
+	if isManifest(r.manifestMediaTypes(), target) {
+		return r.manifests().exists(ctx, target)
+	}
+	return r.blobs().exists(ctx, target)
 }
 
 // Delete removes the content identified by the descriptor.
 func (r *Repository) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
-		return err
-	}
-	return r.blobStore(target).Delete(withPolicyChecked(ctx), target)
+	return r.blobStore(target).Delete(ctx, target)
 }
 
 // Blobs provides access to the blob CAS only, which contains config blobs,
@@ -653,16 +658,15 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	resolveCtx := withPolicyChecked(ctx)
 	var desc ocispec.Descriptor
 	var err error
 	if len(r.mirrors) > 0 {
-		desc, err = withMirrorFallbackResolve(resolveCtx, r.mirrors, r, reference,
+		desc, err = withMirrorFallbackResolve(ctx, r.mirrors, r, reference,
 			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, error) {
-				return repo.Manifests().Resolve(ctx, ref)
+				return repo.manifests().resolve(ctx, ref)
 			})
 	} else {
-		desc, err = r.Manifests().Resolve(resolveCtx, reference)
+		desc, err = r.manifests().resolve(ctx, reference)
 	}
 	if err != nil {
 		return ocispec.Descriptor{}, err
@@ -675,10 +679,7 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 
 // Tag tags a manifest descriptor with a reference string.
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	if err := r.checkManifestPolicy(ctx, reference, desc); err != nil {
-		return err
-	}
-	return r.Manifests().Tag(withPolicyChecked(ctx), desc, reference)
+	return r.Manifests().Tag(ctx, desc, reference)
 }
 
 // Untag removes the association between the given tag and the manifest it
@@ -693,18 +694,12 @@ func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference
 //
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#deleting-tags
 func (r *Repository) Untag(ctx context.Context, reference string) error {
-	if err := r.checkPolicy(ctx, reference); err != nil {
-		return err
-	}
-	return r.Manifests().Untag(withPolicyChecked(ctx), reference)
+	return r.Manifests().Untag(ctx, reference)
 }
 
 // PushReference pushes the manifest with a reference tag.
 func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	if err := r.checkManifestPolicy(ctx, reference, expected); err != nil {
-		return err
-	}
-	return r.Manifests().PushReference(withPolicyChecked(ctx), expected, content, reference)
+	return r.Manifests().PushReference(ctx, expected, content, reference)
 }
 
 // FetchReference fetches the manifest identified by the reference.
@@ -714,17 +709,16 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	fetchCtx := withPolicyChecked(ctx)
 	var desc ocispec.Descriptor
 	var rc io.ReadCloser
 	var err error
 	if len(r.mirrors) > 0 {
-		desc, rc, err = withMirrorFallbackFetchReference(fetchCtx, r.mirrors, r, reference,
+		desc, rc, err = withMirrorFallbackFetchReference(ctx, r.mirrors, r, reference,
 			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, io.ReadCloser, error) {
-				return repo.Manifests().FetchReference(ctx, ref)
+				return repo.manifests().fetchReference(ctx, ref)
 			})
 	} else {
-		desc, rc, err = r.Manifests().FetchReference(fetchCtx, reference)
+		desc, rc, err = r.manifests().fetchReference(ctx, reference)
 	}
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
@@ -860,10 +854,6 @@ func (r *Repository) tags(ctx context.Context, last string, fn func(tags []strin
 // Predecessors internally leverages Referrers.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#listing-referrers
 func (r *Repository) Predecessors(ctx context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
-	if err := r.checkPolicy(ctx, ""); err != nil {
-		return nil, err
-	}
-	ctx = withPolicyChecked(ctx)
 	var res []ocispec.Descriptor
 	if err := r.Referrers(ctx, desc, "", func(referrers []ocispec.Descriptor) error {
 		res = append(res, referrers...)
@@ -1441,6 +1431,12 @@ func (s *blobStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
 		return false, err
 	}
+	return s.exists(ctx, target)
+}
+
+// exists is Exists without the policy check, for callers that have already
+// checked the operation it is part of.
+func (s *blobStore) exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
 	_, err := s.resolve(ctx, target.Digest.String())
 	if err == nil {
 		return true, nil
@@ -1660,6 +1656,12 @@ func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (
 	if err := s.repo.checkManifestPolicy(ctx, target.Digest.String(), target); err != nil {
 		return false, err
 	}
+	return s.exists(ctx, target)
+}
+
+// exists is Exists without the policy check, for callers that have already
+// checked the operation it is part of.
+func (s *manifestStore) exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
 	_, err := s.resolve(ctx, target.Digest.String())
 	if err == nil {
 		return true, nil
