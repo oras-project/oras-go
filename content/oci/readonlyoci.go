@@ -186,6 +186,7 @@ func readIndexFile(fsys fs.FS) (*ocispec.Index, error) {
 
 // loadIndex loads index into memory.
 func loadIndex(ctx context.Context, index *ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.Memory) error {
+	plains := make([]ocispec.Descriptor, 0, len(index.Manifests))
 	for _, desc := range index.Manifests {
 		if err := tagger.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
 			return err
@@ -195,12 +196,9 @@ func loadIndex(ctx context.Context, index *ocispec.Index, fetcher content.Fetche
 				return err
 			}
 		}
-		plain := descriptor.Plain(desc)
-		if err := graph.IndexAll(ctx, fetcher, plain); err != nil {
-			return err
-		}
+		plains = append(plains, descriptor.Plain(desc))
 	}
-	return nil
+	return graph.IndexAll(ctx, fetcher, plains...)
 }
 
 // resolveBlob returns a descriptor describing the blob identified by dgst.

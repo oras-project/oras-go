@@ -35,7 +35,10 @@ import (
 	"github.com/oras-project/oras-go/v3"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/content/memory"
+	"github.com/oras-project/oras-go/v3/internal/cas"
 	"github.com/oras-project/oras-go/v3/internal/docker"
+	"github.com/oras-project/oras-go/v3/internal/graph"
+	"github.com/oras-project/oras-go/v3/internal/resolver"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 	"github.com/oras-project/oras-go/v3/registry"
 	"golang.org/x/sync/errgroup"
@@ -48,6 +51,43 @@ func TestReadonlyStoreInterface(t *testing.T) {
 	}
 	if _, ok := store.(registry.TagLister); !ok {
 		t.Error("&ReadOnlyStore{} does not conform registry.TagLister")
+	}
+}
+
+func TestLoadIndexPreservesTagOrder(t *testing.T) {
+	ctx := context.Background()
+	storage := cas.NewMemory()
+	descs := make([]ocispec.Descriptor, 2)
+	for i := range descs {
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType:   ocispec.MediaTypeImageManifest,
+			Annotations: map[string]string{"manifest": strconv.Itoa(i)},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		descs[i] = content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		descs[i].Annotations = map[string]string{ocispec.AnnotationRefName: "latest"}
+		if err := storage.Push(ctx, descs[i], bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tagger := resolver.NewMemory()
+	if err := loadIndex(ctx, &ocispec.Index{Manifests: descs}, storage, tagger, graph.NewMemory()); err != nil {
+		t.Fatal("loadIndex() error =", err)
+	}
+	got, err := tagger.Resolve(ctx, "latest")
+	if err != nil {
+		t.Fatal("Resolve() error =", err)
+	}
+	if !content.Equal(got, descs[1]) {
+		t.Errorf("Resolve(latest) = %v, want later descriptor %v", got, descs[1])
+	}
+	if tagger.TagSet(descs[0]).Contains("latest") {
+		t.Error("earlier descriptor retained the duplicate tag")
+	}
+	if !tagger.TagSet(descs[1]).Contains("latest") {
+		t.Error("later descriptor is missing the duplicate tag")
 	}
 }
 

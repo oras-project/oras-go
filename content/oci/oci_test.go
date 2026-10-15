@@ -3551,6 +3551,52 @@ func BenchmarkStore_Delete(b *testing.B) {
 	}
 }
 
+func benchmarkStoreOpenLayout(b *testing.B) string {
+	b.Helper()
+	ctx := context.Background()
+	dir := b.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < 256; i++ {
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType:   ocispec.MediaTypeImageManifest,
+			Annotations: map[string]string{"manifest": strconv.Itoa(i)},
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		if err := s.Push(ctx, desc, bytes.NewReader(manifestJSON)); err != nil {
+			b.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func BenchmarkStore_Open(b *testing.B) {
+	dir := benchmarkStoreOpenLayout(b)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := New(dir); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkReadOnlyStore_Open(b *testing.B) {
+	dir := benchmarkStoreOpenLayout(b)
+	fsys := os.DirFS(dir)
+	ctx := context.Background()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := NewFromFS(ctx, fsys); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // storeWithTaggedManifest pushes a manifest and its config to a new store in
 // dir and tags it, so that the index of the store has content to lose.
 func storeWithTaggedManifest(t testing.TB, dir string) *Store {
