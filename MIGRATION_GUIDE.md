@@ -107,6 +107,7 @@ function type explicit.
 | `auth.CredentialFunc` | `credentials.CredentialFunc` |
 | `auth.StaticCredential` | `credentials.StaticCredentialFunc` |
 | `auth.Client.Credential` | `auth.Client.CredentialFunc` |
+| `remote.ClientBuilder.CredentialStore` (`credentials.Store`) | `remote.ClientBuilder.CredentialStore` (`credentials.Getter`) |
 | `credentials.Credential(store)` | `remote.NewCredentialFunc(store)` |
 | `credentials.Login` / `credentials.Logout` | `remote.Login` / `remote.Logout` |
 | `credentials.ServerAddressFromHostname` | `remote.ServerAddressFromHostname` |
@@ -197,8 +198,13 @@ client := &auth.Client{
 }
 ```
 
-The `credentials.Store` methods now accept and return
-`credentials.Credential`. Custom stores must update their method signatures.
+The client builder only reads credentials, so its `CredentialStore` field now
+accepts the narrower `credentials.Getter` interface instead of requiring a full
+`credentials.Store`. A custom read-only implementation only needs `Get`; use a
+`credentials.Store` when an operation must also save or delete credentials, such
+as `remote.Login` or `remote.Logout`. `config.Configs.CredentialStore` still
+returns a `credentials.Store` because the combined store supports those
+mutating operations.
 
 #### Native credential-store detection
 
@@ -268,9 +274,14 @@ The exported reference surfaces in `registry/remote` use the properties type:
 | `remote.Repository.ParseReference(string) (registry.Reference, error)` | `remote.Repository.ParseReference(string) (properties.Reference, error)` |
 
 Custom targets that expose a `ParseReference` method should update its return
-type to `properties.Reference`. ORAS temporarily recognizes the legacy method
-signature when adding authentication scope hints, so existing implementations
-retain that behavior during migration.
+type to `properties.Reference`. `oras.Tag` and `oras.TagN` temporarily recognize
+both the new and legacy `ParseReference` signatures when adding authentication
+scope hints, so a target can migrate without silently losing those hints. This
+compatibility is transitional: `registry.Reference` and the legacy parser
+signature are planned for removal in a future major release. Migrate custom
+targets before that removal; the compatibility path only carries the registry
+and repository needed for the scope hint and does not make the deprecated
+reference type current again.
 
 ### Repository interfaces, predecessors, and untagging
 
