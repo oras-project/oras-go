@@ -16,16 +16,20 @@ limitations under the License.
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
@@ -711,5 +715,159 @@ func Test_Repository_FetchReference_usesMirror(t *testing.T) {
 	got, _ := io.ReadAll(rc)
 	if string(got) != string(manifestJSON) {
 		t.Errorf("expected manifest body %q, got %q", manifestJSON, got)
+	}
+}
+
+func Test_Repository_ReferrersIndex_ignoresMirror(t *testing.T) {
+	// Without the Referrers API, the referrers index is read from the primary
+	// only, as the Referrers API itself is. Pushing a referrer adds it to the
+	// index and pushes the result back over the primary's index, so starting
+	// from a stale mirror copy would drop the referrers the copy lacks.
+	subject := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("subject"),
+		Size:      int64(len("subject")),
+	}
+	older := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("older"),
+		Size:      int64(len("older")),
+	}
+	newer := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("newer"),
+		Size:      int64(len("newer")),
+	}
+	manifest, err := json.Marshal(ocispec.Manifest{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    ocispec.DescriptorEmptyJSON,
+		Layers:    []ocispec.Descriptor{},
+		Subject:   &subject,
+	})
+	if err != nil {
+		t.Fatalf("failed to marshal referrer manifest: %v", err)
+	}
+	referrer := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	marshalIndex := func(manifests ...ocispec.Descriptor) []byte {
+		index, err := json.Marshal(ocispec.Index{
+			Versioned: specs.Versioned{SchemaVersion: 2},
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: manifests,
+		})
+		if err != nil {
+			t.Fatalf("failed to marshal referrers index: %v", err)
+		}
+		return index
+	}
+	primaryIndex := marshalIndex(older, newer)
+	mirrorIndex := marshalIndex(older)
+	referrersTag, err := buildReferrersTag(subject)
+	if err != nil {
+		t.Fatalf("buildReferrersTag() error = %v", err)
+	}
+	serveIndex := func(w http.ResponseWriter, index []byte) {
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+		w.Header().Set("Docker-Content-Digest", digest.FromBytes(index).String())
+		w.Header().Set("Content-Length", strconv.Itoa(len(index)))
+		w.Write(index)
+	}
+	digests := func(descs []ocispec.Descriptor) []digest.Digest {
+		var res []digest.Digest
+		for _, desc := range descs {
+			res = append(res, desc.Digest)
+		}
+		return res
+	}
+
+	tests := []struct {
+		name      string
+		operation func(context.Context, *Repository) ([]ocispec.Descriptor, error)
+		want      []digest.Digest
+	}{
+		{
+			name: "Push",
+			operation: func(ctx context.Context, repo *Repository) ([]ocispec.Descriptor, error) {
+				return nil, repo.Push(ctx, referrer, bytes.NewReader(manifest))
+			},
+			want: []digest.Digest{older.Digest, newer.Digest, referrer.Digest},
+		},
+		{
+			name: "Referrers",
+			operation: func(ctx context.Context, repo *Repository) ([]ocispec.Descriptor, error) {
+				var res []ocispec.Descriptor
+				err := repo.Referrers(ctx, subject, "", func(referrers []ocispec.Descriptor) error {
+					res = append(res, referrers...)
+					return nil
+				})
+				return res, err
+			},
+			want: []digest.Digest{older.Digest, newer.Digest},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var pushedIndex ocispec.Index
+			primaryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPut && r.URL.Path == "/v2/test/repo/manifests/"+referrer.Digest.String():
+					w.Header().Set("Docker-Content-Digest", referrer.Digest.String())
+					w.WriteHeader(http.StatusCreated)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/test/repo/manifests/"+referrersTag:
+					serveIndex(w, primaryIndex)
+				case r.Method == http.MethodPut && r.URL.Path == "/v2/test/repo/manifests/"+referrersTag:
+					body, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Errorf("failed to read referrers index: %v", err)
+					}
+					if err := json.Unmarshal(body, &pushedIndex); err != nil {
+						t.Errorf("failed to unmarshal referrers index: %v", err)
+					}
+					w.Header().Set("Docker-Content-Digest", digest.FromBytes(body).String())
+					w.WriteHeader(http.StatusCreated)
+				case r.Method == http.MethodDelete && r.URL.Path == "/v2/test/repo/manifests/"+digest.FromBytes(primaryIndex).String():
+					w.WriteHeader(http.StatusAccepted)
+				default:
+					t.Errorf("unexpected primary access: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer primaryServer.Close()
+			mirrorRequests := 0
+			mirrorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mirrorRequests++
+				if r.Method == http.MethodGet && r.URL.Path == "/v2/test/repo/manifests/"+referrersTag {
+					serveIndex(w, mirrorIndex)
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer mirrorServer.Close()
+
+			primary := repoFromServer(t, primaryServer)
+			primary.mirrors = []mirrorRepository{
+				{Repository: repoFromServer(t, mirrorServer), pullFromMirror: PullFromMirrorAll},
+			}
+			primary.SetReferrersCapability(false)
+
+			got, err := tt.operation(context.Background(), primary)
+			if err != nil {
+				t.Fatalf("%s() error = %v", tt.name, err)
+			}
+			if tt.name == "Push" {
+				got = pushedIndex.Manifests
+			}
+			if gotDigests := digests(got); !slices.Equal(gotDigests, tt.want) {
+				t.Errorf("referrers = %v, want %v", gotDigests, tt.want)
+			}
+			if mirrorRequests != 0 {
+				t.Errorf("mirror requests = %d, want none", mirrorRequests)
+			}
+		})
 	}
 }
