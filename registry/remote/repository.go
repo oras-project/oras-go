@@ -562,13 +562,10 @@ func (r *Repository) Fetch(ctx context.Context, target ocispec.Descriptor) (io.R
 	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return nil, err
 	}
-	if len(r.mirrors) > 0 {
-		return withMirrorFallbackFetch(ctx, r.mirrors, r, target,
-			func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (io.ReadCloser, error) {
-				return repo.fetch(ctx, t)
-			})
+	fetch := func(repo *Repository) (io.ReadCloser, error) {
+		return repo.fetch(ctx, target)
 	}
-	return r.fetch(ctx, target)
+	return tryMirrors(r.mirrors, r, target.Digest.String(), fetch, fetch, acceptAll[io.ReadCloser])
 }
 
 // fetch is Fetch without the policy check and the mirrors.
@@ -607,13 +604,16 @@ func (r *Repository) Exists(ctx context.Context, target ocispec.Descriptor) (boo
 	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
 		return false, err
 	}
-	if len(r.mirrors) > 0 {
-		return withMirrorFallbackExists(ctx, r.mirrors, r, target,
-			func(ctx context.Context, repo *Repository, t ocispec.Descriptor) (bool, error) {
-				return repo.exists(ctx, t)
-			})
+	exists := func(repo *Repository) (bool, error) {
+		return repo.exists(ctx, target)
 	}
-	return r.exists(ctx, target)
+	return tryMirrors(r.mirrors, r, target.Digest.String(), exists, exists, func(ok bool) bool {
+		// Only a positive result is authoritative. A mirror that does not
+		// have the content says nothing about the primary, so keep
+		// looking; treating "absent here" as "absent everywhere" would
+		// report content that exists as missing.
+		return ok
+	})
 }
 
 // exists is Exists without the policy check and the mirrors.
@@ -659,16 +659,10 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	var desc ocispec.Descriptor
-	var err error
-	if len(r.mirrors) > 0 {
-		desc, err = withMirrorFallbackResolve(ctx, r.mirrors, r, reference,
-			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, error) {
-				return repo.manifests().resolve(ctx, ref)
-			})
-	} else {
-		desc, err = r.manifests().resolve(ctx, reference)
-	}
+	desc, err := tryMirrorsRef(r.mirrors, r, reference,
+		func(repo *Repository, ref string) (ocispec.Descriptor, error) {
+			return repo.manifests().resolve(ctx, ref)
+		})
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -710,25 +704,23 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 	if err := r.checkPolicy(ctx, reference); err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	var desc ocispec.Descriptor
-	var rc io.ReadCloser
-	var err error
-	if len(r.mirrors) > 0 {
-		desc, rc, err = withMirrorFallbackFetchReference(ctx, r.mirrors, r, reference,
-			func(ctx context.Context, repo *Repository, ref string) (ocispec.Descriptor, io.ReadCloser, error) {
-				return repo.manifests().fetchReference(ctx, ref)
-			})
-	} else {
-		desc, rc, err = r.manifests().fetchReference(ctx, reference)
+	type fetchResult struct {
+		desc ocispec.Descriptor
+		rc   io.ReadCloser
 	}
+	result, err := tryMirrorsRef(r.mirrors, r, reference,
+		func(repo *Repository, ref string) (fetchResult, error) {
+			desc, rc, err := repo.manifests().fetchReference(ctx, ref)
+			return fetchResult{desc: desc, rc: rc}, err
+		})
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	if err := r.checkPolicyResolved(ctx, reference, desc); err != nil {
-		rc.Close()
+	if err := r.checkPolicyResolved(ctx, reference, result.desc); err != nil {
+		result.rc.Close()
 		return ocispec.Descriptor{}, nil, err
 	}
-	return desc, rc, nil
+	return result.desc, result.rc, nil
 }
 
 // ParseReference resolves a tag or a digest reference to a fully qualified
