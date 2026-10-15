@@ -18,6 +18,7 @@ limitations under the License.
 package oci
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -96,6 +97,9 @@ type Store struct {
 	sync sync.RWMutex
 	// indexLock ensures that only one go-routine is writing to the index.
 	indexLock sync.Mutex
+	// indexBuf is reused to encode the index on every save. It is guarded by
+	// indexLock.
+	indexBuf bytes.Buffer
 }
 
 // indexDeferral is the state of one WithDeferredIndex scope. It travels in the
@@ -565,26 +569,28 @@ func (s *Store) saveIndexFrom(tagResolver *resolver.Memory) (err error) {
 		}
 	}()
 
-	var manifests []ocispec.Descriptor
+	var manifests, untagged []ocispec.Descriptor
 	tagged := set.New[digest.Digest]()
-	refMap := tagResolver.Map()
 
-	// 1. Add descriptors that are associated with tags
+	// 1. Add descriptors that are associated with tags, in a single pass over
+	// the resolver so that the index is built from one consistent view of it
 	// Note: One descriptor can be associated with multiple tags.
-	for ref, desc := range refMap {
-		if ref != desc.Digest.String() {
-			annotations := make(map[string]string, len(desc.Annotations)+1)
-			maps.Copy(annotations, desc.Annotations)
-			annotations[ocispec.AnnotationRefName] = ref
-			desc.Annotations = annotations
-			manifests = append(manifests, desc)
-			// mark the digest as tagged for deduplication in step 2
-			tagged.Add(desc.Digest)
+	for ref, desc := range tagResolver.All() {
+		if ref == desc.Digest.String() {
+			untagged = append(untagged, desc)
+			continue
 		}
+		annotations := make(map[string]string, len(desc.Annotations)+1)
+		maps.Copy(annotations, desc.Annotations)
+		annotations[ocispec.AnnotationRefName] = ref
+		desc.Annotations = annotations
+		manifests = append(manifests, desc)
+		// mark the digest as tagged for deduplication in step 2
+		tagged.Add(desc.Digest)
 	}
 	// 2. Add descriptors that are not associated with any tag
-	for ref, desc := range refMap {
-		if ref == desc.Digest.String() && !tagged.Contains(desc.Digest) {
+	for _, desc := range untagged {
+		if !tagged.Contains(desc.Digest) {
 			// skip tagged ones since they have been added in step 1
 			manifests = append(manifests, deleteAnnotationRefName(desc))
 		}
@@ -594,12 +600,17 @@ func (s *Store) saveIndexFrom(tagResolver *resolver.Memory) (err error) {
 	return s.writeIndexFile()
 }
 
-// writeIndexFile writes the `index.json` file.
+// writeIndexFile writes the `index.json` file. The caller must hold indexLock,
+// or otherwise have exclusive access to the Store.
 func (s *Store) writeIndexFile() error {
-	indexJSON, err := json.Marshal(s.index)
-	if err != nil {
+	// reuse the buffer of the previous save, rather than allocating a new one
+	// the size of the whole index
+	s.indexBuf.Reset()
+	if err := json.NewEncoder(&s.indexBuf).Encode(s.index); err != nil {
 		return fmt.Errorf("failed to marshal index file: %w", err)
 	}
+	// Encode ends the output with a newline, which json.Marshal does not
+	indexJSON := bytes.TrimSuffix(s.indexBuf.Bytes(), []byte("\n"))
 	return writeFileAtomic(s.indexPath, indexJSON, s.SyncIndex)
 }
 

@@ -3797,35 +3797,37 @@ func TestStore_SyncIndex(t *testing.T) {
 func BenchmarkStore_IndexWrites(b *testing.B) {
 	for _, sync := range []bool{false, true} {
 		for _, operation := range []string{"Tag", "SaveIndex"} {
-			b.Run("SyncIndex="+strconv.FormatBool(sync)+"/"+operation, func(b *testing.B) {
-				ctx := context.Background()
-				s := storeWithTaggedManifest(b, b.TempDir())
-				desc, err := s.Resolve(ctx, "latest")
-				if err != nil {
-					b.Fatal(err)
-				}
-				s.AutoSaveIndex = false
-				for i := range 99 {
-					if err := s.Tag(ctx, desc, strconv.Itoa(i)); err != nil {
+			for _, tags := range []int{10, 100, 1000} {
+				b.Run("SyncIndex="+strconv.FormatBool(sync)+"/"+operation+"/tags="+strconv.Itoa(tags), func(b *testing.B) {
+					ctx := context.Background()
+					s := storeWithTaggedManifest(b, b.TempDir())
+					desc, err := s.Resolve(ctx, "latest")
+					if err != nil {
 						b.Fatal(err)
 					}
-				}
-				if err := s.SaveIndex(); err != nil {
-					b.Fatal(err)
-				}
-				s.AutoSaveIndex = true
-				s.SyncIndex = sync
-				write := s.SaveIndex
-				if operation == "Tag" {
-					write = func() error { return s.Tag(ctx, desc, "latest") }
-				}
-				b.ReportAllocs()
-				for b.Loop() {
-					if err := write(); err != nil {
+					s.AutoSaveIndex = false
+					for i := range tags - 1 {
+						if err := s.Tag(ctx, desc, strconv.Itoa(i)); err != nil {
+							b.Fatal(err)
+						}
+					}
+					if err := s.SaveIndex(); err != nil {
 						b.Fatal(err)
 					}
-				}
-			})
+					s.AutoSaveIndex = true
+					s.SyncIndex = sync
+					write := s.SaveIndex
+					if operation == "Tag" {
+						write = func() error { return s.Tag(ctx, desc, "latest") }
+					}
+					b.ReportAllocs()
+					for b.Loop() {
+						if err := write(); err != nil {
+							b.Fatal(err)
+						}
+					}
+				})
+			}
 		}
 	}
 }
@@ -3884,6 +3886,99 @@ func TestStore_PartialIndexFile(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatal("partially written index was not preserved for inspection")
+	}
+}
+
+func TestStore_IndexFileMatchesMarshal(t *testing.T) {
+	ctx := context.Background()
+	s := storeWithTaggedManifest(t, t.TempDir())
+	desc, err := s.Resolve(ctx, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func() {
+		t.Helper()
+		want, err := json.Marshal(s.index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(s.indexPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("index.json = %s, want %s", got, want)
+		}
+	}
+
+	// grow the index and then shrink it, so that a later save writes less than
+	// an earlier one
+	tags := []string{"a", "b", "c"}
+	for _, tag := range tags {
+		if err := s.Tag(ctx, desc, tag); err != nil {
+			t.Fatal(err)
+		}
+		check()
+	}
+	for _, tag := range append(tags, "latest") {
+		if err := s.Untag(ctx, tag); err != nil {
+			t.Fatal(err)
+		}
+		check()
+	}
+}
+
+func TestStore_IndexKeepsEachTagWithItsManifest(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	config := []byte("config")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	if err := s.Push(ctx, configDesc, bytes.NewReader(config)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	want := make(map[string]digest.Digest)
+	for i := range 5 {
+		tag := "v" + strconv.Itoa(i)
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType:   ocispec.MediaTypeImageManifest,
+			Config:      configDesc,
+			Layers:      []ocispec.Descriptor{},
+			Annotations: map[string]string{"tag": tag},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		if err := s.Push(ctx, desc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("Store.Push() error =", err)
+		}
+		if err := s.Tag(ctx, desc, tag); err != nil {
+			t.Fatal("Store.Tag() error =", err)
+		}
+		want[tag] = desc.Digest
+	}
+
+	reopened, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	for tag, dgst := range want {
+		got, err := reopened.Resolve(ctx, tag)
+		if err != nil {
+			t.Fatalf("Store.Resolve(%q) error = %v", tag, err)
+		}
+		if got.Digest != dgst {
+			t.Errorf("Store.Resolve(%q) = %v, want %v", tag, got.Digest, dgst)
+		}
 	}
 }
 
