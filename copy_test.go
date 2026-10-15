@@ -23,12 +23,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3"
 	"github.com/oras-project/oras-go/v3/content"
@@ -38,6 +42,8 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/cas"
 	"github.com/oras-project/oras-go/v3/internal/docker"
 	"github.com/oras-project/oras-go/v3/internal/spec"
+	"github.com/oras-project/oras-go/v3/registry/remote"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 )
 
 // storageTracker tracks storage API counts.
@@ -456,6 +462,119 @@ func TestCopyGraph_SkipExistsCheckBelowSize(t *testing.T) {
 	}
 	if got := findSuccessorsCount.Load(); got != 0 {
 		t.Errorf("count(FindSuccessors()) = %d, want 0", got)
+	}
+}
+
+// TestCopyGraph_ColdPushRequestCount counts the requests a cold copy of a
+// 52-node artifact (50 layers, a config and a manifest) sends to an empty
+// registry, with and without the opt-in request savers. It copies one node at
+// a time so the counts do not depend on scheduling.
+func TestCopyGraph_ColdPushRequestCount(t *testing.T) {
+	ctx := context.Background()
+	src := cas.NewMemory()
+	var layers []ocispec.Descriptor
+	for i := range 50 {
+		blob := fmt.Appendf(nil, "layer %d", i)
+		desc := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageLayer, Digest: digest.FromBytes(blob), Size: int64(len(blob))}
+		if err := src.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+			t.Fatal(err)
+		}
+		layers = append(layers, desc)
+	}
+	configBlob := []byte("{}")
+	config := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageConfig, Digest: digest.FromBytes(configBlob), Size: int64(len(configBlob))}
+	if err := src.Push(ctx, config, bytes.NewReader(configBlob)); err != nil {
+		t.Fatal(err)
+	}
+	manifestBlob, err := json.Marshal(ocispec.Manifest{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    config,
+		Layers:    layers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageManifest, Digest: digest.FromBytes(manifestBlob), Size: int64(len(manifestBlob))}
+	if err := src.Push(ctx, root, bytes.NewReader(manifestBlob)); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tt := range []struct {
+		name            string
+		singleRequest   bool
+		skipExistCheck  bool
+		postStatus      int // answer to a POST carrying ?digest=, 201 if zero
+		want            int64
+		wantDigestPosts int64
+	}{
+		{name: "default", want: 155},
+		{name: "single request push", singleRequest: true, want: 104, wantDigestPosts: 51},
+		{name: "skip exists check", skipExistCheck: true, want: 104},
+		{name: "both", singleRequest: true, skipExistCheck: true, want: 53, wantDigestPosts: 51},
+		// a registry that ignores ?digest= turns the first POST into the
+		// upload session, so only one blob body is sent twice
+		{name: "registry ignores digest", singleRequest: true, postStatus: http.StatusAccepted, want: 155, wantDigestPosts: 1},
+		// a registry that rejects ?digest= costs one extra request in total
+		{name: "registry rejects digest", singleRequest: true, postStatus: http.StatusMethodNotAllowed, want: 156, wantDigestPosts: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var requests, digestPosts atomic.Int64
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				switch {
+				case r.Method == http.MethodHead:
+					w.WriteHeader(http.StatusNotFound)
+				case r.Method == http.MethodPost && r.URL.Query().Has("digest"):
+					digestPosts.Add(1)
+					switch tt.postStatus {
+					case 0:
+						w.WriteHeader(http.StatusCreated)
+					case http.StatusAccepted:
+						w.Header().Set("Location", r.URL.Path+"session")
+						w.WriteHeader(http.StatusAccepted)
+					default:
+						w.WriteHeader(tt.postStatus)
+					}
+				case r.Method == http.MethodPost:
+					w.Header().Set("Location", r.URL.Path+"session")
+					w.WriteHeader(http.StatusAccepted)
+				case r.Method == http.MethodPut:
+					w.WriteHeader(http.StatusCreated)
+				default:
+					t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo, err := remote.NewRepository(uri.Host + "/test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo.Registry.PlainHTTP = true
+			repo.Registry.Client = &auth.Client{Client: ts.Client()}
+			opts := oras.CopyGraphOptions{Concurrency: 1}
+			if tt.singleRequest {
+				repo.SingleRequestPushThreshold = 1 << 20
+			}
+			if tt.skipExistCheck {
+				opts.SkipExistsCheckBelowSize = 1 << 20
+			}
+
+			if err := oras.CopyGraph(ctx, src, repo, root, opts); err != nil {
+				t.Fatal(err)
+			}
+			if got := requests.Load(); got != tt.want {
+				t.Errorf("requests = %d, want %d", got, tt.want)
+			}
+			if got := digestPosts.Load(); got != tt.wantDigestPosts {
+				t.Errorf("POST ?digest= requests = %d, want %d", got, tt.wantDigestPosts)
+			}
+		})
 	}
 }
 
