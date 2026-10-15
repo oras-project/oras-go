@@ -21,6 +21,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -141,5 +142,44 @@ func TestTagSetRetag(t *testing.T) {
 	}
 	if got := s.TagSet(newDesc); !got.Contains(ref) {
 		t.Errorf("TagSet(newDesc) = %v, want it to contain %q", got, ref)
+	}
+}
+
+func TestMemoryAll(t *testing.T) {
+	s := NewMemory()
+	ctx := context.Background()
+	for _, ref := range []string{"foo", "bar", "baz"} {
+		content := []byte(ref)
+		desc := ocispec.Descriptor{
+			MediaType: "test",
+			Digest:    digest.FromBytes(content),
+			Size:      int64(len(content)),
+		}
+		if err := s.Tag(ctx, desc, ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := make(map[string]ocispec.Descriptor)
+	for ref, desc := range s.All() {
+		got[ref] = desc
+	}
+	if want := s.Map(); !reflect.DeepEqual(got, want) {
+		t.Errorf("Memory.All() = %v, want %v", got, want)
+	}
+
+	// stopping early must release the read lock
+	for range s.All() {
+		break
+	}
+	done := make(chan struct{})
+	go func() {
+		s.Untag("foo")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Memory.Untag() blocked after breaking out of Memory.All()")
 	}
 }

@@ -234,8 +234,7 @@ func resolveBlob(fsys fs.FS, dgst string) (ocispec.Descriptor, error) {
 func listTags(tagResolver *resolver.Memory, last string, fn func(tags []string) error) error {
 	var tags []string
 
-	tagMap := tagResolver.Map()
-	for tag, desc := range tagMap {
+	for tag, desc := range tagResolver.All() {
 		if tag == desc.Digest.String() {
 			continue
 		}

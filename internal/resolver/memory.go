@@ -18,6 +18,7 @@ package resolver
 import (
 	"context"
 	"fmt"
+	"iter"
 	"maps"
 	"sync"
 
@@ -103,6 +104,22 @@ func (m *Memory) Map() map[string]ocispec.Descriptor {
 	defer m.lock.RUnlock()
 
 	return maps.Clone(m.index)
+}
+
+// All returns an iterator over the references and their descriptors, without
+// copying the memory. The read lock is held for the whole iteration, so the loop
+// body must not call any method of the Memory, or it may deadlock.
+func (m *Memory) All() iter.Seq2[string, ocispec.Descriptor] {
+	return func(yield func(string, ocispec.Descriptor) bool) {
+		m.lock.RLock()
+		defer m.lock.RUnlock()
+
+		for ref, desc := range m.index {
+			if !yield(ref, desc) {
+				return
+			}
+		}
+	}
 }
 
 // TagSet returns the set of tags of the descriptor.
