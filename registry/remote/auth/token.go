@@ -71,13 +71,19 @@ func tokenRegistryURL(ctx context.Context) *url.URL {
 // given client. If client is nil, http.DefaultClient is used.
 //
 // The client is wrapped by redirectSafeClient so that a token endpoint
-// redirect crossing an HTTP origin does not carry the credential along.
+// redirect crossing an HTTP origin does not carry the credential along. A
+// request body is not resent across origins either: on a 307 or 308 redirect
+// net/http replays the body, which for an OAuth2 token request holds the
+// password or refresh token.
 //
 // When the request context carries the registry URL (set by Client.Do), every
 // redirect hop is also validated by validateRealm against that URL, so that a
 // validated realm cannot redirect the token request to an internal address
 // or downgrade it from https to http.
-// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
+//
+// References:
+//   - https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
+//   - https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
 func sendRequest(client *http.Client, header http.Header, req *http.Request) (*http.Response, error) {
 	for key, values := range header {
 		req.Header[key] = append(req.Header[key], values...)
@@ -85,7 +91,15 @@ func sendRequest(client *http.Client, header http.Header, req *http.Request) (*h
 	if registryURL := tokenRegistryURL(req.Context()); registryURL != nil {
 		client = realmRedirectGuard(client, registryURL)
 	}
-	return redirectSafeClient(client).Do(req)
+	safeClient := redirectSafeClient(client)
+	checkRedirect := safeClient.CheckRedirect
+	safeClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.Body != nil && req.Body != http.NoBody && leftOrigin(via, req) {
+			return fmt.Errorf("%s %q: refusing to resend a token request body to another origin", req.Method, req.URL.Redacted())
+		}
+		return checkRedirect(req, via)
+	}
+	return safeClient.Do(req)
 }
 
 // decodeTokenResponse decodes a token endpoint response body and returns the

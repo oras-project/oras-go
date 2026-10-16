@@ -4533,6 +4533,131 @@ func TestClient_send_RedirectLimit(t *testing.T) {
 	}
 }
 
+// TestClient_Do_Basic_Auth_MultiHopRedirect verifies that the Authorization
+// header stays dropped for the rest of a redirect chain once the chain has left
+// the origin of the first request. net/http rebuilds every redirected request's
+// headers from the first request, so a guard that only compares adjacent hops
+// is bypassed by a second, same-origin hop on the redirect target.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
+func TestClient_Do_Basic_Auth_MultiHopRedirect(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	tests := []struct {
+		name string
+		// tlsOrigin serves the origin over https while the sink stays on
+		// plain http, so the chain also changes scheme.
+		tlsOrigin bool
+		// backToOrigin makes the sink send the second hop back to the origin
+		// instead of to itself.
+		backToOrigin bool
+	}{
+		{name: "second hop on other port"},
+		{name: "second hop after https to http downgrade", tlsOrigin: true},
+		{name: "second hop back to origin", backToOrigin: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotAuth atomic.Value
+			gotAuth.Store("")
+
+			var origin *httptest.Server
+			sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/x" {
+					target := "/y"
+					if tt.backToOrigin {
+						target = origin.URL + "/back"
+					}
+					http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+					return
+				}
+				gotAuth.Store(r.Header.Get("Authorization"))
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer sink.Close()
+
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/back" {
+					gotAuth.Store(r.Header.Get("Authorization"))
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				if r.Header.Get("Authorization") != wantAuth {
+					w.Header().Set("Www-Authenticate", `Basic realm="origin"`)
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				http.Redirect(w, r, sink.URL+"/x", http.StatusTemporaryRedirect)
+			})
+			if tt.tlsOrigin {
+				origin = httptest.NewTLSServer(handler)
+			} else {
+				origin = httptest.NewServer(handler)
+			}
+			defer origin.Close()
+
+			client := &Client{
+				Client: origin.Client(),
+				CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+					return credentials.Credential{Username: username, Password: password}, nil
+				},
+			}
+			req, err := http.NewRequest(http.MethodGet, origin.URL+"/v2/test/manifests/latest", nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Client.Do() error = %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+			}
+			if got := gotAuth.Load().(string); got != "" {
+				t.Errorf("Authorization forwarded after the chain left the origin: %q", got)
+			}
+		})
+	}
+}
+
+func Test_leftOrigin(t *testing.T) {
+	requests := func(rawURLs ...string) []*http.Request {
+		t.Helper()
+		reqs := make([]*http.Request, 0, len(rawURLs))
+		for _, raw := range rawURLs {
+			req, err := http.NewRequest(http.MethodGet, raw, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reqs = append(reqs, req)
+		}
+		return reqs
+	}
+	tests := []struct {
+		name  string
+		chain []string // via followed by the next request
+		want  bool
+	}{
+		{"same origin", []string{"https://a.example/x", "https://a.example/y"}, false},
+		{"same origin, several hops", []string{"https://a.example/x", "https://a.example/y", "https://a.example:443/z"}, false},
+		{"other port", []string{"https://a.example/x", "https://a.example:8443/y"}, true},
+		{"other scheme", []string{"https://a.example/x", "http://a.example/y"}, true},
+		{"second hop on other origin", []string{"https://a.example/x", "https://a.example:8443/y", "https://a.example:8443/z"}, true},
+		{"back to origin", []string{"https://a.example/x", "https://a.example:8443/y", "https://a.example/z"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqs := requests(tt.chain...)
+			via, req := reqs[:len(reqs)-1], reqs[len(reqs)-1]
+			if got := leftOrigin(via, req); got != tt.want {
+				t.Errorf("leftOrigin() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_sameHTTPOrigin(t *testing.T) {
 	tests := []struct {
 		name string
@@ -4720,40 +4845,44 @@ func TestClient_Do_Bearer_RealmRedirect_Validated(t *testing.T) {
 		oauth2 bool
 		// target returns the redirect target given the URL of the internal
 		// server.
-		target  func(internalURL string) string
-		wantErr bool
+		target func(internalURL string) string
+		// wantErr is a substring of the expected error, or empty if the
+		// request is expected to succeed.
+		wantErr string
 	}{
 		{
 			name:    "redirect to hostname resolving to IMDS is rejected",
 			target:  func(string) string { return "http://metadata.test/latest/meta-data/" },
-			wantErr: true,
+			wantErr: "redirect of token request rejected",
 		},
 		{
 			name:    "redirect to hostname resolving to CGNAT is rejected",
 			target:  func(string) string { return "http://cgnat.test/latest/meta-data/" },
-			wantErr: true,
+			wantErr: "redirect of token request rejected",
 		},
 		{
 			name:    "redirect to loopback literal is rejected",
 			target:  func(internalURL string) string { return internalURL + "/token" },
-			wantErr: true,
+			wantErr: "redirect of token request rejected",
 		},
 		{
+			// The OAuth2 POST carries the password in its body, so a 307 to
+			// any other origin is refused before the realm is validated.
+			// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
 			name:    "OAuth2 redirect to hostname resolving to IMDS is rejected",
 			oauth2:  true,
 			target:  func(string) string { return "http://metadata.test/latest/meta-data/" },
-			wantErr: true,
+			wantErr: "refusing to resend a token request body to another origin",
 		},
 		{
-			name:    "redirect to public hostname is allowed",
-			target:  func(string) string { return "http://auth2.test/token" },
-			wantErr: false,
+			name:   "redirect to public hostname is allowed",
+			target: func(string) string { return "http://auth2.test/token" },
 		},
 		{
-			name:    "OAuth2 redirect to public hostname is allowed",
+			name:    "OAuth2 redirect to public hostname is rejected",
 			oauth2:  true,
 			target:  func(string) string { return "http://auth2.test/token" },
-			wantErr: false,
+			wantErr: "refusing to resend a token request body to another origin",
 		},
 	}
 	for _, tt := range tests {
@@ -4817,13 +4946,13 @@ func TestClient_Do_Bearer_RealmRedirect_Validated(t *testing.T) {
 				t.Fatalf("failed to create test request: %v", err)
 			}
 			resp, err := client.Do(req)
-			if tt.wantErr {
+			if tt.wantErr != "" {
 				if err == nil {
 					resp.Body.Close()
 					t.Fatal("Client.Do() error = nil, want error")
 				}
-				if !strings.Contains(err.Error(), "redirect of token request rejected") {
-					t.Errorf("Client.Do() error = %v, want redirect rejection", err)
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("Client.Do() error = %v, want error containing %q", err, tt.wantErr)
 				}
 			} else {
 				if err != nil {

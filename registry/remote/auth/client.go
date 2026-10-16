@@ -195,12 +195,17 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 }
 
 // redirectSafeClient returns a shallow copy of client whose CheckRedirect drops
-// the Authorization header when a redirect crosses an HTTP origin (scheme,
-// host, or port) or moves between repositories under the distribution API.
-// The standard library only strips sensitive headers when the hostname
-// changes, so a redirect to a different port or repository on the same host
-// would otherwise forward credentials outside their intended scope. Any
-// caller-provided CheckRedirect is preserved.
+// the Authorization header once a redirect chain has left the HTTP origin
+// (scheme, host, or port) of its first request, or when a redirect moves
+// between repositories under the distribution API. The standard library only
+// strips sensitive headers when the hostname changes, so a redirect to a
+// different port or repository on the same host would otherwise forward
+// credentials outside their intended scope. Any caller-provided CheckRedirect
+// is preserved.
+//
+// The check is made against the first request rather than the previous hop:
+// net/http rebuilds the headers of every redirected request from the first
+// request, so a header deleted on one hop is restored on the next.
 //
 // This applies to token endpoint requests as well as registry requests: the
 // distribution spec flow sends the credential to the realm as HTTP Basic.
@@ -213,15 +218,8 @@ func redirectSafeClient(client *http.Client) *http.Client {
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) > 0 {
-			// Compare against the original request, not the previous hop:
-			// net/http re-copies Authorization from the original request on
-			// every hop, so deleting it on one hop does not keep it off the
-			// next.
-			original := via[0].URL
-			if !sameHTTPOrigin(original, req.URL) || crossesRepository(original, req.URL) {
-				req.Header.Del(headerAuthorization)
-			}
+		if len(via) > 0 && (leftOrigin(via, req) || crossesRepository(via[0].URL, req.URL)) {
+			req.Header.Del(headerAuthorization)
 		}
 		if checkRedirect != nil {
 			return checkRedirect(req, via)
@@ -232,6 +230,21 @@ func redirectSafeClient(client *http.Client) *http.Client {
 		return nil
 	}
 	return &clientCopy
+}
+
+// leftOrigin reports whether the redirect chain via, followed by req, has left
+// the HTTP origin of its first request, which is the request the credential
+// was attached for. Once the chain leaves that origin it is treated as having
+// left for good, even if a later hop returns to it.
+//
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
+func leftOrigin(via []*http.Request, req *http.Request) bool {
+	for _, r := range via[1:] {
+		if !sameHTTPOrigin(via[0].URL, r.URL) {
+			return true
+		}
+	}
+	return !sameHTTPOrigin(via[0].URL, req.URL)
 }
 
 // sameHTTPOrigin reports whether a and b share the same HTTP origin, i.e. the
