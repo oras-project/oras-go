@@ -16,33 +16,10 @@ limitations under the License.
 package registry
 
 import (
-	"fmt"
-	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/opencontainers/go-digest"
-	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
-)
-
-// regular expressions for components.
-var (
-	// repositoryRegexp is adapted from the distribution implementation. The
-	// repository name set under OCI distribution spec is a subset of the docker
-	// spec. For maximum compatability, the docker spec is verified client-side.
-	// Further checks are left to the server-side.
-	//
-	// References:
-	//   - https://github.com/distribution/distribution/blob/v2.7.1/reference/regexp.go#L53
-	//   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pulling-manifests
-	repositoryRegexp = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)*$`)
-
-	// tagRegexp checks the tag name.
-	// The docker and OCI spec have the same regular expression.
-	//
-	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pulling-manifests
-	tagRegexp = regexp.MustCompile(`^[\w][\w.-]{0,127}$`)
 )
 
 // Reference references either a resource descriptor (where Reference.Reference
@@ -183,34 +160,22 @@ func (r Reference) Validate() error {
 
 // ValidateRegistry validates the registry.
 func (r Reference) ValidateRegistry() error {
-	if uri, err := url.ParseRequestURI("dummy://" + r.Registry); err != nil || uri.Host == "" || uri.Host != r.Registry {
-		return fmt.Errorf("%w: invalid registry %q", errdef.ErrInvalidReference, r.Registry)
-	}
-	return nil
+	return r.toProperties().ValidateRegistry()
 }
 
 // ValidateRepository validates the repository.
 func (r Reference) ValidateRepository() error {
-	if !repositoryRegexp.MatchString(r.Repository) {
-		return fmt.Errorf("%w: invalid repository %q", errdef.ErrInvalidReference, r.Repository)
-	}
-	return nil
+	return r.toProperties().ValidateRepository()
 }
 
 // ValidateReferenceAsTag validates the reference as a tag.
 func (r Reference) ValidateReferenceAsTag() error {
-	if !tagRegexp.MatchString(r.Reference) {
-		return fmt.Errorf("%w: invalid tag %q", errdef.ErrInvalidReference, r.Reference)
-	}
-	return nil
+	return properties.Reference{Tag: r.Reference}.ValidateTag()
 }
 
 // ValidateReferenceAsDigest validates the reference as a digest.
 func (r Reference) ValidateReferenceAsDigest() error {
-	if _, err := r.GetDigest(); err != nil {
-		return fmt.Errorf("%w: invalid digest %q: %v", errdef.ErrInvalidReference, r.Reference, err)
-	}
-	return nil
+	return properties.Reference{Digest: r.Reference}.ValidateDigest()
 }
 
 // ValidateReference where the reference is first tried as an empty string, then
@@ -229,10 +194,19 @@ func (r Reference) ValidateReference() error {
 
 // Host returns the host name of the registry.
 func (r Reference) Host() string {
-	if r.Registry == "docker.io" {
-		return "registry-1.docker.io"
+	return r.toProperties().Host()
+}
+
+// toProperties returns the registry and repository of r as a
+// properties.Reference. Tag and Digest are left empty: the methods of r read
+// the legacy Reference field, which can disagree with r.Tag and r.Digest, so
+// ValidateReferenceAsTag and ValidateReferenceAsDigest build their own
+// properties.Reference from r.Reference instead.
+func (r Reference) toProperties() properties.Reference {
+	return properties.Reference{
+		Registry:   r.Registry,
+		Repository: r.Repository,
 	}
-	return r.Registry
 }
 
 // ReferenceOrDefault returns the reference or the default reference if empty.
