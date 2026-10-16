@@ -317,7 +317,7 @@ func writeFile(path string, r io.Reader, perm os.FileMode, buf []byte) (err erro
 			return err
 		}
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	file, err := createNoFollow(path, perm)
 	if err != nil {
 		return err
 	}

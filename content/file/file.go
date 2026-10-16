@@ -490,7 +490,15 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
 
-	fp, err := os.Create(target)
+	// resolveWritePath only resolves symlinks in the ancestors of target, so a
+	// symlink at target itself, e.g. one planted by an earlier unpacked layer,
+	// would redirect the write outside the working directory. Replace such a
+	// symlink with a regular file, and refuse to follow one planted after this
+	// check. (GHSA-2hhj-vj64-hx3j)
+	if err := removeSymlink(target); err != nil {
+		return err
+	}
+	fp, err := createNoFollow(target, 0666)
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", target, err)
 	}
@@ -508,6 +516,11 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 
 // pushDir saves content matching the descriptor to the target directory.
 func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, content io.Reader) (err error) {
+	// A symlink at target would make the directory, and everything extracted
+	// into it, resolve outside the working directory. (GHSA-2hhj-vj64-hx3j)
+	if err := removeSymlink(target); err != nil {
+		return err
+	}
 	if err := ensureDir(target); err != nil {
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
@@ -716,6 +729,26 @@ func (s *Store) setClosed() {
 // ensureDir ensures the directories of the path exists.
 func ensureDir(path string) error {
 	return os.MkdirAll(path, 0777)
+}
+
+// removeSymlink removes path if it is a symlink, so that a subsequent write to
+// path does not follow it. It is a no-op if path does not exist or is not a
+// symlink.
+func removeSymlink(path string) error {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("failed to remove symlink %s: %w", path, err)
+	}
+	return nil
 }
 
 // checkSymlinkEscape returns ErrPathTraversalDisallowed if resolving symlinks
