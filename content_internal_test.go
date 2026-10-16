@@ -33,12 +33,12 @@ func (p propertiesReferenceParser) ParseReference(string) (properties.Reference,
 	return p.ref, p.err
 }
 
-type legacyReferenceParser struct {
+type registryReferenceParser struct {
 	ref registry.Reference
 	err error
 }
 
-func (p legacyReferenceParser) ParseReference(string) (registry.Reference, error) {
+func (p registryReferenceParser) ParseReference(string) (registry.Reference, error) {
 	return p.ref, p.err
 }
 
@@ -70,7 +70,7 @@ func TestParseReferenceForScope(t *testing.T) {
 		},
 		{
 			name:   "legacy reference parser",
-			parser: legacyReferenceParser{ref: legacyRef},
+			parser: registryReferenceParser{ref: legacyRef},
 			want: properties.Reference{
 				Registry:   legacyRef.Registry,
 				Repository: legacyRef.Repository,

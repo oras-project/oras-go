@@ -110,6 +110,12 @@ type Client interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+// Compile-time checks for the optional interfaces probed by the oras package.
+var (
+	_ registry.ReferenceParser = (*Repository)(nil)
+	_ registry.ReferenceParser = (*manifestStore)(nil)
+)
+
 // Repository is an HTTP client to a remote repository.
 type Repository struct {
 	// Registry is the parent registry. Must not be nil.
