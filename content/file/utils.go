@@ -317,6 +317,26 @@ func ensureLinkPath(baseAbs, baseRel, link, target string) (string, error) {
 	return target, nil
 }
 
+// removeSymlink removes path if it is a symlink, so that a subsequent write to
+// path does not follow it. It is a no-op if path does not exist or is not a
+// symlink.
+func removeSymlink(path string) error {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("failed to remove symlink %s: %w", path, err)
+	}
+	return nil
+}
+
 // checkSymlinkEscape returns ErrPathTraversalDisallowed if resolving symlinks
 // in target's ancestor directories causes it to escape base. target may not
 // yet exist, so symlinks are resolved on its deepest existing ancestor.
@@ -378,7 +398,7 @@ func writeFile(path string, r io.Reader, perm os.FileMode, buf []byte) (err erro
 			return err
 		}
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	file, err := createNoFollow(path, perm)
 	if err != nil {
 		return err
 	}
