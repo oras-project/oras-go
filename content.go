@@ -28,7 +28,6 @@ import (
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/cas"
 	"github.com/oras-project/oras-go/v3/internal/docker"
-	"github.com/oras-project/oras-go/v3/internal/interfaces"
 	"github.com/oras-project/oras-go/v3/internal/platform"
 	"github.com/oras-project/oras-go/v3/internal/syncutil"
 	"github.com/oras-project/oras-go/v3/registry"
@@ -57,18 +56,27 @@ const (
 // change would apply to every caller in the process that passes it.
 var DefaultTagNOptions TagNOptions
 
+// legacyReferenceParser provides reference parsing using the deprecated
+// registry.Reference type. It is retained so that third-party targets keep
+// receiving authentication scope hints while migrating to
+// registry.ReferenceParser.
+type legacyReferenceParser interface {
+	// ParseReference parses a reference to a fully qualified reference.
+	ParseReference(reference string) (registry.Reference, error)
+}
+
 // parseReferenceForScope parses a reference for the authentication API. The
 // legacy parser case keeps third-party targets using registry.Reference from
 // silently losing scope hints during the properties.Reference migration.
 func parseReferenceForScope(target any, reference string) (properties.Reference, bool, error) {
-	if parser, ok := target.(interfaces.ReferenceParser); ok {
+	if parser, ok := target.(registry.ReferenceParser); ok {
 		ref, err := parser.ParseReference(reference)
 		return properties.Reference{
 			Registry:   ref.Registry,
 			Repository: ref.Repository,
 		}, true, err
 	}
-	if parser, ok := target.(interfaces.LegacyReferenceParser); ok {
+	if parser, ok := target.(legacyReferenceParser); ok {
 		ref, err := parser.ParseReference(reference)
 		return properties.Reference{
 			Registry:   ref.Registry,

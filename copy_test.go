@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -3063,4 +3064,86 @@ type badMounter struct {
 
 func (bm *badMounter) Mount(_ context.Context, _ ocispec.Descriptor, _ string, _ func() (io.ReadCloser, error)) error {
 	return errMount
+}
+
+// BenchmarkCopyGraph_Shapes copies graphs of the same node count but different
+// shapes into an empty in-memory store: a wide one, an index of manifests that
+// each have a config and two layers, and a deep one, a chain of indexes.
+func BenchmarkCopyGraph_Shapes(b *testing.B) {
+	ctx := context.Background()
+	for _, manifests := range []int{16, 64} {
+		nodes := 1 + manifests*4
+		shapes := []struct {
+			name string
+			// a chain has no siblings to copy in parallel, so the deep shape
+			// runs at a single concurrency
+			concurrencies []int
+			build         func(b *testing.B, store oras.Target) (ocispec.Descriptor, []ocispec.Descriptor)
+		}{
+			{"wide", []int{1, 3, 10}, func(b *testing.B, store oras.Target) (ocispec.Descriptor, []ocispec.Descriptor) {
+				var all, roots []ocispec.Descriptor
+				push := func(mediaType string, blob []byte) ocispec.Descriptor {
+					desc, err := pushBlob(ctx, mediaType, blob, store)
+					if err != nil {
+						b.Fatal(err)
+					}
+					all = append(all, desc)
+					return desc
+				}
+				for i := range manifests {
+					name := strconv.Itoa(i)
+					config := push(ocispec.MediaTypeImageConfig, []byte("config"+name))
+					layer0 := push(ocispec.MediaTypeImageLayer, []byte("layer0-"+name))
+					layer1 := push(ocispec.MediaTypeImageLayer, []byte("layer1-"+name))
+					manifestJSON, err := generateManifestContent(config, layer0, layer1)
+					if err != nil {
+						b.Fatal(err)
+					}
+					roots = append(roots, push(ocispec.MediaTypeImageManifest, manifestJSON))
+				}
+				root := pushIndex(b, ctx, store, "root", roots...)
+				return root, append(all, root)
+			}},
+			{"deep", []int{1}, func(b *testing.B, store oras.Target) (ocispec.Descriptor, []ocispec.Descriptor) {
+				root := pushIndex(b, ctx, store, "0")
+				all := []ocispec.Descriptor{root}
+				for i := 1; i < nodes; i++ {
+					root = pushIndex(b, ctx, store, strconv.Itoa(i), root)
+					all = append(all, root)
+				}
+				return root, all
+			}},
+		}
+		for _, shape := range shapes {
+			b.Run(fmt.Sprintf("%s/nodes=%d", shape.name, nodes), func(b *testing.B) {
+				src := memory.New()
+				root, all := shape.build(b, src)
+				for _, concurrency := range shape.concurrencies {
+					b.Run("concurrency="+strconv.Itoa(concurrency), func(b *testing.B) {
+						opts := oras.CopyGraphOptions{Concurrency: concurrency}
+						// every node must reach the destination, or the benchmark
+						// measures a partial copy
+						dst := memory.New()
+						if err := oras.CopyGraph(ctx, src, dst, root, opts); err != nil {
+							b.Fatal(err)
+						}
+						for _, desc := range all {
+							if exists, err := dst.Exists(ctx, desc); err != nil || !exists {
+								b.Fatalf("node %s was not copied: exists = %v, error = %v", desc.Digest, exists, err)
+							}
+						}
+
+						b.ReportAllocs()
+						for b.Loop() {
+							// a fresh destination, since an existing root would be
+							// skipped without copying anything
+							if err := oras.CopyGraph(ctx, src, memory.New(), root, opts); err != nil {
+								b.Fatal(err)
+							}
+						}
+					})
+				}
+			})
+		}
+	}
 }

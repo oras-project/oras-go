@@ -34,6 +34,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/opencontainers/go-digest"
@@ -3551,7 +3552,10 @@ func BenchmarkStore_Delete(b *testing.B) {
 	}
 }
 
-func benchmarkStoreOpenLayout(b *testing.B) string {
+// benchmarkStoreOpenLayout builds a store layout of the given number of images,
+// each a manifest with a config and a layer, and returns its root. Every other
+// image is tagged, so that both tagged and untagged index entries are loaded.
+func benchmarkStoreOpenLayout(b *testing.B, manifests int) string {
 	b.Helper()
 	ctx := context.Background()
 	dir := b.TempDir()
@@ -3559,41 +3563,123 @@ func benchmarkStoreOpenLayout(b *testing.B) string {
 	if err != nil {
 		b.Fatal(err)
 	}
-	for i := 0; i < 256; i++ {
-		manifestJSON, err := json.Marshal(ocispec.Manifest{
-			MediaType:   ocispec.MediaTypeImageManifest,
-			Annotations: map[string]string{"manifest": strconv.Itoa(i)},
-		})
-		if err != nil {
+	s.AutoSaveIndex = false
+	for i := range manifests {
+		descs, blobs := newImage(b, "m"+strconv.Itoa(i), 2)
+		for j, blob := range blobs {
+			if err := s.Push(ctx, descs[j], bytes.NewReader(blob)); err != nil {
+				b.Fatal(err)
+			}
+		}
+		if i%2 != 0 {
+			continue
+		}
+		if err := s.Tag(ctx, descs[len(descs)-1], "tag"+strconv.Itoa(i)); err != nil {
 			b.Fatal(err)
 		}
-		desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
-		if err := s.Push(ctx, desc, bytes.NewReader(manifestJSON)); err != nil {
-			b.Fatal(err)
-		}
+	}
+	if err := s.SaveIndex(); err != nil {
+		b.Fatal(err)
 	}
 	return dir
 }
 
-func BenchmarkStore_Open(b *testing.B) {
-	dir := benchmarkStoreOpenLayout(b)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := New(dir); err != nil {
-			b.Fatal(err)
+// checkStoreOpened fails b unless s, opened from a layout built by
+// benchmarkStoreOpenLayout, loaded every manifest: every tag is listed and
+// every config and layer has its manifest as a predecessor.
+func checkStoreOpened(b *testing.B, s interface {
+	content.PredecessorFinder
+	registry.TagLister
+}, manifests int) {
+	b.Helper()
+	ctx := context.Background()
+	var tags int
+	if err := s.Tags(ctx, "", func(t []string) error {
+		tags += len(t)
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+	if want := (manifests + 1) / 2; tags != want {
+		b.Fatalf("opened store lists %d tags, want %d", tags, want)
+	}
+	for i := range manifests {
+		descs, _ := newImage(b, "m"+strconv.Itoa(i), 2)
+		manifest := descs[len(descs)-1]
+		for _, desc := range descs[:len(descs)-1] {
+			predecessors, err := s.Predecessors(ctx, desc)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(predecessors) != 1 || predecessors[0].Digest != manifest.Digest {
+				b.Fatalf("predecessors of %s in image %d = %v, want its manifest", desc.MediaType, i, predecessors)
+			}
 		}
 	}
 }
 
+func BenchmarkStore_Open(b *testing.B) {
+	for _, manifests := range []int{1, 10, 100, 1000} {
+		b.Run("manifests="+strconv.Itoa(manifests), func(b *testing.B) {
+			ctx := context.Background()
+			dir := benchmarkStoreOpenLayout(b, manifests)
+			s, err := NewWithContext(ctx, dir)
+			if err != nil {
+				b.Fatal(err)
+			}
+			checkStoreOpened(b, s, manifests)
+
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := NewWithContext(ctx, dir); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkReadOnlyStore_Open opens the same layout from disk and from memory,
+// so that the cost of loadIndex can be told apart from the cost of the file
+// system.
 func BenchmarkReadOnlyStore_Open(b *testing.B) {
-	dir := benchmarkStoreOpenLayout(b)
-	fsys := os.DirFS(dir)
-	ctx := context.Background()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := NewFromFS(ctx, fsys); err != nil {
-			b.Fatal(err)
-		}
+	for _, manifests := range []int{1, 10, 100, 1000} {
+		b.Run("manifests="+strconv.Itoa(manifests), func(b *testing.B) {
+			dir := benchmarkStoreOpenLayout(b, manifests)
+			dirFS := os.DirFS(dir)
+			mapFS := fstest.MapFS{}
+			if err := fs.WalkDir(dirFS, ".", func(path string, d fs.DirEntry, err error) error {
+				if err != nil || d.IsDir() {
+					return err
+				}
+				data, err := fs.ReadFile(dirFS, path)
+				mapFS[path] = &fstest.MapFile{Data: data}
+				return err
+			}); err != nil {
+				b.Fatal(err)
+			}
+
+			for _, fsys := range []struct {
+				name string
+				fsys fs.FS
+			}{{"os", dirFS}, {"map", mapFS}} {
+				b.Run("fs="+fsys.name, func(b *testing.B) {
+					ctx := context.Background()
+					s, err := NewFromFS(ctx, fsys.fsys)
+					if err != nil {
+						b.Fatal(err)
+					}
+					checkStoreOpened(b, s, manifests)
+
+					b.ReportAllocs()
+					for b.Loop() {
+						if _, err := NewFromFS(ctx, fsys.fsys); err != nil {
+							b.Fatal(err)
+						}
+					}
+				})
+			}
+		})
 	}
 }
 
@@ -3797,35 +3883,37 @@ func TestStore_SyncIndex(t *testing.T) {
 func BenchmarkStore_IndexWrites(b *testing.B) {
 	for _, sync := range []bool{false, true} {
 		for _, operation := range []string{"Tag", "SaveIndex"} {
-			b.Run("SyncIndex="+strconv.FormatBool(sync)+"/"+operation, func(b *testing.B) {
-				ctx := context.Background()
-				s := storeWithTaggedManifest(b, b.TempDir())
-				desc, err := s.Resolve(ctx, "latest")
-				if err != nil {
-					b.Fatal(err)
-				}
-				s.AutoSaveIndex = false
-				for i := range 99 {
-					if err := s.Tag(ctx, desc, strconv.Itoa(i)); err != nil {
+			for _, tags := range []int{10, 100, 1000} {
+				b.Run("SyncIndex="+strconv.FormatBool(sync)+"/"+operation+"/tags="+strconv.Itoa(tags), func(b *testing.B) {
+					ctx := context.Background()
+					s := storeWithTaggedManifest(b, b.TempDir())
+					desc, err := s.Resolve(ctx, "latest")
+					if err != nil {
 						b.Fatal(err)
 					}
-				}
-				if err := s.SaveIndex(); err != nil {
-					b.Fatal(err)
-				}
-				s.AutoSaveIndex = true
-				s.SyncIndex = sync
-				write := s.SaveIndex
-				if operation == "Tag" {
-					write = func() error { return s.Tag(ctx, desc, "latest") }
-				}
-				b.ReportAllocs()
-				for b.Loop() {
-					if err := write(); err != nil {
+					s.AutoSaveIndex = false
+					for i := range tags - 1 {
+						if err := s.Tag(ctx, desc, strconv.Itoa(i)); err != nil {
+							b.Fatal(err)
+						}
+					}
+					if err := s.SaveIndex(); err != nil {
 						b.Fatal(err)
 					}
-				}
-			})
+					s.AutoSaveIndex = true
+					s.SyncIndex = sync
+					write := s.SaveIndex
+					if operation == "Tag" {
+						write = func() error { return s.Tag(ctx, desc, "latest") }
+					}
+					b.ReportAllocs()
+					for b.Loop() {
+						if err := write(); err != nil {
+							b.Fatal(err)
+						}
+					}
+				})
+			}
 		}
 	}
 }
@@ -3884,6 +3972,99 @@ func TestStore_PartialIndexFile(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatal("partially written index was not preserved for inspection")
+	}
+}
+
+func TestStore_IndexFileMatchesMarshal(t *testing.T) {
+	ctx := context.Background()
+	s := storeWithTaggedManifest(t, t.TempDir())
+	desc, err := s.Resolve(ctx, "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func() {
+		t.Helper()
+		want, err := json.Marshal(s.index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(s.indexPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("index.json = %s, want %s", got, want)
+		}
+	}
+
+	// grow the index and then shrink it, so that a later save writes less than
+	// an earlier one
+	tags := []string{"a", "b", "c"}
+	for _, tag := range tags {
+		if err := s.Tag(ctx, desc, tag); err != nil {
+			t.Fatal(err)
+		}
+		check()
+	}
+	for _, tag := range append(tags, "latest") {
+		if err := s.Untag(ctx, tag); err != nil {
+			t.Fatal(err)
+		}
+		check()
+	}
+}
+
+func TestStore_IndexKeepsEachTagWithItsManifest(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	config := []byte("config")
+	configDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageConfig,
+		Digest:    digest.FromBytes(config),
+		Size:      int64(len(config)),
+	}
+	if err := s.Push(ctx, configDesc, bytes.NewReader(config)); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	want := make(map[string]digest.Digest)
+	for i := range 5 {
+		tag := "v" + strconv.Itoa(i)
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType:   ocispec.MediaTypeImageManifest,
+			Config:      configDesc,
+			Layers:      []ocispec.Descriptor{},
+			Annotations: map[string]string{"tag": tag},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		if err := s.Push(ctx, desc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("Store.Push() error =", err)
+		}
+		if err := s.Tag(ctx, desc, tag); err != nil {
+			t.Fatal("Store.Tag() error =", err)
+		}
+		want[tag] = desc.Digest
+	}
+
+	reopened, err := New(dir)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	for tag, dgst := range want {
+		got, err := reopened.Resolve(ctx, tag)
+		if err != nil {
+			t.Fatalf("Store.Resolve(%q) error = %v", tag, err)
+		}
+		if got.Digest != dgst {
+			t.Errorf("Store.Resolve(%q) = %v, want %v", tag, got.Digest, dgst)
+		}
 	}
 }
 

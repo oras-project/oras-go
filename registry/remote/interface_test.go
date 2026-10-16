@@ -19,7 +19,6 @@ import (
 	"testing"
 
 	"github.com/oras-project/oras-go/v3"
-	"github.com/oras-project/oras-go/v3/internal/interfaces"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote"
 )
@@ -32,7 +31,7 @@ func TestRepositoryInterface(t *testing.T) {
 	if _, ok := repo.(oras.GraphTarget); !ok {
 		t.Error("&Repository{} does not conform oras.GraphTarget")
 	}
-	if _, ok := repo.(interfaces.ReferenceParser); !ok {
-		t.Error("&Repository{} does not conform interfaces.ReferenceParser")
+	if _, ok := repo.(registry.ReferenceParser); !ok {
+		t.Error("&Repository{} does not conform registry.ReferenceParser")
 	}
 }

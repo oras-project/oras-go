@@ -32,9 +32,11 @@ import (
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3"
+	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/content/memory"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 func TestNew(t *testing.T) {
@@ -768,5 +770,193 @@ func TestReferenceTarget_FetchReference_CacheFetchFailsFallsBack(t *testing.T) {
 	}
 	if !bytes.Equal(got, manifestBytes) {
 		t.Errorf("FetchReference() content = %v, want %v", got, manifestBytes)
+	}
+}
+
+// capabilitySource is a source that exposes a configurable set of optional
+// interfaces through capabilitySourceWith.
+type capabilitySource struct {
+	*memory.Store
+	parseCalls     int
+	referrersCalls int
+}
+
+func (s *capabilitySource) FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error) {
+	desc, err := s.Resolve(ctx, reference)
+	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	rc, err := s.Fetch(ctx, desc)
+	return desc, rc, err
+}
+
+func (s *capabilitySource) ParseReference(reference string) (properties.Reference, error) {
+	s.parseCalls++
+	return properties.Reference{Registry: "registry.example", Repository: "test", Tag: reference}, nil
+}
+
+func (s *capabilitySource) Referrers(_ context.Context, desc ocispec.Descriptor, _ string, fn func([]ocispec.Descriptor) error) error {
+	s.referrersCalls++
+	return fn([]ocispec.Descriptor{{MediaType: "referrer", Digest: desc.Digest}})
+}
+
+// capabilitySourceWith returns a source backed by s that implements only the
+// requested optional interfaces.
+func capabilitySourceWith(s *capabilitySource, fetcher, parser, lister bool) oras.ReadOnlyTarget {
+	type (
+		F = registry.ReferenceFetcher
+		P = registry.ReferenceParser
+		L = registry.ReferrerLister
+	)
+	base := s.Store
+	switch {
+	case fetcher && parser && lister:
+		return struct {
+			*memory.Store
+			F
+			P
+			L
+		}{base, s, s, s}
+	case fetcher && parser:
+		return struct {
+			*memory.Store
+			F
+			P
+		}{base, s, s}
+	case fetcher && lister:
+		return struct {
+			*memory.Store
+			F
+			L
+		}{base, s, s}
+	case parser && lister:
+		return struct {
+			*memory.Store
+			P
+			L
+		}{base, s, s}
+	case fetcher:
+		return struct {
+			*memory.Store
+			F
+		}{base, s}
+	case parser:
+		return struct {
+			*memory.Store
+			P
+		}{base, s}
+	case lister:
+		return struct {
+			*memory.Store
+			L
+		}{base, s}
+	default:
+		return struct{ *memory.Store }{base}
+	}
+}
+
+func TestCacheReadOnlyTarget_OptionalInterfaces(t *testing.T) {
+	for _, fetcher := range []bool{false, true} {
+		for _, parser := range []bool{false, true} {
+			for _, lister := range []bool{false, true} {
+				name := "fetcher=" + strconv.FormatBool(fetcher) +
+					",parser=" + strconv.FormatBool(parser) +
+					",lister=" + strconv.FormatBool(lister)
+				t.Run(name, func(t *testing.T) {
+					source := capabilitySourceWith(&capabilitySource{Store: memory.New()}, fetcher, parser, lister)
+					cached := CacheReadOnlyTarget(source, memory.New())
+
+					// the source must expose exactly the requested interfaces
+					_, srcFetcher := source.(registry.ReferenceFetcher)
+					_, srcParser := source.(registry.ReferenceParser)
+					_, srcLister := source.(registry.ReferrerLister)
+					if srcFetcher != fetcher || srcParser != parser || srcLister != lister {
+						t.Fatalf("test source exposes fetcher=%v parser=%v lister=%v", srcFetcher, srcParser, srcLister)
+					}
+
+					if _, ok := cached.(registry.ReferenceFetcher); ok != fetcher {
+						t.Errorf("cached target implements registry.ReferenceFetcher = %v, want %v", ok, fetcher)
+					}
+					if _, ok := cached.(registry.ReferenceParser); ok != parser {
+						t.Errorf("cached target implements registry.ReferenceParser = %v, want %v", ok, parser)
+					}
+					if _, ok := cached.(registry.ReferrerLister); ok != lister {
+						t.Errorf("cached target implements registry.ReferrerLister = %v, want %v", ok, lister)
+					}
+					// interfaces the cache never passes through must not leak
+					if _, ok := cached.(registry.TagLister); ok {
+						t.Error("cached target implements registry.TagLister")
+					}
+					if _, ok := cached.(content.Pusher); ok {
+						t.Error("cached target implements content.Pusher")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestCacheReadOnlyTarget_PassThrough(t *testing.T) {
+	ctx := context.Background()
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	src := &capabilitySource{Store: memory.New()}
+	if err := src.Push(ctx, blobDesc, bytes.NewReader(blob)); err != nil {
+		t.Fatal("failed to push content to source:", err)
+	}
+	if err := src.Tag(ctx, blobDesc, "latest"); err != nil {
+		t.Fatal("failed to tag content in source:", err)
+	}
+	cached := CacheReadOnlyTarget(capabilitySourceWith(src, true, true, true), memory.New())
+
+	// ParseReference is answered by the source
+	ref, err := cached.(registry.ReferenceParser).ParseReference("latest")
+	if err != nil {
+		t.Fatal("ParseReference() error =", err)
+	}
+	if want := (properties.Reference{Registry: "registry.example", Repository: "test", Tag: "latest"}); ref != want {
+		t.Errorf("ParseReference() = %v, want %v", ref, want)
+	}
+	if src.parseCalls != 1 {
+		t.Errorf("source ParseReference calls = %d, want 1", src.parseCalls)
+	}
+
+	// Referrers always go to the source and are not cached
+	lister := cached.(registry.ReferrerLister)
+	for i := 1; i <= 2; i++ {
+		var got []ocispec.Descriptor
+		if err := lister.Referrers(ctx, blobDesc, "", func(referrers []ocispec.Descriptor) error {
+			got = append(got, referrers...)
+			return nil
+		}); err != nil {
+			t.Fatal("Referrers() error =", err)
+		}
+		if len(got) != 1 || got[0].Digest != blobDesc.Digest {
+			t.Errorf("Referrers() = %v, want one referrer of %s", got, blobDesc.Digest)
+		}
+		if src.referrersCalls != i {
+			t.Errorf("source Referrers calls = %d, want %d", src.referrersCalls, i)
+		}
+	}
+
+	// FetchReference is still served through the cache
+	desc, rc, err := cached.(registry.ReferenceFetcher).FetchReference(ctx, "latest")
+	if err != nil {
+		t.Fatal("FetchReference() error =", err)
+	}
+	got, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatal("failed to read fetched content:", err)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatal("failed to close fetched content:", err)
+	}
+	if desc.Digest != blobDesc.Digest || !bytes.Equal(got, blob) {
+		t.Errorf("FetchReference() = %v %q, want %v %q", desc, got, blobDesc, blob)
 	}
 }
