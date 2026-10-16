@@ -43,7 +43,6 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
-	"github.com/oras-project/oras-go/v3/internal/interfaces"
 	"github.com/oras-project/oras-go/v3/internal/spec"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
@@ -4361,8 +4360,8 @@ func Test_generateBlobDescriptorWithVariousDockerContentDigestHeaders(t *testing
 
 func TestManifestStoreInterface(t *testing.T) {
 	var ms any = &manifestStore{}
-	if _, ok := ms.(interfaces.ReferenceParser); !ok {
-		t.Error("&manifestStore{} does not conform interfaces.ReferenceParser")
+	if _, ok := ms.(registry.ReferenceParser); !ok {
+		t.Error("&manifestStore{} does not conform registry.ReferenceParser")
 	}
 	if _, ok := ms.(content.Untagger); !ok {
 		t.Error("&manifestStore{} does not conform content.Untagger")
