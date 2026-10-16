@@ -35,6 +35,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/container/set"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
@@ -754,12 +755,25 @@ func removeFiles(dir string, match func(entry fs.DirEntry) bool) {
 // gcIndex reloads the index and returns the rebuilt metadata without applying
 // it. Information of untagged blobs are cleaned and only tagged blobs remain.
 func (s *Store) gcIndex(ctx context.Context) (*resolver.Memory, *graph.Memory, error) {
+	return gcReachable(ctx, s.storage, s.tagResolver.Map())
+}
+
+// gcReachable is the rule that decides which content a Store keeps when it is
+// garbage collected. [Store.GC] and [Verify] both apply it, so that what Verify
+// reports as unreferenced is what GC removes.
+//
+// refMap holds the references of the store, as returned by
+// [resolver.Memory.Map]: a tag maps to its descriptor, and an entry whose key is
+// the digest of its descriptor is an untagged manifest. The reachable content is
+// the tagged manifests and what they reference, plus the untagged manifests
+// whose chain of subjects reaches one of those. An untagged manifest that is not
+// such a referrer is not reachable.
+func gcReachable(ctx context.Context, fetcher content.Fetcher, refMap map[string]ocispec.Descriptor) (*resolver.Memory, *graph.Memory, error) {
 	tagResolver := resolver.NewMemory()
 	graph := graph.NewMemory()
 	tagged := set.New[digest.Digest]()
 
 	// index tagged manifests
-	refMap := s.tagResolver.Map()
 	for ref, desc := range refMap {
 		if ref == desc.Digest.String() {
 			continue
@@ -771,7 +785,7 @@ func (s *Store) gcIndex(ctx context.Context) (*resolver.Memory, *graph.Memory, e
 			return nil, nil, err
 		}
 		plain := descriptor.Plain(desc)
-		if err := graph.IndexAll(ctx, s.storage, plain); err != nil {
+		if err := graph.IndexAll(ctx, fetcher, plain); err != nil {
 			return nil, nil, err
 		}
 		tagged.Add(desc.Digest)
@@ -785,7 +799,7 @@ func (s *Store) gcIndex(ctx context.Context) (*resolver.Memory, *graph.Memory, e
 		// check if the referrers manifest can traverse to the existing graph
 		subject := &desc
 		for {
-			next, err := manifestutil.Subject(ctx, s.storage, *subject)
+			next, err := manifestutil.Subject(ctx, fetcher, *subject)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -797,7 +811,7 @@ func (s *Store) gcIndex(ctx context.Context) (*resolver.Memory, *graph.Memory, e
 					return nil, nil, err
 				}
 				plain := descriptor.Plain(desc)
-				if err := graph.IndexAll(ctx, s.storage, plain); err != nil {
+				if err := graph.IndexAll(ctx, fetcher, plain); err != nil {
 					return nil, nil, err
 				}
 				break

@@ -77,6 +77,8 @@ func TestVerify_Layout_WellFormed(t *testing.T) {
 	if len(report.Layout) != 0 {
 		t.Errorf("Layout = %v, want none", layoutPaths(report.Layout))
 	}
+	wantPaths(t, "Missing", report.Missing)
+	wantPaths(t, "Unreferenced", report.Unreferenced)
 }
 
 func TestVerify_Layout_OCILayoutFile(t *testing.T) {
@@ -163,6 +165,9 @@ func TestVerify_Layout_MissingIndexDoesNotStopBlobSweep(t *testing.T) {
 	if len(report.Failed) != 0 {
 		t.Errorf("Failed = %v, want none", entryPaths(report.Failed))
 	}
+	// without an index.json nothing can be said about reachability
+	wantPaths(t, "Missing", report.Missing)
+	wantPaths(t, "Unreferenced", report.Unreferenced)
 }
 
 func TestVerify_Layout_Leftovers(t *testing.T) {
@@ -296,4 +301,19 @@ func TestVerify_Layout_TempDir_ReadOnly(t *testing.T) {
 			t.Errorf("%s: ModTime is zero, want the file modification time", p)
 		}
 	}
+}
+
+func TestVerify_Reachability_UnreadableIndex(t *testing.T) {
+	b := newLayoutBuilder(t)
+	b.blob(ocispec.MediaTypeImageLayer, []byte("orphan"))
+	fsys := b.fsys()
+	fsys[ocispec.ImageIndexFile] = &fstest.MapFile{Data: []byte("{")}
+
+	report, err := Verify(context.Background(), fsys, VerifyOptions{})
+	if err != nil {
+		t.Fatal("Verify() error =", err)
+	}
+	mustContainFinding(t, report.Layout, ocispec.ImageIndexFile)
+	wantPaths(t, "Unreferenced", report.Unreferenced)
+	wantPaths(t, "Missing", report.Missing)
 }

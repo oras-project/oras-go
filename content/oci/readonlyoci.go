@@ -186,19 +186,30 @@ func readIndexFile(fsys fs.FS) (*ocispec.Index, error) {
 
 // loadIndex loads index into memory.
 func loadIndex(ctx context.Context, index *ocispec.Index, fetcher content.Fetcher, tagger content.Tagger, graph *graph.Memory) error {
+	plains, err := tagIndex(ctx, index, tagger)
+	if err != nil {
+		return err
+	}
+	return graph.IndexAll(ctx, fetcher, plains...)
+}
+
+// tagIndex records the manifests of index in tagger: every manifest by its
+// digest, and a manifest with a reference name also by that name. It returns
+// the manifests without their annotations.
+func tagIndex(ctx context.Context, index *ocispec.Index, tagger content.Tagger) ([]ocispec.Descriptor, error) {
 	plains := make([]ocispec.Descriptor, 0, len(index.Manifests))
 	for _, desc := range index.Manifests {
 		if err := tagger.Tag(ctx, deleteAnnotationRefName(desc), desc.Digest.String()); err != nil {
-			return err
+			return nil, err
 		}
 		if ref := desc.Annotations[ocispec.AnnotationRefName]; ref != "" {
 			if err := tagger.Tag(ctx, desc, ref); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		plains = append(plains, descriptor.Plain(desc))
 	}
-	return graph.IndexAll(ctx, fetcher, plains...)
+	return plains, nil
 }
 
 // resolveBlob returns a descriptor describing the blob identified by dgst.

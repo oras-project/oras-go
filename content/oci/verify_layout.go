@@ -42,9 +42,10 @@ type LayoutFinding struct {
 var errInterruptedWrite = errors.New("leftover of an interrupted write")
 
 // verifyLayout checks the structure of the layout in fsys, outside of blobs/,
-// and records what it finds in acc. Only a failure to read the layout root, or
-// a cancelled context, is returned as an error.
-func verifyLayout(ctx context.Context, fsys fs.FS, acc *verifyAccumulator) error {
+// and records what it finds in acc. It returns the parsed index.json, or nil if
+// that file is missing or invalid. Only a failure to read the layout root, or a
+// cancelled context, is returned as an error.
+func verifyLayout(ctx context.Context, fsys fs.FS, acc *verifyAccumulator) (*ocispec.Index, error) {
 	if layout, err := readOCILayoutFile(fsys); err != nil {
 		acc.addLayout(LayoutFinding{Path: ocispec.ImageLayoutFile, Reason: err})
 	} else if err := validateOCILayout(layout); err != nil {
@@ -53,16 +54,18 @@ func verifyLayout(ctx context.Context, fsys fs.FS, acc *verifyAccumulator) error
 			Reason: fmt.Errorf("imageLayoutVersion %q: %w", layout.Version, err),
 		})
 	}
-	if _, err := readIndexFile(fsys); err != nil {
+	index, err := readIndexFile(fsys)
+	if err != nil {
 		acc.addLayout(LayoutFinding{Path: ocispec.ImageIndexFile, Reason: err})
+		index = nil
 	}
 	if err := isContextDone(ctx); err != nil {
-		return err
+		return nil, err
 	}
 
 	rootEntries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
-		return fmt.Errorf("read layout root: %w", err)
+		return nil, fmt.Errorf("read layout root: %w", err)
 	}
 	// the temporary files of metadata writes sit next to the file they replace.
 	for _, entry := range rootEntries {
@@ -80,14 +83,14 @@ func verifyLayout(ctx context.Context, fsys fs.FS, acc *verifyAccumulator) error
 		if !errors.Is(err, fs.ErrNotExist) {
 			acc.addLayout(LayoutFinding{Path: ingestDirName, Reason: fmt.Errorf("read directory: %w", err)})
 		}
-		return nil
+		return index, nil
 	}
 	for _, entry := range ingestEntries {
 		if entry.Type().IsRegular() {
 			acc.addLayout(leftoverFinding(ingestDirName+"/"+entry.Name(), entry))
 		}
 	}
-	return nil
+	return index, nil
 }
 
 func leftoverFinding(p string, entry fs.DirEntry) LayoutFinding {
