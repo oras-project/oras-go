@@ -421,12 +421,16 @@ func TestRepository_Push_SingleRequest_StatusFallback(t *testing.T) {
 		status  int
 		want    []string
 		wantErr bool
+		// remember is whether the status says the feature is missing, so the
+		// next push skips the single POST
+		remember bool
 	}{
 		{status: http.StatusBadRequest, want: []string{"POST?digest", "POST", "PUT"}},
 		{status: http.StatusNotFound, want: []string{"POST?digest", "POST", "PUT"}},
-		{status: http.StatusMethodNotAllowed, want: []string{"POST?digest", "POST", "PUT"}},
+		{status: http.StatusMethodNotAllowed, want: []string{"POST?digest", "POST", "PUT"}, remember: true},
 		{status: http.StatusRequestEntityTooLarge, want: []string{"POST?digest", "POST", "PUT"}},
-		{status: http.StatusNotImplemented, want: []string{"POST?digest", "POST", "PUT"}},
+		{status: http.StatusUnsupportedMediaType, want: []string{"POST?digest", "POST", "PUT"}, remember: true},
+		{status: http.StatusNotImplemented, want: []string{"POST?digest", "POST", "PUT"}, remember: true},
 		// a credential problem is not a missing feature, so it is not retried
 		// with another upload
 		{status: http.StatusUnauthorized, want: []string{"POST?digest"}, wantErr: true},
@@ -453,15 +457,15 @@ func TestRepository_Push_SingleRequest_StatusFallback(t *testing.T) {
 				t.Errorf("uploaded = %q, want %q", reg.uploaded, blob)
 			}
 
-			// A fallback means the registry lacks the feature, so the next push
-			// skips the single POST. An error says nothing about the feature.
+			// Only a status that says the feature is missing makes the next push
+			// skip the single POST. Any other status is about that one request.
 			reg.singlePOSTStatus = 0
 			reg.requests = nil
 			if err := repo.Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
 				t.Fatalf("second Push() error = %v", err)
 			}
 			want := []string{"POST?digest"}
-			if !tt.wantErr {
+			if tt.remember {
 				want = []string{"POST", "PUT"}
 			}
 			if !slices.Equal(reg.requests, want) {

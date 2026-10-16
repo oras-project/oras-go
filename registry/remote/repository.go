@@ -204,7 +204,8 @@ type Repository struct {
 	// POST ?digest=. If the registry ignores the digest and opens an upload
 	// session instead, the blob is uploaded to that session with a PUT. If the
 	// registry rejects the request with a 4xx status other than 401, 403 or
-	// 429, or with 501, the push falls back to a POST followed by a PUT. In both cases the
+	// 429, or with 501, the push falls back to a POST followed by a PUT. After
+	// a 202, or a 405, 415 or 501 that says the feature is missing, the
 	// Repository remembers that the registry does not support single-request
 	// push, and later pushes go straight to a POST followed by a PUT.
 	//
@@ -1394,8 +1395,9 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 // pushSingleRequest pushes a blob held in buf in a single POST request
 // carrying the content. It reports whether the push is done; false with a nil
 // error means the registry rejected the request with a 4xx status other than
-// 401, 403 or 429, or with 501, so the caller should fall back to a POST followed by a PUT.
-// Either a fallback or a 202 marks the repository as not supporting it.
+// 401, 403 or 429, or with 501, so the caller should fall back to a POST
+// followed by a PUT. A 202, or a 405, 415 or 501, marks the repository as not
+// supporting it.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#single-post
 func (s *blobStore) pushSingleRequest(ctx context.Context, expected ocispec.Descriptor, buf []byte) (bool, error) {
 	url := buildRepositoryBlobUploadURL(s.repo.plainHTTP(), s.repo.reference())
@@ -1427,7 +1429,12 @@ func (s *blobStore) pushSingleRequest(ctx context.Context, expected ocispec.Desc
 		// a credential or rate-limit problem, not a missing feature
 	case code >= 400 && code < 500, code == http.StatusNotImplemented:
 		resp.Body.Close()
-		s.repo.singleRequestUnsupported.Store(true)
+		// Only these say the feature is missing; others, such as 400
+		// DIGEST_INVALID or 404 NAME_UNKNOWN, are about this request.
+		switch code {
+		case http.StatusMethodNotAllowed, http.StatusUnsupportedMediaType, http.StatusNotImplemented:
+			s.repo.singleRequestUnsupported.Store(true)
+		}
 		return false, nil
 	}
 	defer resp.Body.Close()
