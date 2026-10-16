@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
@@ -804,3 +805,82 @@ func TestDistributionTokenFetcher_FetchToken_MultipleScopes(t *testing.T) {
 
 // Verify url is imported but potentially unused warning fix
 var _ = url.Parse
+
+// TestOAuth2TokenFetcher_FetchToken_RedirectBody verifies that a 307 or 308
+// from the token endpoint does not replay the credential-bearing form body to
+// another origin, while a redirect within the same origin still succeeds.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
+func TestOAuth2TokenFetcher_FetchToken_RedirectBody(t *testing.T) {
+	const (
+		wantToken = "oauth2_token"
+		password  = "test_password"
+	)
+	tests := []struct {
+		name        string
+		status      int
+		crossOrigin bool
+		wantErr     bool
+	}{
+		{"307 to other origin", http.StatusTemporaryRedirect, true, true},
+		{"308 to other origin", http.StatusPermanentRedirect, true, true},
+		{"307 within origin", http.StatusTemporaryRedirect, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPassword atomic.Value
+			gotPassword.Store("")
+			writeToken := func(w http.ResponseWriter, r *http.Request) {
+				if err := r.ParseForm(); err != nil {
+					t.Errorf("failed to parse form: %v", err)
+				}
+				gotPassword.Store(r.PostForm.Get("password"))
+				if err := json.NewEncoder(w).Encode(map[string]string{"access_token": wantToken}); err != nil {
+					t.Errorf("failed to encode response: %v", err)
+				}
+			}
+
+			sink := httptest.NewServer(http.HandlerFunc(writeToken))
+			defer sink.Close()
+
+			var realm *httptest.Server
+			realm = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/redirected" {
+					writeToken(w, r)
+					return
+				}
+				target := realm.URL + "/redirected"
+				if tt.crossOrigin {
+					target = sink.URL + "/redirected"
+				}
+				http.Redirect(w, r, target, tt.status)
+			}))
+			defer realm.Close()
+
+			fetcher := &OAuth2TokenFetcher{Client: realm.Client()}
+			params := TokenParams{
+				Resource: properties.Resource{Registry: "test-registry"},
+				Realm:    realm.URL + "/token",
+				Service:  "test_service",
+				Scopes:   mustParseScopes("repository:test:pull"),
+			}
+			cred := credentials.Credential{Username: "test_user", Password: password}
+
+			token, err := fetcher.FetchToken(context.Background(), params, cred)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("FetchToken() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if got := gotPassword.Load().(string); got != "" {
+					t.Errorf("token request body replayed to another origin: password %q", got)
+				}
+				return
+			}
+			if token != wantToken {
+				t.Errorf("FetchToken() = %s, want %s", token, wantToken)
+			}
+			if got := gotPassword.Load().(string); got != password {
+				t.Errorf("same-origin redirect target got password %q, want %q", got, password)
+			}
+		})
+	}
+}

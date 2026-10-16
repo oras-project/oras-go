@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -4532,6 +4533,131 @@ func TestClient_send_RedirectLimit(t *testing.T) {
 	}
 }
 
+// TestClient_Do_Basic_Auth_MultiHopRedirect verifies that the Authorization
+// header stays dropped for the rest of a redirect chain once the chain has left
+// the origin of the first request. net/http rebuilds every redirected request's
+// headers from the first request, so a guard that only compares adjacent hops
+// is bypassed by a second, same-origin hop on the redirect target.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
+func TestClient_Do_Basic_Auth_MultiHopRedirect(t *testing.T) {
+	username := "test_user"
+	password := "test_password"
+	wantAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+
+	tests := []struct {
+		name string
+		// tlsOrigin serves the origin over https while the sink stays on
+		// plain http, so the chain also changes scheme.
+		tlsOrigin bool
+		// backToOrigin makes the sink send the second hop back to the origin
+		// instead of to itself.
+		backToOrigin bool
+	}{
+		{name: "second hop on other port"},
+		{name: "second hop after https to http downgrade", tlsOrigin: true},
+		{name: "second hop back to origin", backToOrigin: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotAuth atomic.Value
+			gotAuth.Store("")
+
+			var origin *httptest.Server
+			sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/x" {
+					target := "/y"
+					if tt.backToOrigin {
+						target = origin.URL + "/back"
+					}
+					http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+					return
+				}
+				gotAuth.Store(r.Header.Get("Authorization"))
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer sink.Close()
+
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/back" {
+					gotAuth.Store(r.Header.Get("Authorization"))
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				if r.Header.Get("Authorization") != wantAuth {
+					w.Header().Set("Www-Authenticate", `Basic realm="origin"`)
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				http.Redirect(w, r, sink.URL+"/x", http.StatusTemporaryRedirect)
+			})
+			if tt.tlsOrigin {
+				origin = httptest.NewTLSServer(handler)
+			} else {
+				origin = httptest.NewServer(handler)
+			}
+			defer origin.Close()
+
+			client := &Client{
+				Client: origin.Client(),
+				CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+					return credentials.Credential{Username: username, Password: password}, nil
+				},
+			}
+			req, err := http.NewRequest(http.MethodGet, origin.URL+"/v2/test/manifests/latest", nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Client.Do() error = %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+			}
+			if got := gotAuth.Load().(string); got != "" {
+				t.Errorf("Authorization forwarded after the chain left the origin: %q", got)
+			}
+		})
+	}
+}
+
+func Test_leftOrigin(t *testing.T) {
+	requests := func(rawURLs ...string) []*http.Request {
+		t.Helper()
+		reqs := make([]*http.Request, 0, len(rawURLs))
+		for _, raw := range rawURLs {
+			req, err := http.NewRequest(http.MethodGet, raw, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reqs = append(reqs, req)
+		}
+		return reqs
+	}
+	tests := []struct {
+		name  string
+		chain []string // via followed by the next request
+		want  bool
+	}{
+		{"same origin", []string{"https://a.example/x", "https://a.example/y"}, false},
+		{"same origin, several hops", []string{"https://a.example/x", "https://a.example/y", "https://a.example:443/z"}, false},
+		{"other port", []string{"https://a.example/x", "https://a.example:8443/y"}, true},
+		{"other scheme", []string{"https://a.example/x", "http://a.example/y"}, true},
+		{"second hop on other origin", []string{"https://a.example/x", "https://a.example:8443/y", "https://a.example:8443/z"}, true},
+		{"back to origin", []string{"https://a.example/x", "https://a.example:8443/y", "https://a.example/z"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reqs := requests(tt.chain...)
+			via, req := reqs[:len(reqs)-1], reqs[len(reqs)-1]
+			if got := leftOrigin(via, req); got != tt.want {
+				t.Errorf("leftOrigin() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_sameHTTPOrigin(t *testing.T) {
 	tests := []struct {
 		name string
@@ -4564,10 +4690,51 @@ func Test_sameHTTPOrigin(t *testing.T) {
 	}
 }
 
+// fakeLookupIPAddr returns a lookupIPAddr replacement that resolves names
+// from hosts and fails for every other name.
+func fakeLookupIPAddr(hosts map[string][]string) func(context.Context, string) ([]net.IPAddr, error) {
+	return func(_ context.Context, host string) ([]net.IPAddr, error) {
+		ips, ok := hosts[host]
+		if !ok {
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+		addrs := make([]net.IPAddr, 0, len(ips))
+		for _, ip := range ips {
+			addrs = append(addrs, net.IPAddr{IP: net.ParseIP(ip)})
+		}
+		return addrs, nil
+	}
+}
+
+// setLookupIPAddr replaces lookupIPAddr for the duration of the test.
+func setLookupIPAddr(t *testing.T, lookup func(context.Context, string) ([]net.IPAddr, error)) {
+	t.Helper()
+	orig := lookupIPAddr
+	lookupIPAddr = lookup
+	t.Cleanup(func() { lookupIPAddr = orig })
+}
+
 func Test_validateRealm(t *testing.T) {
+	setLookupIPAddr(t, fakeLookupIPAddr(map[string][]string{
+		"auth.example.com":           {"93.184.215.14"},
+		"other.example.com":          {"93.184.215.15", "2606:2800:21f:cb07:6820:80da:af6b:8b2c"},
+		"loopback.example.com":       {"127.0.0.1"},
+		"loopback6.example.com":      {"::1"},
+		"private.example.com":        {"10.1.2.3"},
+		"imds.example.com":           {"169.254.169.254"},
+		"cgnat.example.com":          {"100.64.0.1"},
+		"alibaba-imds.example.com":   {"100.100.100.200"},
+		"unspecified.example.com":    {"0.0.0.0"},
+		"mapped.example.com":         {"::ffff:169.254.169.254"},
+		"mixed.example.com":          {"93.184.215.14", "10.0.0.1"},
+		"registry.internal":          {"10.0.0.5"},
+		"cgnat-boundary.example.com": {"100.128.0.1"},
+	}))
+
 	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
 	registryHTTP, _ := url.Parse("http://registry.example.com/v2/")
 	registryLoopback, _ := url.Parse("http://127.0.0.1:5000/v2/")
+	registryInternal, _ := url.Parse("http://registry.internal:5000/v2/")
 
 	tests := []struct {
 		name     string
@@ -4587,16 +4754,281 @@ func Test_validateRealm(t *testing.T) {
 		{"loopback IPv6 is rejected when registry is on a public host", "http://[::1]:9090/token", registryHTTPS, true},
 		{"private RFC1918 is rejected when registry is on a public host", "http://10.0.0.5/token", registryHTTP, true},
 		{"unspecified address is rejected", "http://0.0.0.0/token", registryHTTP, true},
+		{"CGNAT literal is rejected", "http://100.64.0.1/token", registryHTTP, true},
+		{"Alibaba Cloud metadata literal is rejected", "http://100.100.100.200/latest/meta-data/", registryHTTP, true},
+		{"address just above CGNAT range is allowed", "http://100.128.0.1/token", registryHTTP, false},
+		{"IPv4-mapped IMDS literal is rejected", "http://[::ffff:169.254.169.254]/token", registryHTTP, true},
 		{"loopback realm is allowed when registry shares the loopback hostname", "http://127.0.0.1:9090/token", registryLoopback, false},
 		{"unparseable realm is rejected", "://bad-url", registryHTTPS, true},
+		{"hostname resolving to loopback is rejected", "https://loopback.example.com/token", registryHTTPS, true},
+		{"hostname resolving to IPv6 loopback is rejected", "https://loopback6.example.com/token", registryHTTPS, true},
+		{"hostname resolving to private address is rejected", "https://private.example.com/token", registryHTTPS, true},
+		{"hostname resolving to IMDS is rejected", "http://imds.example.com/latest/meta-data/", registryHTTP, true},
+		{"hostname resolving to CGNAT is rejected", "https://cgnat.example.com/token", registryHTTPS, true},
+		{"hostname resolving to Alibaba Cloud metadata is rejected", "http://alibaba-imds.example.com/", registryHTTP, true},
+		{"hostname resolving to unspecified address is rejected", "https://unspecified.example.com/token", registryHTTPS, true},
+		{"hostname resolving to IPv4-mapped IMDS is rejected", "https://mapped.example.com/token", registryHTTPS, true},
+		{"hostname with any internal address is rejected", "https://mixed.example.com/token", registryHTTPS, true},
+		{"hostname resolving just above CGNAT range is allowed", "https://cgnat-boundary.example.com/token", registryHTTPS, false},
+		{"hostname whose lookup fails is allowed", "https://unresolvable.example.com/token", registryHTTPS, false},
+		{"internal hostname is allowed when registry shares the hostname", "http://registry.internal:5001/token", registryInternal, false},
+		{"internal hostname is allowed when registry shares the hostname in another case", "http://Registry.Internal:5001/token", registryInternal, false},
+		{"internal hostname is rejected when registry is on another host", "http://registry.internal:5001/token", registryHTTP, true},
+		{"internal hostname is rejected without a registry URL", "http://registry.internal:5001/token", nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateRealm(tt.realm, tt.registry)
+			err := validateRealm(context.Background(), tt.realm, tt.registry)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func Test_validateRealm_UsesContext(t *testing.T) {
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "marker")
+	var gotMarker any
+	setLookupIPAddr(t, func(ctx context.Context, host string) ([]net.IPAddr, error) {
+		gotMarker = ctx.Value(ctxKey{})
+		return []net.IPAddr{{IP: net.ParseIP("93.184.215.14")}}, nil
+	})
+	registry, _ := url.Parse("https://registry.example.com/v2/")
+	if err := validateRealm(ctx, "https://auth.example.com/token", registry); err != nil {
+		t.Fatalf("validateRealm() error = %v", err)
+	}
+	if gotMarker != "marker" {
+		t.Errorf("lookupIPAddr did not receive the request context")
+	}
+}
+
+// hostDialer returns a DialContext function that connects to the listener
+// address mapped to the host of the dialed address. It lets a test use
+// arbitrary host names for httptest servers.
+func hostDialer(t *testing.T, hosts map[string]string) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		target, ok := hosts[host]
+		if !ok {
+			// Dial IP literals as is.
+			if net.ParseIP(host) == nil {
+				t.Errorf("unexpected dial to %q", addr)
+				return nil, fmt.Errorf("unexpected dial to %q", addr)
+			}
+			target = addr
+		}
+		var d net.Dialer
+		return d.DialContext(ctx, network, target)
+	}
+}
+
+// TestClient_Do_Bearer_RealmRedirect_Validated verifies that every redirect
+// hop of a token request is validated like the realm itself, so a realm that
+// passes validation cannot redirect the token request to an internal address.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
+func TestClient_Do_Bearer_RealmRedirect_Validated(t *testing.T) {
+	const wantToken = "test/access/token"
+	writeToken := func(w http.ResponseWriter) {
+		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, wantToken); err != nil {
+			t.Errorf("failed to write token response: %v", err)
+		}
+	}
+
+	tests := []struct {
+		name string
+		// oauth2 selects the default OAuth2 POST flow instead of the legacy
+		// distribution GET.
+		oauth2 bool
+		// target returns the redirect target given the URL of the internal
+		// server.
+		target func(internalURL string) string
+		// wantErr is a substring of the expected error, or empty if the
+		// request is expected to succeed.
+		wantErr string
+	}{
+		{
+			name:    "redirect to hostname resolving to IMDS is rejected",
+			target:  func(string) string { return "http://metadata.test/latest/meta-data/" },
+			wantErr: "redirect of token request rejected",
+		},
+		{
+			name:    "redirect to hostname resolving to CGNAT is rejected",
+			target:  func(string) string { return "http://cgnat.test/latest/meta-data/" },
+			wantErr: "redirect of token request rejected",
+		},
+		{
+			name:    "redirect to loopback literal is rejected",
+			target:  func(internalURL string) string { return internalURL + "/token" },
+			wantErr: "redirect of token request rejected",
+		},
+		{
+			// The OAuth2 POST carries the password in its body, so a 307 to
+			// any other origin is refused before the realm is validated.
+			// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
+			name:    "OAuth2 redirect to hostname resolving to IMDS is rejected",
+			oauth2:  true,
+			target:  func(string) string { return "http://metadata.test/latest/meta-data/" },
+			wantErr: "refusing to resend a token request body to another origin",
+		},
+		{
+			name:   "redirect to public hostname is allowed",
+			target: func(string) string { return "http://auth2.test/token" },
+		},
+		{
+			name:    "OAuth2 redirect to public hostname is rejected",
+			oauth2:  true,
+			target:  func(string) string { return "http://auth2.test/token" },
+			wantErr: "refusing to resend a token request body to another origin",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var internalHits atomic.Int64
+			internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				internalHits.Add(1)
+				writeToken(w)
+			}))
+			defer internal.Close()
+
+			auth2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeToken(w)
+			}))
+			defer auth2.Close()
+
+			realm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// 307 preserves the method and body of the OAuth2 POST.
+				http.Redirect(w, r, tt.target(internal.URL), http.StatusTemporaryRedirect)
+			}))
+			defer realm.Close()
+
+			registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") == "Bearer "+wantToken {
+					return
+				}
+				challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", "http://auth.test/token", "registry.test", "repository:test:pull")
+				w.Header().Set("Www-Authenticate", challenge)
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			defer registry.Close()
+
+			setLookupIPAddr(t, fakeLookupIPAddr(map[string][]string{
+				"auth.test":     {"93.184.215.14"},
+				"auth2.test":    {"93.184.215.15"},
+				"metadata.test": {"169.254.169.254"},
+				"cgnat.test":    {"100.100.100.200"},
+			}))
+			hosts := map[string]string{
+				"registry.test": registry.Listener.Addr().String(),
+				"auth.test":     realm.Listener.Addr().String(),
+				"auth2.test":    auth2.Listener.Addr().String(),
+				"metadata.test": internal.Listener.Addr().String(),
+				"cgnat.test":    internal.Listener.Addr().String(),
+			}
+			client := &Client{
+				Client: &http.Client{
+					Transport: &http.Transport{DialContext: hostDialer(t, hosts)},
+				},
+				CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
+					return credentials.Credential{Username: "test_user", Password: "test_password"}, nil
+				},
+			}
+			if !tt.oauth2 {
+				// Legacy mode sends the credential to the realm with GET.
+				client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
+			}
+
+			req, err := http.NewRequest(http.MethodGet, "http://registry.test/v2/test/manifests/latest", nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			resp, err := client.Do(req)
+			if tt.wantErr != "" {
+				if err == nil {
+					resp.Body.Close()
+					t.Fatal("Client.Do() error = nil, want error")
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("Client.Do() error = %v, want error containing %q", err, tt.wantErr)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("Client.Do() error = %v", err)
+				}
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+				}
+			}
+			if got := internalHits.Load(); got != 0 {
+				t.Errorf("internal server received %d requests, want 0", got)
+			}
+		})
+	}
+}
+
+// TestClient_Do_Bearer_RealmRedirect_Downgrade verifies that an https realm
+// cannot redirect the token request to http when the registry was contacted
+// over https.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
+func TestClient_Do_Bearer_RealmRedirect_Downgrade(t *testing.T) {
+	const wantToken = "test/access/token"
+	var plainHits atomic.Int64
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		plainHits.Add(1)
+		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, wantToken); err != nil {
+			t.Errorf("failed to write token response: %v", err)
+		}
+	}))
+	defer plain.Close()
+
+	realm := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://plain.test/token", http.StatusFound)
+	}))
+	defer realm.Close()
+
+	registry := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer "+wantToken {
+			return
+		}
+		challenge := fmt.Sprintf("Bearer realm=%q,service=%q", "https://auth.test/token", "registry.test")
+		w.Header().Set("Www-Authenticate", challenge)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer registry.Close()
+
+	setLookupIPAddr(t, fakeLookupIPAddr(map[string][]string{
+		"auth.test":  {"93.184.215.14"},
+		"plain.test": {"93.184.215.15"},
+	}))
+	transport := registry.Client().Transport.(*http.Transport).Clone()
+	transport.DialContext = hostDialer(t, map[string]string{
+		"registry.test": registry.Listener.Addr().String(),
+		"auth.test":     realm.Listener.Addr().String(),
+		"plain.test":    plain.Listener.Addr().String(),
+	})
+	transport.TLSClientConfig.InsecureSkipVerify = true
+	client := &Client{
+		Client: &http.Client{Transport: transport},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://registry.test/v2/", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("Client.Do() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "uses http but registry was contacted over https") {
+		t.Errorf("Client.Do() error = %v, want TLS downgrade rejection", err)
+	}
+	if got := plainHits.Load(); got != 0 {
+		t.Errorf("http redirect target received %d requests, want 0", got)
 	}
 }
 

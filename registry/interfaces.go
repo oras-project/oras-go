@@ -21,6 +21,7 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // Repository is an ORAS target and an union of the blob and the manifest CASs.
@@ -81,6 +82,17 @@ type ReferencePusher interface {
 type ReferenceFetcher interface {
 	// FetchReference fetches the content identified by the reference.
 	FetchReference(ctx context.Context, reference string) (ocispec.Descriptor, io.ReadCloser, error)
+}
+
+// ReferenceParser provides reference parsing.
+//
+// [github.com/oras-project/oras-go/v3.Tag] and
+// [github.com/oras-project/oras-go/v3.TagN] check for this interface on
+// targets that also implement [ReferenceFetcher] and [ReferencePusher], and
+// use the parsed registry and repository as authentication scope hints.
+type ReferenceParser interface {
+	// ParseReference parses a reference to a fully qualified reference.
+	ParseReference(reference string) (properties.Reference, error)
 }
 
 // ReferrerLister provides the Referrers API.
