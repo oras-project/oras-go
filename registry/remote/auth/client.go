@@ -141,20 +141,36 @@ func (c *Client) client() *http.Client {
 
 // send adds headers to the request and sends the request to the remote server.
 func (c *Client) send(req *http.Request) (*http.Response, error) {
+	return c.sendRedirectSafe(req, false)
+}
+
+// sendRedirectSafe adds headers to the request and sends the request to the
+// remote server. If refuseCrossOriginBody is set, a redirect that would resend
+// the request body to another origin fails instead of being followed.
+func (c *Client) sendRedirectSafe(req *http.Request, refuseCrossOriginBody bool) (*http.Response, error) {
 	for key, values := range c.Header {
 		req.Header[key] = append(req.Header[key], values...)
 	}
-	// Drop the Authorization header when a redirect crosses an HTTP origin
-	// (scheme, host, or port). The standard library only strips sensitive
-	// headers when the hostname changes, so a redirect to a different port on
-	// the same host would otherwise forward credentials to an unintended
-	// endpoint. Any caller-provided CheckRedirect is preserved.
-	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+	// Drop the Authorization header once a redirect chain has left the HTTP
+	// origin (scheme, host, or port) of its first request. The standard
+	// library only strips sensitive headers when the hostname changes, so a
+	// redirect to a different port on the same host would otherwise forward
+	// credentials to an unintended endpoint. The check is made against the
+	// first request rather than the previous hop: net/http rebuilds the
+	// headers of every redirected request from the first request, so a header
+	// deleted on one hop is restored on the next. Any caller-provided
+	// CheckRedirect is preserved.
+	// References:
+	//   - https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+	//   - https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
 	client := c.client()
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) > 0 && !sameHTTPOrigin(via[len(via)-1].URL, req.URL) {
+		if len(via) > 0 && leftOrigin(via, req) {
+			if refuseCrossOriginBody && req.Body != nil && req.Body != http.NoBody {
+				return fmt.Errorf("%s %q: refusing to resend a token request body to another origin", req.Method, req.URL.Redacted())
+			}
 			req.Header.Del("Authorization")
 		}
 		if checkRedirect != nil {
@@ -166,6 +182,19 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 		return nil
 	}
 	return clientCopy.Do(req)
+}
+
+// leftOrigin reports whether the redirect chain via, followed by req, has left
+// the HTTP origin of its first request, which is the request the credential
+// was attached for. Once the chain leaves that origin it is treated as having
+// left for good, even if a later hop returns to it.
+func leftOrigin(via []*http.Request, req *http.Request) bool {
+	for _, r := range via[1:] {
+		if !sameHTTPOrigin(via[0].URL, r.URL) {
+			return true
+		}
+	}
+	return !sameHTTPOrigin(via[0].URL, req.URL)
 }
 
 // sameHTTPOrigin reports whether a and b share the same HTTP origin, i.e. the
@@ -323,11 +352,17 @@ func realmRedirectGuard(client *http.Client, registryURL *url.URL) *http.Client 
 }
 
 // sendTokenRequest sends a request to a token endpoint like send, but
-// re-validates every redirect hop with validateRealm against registryURL.
+// re-validates every redirect hop with validateRealm against registryURL, and
+// refuses to follow a redirect that would resend the request body to another
+// origin. On a 307 or 308 redirect net/http replays the body, which for an
+// OAuth2 token request holds the password or refresh token.
+// References:
+//   - https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
+//   - https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
 func (c *Client) sendTokenRequest(req *http.Request, registryURL *url.URL) (*http.Response, error) {
 	tokenClient := *c
 	tokenClient.Client = realmRedirectGuard(c.client(), registryURL)
-	return tokenClient.send(req)
+	return tokenClient.sendRedirectSafe(req, true)
 }
 
 // SetUserAgent sets the user agent for all out-going requests.
