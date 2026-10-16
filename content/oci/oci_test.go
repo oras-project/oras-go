@@ -4857,3 +4857,46 @@ func TestStore_Fetch_Seekable(t *testing.T) {
 		t.Errorf("Store.Fetch() returned %T, which is not io.Seeker", rc)
 	}
 }
+
+func TestGCReachable_MissingUntaggedEntry(t *testing.T) {
+	ctx := context.Background()
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Push a valid tagged manifest.
+	manifest := []byte(`{"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":1},"layers":[]}`)
+	taggedDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+	if err := s.Push(ctx, taggedDesc, bytes.NewReader(manifest)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Push an unrelated blob that should remain unreachable.
+	orphan := []byte("orphan")
+	orphanDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, orphan)
+	if err := s.Push(ctx, orphanDesc, bytes.NewReader(orphan)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Include a missing manifest as a digest-only entry.
+	missingDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("missing manifest"),
+		Size:      1,
+	}
+
+	refMap := map[string]ocispec.Descriptor{
+		"kept":                      taggedDesc,
+		missingDesc.Digest.String(): missingDesc,
+	}
+
+	_, reachable, err := gcReachable(ctx, s, refMap)
+	if err != nil {
+		t.Fatalf("gcReachable() error = %v, want nil", err)
+	}
+
+	if reachable.Exists(orphanDesc) {
+		t.Errorf("orphan %s unexpectedly reachable", orphanDesc.Digest)
+	}
+}

@@ -798,11 +798,18 @@ func gcReachable(ctx context.Context, fetcher content.Fetcher, refMap map[string
 		}
 		// check if the referrers manifest can traverse to the existing graph
 		subject := &desc
+		isInitialManifest := true
 		for {
 			next, err := manifestutil.Subject(ctx, fetcher, *subject)
 			if err != nil {
+				if isInitialManifest && errors.Is(err, errdef.ErrNotFound) {
+					// The untagged manifest is missing; it cannot contribute
+					// reachable content.
+					break
+				}
 				return nil, nil, err
 			}
+			isInitialManifest = false
 			if next == nil {
 				break
 			}
