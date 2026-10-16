@@ -4899,4 +4899,7 @@ func TestGCReachable_MissingUntaggedEntry(t *testing.T) {
 	if reachable.Exists(orphanDesc) {
 		t.Errorf("orphan %s unexpectedly reachable", orphanDesc.Digest)
 	}
+	if reachable.Exists(missingDesc) {
+		t.Errorf("missing manifest %s unexpectedly reachable", missingDesc.Digest)
+	}
 }

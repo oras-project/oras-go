@@ -478,16 +478,19 @@ func TestVerify_Reachability_UntaggedReferrerOfAbsentSubject(t *testing.T) {
 	root, _, _ := b.image("root", nil)
 	b.tag(root, "v1")
 	gone := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageManifest, Digest: digestOf([]byte("elsewhere")), Size: 9}
-	r, _, _ := b.image("referrer", &gone)
+	r, config, layer := b.image("referrer", &gone)
 	b.untagged(r)
-	b.blob(ocispec.MediaTypeImageLayer, []byte("orphan"))
+	orphan := b.blob(ocispec.MediaTypeImageLayer, []byte("orphan"))
 
 	report := b.verify()
-	wantPaths(t, "Unreferenced", report.Unreferenced)
-	if len(report.Unverifiable) != 1 || !errors.Is(report.Unverifiable[0].Reason, errdef.ErrNotFound) {
-		t.Errorf("Unverifiable = %v, want one entry wrapping %v", report.Unverifiable, errdef.ErrNotFound)
+
+	for _, desc := range []ocispec.Descriptor{r, config, layer, orphan} {
+		mustContainPath(t, report.Unreferenced, filePathOf(desc))
 	}
-	mustContainPath(t, report.Unverifiable, ocispec.ImageIndexFile)
+
+	if len(report.Unverifiable) != 0 {
+		t.Errorf("Unverifiable = %v, want no entries", report.Unverifiable)
+	}
 }
 
 func TestBlobPathOfRejectsMalformedDigests(t *testing.T) {
