@@ -179,6 +179,15 @@ func Test_mirrorReference(t *testing.T) {
 		{"host:port with tag", "localhost:5001/charts/app:0.1.0", "0.1.0"},
 		{"bare tag", "v1", "v1"},
 		{"bare digest with @", "@" + dig, "@" + dig},
+		{"tag and digest", "primary.example.com/app:v1@" + dig, "@" + dig},
+		{"invalid digest with @", "primary.example.com/app@bad", "@bad"},
+		{"scheme and upper-case host", "oci://PRIMARY.example.com/app:v1", "v1"},
+		{"no tag", "primary.example.com/app", "primary.example.com/app"},
+		{"empty tag", "primary.example.com/app:", "primary.example.com/app:"},
+		{"invalid tag", "primary.example.com/app:bad tag", "primary.example.com/app:bad tag"},
+		{"invalid repository", "primary.example.com/App:v1", "primary.example.com/App:v1"},
+		{"repo and tag without host", "app:v1", "app:v1"},
+		{"empty", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

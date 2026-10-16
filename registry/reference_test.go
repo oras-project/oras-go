@@ -17,9 +17,13 @@ package registry
 
 import (
 	_ "crypto/sha256"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/errdef"
 )
 
 const ValidDigest = "sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
@@ -755,5 +759,126 @@ func TestParseReferenceWithSchemes(t *testing.T) {
 				t.Errorf("ParseReference() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestReference_ValidateErrors pins the exact error text of each validator on
+// hand-built references. The tag and digest validators read the legacy
+// Reference field, never Tag or Digest.
+func TestReference_ValidateErrors(t *testing.T) {
+	const (
+		reg  = "registry.example.com"
+		repo = "hello-world"
+	)
+	formB, err := ParseReference(fmt.Sprintf("%s/%s:v2@%s", reg, repo, ValidDigest))
+	if err != nil {
+		t.Fatalf("ParseReference() unexpected error: %v", err)
+	}
+	tests := []struct {
+		name     string
+		validate func() error
+		want     string // "" means no error
+	}{
+		{"registry valid", Reference{Registry: reg}.ValidateRegistry, ""},
+		{"registry with port", Reference{Registry: "localhost:5000"}.ValidateRegistry, ""},
+		{"registry invalid", Reference{Registry: "invalid registry"}.ValidateRegistry, `invalid reference: invalid registry "invalid registry"`},
+		{"registry empty", Reference{}.ValidateRegistry, `invalid reference: invalid registry ""`},
+		{"repository valid", Reference{Repository: "org/hello-world"}.ValidateRepository, ""},
+		{"repository invalid", Reference{Repository: "INVALID_REPO"}.ValidateRepository, `invalid reference: invalid repository "INVALID_REPO"`},
+		{"repository empty", Reference{}.ValidateRepository, `invalid reference: invalid repository ""`},
+		{"tag valid", Reference{Reference: "v1.0.0"}.ValidateReferenceAsTag, ""},
+		{"tag invalid", Reference{Reference: "INVALID_TAG!"}.ValidateReferenceAsTag, `invalid reference: invalid tag "INVALID_TAG!"`},
+		{"tag empty", Reference{}.ValidateReferenceAsTag, `invalid reference: invalid tag ""`},
+		{"tag empty, Tag field set", Reference{Tag: "v1"}.ValidateReferenceAsTag, `invalid reference: invalid tag ""`},
+		{"tag valid, Tag field invalid", Reference{Reference: "v1", Tag: "bad tag!"}.ValidateReferenceAsTag, ""},
+		{"tag on form B reads the digest", formB.ValidateReferenceAsTag, fmt.Sprintf(`invalid reference: invalid tag %q`, ValidDigest)},
+		{"digest valid", Reference{Reference: ValidDigest}.ValidateReferenceAsDigest, ""},
+		{"digest valid on form B", formB.ValidateReferenceAsDigest, ""},
+		{"digest invalid length", Reference{Reference: InvalidDigest}.ValidateReferenceAsDigest, fmt.Sprintf(`invalid reference: invalid digest %q: invalid checksum digest length`, InvalidDigest)},
+		{"digest empty", Reference{}.ValidateReferenceAsDigest, `invalid reference: invalid digest "": invalid checksum digest format`},
+		{"digest empty, Digest field set", Reference{Digest: ValidDigest}.ValidateReferenceAsDigest, `invalid reference: invalid digest "": invalid checksum digest format`},
+		{"digest is a tag", Reference{Reference: "v1"}.ValidateReferenceAsDigest, `invalid reference: invalid digest "v1": invalid checksum digest format`},
+		{"reference empty", Reference{Tag: "bad tag!", Digest: InvalidDigest}.ValidateReference, ""},
+		{"reference colon is a digest", Reference{Reference: "v1:x"}.ValidateReference, `invalid reference: invalid digest "v1:x": unsupported digest algorithm`},
+		{"reference no colon is a tag", Reference{Reference: "bad tag"}.ValidateReference, `invalid reference: invalid tag "bad tag"`},
+		{"reference ignores Tag field", Reference{Reference: "v1", Tag: "bad tag!"}.ValidateReference, ""},
+		{"reference ignores Digest field", Reference{Reference: "v1", Digest: InvalidDigest}.ValidateReference, ""},
+		{"validate stops at registry", Reference{Registry: "a b", Repository: "A", Reference: "!"}.Validate, `invalid reference: invalid registry "a b"`},
+		{"validate stops at repository", Reference{Registry: reg, Repository: "A", Reference: "!"}.Validate, `invalid reference: invalid repository "A"`},
+		{"validate checks reference", Reference{Registry: reg, Repository: repo, Reference: "!"}.Validate, `invalid reference: invalid tag "!"`},
+		{"validate form B", formB.Validate, ""},
+		{"validate ignores Tag and Digest", Reference{Registry: reg, Repository: repo, Tag: "!", Digest: "x"}.Validate, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.validate()
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("error = %v, want %s", err, tt.want)
+			}
+			if !errors.Is(err, errdef.ErrInvalidReference) {
+				t.Errorf("errors.Is(%v, ErrInvalidReference) = false, want true", err)
+			}
+		})
+	}
+}
+
+// TestReference_GetDigest_Empty pins the error of GetDigest on an empty
+// reference: go-digest's format error, not ErrInvalidReference, even when the
+// Digest field is set.
+func TestReference_GetDigest_Empty(t *testing.T) {
+	for _, r := range []Reference{{}, {Digest: ValidDigest}} {
+		d, err := r.GetDigest()
+		if d != "" {
+			t.Errorf("GetDigest() = %q, want empty", d)
+		}
+		if !errors.Is(err, digest.ErrDigestInvalidFormat) {
+			t.Errorf("GetDigest() error = %v, want %v", err, digest.ErrDigestInvalidFormat)
+		}
+		if errors.Is(err, errdef.ErrInvalidReference) {
+			t.Errorf("GetDigest() error %v is ErrInvalidReference, want it not to be", err)
+		}
+	}
+}
+
+// TestReference_String_FormB pins that String drops the tag of a form B
+// reference and prints only repo@digest.
+func TestReference_String_FormB(t *testing.T) {
+	want := "localhost:5000/org/repo@" + ValidDigest
+	formB, err := ParseReference("localhost:5000/org/repo:v2@" + ValidDigest)
+	if err != nil {
+		t.Fatalf("ParseReference() unexpected error: %v", err)
+	}
+	handBuilt := Reference{Registry: "localhost:5000", Repository: "org/repo", Reference: ValidDigest, Tag: "v2", Digest: ValidDigest}
+	for _, r := range []Reference{formB, handBuilt} {
+		if got := r.String(); got != want {
+			t.Errorf("String() = %q, want %q", got, want)
+		}
+	}
+	// The Tag and Digest fields are ignored when Reference is empty.
+	r := Reference{Registry: "localhost", Repository: "repo", Tag: "v1", Digest: ValidDigest}
+	if got, want := r.String(), "localhost/repo"; got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+}
+
+func TestReference_Host_Forms(t *testing.T) {
+	for registry, want := range map[string]string{
+		"docker.io":       "registry-1.docker.io",
+		"docker.io:443":   "docker.io:443",
+		"DOCKER.IO":       "DOCKER.IO",
+		"index.docker.io": "index.docker.io",
+		"localhost:5000":  "localhost:5000",
+		"[::1]:5000":      "[::1]:5000",
+		"":                "",
+	} {
+		if got := (Reference{Registry: registry}).Host(); got != want {
+			t.Errorf("Reference{Registry: %q}.Host() = %q, want %q", registry, got, want)
+		}
 	}
 }
