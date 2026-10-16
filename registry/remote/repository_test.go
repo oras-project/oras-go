@@ -8981,18 +8981,20 @@ func TestRegistry_newRepository(t *testing.T) {
 // referrers state, ping lock and merge pool must be fresh in the clone.
 func TestRepository_clone_copiesEveryField(t *testing.T) {
 	orig := &Repository{
-		Registry:             &Registry{},
-		RepositoryName:       "repo/image",
-		ManifestMediaTypes:   []string{ocispec.MediaTypeImageManifest},
-		TagListPageSize:      1,
-		ReferrerListPageSize: 2,
-		TagListMaxPages:      3,
-		ReferrerListMaxPages: 4,
-		SkipReferrersGC:      true,
-		MaxChunkSize:         5,
-		mirrors:              []mirrorRepository{{Repository: &Repository{}, pullFromMirror: "all"}},
+		Registry:                   &Registry{},
+		RepositoryName:             "repo/image",
+		ManifestMediaTypes:         []string{ocispec.MediaTypeImageManifest},
+		TagListPageSize:            1,
+		ReferrerListPageSize:       2,
+		TagListMaxPages:            3,
+		ReferrerListMaxPages:       4,
+		SkipReferrersGC:            true,
+		MaxChunkSize:               5,
+		SingleRequestPushThreshold: 6,
+		mirrors:                    []mirrorRepository{{Repository: &Repository{}, pullFromMirror: "all"}},
 	}
 	atomic.StoreInt32(&orig.referrersState, int32(properties.ReferrersAPISupported))
+	orig.singleRequestUnsupported.Store(true)
 	orig.referrersPingLock.Lock()
 	defer orig.referrersPingLock.Unlock()
 
@@ -9006,6 +9008,9 @@ func TestRepository_clone_copiesEveryField(t *testing.T) {
 		"referrersState":     true,
 		"referrersPingLock":  true,
 		"referrersMergePool": true,
+		// what one repository learned about the registry is not carried
+		// over, like referrersState
+		"singleRequestUnsupported": true,
 	}
 	for i := range repoType.NumField() {
 		field := repoType.Field(i)
@@ -9040,6 +9045,9 @@ func TestRepository_clone_copiesEveryField(t *testing.T) {
 
 	if got := clone.loadReferrersState(); got != properties.ReferrersAPIUnknown {
 		t.Errorf("clone().referrersState = %v, want %v", got, properties.ReferrersAPIUnknown)
+	}
+	if clone.singleRequestUnsupported.Load() {
+		t.Error("clone().singleRequestUnsupported should be reset to false")
 	}
 	if !clone.referrersPingLock.TryLock() {
 		t.Error("clone().referrersPingLock should be unlocked")
