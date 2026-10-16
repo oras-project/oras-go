@@ -38,23 +38,52 @@ type target struct {
 // The returned target will first check the cache for content before
 // fetching from the source. Fetched content is cached while being read.
 //
-// Note: The returned target implements only oras.ReadOnlyTarget. If the source
-// implements additional interfaces (e.g., registry.ReferenceFetcher), those
-// methods are also available through the returned target. However, type
-// assertions for other interfaces beyond ReadOnlyTarget may fail since
-// embedding an interface only promotes that interface's method set.
+// The returned target keeps the following optional interfaces of the source,
+// so that type assertions for them succeed exactly when they succeed on the
+// source:
+//   - [registry.ReferenceFetcher]: fetched content is served from and stored
+//     in the cache.
+//   - [registry.ReferenceParser]: passed through to the source.
+//   - [registry.ReferrerLister]: passed through to the source. Referrers are
+//     always listed from the source and are never cached.
+//
+// Other interfaces implemented by the source are not available through the
+// returned target.
 func CacheReadOnlyTarget(source oras.ReadOnlyTarget, cache content.Storage) oras.ReadOnlyTarget {
 	t := &target{
 		ReadOnlyTarget: source,
 		cache:          cache,
 	}
-	if refFetcher, ok := source.(registry.ReferenceFetcher); ok {
-		return &referenceTarget{
-			target:           t,
-			ReferenceFetcher: refFetcher,
+	parser, isParser := source.(registry.ReferenceParser)
+	lister, isLister := source.(registry.ReferrerLister)
+	refFetcher, isRefFetcher := source.(registry.ReferenceFetcher)
+	if !isRefFetcher {
+		switch {
+		case isParser && isLister:
+			return &parserListerTarget{target: t, ReferenceParser: parser, ReferrerLister: lister}
+		case isParser:
+			return &parserTarget{target: t, ReferenceParser: parser}
+		case isLister:
+			return &listerTarget{target: t, ReferrerLister: lister}
+		default:
+			return t
 		}
 	}
-	return t
+
+	rt := &referenceTarget{
+		target:           t,
+		ReferenceFetcher: refFetcher,
+	}
+	switch {
+	case isParser && isLister:
+		return &referenceParserListerTarget{referenceTarget: rt, ReferenceParser: parser, ReferrerLister: lister}
+	case isParser:
+		return &referenceParserTarget{referenceTarget: rt, ReferenceParser: parser}
+	case isLister:
+		return &referenceListerTarget{referenceTarget: rt, ReferrerLister: lister}
+	default:
+		return rt
+	}
 }
 
 // Fetch fetches the content identified by the descriptor.
@@ -153,4 +182,52 @@ func (t *referenceTarget) FetchReference(ctx context.Context, reference string) 
 		return ocispec.Descriptor{}, nil, err
 	}
 	return fetchedDesc, t.cacheReadCloser(ctx, rc, fetchedDesc), nil
+}
+
+// The types below add the optional interfaces that CacheReadOnlyTarget passes
+// through unchanged. A method set cannot be built at runtime, so there is one
+// type per combination of the source's optional interfaces. This keeps a type
+// assertion on the cached target in agreement with the same assertion on the
+// source.
+
+// parserTarget is a target whose source implements registry.ReferenceParser.
+type parserTarget struct {
+	*target
+	registry.ReferenceParser
+}
+
+// listerTarget is a target whose source implements registry.ReferrerLister.
+type listerTarget struct {
+	*target
+	registry.ReferrerLister
+}
+
+// parserListerTarget is a target whose source implements
+// registry.ReferenceParser and registry.ReferrerLister.
+type parserListerTarget struct {
+	*target
+	registry.ReferenceParser
+	registry.ReferrerLister
+}
+
+// referenceParserTarget is a referenceTarget whose source also implements
+// registry.ReferenceParser.
+type referenceParserTarget struct {
+	*referenceTarget
+	registry.ReferenceParser
+}
+
+// referenceListerTarget is a referenceTarget whose source also implements
+// registry.ReferrerLister.
+type referenceListerTarget struct {
+	*referenceTarget
+	registry.ReferrerLister
+}
+
+// referenceParserListerTarget is a referenceTarget whose source also
+// implements registry.ReferenceParser and registry.ReferrerLister.
+type referenceParserListerTarget struct {
+	*referenceTarget
+	registry.ReferenceParser
+	registry.ReferrerLister
 }
