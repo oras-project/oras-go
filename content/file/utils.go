@@ -201,7 +201,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		case tar.TypeReg:
 			err = writeFile(filePath, tr, header.FileInfo().Mode(), buf)
 		case tar.TypeDir:
-			err = os.MkdirAll(filePath, header.FileInfo().Mode())
+			err = makeDir(filePath, header.FileInfo().Mode())
 		case tar.TypeLink:
 			// NOTE: ORAS does not generate hard links when creating tarballs.
 			// If a hard link is found in the tarball, it will be extracted.
@@ -224,11 +224,26 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 				}
 				err = os.Symlink(target, filePath)
 			}
+			if err != nil {
+				return err
+			}
+			// os.Chtimes and os.Chmod follow symlinks, so restoring the
+			// metadata of a symlink entry would modify its target, which may
+			// resolve outside the extraction root (GHSA-jh75-xv39-vhvx).
+			// Leave the symlink's own metadata as created.
+			continue
 		default:
 			continue // Non-regular files are skipped
 		}
 		if err != nil {
 			return err
+		}
+
+		// Never restore metadata through a symlink (GHSA-jh75-xv39-vhvx).
+		if fi, err := os.Lstat(filePath); err != nil {
+			return err
+		} else if fi.Mode()&os.ModeSymlink != 0 {
+			continue
 		}
 
 		// Change access time and modification time if possible (error ignored)
@@ -384,6 +399,23 @@ func realPathForWrite(path string) (string, error) {
 		suffix = filepath.Join(filepath.Base(dir), suffix)
 		dir = parent
 	}
+}
+
+// makeDir creates the directory specified by the `path` parameter.
+func makeDir(path string, perm os.FileMode) error {
+	// os.MkdirAll follows a terminal symlink and returns nil if it resolves to
+	// an existing directory, so a directory entry whose path was already
+	// created as a symlink by an earlier archive entry would silently reuse
+	// that link, and the metadata restored afterwards would be applied to a
+	// directory possibly outside the extraction root (GHSA-jh75-xv39-vhvx).
+	// Remove any such symlink first so a real directory is created at path,
+	// as writeFile does for regular files.
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	return os.MkdirAll(path, perm)
 }
 
 // writeFile writes content to the file specified by the `path` parameter.
