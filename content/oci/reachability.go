@@ -64,28 +64,44 @@ type referenceEdge struct {
 func verifyReachability(ctx context.Context, fsys fs.FS, index *ocispec.Index, present map[string]struct{}, unlisted map[string]error, acc *verifyAccumulator) error {
 	storage := NewStorageFromFS(fsys)
 
-	// incomplete is set when a reference could not be followed, so that what
-	// is reachable is not known. An algorithm directory that could not be listed
-	// has the same effect: it may hold what Verify takes for absent.
-	incomplete := len(unlisted) > 0
-	for alg, err := range unlisted {
-		// Also reported as Failed by the sweep. Here it is recorded as the
-		// reason reachability cannot be followed.
-		acc.addUnverifiable(path.Join(ocispec.ImageBlobsDir, alg), fmt.Errorf("reachability unknown: %w", err))
+	incomplete, err := walkIndexReferences(ctx, storage, index, present, unlisted, acc)
+	if err != nil {
+		return err
+	}
+	if incomplete {
+		return nil
 	}
 
-	// Walk everything index.json references, whether tagged or not.
-	seen := set.New[digest.Digest]()
+	refMap, ok := resolveIndexReferences(ctx, index, present, unlisted, acc)
+	if !ok {
+		return nil
+	}
+
+	return reportUnreferenced(ctx, storage, refMap, acc)
+}
+
+// walkIndexReferences verifies the references reachable from index.json.
+// It reports whether any reference could not be followed completely.
+func walkIndexReferences(ctx context.Context, storage content.Fetcher, index *ocispec.Index, present map[string]struct{}, unlisted map[string]error, acc *verifyAccumulator) (bool, error) {
+	incomplete := reportUnlistedDirectories(unlisted, acc)
+
 	queue := make([]referenceEdge, 0, len(index.Manifests))
 	for _, desc := range index.Manifests {
-		queue = append(queue, referenceEdge{desc: desc, from: ocispec.ImageIndexFile})
+		queue = append(queue, referenceEdge{
+			desc: desc,
+			from: ocispec.ImageIndexFile,
+		})
 	}
+
+	seen := set.New[digest.Digest]()
 	for len(queue) > 0 {
 		if err := isContextDone(ctx); err != nil {
-			return err
+			return incomplete, err
 		}
+
 		edge := queue[0]
 		queue = queue[1:]
+
 		desc := edge.desc
 		if seen.Contains(desc.Digest) {
 			continue
@@ -94,63 +110,89 @@ func verifyReachability(ctx context.Context, fsys fs.FS, index *ocispec.Index, p
 
 		p, alg, ok := blobPathOf(desc.Digest)
 		if !ok {
-			acc.addUnverifiable(edge.from, fmt.Errorf("invalid digest %q: %w", desc.Digest, errdef.ErrInvalidDigest))
+			acc.addUnverifiable(
+				edge.from,
+				fmt.Errorf("invalid digest %q: %w", desc.Digest, errdef.ErrInvalidDigest),
+			)
 			incomplete = true
 			continue
 		}
-		if _, ok := unlisted[alg]; ok {
-			continue // reported as Failed by the sweep
+
+		if _, unknown := unlisted[alg]; unknown {
+			continue // already reported by the sweep
 		}
-		if _, ok := present[p]; !ok {
+
+		if _, exists := present[p]; !exists {
 			acc.addMissing(p, fmt.Errorf("referenced by %s: %w", edge.from, errdef.ErrNotFound))
 			continue
 		}
 
-		successors, err := content.Successors(ctx, storage, desc)
-		if err == nil {
-			var subject *ocispec.Descriptor
-			if subject, err = manifestutil.Subject(ctx, storage, desc); err == nil && subject != nil &&
-				len(successors) > 0 && successors[0].Digest == subject.Digest {
-				// the subject is not part of what the manifest owns, and a
-				// referrer may legitimately outlive it
-				successors = successors[1:]
-			}
-		}
+		successors, err := verifiySuccessors(ctx, storage, desc)
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
+			if errors.Is(err, context.Canceled) ||
+				errors.Is(err, context.DeadlineExceeded) {
+				return incomplete, err
 			}
-			// present but unreadable or failing verification:
-			// what it references is unknown
+
 			acc.addUnverifiable(p, err)
 			incomplete = true
 			continue
 		}
+
 		for _, successor := range successors {
-			queue = append(queue, referenceEdge{desc: successor, from: p})
+			queue = append(queue, referenceEdge{
+				desc: successor,
+				from: p,
+			})
 		}
 	}
 
-	if incomplete {
-		// content that only a manifest that could not be followed references
-		// would look unreferenced, so report nothing rather than something wrong
-		return nil
+	return incomplete, nil
+}
+
+// reportUnlistedDirectories records blob directories that could not be listed.
+func reportUnlistedDirectories(unlisted map[string]error, acc *verifyAccumulator) bool {
+	for alg, err := range unlisted {
+		acc.addUnverifiable(
+			path.Join(ocispec.ImageBlobsDir, alg),
+			fmt.Errorf("reachability unknown: %w", err),
+		)
+	}
+	return len(unlisted) > 0
+}
+
+// verifiySuccessors returns a manifest's outgoing references, excluding its
+// subject when that subject appears first in the successor list.
+func verifiySuccessors(ctx context.Context, storage content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	successors, err := content.Successors(ctx, storage, desc)
+	if err != nil {
+		return nil, err
 	}
 
-	// Apply the rule that GC applies, to the references that index.json gives
-	// a Store when it opens the layout. If the rule fails, GC fails too and
-	// removes nothing, so there is nothing to report as unreferenced.
+	subject, err := manifestutil.Subject(ctx, storage, desc)
+	if err != nil {
+		return nil, err
+	}
+
+	if subject != nil &&
+		len(successors) > 0 &&
+		successors[0].Digest == subject.Digest {
+		successors = successors[1:]
+	}
+
+	return successors, nil
+}
+
+// resolveIndexReferences resolves index references using the same rules as GC.
+// Missing untagged entries are excluded because GC cannot retain them.
+func resolveIndexReferences(ctx context.Context, index *ocispec.Index, present map[string]struct{}, unlisted map[string]error, acc *verifyAccumulator) (map[string]ocispec.Descriptor, bool) {
 	tagResolver := resolver.NewMemory()
 	if _, err := tagIndex(ctx, index, tagResolver); err != nil {
 		acc.addUnverifiable(ocispec.ImageIndexFile, err)
-		return nil
+		return nil, false
 	}
 
 	refMap := tagResolver.Map()
-
-	// Missing untagged entries cannot be retained by GC. Exclude their
-	// digest-keyed entries so they don't abort reachability analysis for
-	// otherwise verifiable content. Keep tagged aliases intact.
 	for ref, desc := range refMap {
 		if ref != desc.Digest.String() {
 			continue
@@ -167,23 +209,37 @@ func verifyReachability(ctx context.Context, fsys fs.FS, index *ocispec.Index, p
 			delete(refMap, ref)
 		}
 	}
+	return refMap, true
+}
 
+// reportUnreferenced reports verified blobs that are not reachable from the
+// references retained by GC.
+func reportUnreferenced(ctx context.Context, storage content.Fetcher, refMap map[string]ocispec.Descriptor, acc *verifyAccumulator) error {
 	_, graph, err := gcReachable(ctx, storage, refMap)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
-		acc.addUnverifiable(ocispec.ImageIndexFile, fmt.Errorf("compute reachability: %w", err))
+
+		acc.addUnverifiable(
+			ocispec.ImageIndexFile,
+			fmt.Errorf("compute reachability: %w", err),
+		)
 		return nil
 	}
+
 	reachable := graph.DigestSet()
-	// Only blobs that verified can be unreferenced: one that failed is Failed.
 	for _, entry := range acc.report().Verified {
-		dgst := digest.NewDigestFromEncoded(digest.Algorithm(path.Base(path.Dir(entry.Path))), path.Base(entry.Path))
+		dgst := digest.NewDigestFromEncoded(
+			digest.Algorithm(path.Base(path.Dir(entry.Path))),
+			path.Base(entry.Path),
+		)
 		if !reachable.Contains(dgst) {
 			acc.addUnreferenced(entry.Path)
 		}
 	}
+
 	return nil
 }
 
