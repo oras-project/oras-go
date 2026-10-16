@@ -101,6 +101,12 @@ type Registry struct {
 	// blobs are pushed monolithically unless a repository overrides it.
 	MaxChunkSize int64
 
+	// SingleRequestPushThreshold is the default size limit in bytes for
+	// pushing blobs to repositories in a single POST request. If less than or
+	// equal to zero, blobs are pushed with a POST followed by a PUT unless a
+	// repository overrides it.
+	SingleRequestPushThreshold int64
+
 	// SkipReferrersGC is the default for repositories.
 	// If false, the old referrers index will be deleted after the new one
 	// is successfully uploaded.

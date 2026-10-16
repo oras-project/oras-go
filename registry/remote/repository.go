@@ -110,6 +110,12 @@ type Client interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+// Compile-time checks for the optional interfaces probed by the oras package.
+var (
+	_ registry.ReferenceParser = (*Repository)(nil)
+	_ registry.ReferenceParser = (*manifestStore)(nil)
+)
+
 // Repository is an HTTP client to a remote repository.
 type Repository struct {
 	// Registry is the parent registry. Must not be nil.
@@ -190,6 +196,37 @@ type Repository struct {
 	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pushing-a-blob-in-chunks
 	MaxChunkSize int64
 
+	// SingleRequestPushThreshold overrides Registry default if > 0.
+	// It specifies the largest blob size in bytes that is pushed in a single
+	// POST request carrying the content, instead of a POST that opens an
+	// upload session followed by a PUT.
+	//
+	// If zero or negative (the default), Registry.SingleRequestPushThreshold is
+	// used. If both settings are non-positive, blobs are never pushed in a
+	// single request, preserving the previous behavior. If positive, a
+	// non-empty blob no larger than the threshold is read into memory, so the
+	// request can be replayed after an authentication challenge or by a
+	// retrying transport, and sent per the OCI Distribution Spec as
+	// POST ?digest=. If the registry ignores the digest and opens an upload
+	// session instead, the blob is uploaded to that session with a PUT. If the
+	// registry rejects the request with a 4xx status other than 401, 403 or
+	// 429, or with 501, the push falls back to a POST followed by a PUT. After
+	// a 202, or a 405, 415 or 501 that says the feature is missing, the
+	// Repository remembers that the registry does not support single-request
+	// push, and later pushes go straight to a POST followed by a PUT.
+	//
+	// A blob larger than the effective MaxChunkSize is pushed in chunks. If the
+	// chunked upload cannot be started, the push falls back as if chunking were
+	// off, so a blob no larger than the threshold is then pushed in a single
+	// request.
+	//
+	// SingleRequestPushThreshold applies to [Repository.Push] only. Blob mount
+	// falls back to a POST followed by a PUT when the registry does not
+	// implement the mount endpoint, regardless of this setting.
+	//
+	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#single-post
+	SingleRequestPushThreshold int64
+
 	// mirrors is an ordered list of mirror repositories to try before the
 	// primary registry for read operations. When empty, all reads go directly
 	// to the primary. Mirrors are populated from a [properties.Registry] when a
@@ -213,6 +250,11 @@ type Repository struct {
 	// referrersMergePool provides a way to manage concurrent updates to a
 	// referrers index tagged by referrers tag schema.
 	referrersMergePool syncutil.Pool[syncutil.Merge[referrerChange]]
+
+	// singleRequestUnsupported records that the registry ignored or rejected a
+	// single-request blob push, so later pushes skip it. See
+	// SingleRequestPushThreshold.
+	singleRequestUnsupported atomic.Bool
 }
 
 // NewRepository creates a client to the remote repository identified by a
@@ -261,16 +303,17 @@ func (r *Repository) Reference() properties.Reference {
 // clone makes a copy of the Repository being careful not to copy non-copyable fields (sync.Mutex and syncutil.Pool types)
 func (r *Repository) clone() *Repository {
 	return &Repository{
-		Registry:             r.Registry,
-		RepositoryName:       r.RepositoryName,
-		ManifestMediaTypes:   slices.Clone(r.ManifestMediaTypes),
-		TagListPageSize:      r.TagListPageSize,
-		ReferrerListPageSize: r.ReferrerListPageSize,
-		TagListMaxPages:      r.TagListMaxPages,
-		ReferrerListMaxPages: r.ReferrerListMaxPages,
-		SkipReferrersGC:      r.SkipReferrersGC,
-		MaxChunkSize:         r.MaxChunkSize,
-		mirrors:              r.mirrors,
+		Registry:                   r.Registry,
+		RepositoryName:             r.RepositoryName,
+		ManifestMediaTypes:         slices.Clone(r.ManifestMediaTypes),
+		TagListPageSize:            r.TagListPageSize,
+		ReferrerListPageSize:       r.ReferrerListPageSize,
+		TagListMaxPages:            r.TagListMaxPages,
+		ReferrerListMaxPages:       r.ReferrerListMaxPages,
+		SkipReferrersGC:            r.SkipReferrersGC,
+		MaxChunkSize:               r.MaxChunkSize,
+		SingleRequestPushThreshold: r.SingleRequestPushThreshold,
+		mirrors:                    r.mirrors,
 	}
 }
 
@@ -298,6 +341,13 @@ func (r *Repository) maxMetadataBytes() int64 {
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) maxChunkSize() int64 {
 	return override(max(r.MaxChunkSize, 0), r.Registry.MaxChunkSize)
+}
+
+// singleRequestPushThreshold returns the effective size limit in bytes for
+// pushing a blob in a single POST request. A value <= 0 disables it.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) singleRequestPushThreshold() int64 {
+	return override(max(r.SingleRequestPushThreshold, 0), r.Registry.SingleRequestPushThreshold)
 }
 
 // handleWarning returns the warning handler function.
@@ -403,154 +453,6 @@ func (r *Repository) blobStore(desc ocispec.Descriptor) registry.BlobStore {
 		return r.Manifests()
 	}
 	return r.Blobs()
-}
-
-// inPolicyEvaluationKey is a context key set while the policy verifies an
-// image, so that a verifier fetching signature artifacts from this
-// repository does not evaluate the policy again.
-type inPolicyEvaluationKey struct{}
-
-// withInPolicyEvaluation returns a context marked as inside a policy
-// evaluation.
-func withInPolicyEvaluation(ctx context.Context) context.Context {
-	return context.WithValue(ctx, inPolicyEvaluationKey{}, true)
-}
-
-// checkPolicy validates repository access before network I/O. It evaluates
-// reference-level requirements for every reference and digest-dependent
-// requirements when the reference already carries a digest. If no policy is
-// configured (Policy is nil), this is a no-op.
-//
-// Signature requirements (signedBy/sigstoreSigned) are otherwise evaluated
-// by checkPolicyResolved when an operation resolves or supplies a manifest
-// descriptor. Blob operations and operations without a manifest remain
-// reference-level only. Descriptor-based push operations verify the supplied
-// manifest before uploading it, so its signing material must be discoverable
-// by the configured verifier at that point.
-func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
-	if ctx.Value(inPolicyEvaluationKey{}) != nil {
-		return nil
-	}
-
-	pol := r.policy()
-	if pol == nil {
-		return nil
-	}
-
-	imageRef := r.policyImageReference(reference)
-	allowed, err := pol.IsReferenceAllowed(ctx, imageRef)
-	if err != nil {
-		return fmt.Errorf("policy check failed: %w", err)
-	}
-	if !allowed {
-		return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
-	}
-	imageRef.Digest = r.policyDigest(reference)
-	if imageRef.Digest != "" {
-		allowed, err = pol.IsResolvedImageAllowed(withInPolicyEvaluation(ctx), imageRef)
-		if err != nil {
-			return fmt.Errorf("policy check failed: %w", err)
-		}
-		if !allowed {
-			return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
-		}
-	}
-	return nil
-}
-
-// checkPolicyResolved validates the manifest descriptor a reference resolves
-// to against digest-dependent policy requirements. The caller's reference is
-// kept for signed identity matching while the resolved digest is used for
-// signature lookup and payload validation. Callers must first call checkPolicy
-// with the same reference because digest references are fully checked there.
-func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, desc ocispec.Descriptor) error {
-	if ctx.Value(inPolicyEvaluationKey{}) != nil {
-		return nil
-	}
-	// Digest references are fully evaluated by checkPolicy before any
-	// registry request is made.
-	if r.policyDigest(reference) != "" {
-		return nil
-	}
-
-	pol := r.policy()
-	if pol == nil {
-		return nil
-	}
-
-	policyReference := reference
-	if policyReference == "" {
-		policyReference = desc.Digest.String()
-	}
-	imageRef := r.policyImageReference(policyReference)
-	imageRef.Digest = desc.Digest
-
-	// Mark the context as inside a policy evaluation so verifiers that call
-	// back into this repository (e.g. to fetch signature artifacts) do not
-	// recursively evaluate policy.
-	allowed, err := pol.IsResolvedImageAllowed(withInPolicyEvaluation(ctx), imageRef)
-	if err != nil {
-		return fmt.Errorf("policy check failed: %w", err)
-	}
-	if !allowed {
-		return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
-	}
-	return nil
-}
-
-// checkManifestPolicy evaluates both policy phases for a known manifest.
-func (r *Repository) checkManifestPolicy(ctx context.Context, reference string, desc ocispec.Descriptor) error {
-	if err := r.checkPolicy(ctx, reference); err != nil {
-		return err
-	}
-	return r.checkPolicyResolved(ctx, reference, desc)
-}
-
-// checkDescriptorPolicy evaluates signature requirements only for manifests.
-func (r *Repository) checkDescriptorPolicy(ctx context.Context, desc ocispec.Descriptor) error {
-	if isManifest(r.manifestMediaTypes(), desc) {
-		return r.checkManifestPolicy(ctx, desc.Digest.String(), desc)
-	}
-	return r.checkPolicy(ctx, "")
-}
-
-// policyImageReference builds the policy image reference for the given
-// caller reference, falling back to the repository reference when empty.
-func (r *Repository) policyImageReference(reference string) policy.ImageReference {
-	repoRef := r.Reference()
-	ref := repoRef.String()
-	if reference != "" {
-		if parsed, err := r.ParseReference(reference); err == nil {
-			// Policy verifiers historically receive the digest without a tag.
-			if parsed.Digest != "" {
-				parsed.Tag = ""
-			}
-			ref = parsed.String()
-		} else {
-			ref = reference
-		}
-	}
-	return policy.ImageReference{
-		Transport: policy.TransportNameDocker,
-		Scope:     repoRef.Registry + "/" + repoRef.Repository,
-		Reference: ref,
-	}
-}
-
-// policyDigest returns the digest carried by reference, if any.
-func (r *Repository) policyDigest(reference string) digest.Digest {
-	if reference == "" {
-		return ""
-	}
-	ref, err := r.ParseReference(reference)
-	if err != nil {
-		return ""
-	}
-	d, err := digest.Parse(ref.GetReference())
-	if err != nil {
-		return ""
-	}
-	return d
 }
 
 // Fetch fetches the content identified by the descriptor.
@@ -1275,9 +1177,12 @@ func (s *blobStore) sibling(otherRepoName string) *blobStore {
 // Push pushes the content, matching the expected descriptor.
 // Existing content is not checked by Push() to minimize the number of out-going
 // requests.
-// Push is done by conventional 2-step monolithic upload instead of a single
-// `POST` request for better overall performance. It also allows early fail on
-// authentication errors.
+// By default, Push is done by conventional 2-step monolithic upload: a `POST`
+// opens an upload session and a `PUT` sends the content. The content is not
+// sent until the `POST` succeeds, so an authentication challenge is answered
+// and an authentication error fails before any content is read. When
+// [Repository.SingleRequestPushThreshold] is set, blobs no larger than it are
+// read into memory and pushed in a single `POST` request instead.
 //
 // References:
 //   - https://distribution.github.io/distribution/spec/api/#pushing-an-image
@@ -1310,6 +1215,22 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 		// monolithic upload can safely take over.
 	}
 
+	if threshold := s.repo.singleRequestPushThreshold(); expected.Size > 0 && expected.Size <= threshold && !s.repo.singleRequestUnsupported.Load() {
+		buf, err := io.ReadAll(io.LimitReader(content, expected.Size+1))
+		if err != nil {
+			return err
+		}
+		if int64(len(buf)) != expected.Size {
+			return fmt.Errorf("mismatch content length %d: expect %d", len(buf), expected.Size)
+		}
+		if done, err := s.pushSingleRequest(ctx, expected, buf); done || err != nil {
+			return err
+		}
+		// The registry does not support the single POST, so push the buffered
+		// content with POST and PUT.
+		content = bytes.NewReader(buf)
+	}
+
 	url := buildRepositoryBlobUploadURL(s.repo.plainHTTP(), repoRef)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
@@ -1327,6 +1248,55 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	}
 	resp.Body.Close()
 	return s.completePushAfterInitialPost(ctx, req, resp, expected, content)
+}
+
+// pushSingleRequest pushes a blob held in buf in a single POST request
+// carrying the content. It reports whether the push is done; false with a nil
+// error means the registry rejected the request with a 4xx status other than
+// 401, 403 or 429, or with 501, so the caller should fall back to a POST
+// followed by a PUT. A 202, or a 405, 415 or 501, marks the repository as not
+// supporting it.
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#single-post
+func (s *blobStore) pushSingleRequest(ctx context.Context, expected ocispec.Descriptor, buf []byte) (bool, error) {
+	url := buildRepositoryBlobUploadURL(s.repo.plainHTTP(), s.repo.reference())
+	// a *bytes.Reader body makes net/http set ContentLength and GetBody, so the
+	// request can be replayed after a 401 challenge or by a retrying transport.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	q := req.URL.Query()
+	q.Set("digest", expected.Digest.String())
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := s.repo.do(req)
+	if err != nil {
+		return false, err
+	}
+	switch code := resp.StatusCode; {
+	case code == http.StatusCreated:
+		defer resp.Body.Close()
+		return true, verifyContentDigest(resp, expected.Digest)
+	case code == http.StatusAccepted:
+		// The registry ignored the digest and opened an upload session.
+		s.repo.singleRequestUnsupported.Store(true)
+		resp.Body.Close()
+		return true, s.completePushAfterInitialPost(ctx, req, resp, expected, bytes.NewReader(buf))
+	case code == http.StatusUnauthorized, code == http.StatusForbidden, code == http.StatusTooManyRequests:
+		// a credential or rate-limit problem, not a missing feature
+	case code >= 400 && code < 500, code == http.StatusNotImplemented:
+		resp.Body.Close()
+		// Only these say the feature is missing; others, such as 400
+		// DIGEST_INVALID or 404 NAME_UNKNOWN, are about this request.
+		switch code {
+		case http.StatusMethodNotAllowed, http.StatusUnsupportedMediaType, http.StatusNotImplemented:
+			s.repo.singleRequestUnsupported.Store(true)
+		}
+		return false, nil
+	}
+	defer resp.Body.Close()
+	return true, errutil.ParseErrorResponse(resp)
 }
 
 // sameUploadHost reports whether location and reqURL refer to the same host,

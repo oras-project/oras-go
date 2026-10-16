@@ -22,7 +22,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
-	"github.com/oras-project/oras-go/v3/registry"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // PullFromMirror constants control when a mirror should be used.
@@ -90,8 +90,8 @@ func mirrorReference(reference string) string {
 		return reference[i:]
 	}
 	// Fully-qualified tag reference: keep only the tag component.
-	if ref, err := registry.ParseReference(reference); err == nil && ref.Reference != "" {
-		return ref.Reference
+	if ref, err := properties.NewReference(reference); err == nil && ref.GetReference() != "" {
+		return ref.GetReference()
 	}
 	// Already a bare tag (or unparseable): use as-is.
 	return reference

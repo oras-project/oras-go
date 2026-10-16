@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -194,12 +195,17 @@ func (c *Client) send(req *http.Request) (*http.Response, error) {
 }
 
 // redirectSafeClient returns a shallow copy of client whose CheckRedirect drops
-// the Authorization header when a redirect crosses an HTTP origin (scheme,
-// host, or port) or moves between repositories under the distribution API.
-// The standard library only strips sensitive headers when the hostname
-// changes, so a redirect to a different port or repository on the same host
-// would otherwise forward credentials outside their intended scope. Any
-// caller-provided CheckRedirect is preserved.
+// the Authorization header once a redirect chain has left the HTTP origin
+// (scheme, host, or port) of its first request, or when a redirect moves
+// between repositories under the distribution API. The standard library only
+// strips sensitive headers when the hostname changes, so a redirect to a
+// different port or repository on the same host would otherwise forward
+// credentials outside their intended scope. Any caller-provided CheckRedirect
+// is preserved.
+//
+// The check is made against the first request rather than the previous hop:
+// net/http rebuilds the headers of every redirected request from the first
+// request, so a header deleted on one hop is restored on the next.
 //
 // This applies to token endpoint requests as well as registry requests: the
 // distribution spec flow sends the credential to the realm as HTTP Basic.
@@ -212,15 +218,8 @@ func redirectSafeClient(client *http.Client) *http.Client {
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) > 0 {
-			// Compare against the original request, not the previous hop:
-			// net/http re-copies Authorization from the original request on
-			// every hop, so deleting it on one hop does not keep it off the
-			// next.
-			original := via[0].URL
-			if !sameHTTPOrigin(original, req.URL) || crossesRepository(original, req.URL) {
-				req.Header.Del(headerAuthorization)
-			}
+		if len(via) > 0 && (leftOrigin(via, req) || crossesRepository(via[0].URL, req.URL)) {
+			req.Header.Del(headerAuthorization)
 		}
 		if checkRedirect != nil {
 			return checkRedirect(req, via)
@@ -231,6 +230,21 @@ func redirectSafeClient(client *http.Client) *http.Client {
 		return nil
 	}
 	return &clientCopy
+}
+
+// leftOrigin reports whether the redirect chain via, followed by req, has left
+// the HTTP origin of its first request, which is the request the credential
+// was attached for. Once the chain leaves that origin it is treated as having
+// left for good, even if a later hop returns to it.
+//
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
+func leftOrigin(via []*http.Request, req *http.Request) bool {
+	for _, r := range via[1:] {
+		if !sameHTTPOrigin(via[0].URL, r.URL) {
+			return true
+		}
+	}
+	return !sameHTTPOrigin(via[0].URL, req.URL)
 }
 
 // sameHTTPOrigin reports whether a and b share the same HTTP origin, i.e. the
@@ -275,21 +289,53 @@ func (c *Client) cache() Cache {
 	return c.Cache
 }
 
+// lookupIPAddr resolves a host name to its IP addresses. It is a variable so
+// that tests can inject a fake resolver.
+var lookupIPAddr = net.DefaultResolver.LookupIPAddr
+
+// cgnatPrefix is the shared address space for carrier-grade NAT (RFC 6598).
+// It is not covered by net.IP.IsPrivate, yet it hosts internal services such as
+// the Alibaba Cloud instance metadata service at 100.100.100.200.
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+// isInternalAddr reports whether addr is a loopback, link-local, private,
+// unspecified, or carrier-grade NAT address.
+func isInternalAddr(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	return addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
+		addr.IsPrivate() || addr.IsUnspecified() || cgnatPrefix.Contains(addr)
+}
+
 // validateRealm rejects bearer token realm URLs that would have the client
 // forward credentials to obviously unsafe destinations:
 //
 //   - schemes other than http or https,
 //   - http realms when the registry was contacted over https (TLS downgrade),
-//   - hosts that are IP literals in loopback, link-local, private, or
-//     unspecified ranges (e.g. cloud instance metadata services such as
-//     169.254.169.254).
+//   - hosts that are, or resolve to, loopback, link-local, private,
+//     unspecified, or carrier-grade NAT (100.64.0.0/10) addresses (e.g. cloud
+//     instance metadata services such as 169.254.169.254 or
+//     100.100.100.200).
 //
 // Cross-host realms with a public hostname are permitted, because the
 // distribution spec allows a separate token endpoint (e.g. Docker Hub's
 // auth.docker.io). When the registry itself is reached at the same hostname
-// as the realm, the IP-literal check is skipped so loopback and in-cluster
+// as the realm, the address check is skipped so loopback and in-cluster
 // deployments continue to work.
-func validateRealm(realm string, registryURL *url.URL) error {
+//
+// A realm host that is not an IP literal is resolved with ctx, and the realm
+// is rejected if any of its A or AAAA records is an internal address. If the
+// lookup fails, the realm is allowed: behind an HTTP proxy the client may be
+// unable to resolve names that the proxy can, and a bogus name fails at dial
+// time anyway. The check does not defend against DNS rebinding, where the
+// name resolves to a public address here and to an internal address when the
+// request is dialed.
+//
+// validateRealm is also applied to every redirect hop of a token request.
+//
+// References:
+//   - https://github.com/oras-project/oras-go/security/advisories/GHSA-xf85-363p-868w
+//   - https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
+func validateRealm(ctx context.Context, realm string, registryURL *url.URL) error {
 	if realm == "" {
 		return nil
 	}
@@ -307,15 +353,55 @@ func validateRealm(realm string, registryURL *url.URL) error {
 	default:
 		return fmt.Errorf("bearer realm %q uses unsupported scheme %q", realm, realmURL.Scheme)
 	}
-	if ip := net.ParseIP(realmURL.Hostname()); ip != nil {
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-			ip.IsPrivate() || ip.IsUnspecified() {
-			if registryURL == nil || realmURL.Hostname() != registryURL.Hostname() {
-				return fmt.Errorf("bearer realm host %q is a loopback, link-local, private, or unspecified address", realmURL.Hostname())
-			}
+	host := realmURL.Hostname()
+	if registryURL != nil && strings.EqualFold(host, registryURL.Hostname()) {
+		return nil
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		if isInternalAddr(addr) {
+			return fmt.Errorf("bearer realm host %q is a loopback, link-local, private, unspecified, or carrier-grade NAT address", host)
+		}
+		return nil
+	}
+	addrs, err := lookupIPAddr(ctx, host)
+	if err != nil {
+		// Do not reject on lookup failure; see the function comment.
+		return nil
+	}
+	for _, ipAddr := range addrs {
+		addr, ok := netip.AddrFromSlice(ipAddr.IP)
+		if ok && isInternalAddr(addr) {
+			return fmt.Errorf("bearer realm host %q resolves to %s, a loopback, link-local, private, unspecified, or carrier-grade NAT address", host, addr.Unmap())
 		}
 	}
 	return nil
+}
+
+// realmRedirectGuard returns a shallow copy of client whose CheckRedirect
+// applies validateRealm to every redirect hop of a token request, measured
+// against registryURL, before delegating to the CheckRedirect of client. This
+// keeps a validated realm from redirecting the token request to an internal
+// address or from https to http.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
+func realmRedirectGuard(client *http.Client, registryURL *url.URL) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	clientCopy := *client
+	checkRedirect := client.CheckRedirect
+	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := validateRealm(req.Context(), req.URL.String(), registryURL); err != nil {
+			return fmt.Errorf("redirect of token request rejected: %w", err)
+		}
+		if checkRedirect != nil {
+			return checkRedirect(req, via)
+		}
+		if len(via) >= defaultMaxRedirects {
+			return fmt.Errorf("stopped after %d redirects", defaultMaxRedirects)
+		}
+		return nil
+	}
+	return &clientCopy
 }
 
 // SetUserAgent sets the user agent for all out-going requests.
@@ -436,12 +522,12 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
-		if err := validateRealm(realm, originalReq.URL); err != nil {
+		if err := validateRealm(ctx, realm, originalReq.URL); err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 		service := params["service"]
 		token, err := cache.Set(ctx, cacheKey, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			return c.fetchBearerToken(ctx, resource, realm, service, scopes)
+			return c.fetchBearerToken(withTokenRegistryURL(ctx, originalReq.URL), resource, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)

@@ -576,7 +576,15 @@ func (s *Store) pushFile(target string, expected ocispec.Descriptor, content io.
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
 
-	fp, err := os.Create(target)
+	// resolveWritePath only resolves symlinks in the ancestors of target, so a
+	// symlink at target itself, e.g. one planted by an earlier unpacked layer,
+	// would redirect the write outside the working directory. Replace such a
+	// symlink with a regular file, and refuse to follow one planted after this
+	// check. (GHSA-2hhj-vj64-hx3j)
+	if err := removeSymlink(target); err != nil {
+		return err
+	}
+	fp, err := createNoFollow(target, 0666)
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", target, err)
 	}
@@ -647,6 +655,11 @@ func resolveDirAnnotations(annotations map[string]string) (dirAnnotations, error
 // pushDir saves content matching the descriptor to the target directory.
 // checksum, when not empty, is the expected digest of the uncompressed content.
 func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, checksumKey, checksum string, content io.Reader) (err error) {
+	// A symlink at target would make the directory, and everything extracted
+	// into it, resolve outside the working directory. (GHSA-2hhj-vj64-hx3j)
+	if err := removeSymlink(target); err != nil {
+		return err
+	}
 	if err := ensureDir(target); err != nil {
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
