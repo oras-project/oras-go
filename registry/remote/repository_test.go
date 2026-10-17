@@ -584,6 +584,51 @@ func TestRepository_Mount_Fallback(t *testing.T) {
 	})
 }
 
+func TestRepository_Mount_Fallback_DigestHeaderMismatch(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test2/blobs/uploads/":
+			w.Header().Set("Location", "/v2/test2/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test2/blobs/uploads/"+uuid:
+			io.Copy(io.Discard, r.Body)
+			w.Header().Set("Docker-Content-Digest", digest.FromString("other").String())
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test2")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	repo.Registry.Client = &auth.Client{Client: &http.Client{}}
+
+	err = repo.Mount(context.Background(), blobDesc, "test", func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(blob)), nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "digest mismatch in Docker-Content-Digest") {
+		t.Errorf("Mount() error = %v, want a Docker-Content-Digest mismatch", err)
+	}
+	if errors.Is(err, content.ErrMismatchedDigest) {
+		t.Errorf("errors.Is(%v, content.ErrMismatchedDigest) = true, want false on push", err)
+	}
+}
+
 func TestRepository_Mount_Error(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
@@ -3251,7 +3296,10 @@ func TestRepository_BadDigest(t *testing.T) {
 					if _, err := buf.ReadFrom(r.Body); err != nil {
 						t.Errorf("fail to read: %v", err)
 					}
-					w.Header().Set("Docker-Content-Digest", desc.Digest.String())
+					// Omit Docker-Content-Digest: the client digest is
+					// intentionally invalid or an unavailable algorithm, so
+					// echoing it would fail verifyContentDigest even though
+					// this case is about accepting a bad client digest.
 					w.WriteHeader(http.StatusCreated)
 					return
 				default:

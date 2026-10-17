@@ -140,6 +140,87 @@ func Test_DigestHeaderMismatch_SentinelOnPullOnly(t *testing.T) {
 	}
 }
 
+func Test_BlobStore_Push_DigestHeaderMismatch(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+			w.Header().Set("Location", "/v2/test/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/blobs/uploads/"+uuid:
+			io.Copy(io.Discard, r.Body)
+			w.Header().Set(headerDockerContentDigest, digest.FromString("other").String())
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotImplemented)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	repo.Registry.Client = &auth.Client{Client: &http.Client{}}
+
+	err = repo.Blobs().Push(context.Background(), blobDesc, bytes.NewReader(blob))
+	if err == nil || !strings.Contains(err.Error(), "digest mismatch in Docker-Content-Digest") {
+		t.Errorf("Push() error = %v, want a Docker-Content-Digest mismatch", err)
+	}
+	if errors.Is(err, content.ErrMismatchedDigest) {
+		t.Errorf("errors.Is(%v, content.ErrMismatchedDigest) = true, want false on push", err)
+	}
+}
+
+func Test_BlobStore_Push_NoDigestHeader(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
+			w.Header().Set("Location", "/v2/test/blobs/uploads/"+uuid)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/blobs/uploads/"+uuid:
+			io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotImplemented)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	repo.Registry.Client = &auth.Client{Client: &http.Client{}}
+
+	if err := repo.Blobs().Push(context.Background(), blobDesc, bytes.NewReader(blob)); err != nil {
+		t.Fatalf("Push() error = %v, want nil when Docker-Content-Digest is omitted", err)
+	}
+}
+
 func TestRepository_Push_ChunkedRegistryDigestMismatchIsNotSentinel(t *testing.T) {
 	reg := &chunkedUploadRegistry{t: t, putDigestOverride: digest.FromBytes([]byte("wrong")).String()}
 	srv := httptest.NewServer(reg.handler())
