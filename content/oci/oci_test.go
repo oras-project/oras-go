@@ -4903,3 +4903,114 @@ func TestGCReachable_MissingUntaggedEntry(t *testing.T) {
 		t.Errorf("missing manifest %s unexpectedly reachable", missingDesc.Digest)
 	}
 }
+
+// TestStore_GCDropsDanglingIndexEntries covers Store.GC end to end for the
+// dangling index entries that #1602 made survivable: an untagged manifest
+// whose blob is absent, and an untagged referrer whose subject is absent. GC
+// must succeed, keep the tagged manifest and its content, drop both dangling
+// entries from the rewritten index.json and reclaim the blobs nothing
+// references anymore.
+func TestStore_GCDropsDanglingIndexEntries(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	s, err := New(root)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+
+	push := func(mediaType string, blob []byte) ocispec.Descriptor {
+		t.Helper()
+		desc := content.NewDescriptorFromBytes(mediaType, blob)
+		if err := s.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+			t.Fatalf("Store.Push(%s) error = %v", mediaType, err)
+		}
+		return desc
+	}
+	pushManifest := func(manifest ocispec.Manifest) ocispec.Descriptor {
+		t.Helper()
+		data, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return push(ocispec.MediaTypeImageManifest, data)
+	}
+
+	// A tagged image that must survive GC.
+	configDesc := push(ocispec.MediaTypeImageConfig, []byte("kept config"))
+	layerDesc := push(ocispec.MediaTypeImageLayer, []byte("kept layer"))
+	keptDesc := pushManifest(ocispec.Manifest{
+		Config: configDesc,
+		Layers: []ocispec.Descriptor{layerDesc},
+	})
+	if err := s.Tag(ctx, keptDesc, "kept"); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+
+	// An orphan blob that GC must reclaim.
+	orphanDesc := push(ocispec.MediaTypeImageLayer, []byte("orphan"))
+
+	// An untagged manifest whose blob goes missing afterwards, so its entry in
+	// index.json dangles.
+	missingConfigDesc := push(ocispec.MediaTypeImageConfig, []byte("missing config"))
+	missingDesc := pushManifest(ocispec.Manifest{
+		Config: missingConfigDesc,
+		Layers: []ocispec.Descriptor{},
+	})
+	missingBlob := filepath.Join(root, ocispec.ImageBlobsDir, string(digest.SHA256), missingDesc.Digest.Encoded())
+	if err := os.Remove(missingBlob); err != nil {
+		t.Fatal("failed to remove the missing manifest blob:", err)
+	}
+
+	// An untagged referrer whose subject is the missing manifest: its subject
+	// chain cannot reach a tagged manifest, so the entry dangles as well.
+	referrerConfigDesc := push(ocispec.MediaTypeImageConfig, []byte("referrer config"))
+	referrerDesc := pushManifest(ocispec.Manifest{
+		Config:  referrerConfigDesc,
+		Subject: &missingDesc,
+	})
+
+	if err := s.GC(ctx); err != nil {
+		t.Fatalf("Store.GC() error = %v, want nil", err)
+	}
+
+	// The rewritten index.json keeps the tagged manifest only.
+	indexData, err := os.ReadFile(filepath.Join(root, ocispec.ImageIndexFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var index ocispec.Index
+	if err := json.Unmarshal(indexData, &index); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(index.Manifests), 1; got != want {
+		t.Fatalf("len(index.Manifests) = %d, want %d", got, want)
+	}
+	if got := index.Manifests[0]; got.Digest != keptDesc.Digest ||
+		got.Annotations[ocispec.AnnotationRefName] != "kept" {
+		t.Errorf("index.Manifests[0] = %v, want the kept manifest tagged %q", got, "kept")
+	}
+
+	// Reopening the store confirms what survived GC.
+	reopened, err := New(root)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+	if got, err := reopened.Resolve(ctx, "kept"); err != nil || got.Digest != keptDesc.Digest {
+		t.Errorf("Resolve(kept) = %v, %v, want digest %s", got, err, keptDesc.Digest)
+	}
+	for _, desc := range []ocispec.Descriptor{missingDesc, referrerDesc} {
+		if _, err := reopened.Resolve(ctx, desc.Digest.String()); !errors.Is(err, errdef.ErrNotFound) {
+			t.Errorf("Resolve(%s) error = %v, want %v", desc.Digest, err, errdef.ErrNotFound)
+		}
+	}
+	for _, desc := range []ocispec.Descriptor{keptDesc, configDesc, layerDesc} {
+		if exists, err := reopened.Exists(ctx, desc); err != nil || !exists {
+			t.Errorf("Exists(%s) = %v, %v, want true", desc.Digest, exists, err)
+		}
+	}
+	for _, desc := range []ocispec.Descriptor{orphanDesc, missingConfigDesc, referrerDesc, referrerConfigDesc} {
+		if exists, err := reopened.Exists(ctx, desc); err != nil || exists {
+			t.Errorf("Exists(%s) = %v, %v, want false", desc.Digest, exists, err)
+		}
+	}
+}
