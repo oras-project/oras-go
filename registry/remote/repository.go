@@ -1761,6 +1761,9 @@ func (s *manifestStore) resolve(ctx context.Context, reference string) (ocispec.
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
+	if err := checkReferenceDigestAlgorithm(ref); err != nil {
+		return ocispec.Descriptor{}, err
+	}
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull)
 	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
@@ -1807,6 +1810,9 @@ func (s *manifestStore) FetchReference(ctx context.Context, reference string) (o
 func (s *manifestStore) fetchReference(ctx context.Context, reference string) (desc ocispec.Descriptor, rc io.ReadCloser, err error) {
 	ref, err := s.repo.ParseReference(reference)
 	if err != nil {
+		return ocispec.Descriptor{}, nil, err
+	}
+	if err := checkReferenceDigestAlgorithm(ref); err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
 
@@ -2205,11 +2211,11 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 	if d, err := ref.GetDigest(); err == nil {
 		refDigest = d
 	}
-	// A reference digest is validated when the reference is parsed, so this
-	// cannot reject one that reached a request. It keeps the entry point honest
-	// for any future caller and matches the pull verification below.
+	// resolve and fetchReference reject a reference digest in an unsupported
+	// algorithm before issuing a request; this keeps the check for any other
+	// caller and matches the pull verification below.
 	if err := checkDigestAlgorithm(digestSourceReference, refDigest); err != nil {
-		return ocispec.Descriptor{}, err
+		return ocispec.Descriptor{}, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 
 	// 4. Validate Server Digest (if present)

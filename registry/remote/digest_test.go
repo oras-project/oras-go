@@ -27,6 +27,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // unregisteredDigest is a well-formed digest whose algorithm has no hash
@@ -63,6 +64,37 @@ func TestCheckDigestAlgorithm(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), `"sha1"`) {
 				t.Errorf("error = %v, want the rejected algorithm named", err)
+			}
+			if !strings.Contains(err.Error(), digestSourceReference) {
+				t.Errorf("error = %v, want the digest source named", err)
+			}
+		})
+	}
+}
+
+// TestCheckReferenceDigestAlgorithm covers the check manifestStore.resolve and
+// fetchReference run before issuing a request: reference parsing only asks
+// go-digest whether the algorithm is available, not whether oras-go accepts it.
+func TestCheckReferenceDigestAlgorithm(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		ref     properties.Reference
+		wantErr bool
+	}{
+		{"tag only", properties.Reference{Tag: "latest"}, false},
+		{"sha512 digest", properties.Reference{Digest: digest.SHA512.FromString("content").String()}, false},
+		{"unregistered algorithm", properties.Reference{Digest: unregisteredDigest.String()}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkReferenceDigestAlgorithm(tt.ref)
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("checkReferenceDigestAlgorithm() = %v, want nil", err)
+				}
+				return
+			}
+			if !errors.Is(err, errdef.ErrUnsupported) {
+				t.Fatalf("error = %v, want errdef.ErrUnsupported", err)
 			}
 			if !strings.Contains(err.Error(), digestSourceReference) {
 				t.Errorf("error = %v, want the digest source named", err)

@@ -22,6 +22,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
+	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
 // Sources of a digest, named in the error of [checkDigestAlgorithm] so a caller
@@ -59,6 +60,17 @@ func checkDigestAlgorithm(source string, d digest.Digest) error {
 		return fmt.Errorf("%s: unsupported digest algorithm %q: %w", source, alg, errdef.ErrUnsupported)
 	}
 	return nil
+}
+
+// checkReferenceDigestAlgorithm checks the digest of ref, if any, against the
+// oras-go allowlist. Reference parsing only asks go-digest whether the
+// algorithm is available, so a manifest reference must be checked here before
+// a request is issued; a tag-only reference has no digest and passes.
+func checkReferenceDigestAlgorithm(ref properties.Reference) error {
+	if ref.Digest == "" {
+		return nil
+	}
+	return checkDigestAlgorithm(digestSourceReference, digest.Digest(ref.Digest))
 }
 
 // parseSupportedDigest parses value and checks its algorithm against the
