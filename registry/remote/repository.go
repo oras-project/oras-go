@@ -37,7 +37,6 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/cas"
-	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/internal/httputil"
 	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/spec"
@@ -1473,7 +1472,7 @@ func (s *blobStore) resolve(ctx context.Context, reference string) (ocispec.Desc
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	refDigest, err := digest.Parse(ref.GetReference())
+	refDigest, err := parseSupportedDigest(digestSourceReference, ref.GetReference())
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
@@ -1510,7 +1509,7 @@ func (s *blobStore) FetchReference(ctx context.Context, reference string) (desc 
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
-	refDigest, err := digest.Parse(ref.GetReference())
+	refDigest, err := parseSupportedDigest(digestSourceReference, ref.GetReference())
 	if err != nil {
 		return ocispec.Descriptor{}, nil, err
 	}
@@ -2206,11 +2205,21 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 	if d, err := ref.GetDigest(); err == nil {
 		refDigest = d
 	}
+	// A reference digest is validated when the reference is parsed, so this
+	// cannot reject one that reached a request. It keeps the entry point honest
+	// for any future caller and matches the pull verification below.
+	if err := checkDigestAlgorithm(digestSourceReference, refDigest); err != nil {
+		return ocispec.Descriptor{}, err
+	}
 
 	// 4. Validate Server Digest (if present)
 	var serverHeaderDigest digest.Digest
 	if serverHeaderDigestStr := resp.Header.Get(headerDockerContentDigest); serverHeaderDigestStr != "" {
-		if serverHeaderDigest, err = digest.Parse(serverHeaderDigestStr); err != nil {
+		serverHeaderDigest, err = parseSupportedDigest(digestSourceHeader, serverHeaderDigestStr)
+		if err != nil {
+			if errors.Is(err, errdef.ErrUnsupported) {
+				return ocispec.Descriptor{}, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
+			}
 			return ocispec.Descriptor{}, fmt.Errorf(
 				"%s %q: invalid response header value: `%s: %s`; %w",
 				resp.Request.Method,
@@ -2292,9 +2301,8 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 // HEAD, so remain strict. A digest algorithm oras-go does not support is
 // rejected with errdef.ErrUnsupported.
 func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected digest.Digest) error {
-	if algo := expected.Algorithm(); !descriptor.IsSupportedAlgorithm(algo) || !algo.Available() {
-		return fmt.Errorf("%s %q: unsupported digest algorithm %q: %w",
-			resp.Request.Method, resp.Request.URL, algo, errdef.ErrUnsupported)
+	if err := checkDigestAlgorithm(digestSourceReference, expected); err != nil {
+		return fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	headerStr := resp.Header.Get(headerDockerContentDigest)
 	if headerStr == "" {
@@ -2384,6 +2392,9 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64, al
 // alternates list digests of the same content under other algorithms, which
 // are also accepted: a registry that canonicalizes tag pushes to
 // [digest.Canonical] reports such a digest instead of the expected one.
+// A header whose algorithm is not on the oras-go allowlist is rejected with
+// [errdef.ErrUnsupported] before any comparison, so the digest never becomes an
+// identity this package will not act on.
 func verifyContentDigest(resp *http.Response, expected digest.Digest, alternates ...digest.Digest) error {
 	digestStr := resp.Header.Get(headerDockerContentDigest)
 
@@ -2391,8 +2402,11 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest, alternates
 		return nil
 	}
 
-	contentDigest, err := digest.Parse(digestStr)
+	contentDigest, err := parseSupportedDigest(digestSourceHeader, digestStr)
 	if err != nil {
+		if errors.Is(err, errdef.ErrUnsupported) {
+			return fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
+		}
 		return fmt.Errorf(
 			"%s %q: invalid response header: `%s: %s`",
 			resp.Request.Method, resp.Request.URL,
