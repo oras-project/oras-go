@@ -1426,7 +1426,7 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 	if resp.StatusCode != http.StatusCreated {
 		return errutil.ParseErrorResponse(resp)
 	}
-	return nil
+	return verifyContentDigest(resp, expected.Digest)
 }
 
 // Exists returns true if the described content exists.
