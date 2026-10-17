@@ -318,7 +318,7 @@ func (s *blobStore) closeUploadSession(ctx context.Context, up *chunkedUpload, f
 	}
 	// The blob is committed once the PUT returns 201; the session is gone, so a
 	// digest mismatch here needs no cancellation.
-	return verifyContentDigest(resp, finalDigest)
+	return verifyPushContentDigest(resp, finalDigest, nil)
 }
 
 // cancelUpload issues a best-effort DELETE to release an in-progress upload

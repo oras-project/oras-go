@@ -75,6 +75,9 @@ type ManifestStore interface {
 // ReferencePusher provides advanced push with the tag service.
 type ReferencePusher interface {
 	// PushReference pushes the manifest with a reference tag.
+	// When reference is a tag, a Docker-Content-Digest header in a different
+	// allowlisted algorithm is accepted only if it equals that algorithm's
+	// digest of the bytes pushed.
 	PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error
 }
 

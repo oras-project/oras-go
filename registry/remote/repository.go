@@ -574,6 +574,8 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 }
 
 // Tag tags a manifest descriptor with a reference string.
+// A registry may return a Docker-Content-Digest header in a different
+// allowlisted algorithm; the pushed bytes are verified against it.
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	return r.Manifests().Tag(ctx, desc, reference)
 }
@@ -594,6 +596,16 @@ func (r *Repository) Untag(ctx context.Context, reference string) error {
 }
 
 // PushReference pushes the manifest with a reference tag.
+//
+// When reference is a tag, the registry chooses the stored digest algorithm. A
+// Docker-Content-Digest header in a different allowlisted algorithm is accepted
+// only if it equals that algorithm's digest of the bytes pushed. Tag pushes
+// buffer the manifest up to MaxMetadataBytes (default 4MiB) for that check, so
+// an oversized manifest or index fails with [errdef.ErrSizeExceedsLimit].
+// expected.Digest is not rewritten; on a registry that indexes only SHA-256,
+// Resolve by the caller's digest may fail afterwards, and referrers naming that
+// digest may not be found. A digest reference is strict: the URL names the
+// identity.
 func (r *Repository) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
 	return r.Manifests().PushReference(ctx, expected, content, reference)
 }
@@ -1129,7 +1141,7 @@ func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo
 	if resp.StatusCode == http.StatusCreated {
 		defer resp.Body.Close()
 		// Check the server seems to be behaving.
-		return verifyContentDigest(resp, desc.Digest)
+		return verifyPushContentDigest(resp, desc.Digest, nil)
 	}
 	if resp.StatusCode != http.StatusAccepted {
 		defer resp.Body.Close()
@@ -1276,7 +1288,7 @@ func (s *blobStore) pushSingleRequest(ctx context.Context, expected ocispec.Desc
 	switch code := resp.StatusCode; {
 	case code == http.StatusCreated:
 		defer resp.Body.Close()
-		return true, verifyContentDigest(resp, expected.Digest)
+		return true, verifyPushContentDigest(resp, expected.Digest, nil)
 	case code == http.StatusAccepted:
 		// The registry ignored the digest and opened an upload session.
 		s.repo.singleRequestUnsupported.Store(true)
@@ -1425,7 +1437,7 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 	if resp.StatusCode != http.StatusCreated {
 		return errutil.ParseErrorResponse(resp)
 	}
-	return verifyContentDigest(resp, expected.Digest)
+	return verifyPushContentDigest(resp, expected.Digest, nil)
 }
 
 // Exists returns true if the described content exists.
@@ -1861,6 +1873,8 @@ func (s *manifestStore) fetchReference(ctx context.Context, reference string) (d
 }
 
 // Tag tags a manifest descriptor with a reference string.
+// A registry may return a Docker-Content-Digest header in a different
+// allowlisted algorithm; the pushed bytes are verified against it.
 func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	if err := s.repo.checkManifestPolicy(ctx, reference, desc); err != nil {
 		return err
@@ -1918,6 +1932,16 @@ func (s *manifestStore) Untag(ctx context.Context, reference string) error {
 }
 
 // PushReference pushes the manifest with a reference tag.
+//
+// When reference is a tag, the registry chooses the stored digest algorithm. A
+// Docker-Content-Digest header in a different allowlisted algorithm is accepted
+// only if it equals that algorithm's digest of the bytes pushed. Tag pushes
+// buffer the manifest up to MaxMetadataBytes (default 4MiB) for that check, so
+// an oversized manifest or index fails with [errdef.ErrSizeExceedsLimit].
+// expected.Digest is not rewritten; on a registry that indexes only SHA-256,
+// Resolve by the caller's digest may fail afterwards, and referrers naming that
+// digest may not be found. A digest reference is strict: the URL names the
+// identity.
 func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
 	if err := s.repo.checkManifestPolicy(ctx, reference, expected); err != nil {
 		return err
@@ -1930,26 +1954,38 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 }
 
 // push pushes the manifest content, matching the expected descriptor.
-// alternates, if any, are additional digests of the same content computed by
-// the caller under other algorithms; they are accepted in the response
-// Docker-Content-Digest header — see [verifyContentDigest].
-func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string, alternates ...digest.Digest) error {
+// A tag-addressed push buffers the bytes (capped by MaxMetadataBytes) so a
+// registry-chosen Docker-Content-Digest algorithm can be checked against those
+// bytes; a digest-addressed push stays strict — see [verifyPushContentDigest].
+func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
 	repoRef := s.repo.reference()
 	ref := repoRef
+	var pushed []byte
 	if d, err := digest.Parse(reference); err == nil {
 		ref.Digest = d.String()
 	} else {
 		ref.Tag = reference
+		if err := limitSize(expected, s.repo.maxMetadataBytes()); err != nil {
+			return err
+		}
+		pushed, err = content.ReadAll(r, expected)
+		if err != nil {
+			return err
+		}
+		if pushed == nil {
+			pushed = []byte{}
+		}
+		r = bytes.NewReader(pushed)
 	}
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
 	ctx = auth.AppendRepositoryScope(ctx, ref, auth.ActionPull, auth.ActionPush)
 	url := buildRepositoryManifestURL(s.repo.plainHTTP(), ref)
 	// unwrap the content for optimizations of built-in types.
-	body := ioutil.UnwrapNopCloser(content)
+	body := ioutil.UnwrapNopCloser(r)
 	if _, ok := body.(io.ReadCloser); ok {
 		// undo unwrap if the nopCloser is intended.
-		body = content
+		body = r
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, body)
 	if err != nil {
@@ -1969,7 +2005,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 	client := s.repo.client()
 	if _, ok := client.(*auth.Client); ok && req.GetBody == nil {
 		store := cas.NewMemory()
-		err := store.Push(ctx, expected, content)
+		err := store.Push(ctx, expected, r)
 		if err != nil {
 			return err
 		}
@@ -1991,7 +2027,7 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, c
 		return errutil.ParseErrorResponse(resp)
 	}
 	s.checkOCISubjectHeader(resp)
-	return verifyContentDigest(resp, expected.Digest, alternates...)
+	return verifyPushContentDigest(resp, expected.Digest, pushed)
 }
 
 // checkOCISubjectHeader checks the "OCI-Subject" header in the response and
@@ -2149,12 +2185,7 @@ func (s *manifestStore) updateReferrersIndex(ctx context.Context, subject ocispe
 			if err != nil {
 				return fmt.Errorf("failed to generate referrers index for referrers tag %s: %w", referrersTag, err)
 			}
-			// The index is pushed by tag, so a registry may report the
-			// digest of the same content under digest.Canonical instead of
-			// the subject's algorithm. Both digests are computed from
-			// newIndex, so both are accepted by the response verification.
-			canonicalIndexDigest := digest.Canonical.FromBytes(newIndex)
-			if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag, canonicalIndexDigest); err != nil {
+			if err := s.push(ctx, newIndexDesc, bytes.NewReader(newIndex), referrersTag); err != nil {
 				return fmt.Errorf("failed to push referrers index tagged by %s: %w", referrersTag, err)
 			}
 		}
@@ -2297,9 +2328,11 @@ func (s *manifestStore) generateDescriptor(resp *http.Response, ref properties.R
 
 // verifyPullContentDigest permits a different canonical digest algorithm on
 // manifest pulls, but verifies the returned bytes against the requested digest.
-// Pushes deliberately continue to use verifyContentDigest's strict comparison,
-// except for the generated referrers index pushed by tag, which also accepts
-// the canonical digest of the bytes being pushed.
+// Digest-addressed manifest pushes and all blob pushes use
+// [verifyPushContentDigest] with a nil body, which is strict: a header
+// algorithm that differs from the requested one wraps [errdef.ErrUnsupported].
+// Tag-addressed manifest pushes pass the bytes that were sent, so a different
+// allowlisted algorithm is accepted only when it hashes those bytes.
 // Alternate algorithms buffer at most MaxMetadataBytes before returning the
 // verified body to the caller. Headerless responses, regardless of
 // Content-Length, are verified only once the body is read to EOF: a caller that
@@ -2395,13 +2428,12 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64, al
 // verifyContentDigest verifies "Docker-Content-Digest" header if present.
 // OCI distribution-spec states the Docker-Content-Digest header is optional.
 // Reference: https://github.com/opencontainers/distribution-spec/blob/v1.0.1/spec.md#legacy-docker-support-http-headers
-// alternates list digests of the same content under other algorithms, which
-// are also accepted: a registry that canonicalizes tag pushes to
-// [digest.Canonical] reports such a digest instead of the expected one.
+// The header is compared for equality with expected. Pull paths use this
+// helper; push paths use [verifyPushContentDigest].
 // A header whose algorithm is not on the oras-go allowlist is rejected with
 // [errdef.ErrUnsupported] before any comparison, so the digest never becomes an
 // identity this package will not act on.
-func verifyContentDigest(resp *http.Response, expected digest.Digest, alternates ...digest.Digest) error {
+func verifyContentDigest(resp *http.Response, expected digest.Digest) error {
 	digestStr := resp.Header.Get(headerDockerContentDigest)
 
 	if len(digestStr) == 0 {
@@ -2421,11 +2453,6 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest, alternates
 	}
 
 	if contentDigest != expected {
-		for _, alternate := range alternates {
-			if contentDigest == alternate {
-				return nil
-			}
-		}
 		return &digestHeaderMismatchError{
 			method:   resp.Request.Method,
 			url:      resp.Request.URL,
@@ -2435,6 +2462,41 @@ func verifyContentDigest(resp *http.Response, expected digest.Digest, alternates
 	}
 
 	return nil
+}
+
+// verifyPushContentDigest is [verifyContentDigest] for push, mount and similar
+// write paths. The header is never trusted as an identity on its own.
+//
+// If the header equals expected, it is accepted without rehashing: on tag
+// pushes [content.ReadAll] already verified expected against the buffered
+// bytes. If the header algorithm matches expected, a mismatch is the existing
+// [digestHeaderMismatchError] and does not wrap [content.ErrMismatchedDigest].
+// If the algorithms differ and pushed is non-nil (tag-addressed manifest push),
+// the header is rehashed from pushed and accepted only when it equals that
+// algorithm's digest of those bytes. If the algorithms differ and pushed is
+// nil (digest-addressed manifest push or any blob path), the error names both
+// algorithms and wraps [errdef.ErrUnsupported].
+func verifyPushContentDigest(resp *http.Response, expected digest.Digest, pushed []byte) error {
+	err := verifyContentDigest(resp, expected)
+	if err == nil {
+		return nil
+	}
+	var mismatch *digestHeaderMismatchError
+	if !errors.As(err, &mismatch) {
+		return err
+	}
+	if mismatch.received.Algorithm() == expected.Algorithm() {
+		return err
+	}
+	if pushed != nil {
+		if mismatch.received == mismatch.received.Algorithm().FromBytes(pushed) {
+			return nil
+		}
+		return err
+	}
+	return fmt.Errorf("%s %q: %s: digest algorithm %q does not match requested %q: %w",
+		mismatch.method, mismatch.url, digestSourceHeader,
+		mismatch.received.Algorithm(), expected.Algorithm(), errdef.ErrUnsupported)
 }
 
 // digestHeaderMismatchError is returned by [verifyContentDigest] when the

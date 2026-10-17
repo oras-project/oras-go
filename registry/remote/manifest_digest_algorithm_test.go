@@ -23,6 +23,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -31,6 +32,8 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 )
 
 func TestManifestPullDigestValidation(t *testing.T) {
@@ -434,4 +437,196 @@ func TestManifestPullChunkedTagChanged(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
 		t.Fatalf("expected digest mismatch after tag changed, got %v", err)
 	}
+}
+
+func tagPushTestDesc(alg digest.Algorithm, body []byte) ocispec.Descriptor {
+	return ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Digest:    alg.FromBytes(body),
+		Size:      int64(len(body)),
+	}
+}
+
+func tagPushTestRepo(t *testing.T, handler http.Handler) *Repository {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	repo, err := NewRepository(strings.TrimPrefix(server.URL, "http://") + "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.Registry.PlainHTTP = true
+	return repo
+}
+
+func TestManifestTagPushDigestAlgorithm(t *testing.T) {
+	body := []byte(`{"schemaVersion":2,"manifests":[]}`)
+	sha256OfBody := digest.SHA256.FromBytes(body).String()
+	ctx := context.Background()
+
+	putOK := func(header string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPut {
+				t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			got, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read body: %v", err)
+			}
+			if !bytes.Equal(got, body) {
+				t.Errorf("pushed body = %q, want %q", got, body)
+			}
+			if header != "" {
+				w.Header().Set(headerDockerContentDigest, header)
+			}
+			w.WriteHeader(http.StatusCreated)
+		})
+	}
+
+	for _, alg := range []digest.Algorithm{digest.SHA512, digest.SHA384} {
+		t.Run(alg.String()+" by tag, registry reports sha256 of bytes", func(t *testing.T) {
+			desc := tagPushTestDesc(alg, body)
+			repo := tagPushTestRepo(t, putOK(sha256OfBody))
+			if err := repo.PushReference(ctx, desc, bytes.NewReader(body), "latest"); err != nil {
+				t.Fatalf("PushReference() = %v, want success", err)
+			}
+		})
+	}
+
+	t.Run("sha512 by tag, registry reports sha384 of bytes", func(t *testing.T) {
+		desc := tagPushTestDesc(digest.SHA512, body)
+		repo := tagPushTestRepo(t, putOK(digest.SHA384.FromBytes(body).String()))
+		if err := repo.PushReference(ctx, desc, bytes.NewReader(body), "latest"); err != nil {
+			t.Fatalf("PushReference() = %v, want success", err)
+		}
+	})
+
+	t.Run("allowlisted algo but wrong digest", func(t *testing.T) {
+		desc := tagPushTestDesc(digest.SHA512, body)
+		repo := tagPushTestRepo(t, putOK(digest.SHA256.FromBytes([]byte("other")).String()))
+		err := repo.PushReference(ctx, desc, bytes.NewReader(body), "latest")
+		if err == nil {
+			t.Fatal("PushReference() = nil, want mismatch")
+		}
+		if errors.Is(err, errdef.ErrUnsupported) {
+			t.Fatalf("error = %v, want mismatch not ErrUnsupported", err)
+		}
+		var mismatch *digestHeaderMismatchError
+		if !errors.As(err, &mismatch) {
+			t.Fatalf("error = %v, want digestHeaderMismatchError", err)
+		}
+	})
+
+	t.Run("sha1 header", func(t *testing.T) {
+		desc := tagPushTestDesc(digest.SHA512, body)
+		repo := tagPushTestRepo(t, putOK(unregisteredDigest.String()))
+		err := repo.PushReference(ctx, desc, bytes.NewReader(body), "latest")
+		if !errors.Is(err, errdef.ErrUnsupported) {
+			t.Fatalf("error = %v, want errdef.ErrUnsupported", err)
+		}
+	})
+
+	t.Run("no header", func(t *testing.T) {
+		desc := tagPushTestDesc(digest.SHA512, body)
+		repo := tagPushTestRepo(t, putOK(""))
+		if err := repo.PushReference(ctx, desc, bytes.NewReader(body), "latest"); err != nil {
+			t.Fatalf("PushReference() = %v, want success", err)
+		}
+	})
+
+	t.Run("Tag path", func(t *testing.T) {
+		desc := tagPushTestDesc(digest.SHA512, body)
+		repo := tagPushTestRepo(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/"+desc.Digest.String()):
+				w.Header().Set("Content-Type", desc.MediaType)
+				w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+				w.Header().Set(headerDockerContentDigest, desc.Digest.String())
+				_, _ = w.Write(body)
+			case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/latest"):
+				got, _ := io.ReadAll(r.Body)
+				if !bytes.Equal(got, body) {
+					t.Errorf("tagged body = %q, want %q", got, body)
+				}
+				w.Header().Set(headerDockerContentDigest, sha256OfBody)
+				w.WriteHeader(http.StatusCreated)
+			default:
+				t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		if err := repo.Tag(ctx, desc, "latest"); err != nil {
+			t.Fatalf("Tag() = %v, want success", err)
+		}
+	})
+
+	t.Run("auth retry GetBody replay", func(t *testing.T) {
+		desc := tagPushTestDesc(digest.SHA512, body)
+		var bodies [][]byte
+		repo := tagPushTestRepo(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read body: %v", err)
+			}
+			bodies = append(bodies, got)
+			if user, pass, ok := r.BasicAuth(); !ok || user != "user" || pass != "pass" {
+				w.Header().Set("WWW-Authenticate", `Basic realm="test"`)
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if !bytes.Equal(got, body) {
+				t.Errorf("pushed body = %q, want %q", got, body)
+			}
+			w.Header().Set(headerDockerContentDigest, sha256OfBody)
+			w.WriteHeader(http.StatusCreated)
+		}))
+		uri, err := url.Parse("http://" + repo.Reference().Registry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		repo.Registry.Client = &auth.Client{
+			Client: &http.Client{},
+			CredentialFunc: credentials.StaticCredentialFunc(uri.Host, credentials.Credential{
+				Username: "user",
+				Password: "pass",
+			}),
+		}
+		if err := repo.PushReference(ctx, desc, nonSeekableReader{bytes.NewReader(body)}, "latest"); err != nil {
+			t.Fatalf("PushReference() = %v, want success", err)
+		}
+		if len(bodies) != 2 {
+			t.Fatalf("body sent %d times, want 2", len(bodies))
+		}
+		for i, got := range bodies {
+			if !bytes.Equal(got, body) {
+				t.Errorf("body[%d] = %q, want %q", i, got, body)
+			}
+		}
+	})
+
+	t.Run("sha512 by digest, header sha256", func(t *testing.T) {
+		desc := tagPushTestDesc(digest.SHA512, body)
+		repo := tagPushTestRepo(t, putOK(sha256OfBody))
+		err := repo.Manifests().Push(ctx, desc, bytes.NewReader(body))
+		if !errors.Is(err, errdef.ErrUnsupported) {
+			t.Fatalf("Manifests().Push() = %v, want errdef.ErrUnsupported", err)
+		}
+		if errors.Is(err, content.ErrMismatchedDigest) {
+			t.Errorf("error wraps content.ErrMismatchedDigest, want only ErrUnsupported")
+		}
+		var mismatch *digestHeaderMismatchError
+		if errors.As(err, &mismatch) {
+			t.Errorf("error is generic mismatch %v, want algorithm ErrUnsupported", err)
+		}
+		if !strings.Contains(err.Error(), "sha256") || !strings.Contains(err.Error(), "sha512") {
+			t.Errorf("error = %v, want both algorithms named", err)
+		}
+
+		err = repo.PushReference(ctx, desc, bytes.NewReader(body), desc.Digest.String())
+		if !errors.Is(err, errdef.ErrUnsupported) {
+			t.Fatalf("PushReference(digest) = %v, want errdef.ErrUnsupported", err)
+		}
+	})
 }

@@ -18,6 +18,8 @@ package remote
 import (
 	"bytes"
 	"context"
+	_ "crypto/sha512"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -31,6 +33,8 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/oras-project/oras-go/v3/content"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
@@ -258,6 +262,48 @@ func TestRepository_Push_SingleRequest_DigestHeaderMismatch(t *testing.T) {
 	err := repo.Push(context.Background(), desc, bytes.NewReader(blob))
 	if err == nil || !strings.Contains(err.Error(), "digest mismatch in Docker-Content-Digest") {
 		t.Errorf("Push() error = %v, want a Docker-Content-Digest mismatch", err)
+	}
+}
+
+func TestRepository_Push_SingleRequest_DigestHeaderDifferentAlgorithm(t *testing.T) {
+	blob := []byte("hello world")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.SHA512.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Query().Get("digest") != desc.Digest.String() {
+			t.Errorf("unexpected %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		got, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		if !bytes.Equal(got, blob) {
+			t.Errorf("body = %q, want %q", got, blob)
+		}
+		w.Header().Set(headerDockerContentDigest, digest.SHA256.FromBytes(blob).String())
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	repo := newSinglePostTestRepo(t, srv, desc.Size)
+
+	err := repo.Push(context.Background(), desc, bytes.NewReader(blob))
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Fatalf("Push() error = %v, want errdef.ErrUnsupported", err)
+	}
+	if errors.Is(err, content.ErrMismatchedDigest) {
+		t.Errorf("error wraps content.ErrMismatchedDigest, want only ErrUnsupported")
+	}
+	var mismatch *digestHeaderMismatchError
+	if errors.As(err, &mismatch) {
+		t.Errorf("error is generic mismatch %v, want algorithm ErrUnsupported", err)
+	}
+	if !strings.Contains(err.Error(), "sha256") || !strings.Contains(err.Error(), "sha512") {
+		t.Errorf("error = %v, want both algorithms named", err)
 	}
 }
 
