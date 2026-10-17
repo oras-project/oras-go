@@ -33,7 +33,18 @@ const (
 	digestSourceHeader = "the Docker-Content-Digest header"
 	// digestSourceReference is a digest the caller named in a reference.
 	digestSourceReference = "the reference digest"
+	// digestSourceDescriptor is a digest the caller passed in a descriptor.
+	digestSourceDescriptor = "the descriptor digest"
 )
+
+// isSupportedAlgorithm is the oras-go allowlist as seen by this package.
+//
+// It is a variable only so tests can narrow the allowlist below the set
+// go-digest registers. With go-digest v1.0.0 the two sets are identical and
+// there is no API to register another algorithm, so narrowing the allowlist is
+// the only way to build the "registered but not allowlisted" state that
+// [checkDigestAlgorithm] exists to reject.
+var isSupportedAlgorithm = descriptor.IsSupportedAlgorithm
 
 // checkDigestAlgorithm reports whether d uses a digest algorithm that
 // oras-go acts on. The allowlist in [descriptor.IsSupportedAlgorithm] is
@@ -56,7 +67,7 @@ func checkDigestAlgorithm(source string, d digest.Digest) error {
 		return nil
 	}
 	alg := digest.Algorithm(s[:i])
-	if !descriptor.IsSupportedAlgorithm(alg) || !alg.Available() {
+	if !isSupportedAlgorithm(alg) || !alg.Available() {
 		return fmt.Errorf("%s: unsupported digest algorithm %q: %w", source, alg, errdef.ErrUnsupported)
 	}
 	return nil
