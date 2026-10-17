@@ -97,6 +97,16 @@ type VerifyReport struct {
 	// A blob that fails verification is in Failed even if nothing references
 	// it, never here. Unreferenced is empty when reachability could not be
 	// followed completely: see Unverifiable.
+	//
+	// Unreferenced is only authoritative on a quiescent layout. Verify takes
+	// no lock and does not coordinate with writers: a blob that a concurrent
+	// [Storage.Push] has already renamed into blobs/ but that index.json does
+	// not name yet is present and intact, and is reported here. [Store.GC]
+	// would remove the same blob, since its lock only serializes operations
+	// within one Store and its leftover expiry covers only ingest/ and
+	// temporary metadata files. Do not delete based on this list without
+	// excluding concurrent writers, for example by running against a layout no
+	// other process has open.
 	Unreferenced []VerifyEntry
 }
 
@@ -183,6 +193,13 @@ func (a *verifyAccumulator) report() *VerifyReport {
 // present and intact but that [Store.GC] would remove are
 // [VerifyReport.Unreferenced]. If index.json cannot be read, reachability is
 // not computed and both are empty; the problem is in [VerifyReport.Layout].
+//
+// Verify takes no lock: it reads index.json and then walks blobs/, so Missing
+// and Unreferenced can reflect writes, deletes, or garbage collection that
+// happen in between. In particular, a blob from a [Storage.Push] in progress
+// may be present before index.json references it, and is then reported as
+// unreferenced. Unreferenced is authoritative only when nothing else is
+// writing to the layout; see [VerifyReport.Unreferenced].
 //
 // Verify is read-only: it does not create, modify, or remove any file in fsys.
 //
