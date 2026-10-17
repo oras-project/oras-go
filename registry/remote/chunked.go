@@ -29,8 +29,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/oras-project/oras-go/v3/errdef"
-	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 )
 
@@ -84,16 +82,14 @@ func (s *blobStore) pushChunked(ctx context.Context, expected ocispec.Descriptor
 		return fmt.Errorf("%w: %w", errChunkedUploadNotStarted, err)
 	}
 
-	// Digest with the descriptor's own algorithm, not the canonical one.
-	algo := expected.Digest.Algorithm()
-	// IsSupportedAlgorithm keeps the allowlist authoritative even if a
-	// dependency registers an algorithm go-digest would otherwise accept;
-	// Available() still catches an allowlisted algorithm with no linked
-	// implementation.
-	if !descriptor.IsSupportedAlgorithm(algo) || !algo.Available() {
+	// Digest with the descriptor's own algorithm, not the canonical one. The
+	// allowlist is checked before the digester is built, so an algorithm this
+	// package does not act on cannot consume the upload session.
+	if err := checkDigestAlgorithm("chunked blob push", expected.Digest); err != nil {
 		s.cancelUpload(ctx, up.location)
-		return fmt.Errorf("chunked blob push: unsupported digest algorithm %q: %w", algo, errdef.ErrUnsupported)
+		return err
 	}
+	algo := expected.Digest.Algorithm()
 	up.digester = algo.Digester()
 
 	// A chunk at least as large as the blob means a lone PATCH plus the closing
