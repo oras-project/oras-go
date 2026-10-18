@@ -55,7 +55,8 @@ type Pusher interface {
 //
 // If both digest and size are known, existing content is checked before reading.
 // Otherwise, content is fully read and verified before checking for duplicates.
-// On ErrAlreadyExists, the returned descriptor describes the existing content.
+// On ErrAlreadyExists, the returned descriptor is the expected or computed
+// descriptor; the existing content is not re-verified.
 //
 // On other errors, the returned descriptor is empty. As with Push, if graph
 // indexing or tagging fails after content is stored, the content remains stored
