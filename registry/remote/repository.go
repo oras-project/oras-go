@@ -1972,9 +1972,10 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 	return s.pushWithIndexing(ctx, expected, content, ref.GetReference())
 }
 
-// verifiedManifest is a tag-push body already verified by [content.ReadAll].
-// It implements [io.Reader] so it fits the existing [manifestStore.push]
-// signature; push uses body and does not ReadAll again.
+// verifiedManifest is a body already verified by [content.ReadAll] in
+// [manifestStore.pushWithIndexing]. It implements [io.Reader] so it fits
+// [manifestStore.push]; push unwraps body so the PUT gets GetBody and does
+// not ReadAll again, for both tag and digest references.
 type verifiedManifest struct {
 	*bytes.Reader
 	body []byte
@@ -1988,18 +1989,22 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, r
 	repoRef := s.repo.reference()
 	ref := repoRef
 	var pushed []byte
+	if verified, ok := r.(*verifiedManifest); ok {
+		// Already ReadAll'd by pushWithIndexing; unwrap so the request gets
+		// GetBody and is not buffered and verified again.
+		pushed = verified.body
+		if pushed == nil {
+			pushed = []byte{}
+		}
+		r = bytes.NewReader(pushed)
+	}
 	if d, err := digest.Parse(reference); err == nil {
 		ref.Digest = d.String()
+		// digest-addressed pushes stay strict; see [verifyPushContentDigest].
+		pushed = nil
 	} else {
 		ref.Tag = reference
-		if verified, ok := r.(*verifiedManifest); ok {
-			// Already ReadAll'd by pushWithIndexing; do not verify again.
-			pushed = verified.body
-			if pushed == nil {
-				pushed = []byte{}
-			}
-			r = bytes.NewReader(pushed)
-		} else {
+		if pushed == nil {
 			if err := limitSize(expected, s.repo.maxMetadataBytes()); err != nil {
 				return err
 			}

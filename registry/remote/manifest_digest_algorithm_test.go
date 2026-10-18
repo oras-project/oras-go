@@ -647,3 +647,44 @@ func TestManifestTagPushDigestAlgorithm(t *testing.T) {
 		}
 	})
 }
+
+func TestManifestDigestPushGetBodyRedirect(t *testing.T) {
+	body := []byte(`{"schemaVersion":2,"manifests":[]}`)
+	desc := tagPushTestDesc(digest.SHA256, body)
+	digestPath := "/v2/test/manifests/" + desc.Digest.String()
+	var puts []string
+	repo := tagPushTestRepo(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		puts = append(puts, r.URL.RequestURI())
+		got, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+		}
+		if !bytes.Equal(got, body) {
+			t.Errorf("pushed body = %q, want %q", got, body)
+		}
+		if r.URL.Path == digestPath && r.URL.RawQuery == "" {
+			http.Redirect(w, r, digestPath+"?redirected=1", http.StatusTemporaryRedirect)
+			return
+		}
+		if r.URL.Path == digestPath && r.URL.Query().Get("redirected") == "1" {
+			w.Header().Set(headerDockerContentDigest, desc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		t.Errorf("unexpected PUT %s", r.URL.RequestURI())
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	repo.SetReferrersCapability(false)
+	repo.Registry.Client = &http.Client{}
+	if err := repo.Manifests().Push(context.Background(), desc, bytes.NewReader(body)); err != nil {
+		t.Fatalf("Manifests().Push() = %v, want success", err)
+	}
+	if len(puts) != 2 {
+		t.Fatalf("PUT count = %d, want 2 (307 then 201); paths %v", len(puts), puts)
+	}
+}
