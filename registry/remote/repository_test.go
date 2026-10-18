@@ -3319,7 +3319,16 @@ func TestRepository_BadDigest(t *testing.T) {
 			}
 			repo.Registry.PlainHTTP = true
 			ctx := context.Background()
-			if err := repo.Push(ctx, desc, bytes.NewReader(data)); err != nil {
+			err = repo.Push(ctx, desc, bytes.NewReader(data))
+			if desc.Digest == unsupportedDesc.Digest {
+				// An algorithm oras-go does not support is rejected before
+				// any request; a malformed digest is left to the registry.
+				if !errors.Is(err, errdef.ErrUnsupported) {
+					t.Errorf("Repository.Push() error = %v, want errdef.ErrUnsupported", err)
+				}
+				return
+			}
+			if err != nil {
 				t.Errorf("Repository.Push() error = %v", err)
 			}
 		})
