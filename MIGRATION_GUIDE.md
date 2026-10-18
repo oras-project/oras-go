@@ -48,6 +48,11 @@ sizes remain on `remote.Repository`.
 | `repo.Reference.Registry` | `repo.Registry.Reference.Registry` |
 | `remote.Registry.RepositoryOptions` | fields directly on `remote.Registry` |
 
+The standalone `remote.RepositoryOptions` type is also gone. Code that named
+that type directly, or converted it with `remote.Repository(opts)`, should
+configure the corresponding fields on `remote.Registry` and
+`remote.Repository` instead.
+
 Note that `Reference()` is a read-only getter; the reference can no longer be
 set through it. The v2 struct-literal pattern
 `&remote.Repository{Reference: ref, Client: c}` does not compile in v3;
@@ -116,12 +121,48 @@ function type explicit.
 | `auth.AppendScopes(ctx, scopes...)` | `auth.AppendScopesForResource(ctx, properties.Resource, scopes...)` |
 | `auth.GetScopes(ctx)` | `auth.GetScopesForResource(ctx, properties.Resource)` |
 | `auth.GetAllScopesForHost(ctx, host)` | `auth.GetScopesForResource(ctx, properties.Resource)` |
+| `auth.WithScopesForHost(ctx, host, scopes...)` | `auth.WithScopesForResource(ctx, properties.Resource, scopes...)` |
+| `auth.AppendScopesForHost(ctx, host, scopes...)` | `auth.AppendScopesForResource(ctx, properties.Resource, scopes...)` |
+| `auth.GetScopesForHost(ctx, host)` | `auth.GetScopesForResource(ctx, properties.Resource)` |
 | `auth.AppendRepositoryScope(ctx, registry.Reference, actions...)` | `auth.AppendRepositoryScope(ctx, properties.Reference, actions...)` |
 | `string` scope, e.g. `"repository:hello-world:pull,push"` | `auth.Scope`, built with `auth.ScopeRepository` or `auth.ParseScope` |
 | `auth.ScopeRepository(repo, actions...) string` | `auth.ScopeRepository(repo, actions...) auth.Scope` |
 | `auth.ScopeRegistryCatalog` (const) | `auth.ScopeRegistryCatalog()` (function) |
 | `auth.CleanScopes([]string) []string` | `auth.CleanScopes([]auth.Scope) []auth.Scope` |
 | `auth.TokenParams.Scopes []string` | `auth.TokenParams.Scopes []auth.Scope` |
+
+`credentials.CredentialFunc` changed as well as moving packages: its second
+argument is now `properties.Resource`, rather than a `hostport string`.
+Implementations should use `resource.Registry` as the canonical registry name,
+not necessarily the host that was dialed.
+
+For example, a hand-written credential function changes from:
+
+```go
+func(ctx context.Context, hostport string) (auth.Credential, error) {
+	return credentialFor(hostport)
+}
+```
+
+to:
+
+```go
+func(ctx context.Context, resource properties.Resource) (credentials.Credential, error) {
+	return credentialFor(resource.Registry)
+}
+```
+
+`remote.Logout` now takes a `properties.Resource` rather than a
+registry-name string; `remote.Login` still takes a `*remote.Registry`.
+`remote.Login` accepts a `credentials.Putter` and `remote.Logout` accepts a
+`credentials.Deleter`; existing full stores satisfy those narrower interfaces.
+
+Targets implementing the legacy `ParseReference(string) (registry.Reference,
+error)` signature continue to receive authentication scope hints through
+`oras.Tag` and `oras.TagN`. This compatibility path, together with the
+deprecated `registry.Reference` type, will be removed in a future major
+release. Migrate targets to `registry.ReferenceParser`; otherwise they will
+eventually stop receiving those hints.
 
 #### Scopes are values, not strings
 
@@ -409,6 +450,21 @@ changes:
   calling `oras.Copy` instead.
 - Remove uses of `remote.RepositoryMiddleware` and `remote.Compose`; neither
   has a replacement.
+- Remove uses of `remote.WithPolicyEnforcement`. Configure policy through
+  `remote.ClientBuilder` and `remote.Registry.Policy` instead.
+- `remote.ClientBuilder.CredentialStore` narrowed from `credentials.Store` to
+  `credentials.Getter`. Existing stores remain valid; a read-only credential
+  provider can now be used as well.
+- Update custom `auth.TokenFetcher` implementations:
+  `auth.TokenParams.Registry string` became
+  `auth.TokenParams.Resource properties.Resource`.
+- `properties.Registry.Credential` changed type from `credentials.Credential`
+  to `properties.Credential`.
+- The pre-GA forms of `auth.ScopeRepository`, `auth.ScopeRegistryCatalog`,
+  `auth.CleanScopes`, and `auth.TokenParams.Scopes` also changed before v3 GA,
+  and the `*ScopesForHost` helpers were replaced by `*ScopesForResource`. See
+  the authentication migration table above when updating code written against
+  a release candidate.
 
 ## Observable behavior changes
 
