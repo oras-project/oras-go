@@ -4903,3 +4903,131 @@ func TestGCReachable_MissingUntaggedEntry(t *testing.T) {
 		t.Errorf("missing manifest %s unexpectedly reachable", missingDesc.Digest)
 	}
 }
+
+var _ content.UnsafePusher = (*Store)(nil)
+
+func TestStore_UnsafePush(t *testing.T) {
+	t.Run("manifest indexed", func(t *testing.T) {
+		ctx := context.Background()
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		config := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, []byte("{}"))
+		if err := s.Push(ctx, config, strings.NewReader("{}")); err != nil {
+			t.Fatal(err)
+		}
+		blob, err := json.Marshal(ocispec.Manifest{Config: config})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, blob)
+		got, err := s.UnsafePush(ctx, ocispec.Descriptor{MediaType: expected.MediaType, Size: -1}, bytes.NewReader(blob))
+		if err != nil || !reflect.DeepEqual(got, expected) {
+			t.Fatalf("UnsafePush() = %+v, %v, want %+v", got, err, expected)
+		}
+		predecessors, err := s.Predecessors(ctx, config)
+		if err != nil || !reflect.DeepEqual(predecessors, []ocispec.Descriptor{expected}) {
+			t.Errorf("Predecessors() = %+v, %v", predecessors, err)
+		}
+		resolved, err := s.Resolve(ctx, got.Digest.String())
+		if err != nil || !reflect.DeepEqual(resolved, expected) {
+			t.Errorf("Resolve() = %+v, %v", resolved, err)
+		}
+		reopened, err := New(s.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved, err = reopened.Resolve(ctx, got.Digest.String())
+		if err != nil || !reflect.DeepEqual(resolved, expected) {
+			t.Errorf("reopened Resolve() = %+v, %v", resolved, err)
+		}
+	})
+	for _, size := range []int64{-1, 9} {
+		t.Run(fmt.Sprintf("store limit size %d", size), func(t *testing.T) {
+			ctx := context.Background()
+			s, err := New(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.MaxUnsafePushBytes = 8
+			reader := &unsafePushReadCounter{r: strings.NewReader("123456789")}
+			got, err := s.UnsafePush(ctx, ocispec.Descriptor{MediaType: "test", Size: size}, reader)
+			if !errors.Is(err, errdef.ErrSizeExceedsLimit) || !reflect.DeepEqual(got, ocispec.Descriptor{}) {
+				t.Fatalf("UnsafePush() = %+v, %v", got, err)
+			}
+			if size >= 0 && reader.calls != 0 {
+				t.Errorf("reader called %d times", reader.calls)
+			}
+			exists, err := s.Exists(ctx, content.NewDescriptorFromBytes("test", []byte("123456789")))
+			if err != nil || exists {
+				t.Errorf("Exists() = %v, %v after failure", exists, err)
+			}
+			assertUnsafeIngestEmpty(t, s.storage)
+		})
+	}
+	t.Run("mismatch leaves no content", func(t *testing.T) {
+		ctx := context.Background()
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := content.NewDescriptorFromBytes("test", []byte("foobar"))
+		expected.Size = -1
+		got, err := s.UnsafePush(ctx, expected, strings.NewReader("wrong!"))
+		if !errors.Is(err, content.ErrMismatchedDigest) || !reflect.DeepEqual(got, ocispec.Descriptor{}) {
+			t.Fatalf("UnsafePush() = %+v, %v", got, err)
+		}
+		for _, data := range []string{"foobar", "wrong!"} {
+			exists, err := s.Exists(ctx, content.NewDescriptorFromBytes("test", []byte(data)))
+			if err != nil || exists {
+				t.Errorf("Exists(%q) = %v, %v", data, exists, err)
+			}
+		}
+		assertUnsafeIngestEmpty(t, s.storage)
+	})
+	t.Run("index failure returns empty descriptor", func(t *testing.T) {
+		ctx := context.Background()
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.UnsafePush(ctx, ocispec.Descriptor{MediaType: ocispec.MediaTypeImageManifest, Size: -1}, strings.NewReader("invalid manifest"))
+		if err == nil || !reflect.DeepEqual(got, ocispec.Descriptor{}) {
+			t.Fatalf("UnsafePush() = %+v, %v", got, err)
+		}
+		assertUnsafeIngestEmpty(t, s.storage)
+	})
+}
+
+func TestStore_UnsafePush_Canceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	reader := &unsafePushReadCounter{r: strings.NewReader("foobar")}
+	got, err := s.UnsafePush(ctx, ocispec.Descriptor{Size: -1}, reader)
+	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(got, ocispec.Descriptor{}) {
+		t.Fatalf("UnsafePush() = %+v, %v", got, err)
+	}
+	if reader.calls != 0 {
+		t.Errorf("reader called %d times", reader.calls)
+	}
+	assertUnsafeIngestEmpty(t, s.storage)
+}
+
+func TestStore_UnsafePush_TagError(t *testing.T) {
+	ctx := context.Background()
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.indexPath = t.TempDir() // A file cannot replace this directory.
+	got, err := s.UnsafePush(ctx, ocispec.Descriptor{MediaType: ocispec.MediaTypeImageIndex, Size: -1}, strings.NewReader(`{"schemaVersion":2,"manifests":[]}`))
+	if err == nil || !reflect.DeepEqual(got, ocispec.Descriptor{}) {
+		t.Fatalf("UnsafePush() = %+v, %v", got, err)
+	}
+	assertUnsafeIngestEmpty(t, s.storage)
+}

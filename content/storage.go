@@ -37,6 +37,38 @@ type Pusher interface {
 	Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error
 }
 
+// UnsafePusher pushes content whose descriptor is not fully known in advance.
+// It is "unsafe" because, when the digest is not supplied, the integrity of the
+// pushed content against what the caller intended cannot be guaranteed.
+//
+// An empty digest is computed using SHA-256. A supplied digest must be valid
+// and use a supported, available algorithm. A digest mismatch returns
+// ErrMismatchedDigest. Recalculation preserves all descriptor fields other than
+// Digest and Size.
+//
+// Supplied sizes, including zero, must match exactly. Short content returns
+// io.ErrUnexpectedEOF, and extra content with a known size returns ErrTrailingData.
+// Implementations enforce a size limit for both known and unknown sizes.
+// Content exceeding the configured limit returns errdef.ErrSizeExceedsLimit;
+// a known size exceeding the limit is rejected before reading. Implementations
+// read at most one byte beyond the known size or limit to detect excess content.
+//
+// If both digest and size are known, existing content is checked before reading.
+// Otherwise, content is fully read and verified before checking for duplicates.
+// On ErrAlreadyExists, the returned descriptor describes the existing content.
+//
+// On other errors, the returned descriptor is empty. As with Push, if graph
+// indexing or tagging fails after content is stored, the content remains stored
+// and an error is returned. Validation occurs before reading content. A canceled
+// context is checked before starting; cancellation during the read is not guaranteed.
+type UnsafePusher interface {
+	// UnsafePush pushes the content, matching the specified field in the expected descriptor.
+	//   - The Digest of the expected descriptor is recalculated if empty
+	//   - The Size of the expected descriptor is recalculated if less than zero
+	// The recalculated descriptor is returned upon a successful push.
+	UnsafePush(ctx context.Context, expected ocispec.Descriptor, content io.Reader) (ocispec.Descriptor, error)
+}
+
 // Storage represents a content-addressable storage (CAS) where contents are
 // accessed via Descriptors.
 // The storage is designed to handle blobs of large sizes.

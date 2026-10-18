@@ -17,24 +17,40 @@ limitations under the License.
 package memory
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/internal/cas"
 	"github.com/oras-project/oras-go/v3/internal/graph"
+	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/resolver"
 )
 
 // Store represents a memory based store, which implements `oras.Target`.
 type Store struct {
+	// MaxUnsafePushBytes is the maximum number of bytes UnsafePush accepts for
+	// both known and unknown sizes. If <= 0, the default is used. Set it before
+	// using the store concurrently. Peak memory during an UnsafePush can be a
+	// small multiple of the limit, as content is buffered and then stored as a copy.
+	//   - Default value: 256 MiB.
+	MaxUnsafePushBytes int64
+
 	storage  content.Storage
 	resolver content.TagResolver
 	graph    *graph.Memory
 }
+
+const defaultMaxUnsafePushBytes int64 = 256 << 20
+
+// Match content.ReadAll's bound on eager allocation from an untrusted size.
+const maxInitialUnsafePushBufferSize = 32 << 20
 
 // New creates a new memory based store.
 func New() *Store {
@@ -60,6 +76,48 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 	// there is no data consistency issue as long as deletion is not implemented
 	// for the memory store.
 	return s.graph.Index(ctx, s.storage, expected)
+}
+
+// UnsafePush pushes content whose digest or size may be unknown, subject to
+// MaxUnsafePushBytes. See content.UnsafePusher for verification and error semantics.
+func (s *Store) UnsafePush(ctx context.Context, expected ocispec.Descriptor, r io.Reader) (ocispec.Descriptor, error) {
+	if err := ctx.Err(); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	limit := s.MaxUnsafePushBytes
+	if limit <= 0 {
+		limit = defaultMaxUnsafePushBytes
+	}
+	if err := ioutil.ValidateUnsafePush(expected, limit); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if expected.Digest != "" && expected.Size >= 0 {
+		exists, err := s.storage.Exists(ctx, expected)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		if exists {
+			return expected, fmt.Errorf("%s: %s: %w", expected.Digest, expected.MediaType, errdef.ErrAlreadyExists)
+		}
+	}
+	var buf bytes.Buffer
+	if expected.Size >= 0 && expected.Size <= math.MaxInt {
+		buf.Grow(int(min(expected.Size, maxInitialUnsafePushBufferSize)))
+	}
+	desc, err := ioutil.CopyUnsafe(&buf, r, nil, expected, limit)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if err := s.storage.Push(ctx, desc, bytes.NewReader(buf.Bytes())); err != nil {
+		if errors.Is(err, errdef.ErrAlreadyExists) {
+			return desc, err
+		}
+		return ocispec.Descriptor{}, err
+	}
+	if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return desc, nil
 }
 
 // Exists returns true if the described content exists.
