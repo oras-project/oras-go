@@ -673,15 +673,28 @@ func TestRepository_Push_ChunkedUnsupportedDigestAlgorithm(t *testing.T) {
 	}
 
 	repo := newChunkedTestRepo(t, srv, 2)
-	err := repo.Blobs().Push(context.Background(), desc, bytes.NewReader(blob))
-	if err == nil {
-		t.Fatal("expected error with unsupported digest algorithm, got nil")
+	ctx := context.Background()
+
+	// Push rejects the descriptor before opening an upload session.
+	err := repo.Blobs().Push(ctx, desc, bytes.NewReader(blob))
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Fatalf("Push() error = %v, want errdef.ErrUnsupported", err)
 	}
+	reg.mu.Lock()
+	methods := reg.methods
+	reg.mu.Unlock()
+	if len(methods) != 0 {
+		t.Fatalf("Push() sent %v, want no request", methods)
+	}
+
+	// pushChunked keeps its own check for any other caller, and cancels the
+	// session it already opened.
+	err = repo.Blobs().(*blobStore).pushChunked(ctx, desc, bytes.NewReader(blob), 2)
 	if !strings.Contains(err.Error(), "unsupported digest algorithm") {
-		t.Errorf("error = %v, want unsupported digest algorithm", err)
+		t.Errorf("pushChunked() error = %v, want unsupported digest algorithm", err)
 	}
 	if !errors.Is(err, errdef.ErrUnsupported) {
-		t.Errorf("error = %v, want errdef.ErrUnsupported", err)
+		t.Errorf("pushChunked() error = %v, want errdef.ErrUnsupported", err)
 	}
 	if !reg.cancelled {
 		t.Error("expected session to be cancelled on unsupported algorithm")

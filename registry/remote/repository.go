@@ -1200,6 +1200,9 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
 		return err
 	}
+	if err := checkDigestAlgorithm(digestSourceDescriptor, expected.Digest); err != nil {
+		return err
+	}
 	// start an upload
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
@@ -2026,6 +2029,9 @@ func (s *manifestStore) checkOCISubjectHeader(resp *http.Response) {
 // pushWithIndexing pushes the manifest content matching the expected descriptor,
 // and indexes referrers for the manifest when needed.
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
+	if err := checkDigestAlgorithm(digestSourceDescriptor, expected.Digest); err != nil {
+		return err
+	}
 	switch expected.MediaType {
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
 		if state := s.repo.loadReferrersState(); state == properties.ReferrersAPISupported {

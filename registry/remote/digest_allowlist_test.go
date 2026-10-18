@@ -16,6 +16,7 @@ limitations under the License.
 package remote
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -36,7 +37,7 @@ import (
 // not allowlisted" state that go-digest v1.0.0 offers no other way to reach:
 // its registered set equals the allowlist and it has no RegisterAlgorithm.
 // Tests in this package do not run in parallel, so swapping the package
-// variable is safe.
+// variable is safe; a test calling this must not use t.Parallel().
 func disallowAlgorithm(t *testing.T, alg digest.Algorithm) {
 	t.Helper()
 	if !alg.Available() {
@@ -220,9 +221,9 @@ func TestBlob_RegisteredNotAllowlistedHeader(t *testing.T) {
 	assertUnsupported(t, err, digestSourceHeader)
 }
 
-// Fetch, Delete and Mount take the digest from the caller's descriptor rather
-// than from a reference, so they must check it themselves before sending a
-// request.
+// Fetch, Push, Delete and Mount take the digest from the caller's descriptor
+// rather than from a reference, so they must check it themselves before
+// sending a request.
 func TestDescriptorDigest_RegisteredNotAllowlisted(t *testing.T) {
 	disallowAlgorithm(t, digest.SHA512)
 	body := []byte("hello world")
@@ -244,6 +245,10 @@ func TestDescriptorDigest_RegisteredNotAllowlisted(t *testing.T) {
 		_, err := repo.Blobs().Fetch(ctx, blobDesc)
 		assertUnsupported(t, err, digestSourceDescriptor)
 	})
+	t.Run("blob Push", func(t *testing.T) {
+		err := repo.Blobs().Push(ctx, blobDesc, bytes.NewReader(body))
+		assertUnsupported(t, err, digestSourceDescriptor)
+	})
 	t.Run("blob Delete", func(t *testing.T) {
 		err := repo.Blobs().Delete(ctx, blobDesc)
 		assertUnsupported(t, err, digestSourceDescriptor)
@@ -254,6 +259,14 @@ func TestDescriptorDigest_RegisteredNotAllowlisted(t *testing.T) {
 	})
 	t.Run("manifest Fetch", func(t *testing.T) {
 		_, err := repo.Manifests().Fetch(ctx, manifestDesc)
+		assertUnsupported(t, err, digestSourceDescriptor)
+	})
+	t.Run("manifest Push", func(t *testing.T) {
+		err := repo.Manifests().Push(ctx, manifestDesc, bytes.NewReader(body))
+		assertUnsupported(t, err, digestSourceDescriptor)
+	})
+	t.Run("manifest PushReference", func(t *testing.T) {
+		err := repo.Manifests().PushReference(ctx, manifestDesc, bytes.NewReader(body), "latest")
 		assertUnsupported(t, err, digestSourceDescriptor)
 	})
 	t.Run("manifest Delete", func(t *testing.T) {
