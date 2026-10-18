@@ -1012,6 +1012,9 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 // delete removes the content identified by the descriptor in the entity "blobs"
 // or "manifests".
 func (r *Repository) delete(ctx context.Context, target ocispec.Descriptor, isManifest bool) error {
+	if err := checkDigestAlgorithm(digestSourceDescriptor, target.Digest); err != nil {
+		return err
+	}
 	repoRef := r.reference()
 	ref := repoRef
 	ref.Digest = target.Digest.String()
@@ -1058,6 +1061,9 @@ func (s *blobStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.Re
 // fetch is Fetch without the policy check, for callers that have already
 // checked the operation it is part of.
 func (s *blobStore) fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
+	if err := checkDigestAlgorithm(digestSourceDescriptor, target.Digest); err != nil {
+		return nil, err
+	}
 	repoRef := s.repo.reference()
 	ref := repoRef
 	ref.Digest = target.Digest.String()
@@ -1105,6 +1111,9 @@ func (s *blobStore) fetch(ctx context.Context, target ocispec.Descriptor) (rc io
 // Mount mounts the given descriptor from fromRepo into s.
 func (s *blobStore) Mount(ctx context.Context, desc ocispec.Descriptor, fromRepo string, getContent func() (io.ReadCloser, error)) error {
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+		return err
+	}
+	if err := checkDigestAlgorithm(digestSourceDescriptor, desc.Digest); err != nil {
 		return err
 	}
 	// pushing usually requires both pull and push actions.
@@ -1189,6 +1198,9 @@ func (s *blobStore) sibling(otherRepoName string) *blobStore {
 //   - https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pushing-a-blob-monolithically
 func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
+		return err
+	}
+	if err := checkDigestAlgorithm(digestSourceDescriptor, expected.Digest); err != nil {
 		return err
 	}
 	// start an upload
@@ -1599,6 +1611,9 @@ func (s *manifestStore) Fetch(ctx context.Context, target ocispec.Descriptor) (i
 // fetch is Fetch without the policy check, for callers that have already
 // checked the operation it is part of.
 func (s *manifestStore) fetch(ctx context.Context, target ocispec.Descriptor) (rc io.ReadCloser, err error) {
+	if err := checkDigestAlgorithm(digestSourceDescriptor, target.Digest); err != nil {
+		return nil, err
+	}
 	repoRef := s.repo.reference()
 	ref := repoRef
 	ref.Digest = target.Digest.String()
@@ -2014,6 +2029,9 @@ func (s *manifestStore) checkOCISubjectHeader(resp *http.Response) {
 // pushWithIndexing pushes the manifest content matching the expected descriptor,
 // and indexes referrers for the manifest when needed.
 func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.Descriptor, r io.Reader, reference string) error {
+	if err := checkDigestAlgorithm(digestSourceDescriptor, expected.Digest); err != nil {
+		return err
+	}
 	switch expected.MediaType {
 	case spec.MediaTypeArtifactManifest, ocispec.MediaTypeImageManifest, ocispec.MediaTypeImageIndex:
 		if state := s.repo.loadReferrersState(); state == properties.ReferrersAPISupported {
