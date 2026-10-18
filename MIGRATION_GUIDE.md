@@ -49,8 +49,9 @@ sizes remain on `remote.Repository`.
 | `remote.Registry.RepositoryOptions` | fields directly on `remote.Registry` |
 
 The standalone `remote.RepositoryOptions` type is also gone. Code that named
-that type directly, or passed it to `remote.Repository`, should configure the
-corresponding fields on `remote.Registry` and `remote.Repository` instead.
+that type directly, or converted it with `remote.Repository(opts)`, should
+configure the corresponding fields on `remote.Registry` and
+`remote.Repository` instead.
 
 Note that `Reference()` is a read-only getter; the reference can no longer be
 set through it. The v2 struct-literal pattern
@@ -97,10 +98,6 @@ needs it.
 are the preferred constructors when configuration comes from `registries.conf`,
 Docker configuration, certificates, or policy files. They apply the builder's
 client and transport rules to the primary registry and its mirrors.
-
-`remote.ClientBuilder.CredentialStore` now accepts the narrower
-`credentials.Getter` interface rather than `credentials.Store`. Existing
-stores remain valid; a read-only credential provider can now be used as well.
 
 ### Authentication and credentials
 
@@ -155,10 +152,10 @@ func(ctx context.Context, resource properties.Resource) (credentials.Credential,
 }
 ```
 
-`remote.Login` and `remote.Logout` now take a `properties.Resource` rather
-than a registry-name string. `remote.Login` accepts a `credentials.Putter` and
-`remote.Logout` accepts a `credentials.Deleter`; existing full stores satisfy
-those narrower interfaces.
+`remote.Logout` now takes a `properties.Resource` rather than a
+registry-name string; `remote.Login` still takes a `*remote.Registry`.
+`remote.Login` accepts a `credentials.Putter` and `remote.Logout` accepts a
+`credentials.Deleter`; existing full stores satisfy those narrower interfaces.
 
 Targets implementing the legacy `ParseReference(string) (registry.Reference,
 error)` signature continue to receive authentication scope hints through
@@ -455,13 +452,19 @@ changes:
   has a replacement.
 - Remove uses of `remote.WithPolicyEnforcement`. Configure policy through
   `remote.ClientBuilder` and `remote.Registry.Policy` instead.
-- `auth.TokenParams.Registry string` became
-  `auth.TokenParams.Resource properties.Resource`, and
-  `properties.Registry.Credential` became `properties.Credential`.
+- `remote.ClientBuilder.CredentialStore` narrowed from `credentials.Store` to
+  `credentials.Getter`. Existing stores remain valid; a read-only credential
+  provider can now be used as well.
+- Update custom `auth.TokenFetcher` implementations:
+  `auth.TokenParams.Registry string` became
+  `auth.TokenParams.Resource properties.Resource`.
+- `properties.Registry.Credential` changed type from `credentials.Credential`
+  to `properties.Credential`.
 - The pre-GA forms of `auth.ScopeRepository`, `auth.ScopeRegistryCatalog`,
-  `auth.CleanScopes`, `auth.TokenParams.Scopes`, and the
-  `*ScopesForHost` helpers also changed before v3 GA. See the authentication
-  migration table above when updating code written against a release candidate.
+  `auth.CleanScopes`, and `auth.TokenParams.Scopes` also changed before v3 GA,
+  and the `*ScopesForHost` helpers were replaced by `*ScopesForResource`. See
+  the authentication migration table above when updating code written against
+  a release candidate.
 
 ## Observable behavior changes
 
