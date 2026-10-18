@@ -46,6 +46,13 @@ var bufPool = sync.Pool{
 // Reference: https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md
 type Storage struct {
 	*ReadOnlyStorage
+
+	// MaxUnsafePushBytes is the maximum number of bytes UnsafePush accepts for
+	// both known and unknown sizes. If <= 0, the default is used. Set it before
+	// using the storage concurrently.
+	//   - Default value: 4 GiB.
+	MaxUnsafePushBytes int64
+
 	// root is the root directory of the OCI layout.
 	root string
 	// ingestRoot is the root directory of the temporary ingest files.
@@ -55,6 +62,8 @@ type Storage struct {
 // ingestDirName is the name of the directory, in the root of the layout, that
 // holds the temporary files of blob writes in progress.
 const ingestDirName = "ingest"
+
+const defaultMaxUnsafePushBytes int64 = 4 << 30
 
 // NewStorage creates a new CAS based on file system with the OCI-Image layout.
 func NewStorage(root string) (*Storage, error) {
@@ -109,6 +118,90 @@ func (s *Storage) Push(_ context.Context, expected ocispec.Descriptor, content i
 	}
 
 	return nil
+}
+
+// UnsafePush pushes content whose digest or size may be unknown, subject to
+// MaxUnsafePushBytes. See content.UnsafePusher for verification and error semantics.
+func (s *Storage) UnsafePush(ctx context.Context, expected ocispec.Descriptor, r io.Reader) (ocispec.Descriptor, error) {
+	if err := ctx.Err(); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return s.unsafePush(expected, r, s.MaxUnsafePushBytes)
+}
+
+func (s *Storage) unsafePush(expected ocispec.Descriptor, r io.Reader, limit int64) (ocispec.Descriptor, error) {
+	if limit <= 0 {
+		limit = defaultMaxUnsafePushBytes
+	}
+	if err := ioutil.ValidateUnsafePush(expected, limit); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if expected.Digest != "" && expected.Size >= 0 {
+		path, err := blobPath(expected.Digest)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		if fi, err := os.Stat(filepath.Join(s.root, path)); err == nil {
+			if fi.Size() == expected.Size {
+				return expected, fmt.Errorf("%s: %s: %w", expected.Digest, expected.MediaType, errdef.ErrAlreadyExists)
+			}
+		} else if !os.IsNotExist(err) {
+			return ocispec.Descriptor{}, err
+		}
+	}
+	if err := ensureDir(s.ingestRoot); err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to ensure ingest dir: %w", err)
+	}
+	prefix := "unsafe"
+	if expected.Digest != "" {
+		prefix = expected.Digest.Encoded()
+	}
+	fp, err := os.CreateTemp(s.ingestRoot, prefix+"_*")
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to create ingest file: %w", err)
+	}
+	renamed := false
+	defer func() {
+		if !renamed {
+			os.Remove(fp.Name())
+		}
+	}()
+	buf := bufPool.Get().(*[]byte)
+	defer bufPool.Put(buf)
+	desc, err := ioutil.CopyUnsafe(fp, r, *buf, expected, limit)
+	closeErr := fp.Close()
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to ingest: %w", err)
+	}
+	if closeErr != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to close ingest file: %w", closeErr)
+	}
+	path, err := blobPath(desc.Digest)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	target := filepath.Join(s.root, path)
+	if err := ensureDir(filepath.Dir(target)); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if _, err := os.Stat(target); err == nil {
+		return desc, fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrAlreadyExists)
+	} else if !os.IsNotExist(err) {
+		return ocispec.Descriptor{}, err
+	}
+	if err := os.Chmod(fp.Name(), 0444); err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("failed to make readonly: %w", err)
+	}
+	if err := os.Rename(fp.Name(), target); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			if _, statErr := os.Stat(target); statErr == nil {
+				return desc, fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrAlreadyExists)
+			}
+		}
+		return ocispec.Descriptor{}, err
+	}
+	renamed = true
+	return desc, nil
 }
 
 // Delete removes the target from the system.
