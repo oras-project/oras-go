@@ -9048,6 +9048,7 @@ func TestRepository_clone_copiesEveryField(t *testing.T) {
 		SkipReferrersGC:            true,
 		MaxChunkSize:               5,
 		SingleRequestPushThreshold: 6,
+		MaxUnsafePushBytes:         7,
 		mirrors:                    []mirrorRepository{{Repository: &Repository{}, pullFromMirror: "all"}},
 	}
 	atomic.StoreInt32(&orig.referrersState, int32(properties.ReferrersAPISupported))

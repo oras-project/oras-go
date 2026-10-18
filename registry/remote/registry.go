@@ -107,6 +107,12 @@ type Registry struct {
 	// repository overrides it.
 	SingleRequestPushThreshold int64
 
+	// MaxUnsafePushBytes is the default maximum number of bytes UnsafePush
+	// accepts for both known and unknown sizes when pushing blobs to
+	// repositories. If less than or equal to zero, a default (currently 4 GiB)
+	// is used unless a repository overrides it.
+	MaxUnsafePushBytes int64
+
 	// SkipReferrersGC is the default for repositories.
 	// If false, the old referrers index will be deleted after the new one
 	// is successfully uploaded.

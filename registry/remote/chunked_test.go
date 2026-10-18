@@ -81,9 +81,25 @@ func (reg *chunkedUploadRegistry) handler() http.HandlerFunc {
 		reg.mu.Unlock()
 
 		switch {
+		case r.Method == http.MethodHead && strings.HasPrefix(r.URL.Path, "/v2/test/blobs/"):
+			// Every HEAD on a blob returns 404.
+			w.WriteHeader(http.StatusNotFound)
 		case r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/":
 			if reg.rejectPOSTStatus != 0 {
 				w.WriteHeader(reg.rejectPOSTStatus)
+				return
+			}
+			if d := r.URL.Query().Get("digest"); d != "" {
+				body := bytes.NewBuffer(nil)
+				if _, err := body.ReadFrom(r.Body); err != nil {
+					reg.t.Errorf("failed to read single-request POST body: %v", err)
+				}
+				reg.mu.Lock()
+				reg.uploaded = append(reg.uploaded, body.Bytes()...)
+				reg.digestQuery = d
+				reg.mu.Unlock()
+				w.Header().Set("Docker-Content-Digest", d)
+				w.WriteHeader(http.StatusCreated)
 				return
 			}
 			if reg.minChunkLength > 0 {
