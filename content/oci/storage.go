@@ -63,8 +63,6 @@ type Storage struct {
 // holds the temporary files of blob writes in progress.
 const ingestDirName = "ingest"
 
-const defaultMaxUnsafePushBytes int64 = 4 << 30
-
 // NewStorage creates a new CAS based on file system with the OCI-Image layout.
 func NewStorage(root string) (*Storage, error) {
 	rootAbs, err := filepath.Abs(root)
@@ -131,7 +129,7 @@ func (s *Storage) UnsafePush(ctx context.Context, expected ocispec.Descriptor, r
 
 func (s *Storage) unsafePush(expected ocispec.Descriptor, r io.Reader, limit int64) (ocispec.Descriptor, error) {
 	if limit <= 0 {
-		limit = defaultMaxUnsafePushBytes
+		limit = ioutil.DefaultMaxUnsafePushBytes
 	}
 	if err := ioutil.ValidateUnsafePush(expected, limit); err != nil {
 		return ocispec.Descriptor{}, err

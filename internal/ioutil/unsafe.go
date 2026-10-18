@@ -28,6 +28,10 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
 )
 
+// DefaultMaxUnsafePushBytes is the default size limit for UnsafePush in stores
+// that do not keep content in memory.
+const DefaultMaxUnsafePushBytes int64 = 4 << 30
+
 // ValidateUnsafePush validates the descriptor and effective size limit before
 // any content is read or temporary files are created. The limit must be nonnegative.
 func ValidateUnsafePush(expected ocispec.Descriptor, limit int64) error {

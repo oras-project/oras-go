@@ -226,6 +226,13 @@ type Repository struct {
 	// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#single-post
 	SingleRequestPushThreshold int64
 
+	// MaxUnsafePushBytes overrides Registry default if > 0.
+	// It limits the number of bytes accepted for both known and unknown sizes
+	// and applies to the blob store's UnsafePush only. If zero or negative,
+	// Registry.MaxUnsafePushBytes is used. If both settings are non-positive,
+	// the default (currently 4 GiB) is used.
+	MaxUnsafePushBytes int64
+
 	// mirrors is an ordered list of mirror repositories to try before the
 	// primary registry for read operations. When empty, all reads go directly
 	// to the primary. Mirrors are populated from a [properties.Registry] when a
@@ -312,6 +319,7 @@ func (r *Repository) clone() *Repository {
 		SkipReferrersGC:            r.SkipReferrersGC,
 		MaxChunkSize:               r.MaxChunkSize,
 		SingleRequestPushThreshold: r.SingleRequestPushThreshold,
+		MaxUnsafePushBytes:         r.MaxUnsafePushBytes,
 		mirrors:                    r.mirrors,
 	}
 }
@@ -340,6 +348,16 @@ func (r *Repository) maxMetadataBytes() int64 {
 // Repository-level setting takes precedence over Registry default.
 func (r *Repository) maxChunkSize() int64 {
 	return override(max(r.MaxChunkSize, 0), r.Registry.MaxChunkSize)
+}
+
+// maxUnsafePushBytes returns the effective size limit for unsafe blob pushes.
+// Repository-level setting takes precedence over Registry default.
+func (r *Repository) maxUnsafePushBytes() int64 {
+	limit := override(max(r.MaxUnsafePushBytes, 0), max(r.Registry.MaxUnsafePushBytes, 0))
+	if limit <= 0 {
+		return ioutil.DefaultMaxUnsafePushBytes
+	}
+	return limit
 }
 
 // singleRequestPushThreshold returns the effective size limit in bytes for
@@ -1214,6 +1232,12 @@ func (s *blobStore) Push(ctx context.Context, expected ocispec.Descriptor, conte
 	if err := s.repo.checkPolicy(ctx, ""); err != nil {
 		return err
 	}
+	return s.push(ctx, expected, content)
+}
+
+// push is Push without the policy check, for callers that have already
+// checked the operation it is part of.
+func (s *blobStore) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	if err := checkDigestAlgorithm(digestSourceDescriptor, expected.Digest); err != nil {
 		return err
 	}

@@ -34,6 +34,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -488,8 +489,8 @@ func TestStorage_UnsafePush(t *testing.T) {
 		{name: "max limit unknown", size: -1, limit: math.MaxInt64},
 		{name: "max known size", size: math.MaxInt64, limit: math.MaxInt64, wantErr: io.ErrUnexpectedEOF},
 		{name: "negative limit uses default", size: -1, limit: -1},
-		{name: "default limit enforced", size: defaultMaxUnsafePushBytes + 1, wantErr: errdef.ErrSizeExceedsLimit, noRead: true},
-		{name: "negative limit default enforced", size: defaultMaxUnsafePushBytes + 1, limit: -1, wantErr: errdef.ErrSizeExceedsLimit, noRead: true},
+		{name: "default limit enforced", size: ioutil.DefaultMaxUnsafePushBytes + 1, wantErr: errdef.ErrSizeExceedsLimit, noRead: true},
+		{name: "negative limit default enforced", size: ioutil.DefaultMaxUnsafePushBytes + 1, limit: -1, wantErr: errdef.ErrSizeExceedsLimit, noRead: true},
 		{name: "any negative size is unknown", size: -100},
 	}
 	for _, tt := range tests {
@@ -524,7 +525,7 @@ func TestStorage_UnsafePush(t *testing.T) {
 			}
 			bound := tt.limit
 			if bound <= 0 {
-				bound = defaultMaxUnsafePushBytes
+				bound = ioutil.DefaultMaxUnsafePushBytes
 			}
 			if tt.size >= 0 && tt.size < bound {
 				bound = tt.size
