@@ -495,6 +495,23 @@ func TestManifestTagPushDigestAlgorithm(t *testing.T) {
 		})
 	}
 
+	t.Run("oversized tag push with referrers supported", func(t *testing.T) {
+		desc := tagPushTestDesc(digest.SHA256, body)
+		hits := 0
+		repo := tagPushTestRepo(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			hits++
+		}))
+		repo.SetReferrersCapability(true)
+		repo.Registry.MaxMetadataBytes = desc.Size - 1
+		err := repo.PushReference(ctx, desc, bytes.NewReader(body), "latest")
+		if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
+			t.Fatalf("PushReference() = %v, want errdef.ErrSizeExceedsLimit", err)
+		}
+		if hits != 0 {
+			t.Fatalf("handler hit %d times, want 0", hits)
+		}
+	})
+
 	t.Run("sha512 by tag, registry reports sha384 of bytes", func(t *testing.T) {
 		desc := tagPushTestDesc(digest.SHA512, body)
 		repo := tagPushTestRepo(t, putOK(digest.SHA384.FromBytes(body).String()))

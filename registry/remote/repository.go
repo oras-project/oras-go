@@ -575,7 +575,9 @@ func (r *Repository) Resolve(ctx context.Context, reference string) (ocispec.Des
 
 // Tag tags a manifest descriptor with a reference string.
 // A registry may return a Docker-Content-Digest header in a different
-// allowlisted algorithm; the pushed bytes are verified against it.
+// allowlisted algorithm; the pushed bytes are verified against it. Tag pushes
+// buffer the manifest up to MaxMetadataBytes (default 4MiB) for that check, so
+// an oversized manifest or index fails with [errdef.ErrSizeExceedsLimit].
 func (r *Repository) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	return r.Manifests().Tag(ctx, desc, reference)
 }
@@ -1874,7 +1876,9 @@ func (s *manifestStore) fetchReference(ctx context.Context, reference string) (d
 
 // Tag tags a manifest descriptor with a reference string.
 // A registry may return a Docker-Content-Digest header in a different
-// allowlisted algorithm; the pushed bytes are verified against it.
+// allowlisted algorithm; the pushed bytes are verified against it. Tag pushes
+// buffer the manifest up to MaxMetadataBytes (default 4MiB) for that check, so
+// an oversized manifest or index fails with [errdef.ErrSizeExceedsLimit].
 func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
 	if err := s.repo.checkManifestPolicy(ctx, reference, desc); err != nil {
 		return err
@@ -1953,6 +1957,14 @@ func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Desc
 	return s.pushWithIndexing(ctx, expected, content, ref.GetReference())
 }
 
+// verifiedManifest is a tag-push body already verified by [content.ReadAll].
+// It implements [io.Reader] so it fits the existing [manifestStore.push]
+// signature; push uses body and does not ReadAll again.
+type verifiedManifest struct {
+	*bytes.Reader
+	body []byte
+}
+
 // push pushes the manifest content, matching the expected descriptor.
 // A tag-addressed push buffers the bytes (capped by MaxMetadataBytes) so a
 // registry-chosen Docker-Content-Digest algorithm can be checked against those
@@ -1965,17 +1977,26 @@ func (s *manifestStore) push(ctx context.Context, expected ocispec.Descriptor, r
 		ref.Digest = d.String()
 	} else {
 		ref.Tag = reference
-		if err := limitSize(expected, s.repo.maxMetadataBytes()); err != nil {
-			return err
+		if verified, ok := r.(*verifiedManifest); ok {
+			// Already ReadAll'd by pushWithIndexing; do not verify again.
+			pushed = verified.body
+			if pushed == nil {
+				pushed = []byte{}
+			}
+			r = bytes.NewReader(pushed)
+		} else {
+			if err := limitSize(expected, s.repo.maxMetadataBytes()); err != nil {
+				return err
+			}
+			pushed, err = content.ReadAll(r, expected)
+			if err != nil {
+				return err
+			}
+			if pushed == nil {
+				pushed = []byte{}
+			}
+			r = bytes.NewReader(pushed)
 		}
-		pushed, err = content.ReadAll(r, expected)
-		if err != nil {
-			return err
-		}
-		if pushed == nil {
-			pushed = []byte{}
-		}
-		r = bytes.NewReader(pushed)
 	}
 	// pushing usually requires both pull and push actions.
 	// Reference: https://github.com/distribution/distribution/blob/v2.7.1/registry/handlers/app.go#L921-L930
@@ -2064,7 +2085,10 @@ func (s *manifestStore) pushWithIndexing(ctx context.Context, expected ocispec.D
 		if err != nil {
 			return err
 		}
-		if err := s.push(ctx, expected, bytes.NewReader(manifestJSON), reference); err != nil {
+		if err := s.push(ctx, expected, &verifiedManifest{
+			Reader: bytes.NewReader(manifestJSON),
+			body:   manifestJSON,
+		}, reference); err != nil {
 			return err
 		}
 		// check referrers API availability again after push
