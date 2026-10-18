@@ -84,6 +84,12 @@ type Store struct {
 	//   - Default value: false.
 	SyncIndex bool
 
+	// MaxUnsafePushBytes is the maximum number of bytes UnsafePush accepts for
+	// both known and unknown sizes. If <= 0, the default is used. Set it before
+	// using the store concurrently.
+	//   - Default value: 4 GiB.
+	MaxUnsafePushBytes int64
+
 	root        string
 	indexPath   string
 	index       *ocispec.Index
@@ -218,6 +224,30 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 		return s.tag(ctx, expected, expected.Digest.String())
 	}
 	return nil
+}
+
+// UnsafePush pushes content whose digest or size may be unknown, subject to
+// MaxUnsafePushBytes. See content.UnsafePusher for verification and error semantics.
+func (s *Store) UnsafePush(ctx context.Context, expected ocispec.Descriptor, r io.Reader) (ocispec.Descriptor, error) {
+	if err := ctx.Err(); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	s.sync.RLock()
+	defer s.sync.RUnlock()
+
+	desc, err := s.storage.unsafePush(expected, r, s.MaxUnsafePushBytes)
+	if err != nil {
+		return desc, err
+	}
+	if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if descriptor.IsManifest(desc) {
+		if err := s.tag(ctx, desc, desc.Digest.String()); err != nil {
+			return ocispec.Descriptor{}, err
+		}
+	}
+	return desc, nil
 }
 
 // Exists returns true if the described content exists.
