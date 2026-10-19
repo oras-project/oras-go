@@ -215,26 +215,14 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 	defer s.sync.RUnlock()
 
 	if err := s.storage.Push(ctx, expected, reader); err != nil {
-		if errors.Is(err, errdef.ErrAlreadyExists) && !s.graph.Exists(expected) {
-			if indexErr := s.graph.Index(ctx, s.storage, expected); indexErr != nil {
+		if errors.Is(err, errdef.ErrAlreadyExists) {
+			if indexErr := s.ensureIndexed(ctx, expected); indexErr != nil {
 				return indexErr
-			}
-			if descriptor.IsManifest(expected) {
-				if tagErr := s.tag(ctx, expected, expected.Digest.String()); tagErr != nil {
-					return tagErr
-				}
 			}
 		}
 		return err
 	}
-	if err := s.graph.Index(ctx, s.storage, expected); err != nil {
-		return err
-	}
-	if descriptor.IsManifest(expected) {
-		// tag by digest
-		return s.tag(ctx, expected, expected.Digest.String())
-	}
-	return nil
+	return s.indexNode(ctx, expected)
 }
 
 // UnsafePush pushes content whose digest or size may be unknown, subject to
@@ -248,17 +236,48 @@ func (s *Store) UnsafePush(ctx context.Context, expected ocispec.Descriptor, r i
 
 	desc, err := s.storage.unsafePush(expected, ioutil.NewContextReader(ctx, r), s.MaxUnsafePushBytes)
 	if err != nil {
+		if errors.Is(err, errdef.ErrAlreadyExists) {
+			if indexErr := s.ensureIndexed(ctx, desc); indexErr != nil {
+				return ocispec.Descriptor{}, indexErr
+			}
+		}
 		return desc, err
 	}
-	if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+	if err := s.indexNode(ctx, desc); err != nil {
 		return ocispec.Descriptor{}, err
 	}
+	return desc, nil
+}
+
+// indexNode indexes desc in s.graph and records its digest in s.tagResolver
+// when desc is a manifest.
+func (s *Store) indexNode(ctx context.Context, desc ocispec.Descriptor) error {
+	if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+		return err
+	}
 	if descriptor.IsManifest(desc) {
-		if err := s.tag(ctx, desc, desc.Digest.String()); err != nil {
-			return ocispec.Descriptor{}, err
+		// tag by digest
+		return s.tag(ctx, desc, desc.Digest.String())
+	}
+	return nil
+}
+
+// ensureIndexed ensures that an already-stored blob (for example, one spared on
+// disk by a prior GC within leftoverExpiry) is indexed in s.graph and, if it is
+// a manifest, recorded by digest in s.tagResolver.
+func (s *Store) ensureIndexed(ctx context.Context, desc ocispec.Descriptor) error {
+	if !s.graph.Exists(desc) {
+		if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+			return err
 		}
 	}
-	return desc, nil
+	if descriptor.IsManifest(desc) {
+		dgst := desc.Digest.String()
+		if _, err := s.tagResolver.Resolve(ctx, dgst); errors.Is(err, errdef.ErrNotFound) {
+			return s.tag(ctx, desc, dgst)
+		}
+	}
+	return nil
 }
 
 // Exists returns true if the described content exists.

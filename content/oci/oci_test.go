@@ -3547,10 +3547,17 @@ func TestStore_GC_GracePeriod(t *testing.T) {
 			t.Fatalf("Predecessors(layer) after GC = %v, want [%v]", preds, manifestDesc)
 		}
 
-		// Re-pushing returns ErrAlreadyExists while keeping the manifest indexed,
-		// and tagging the spared manifest preserves Predecessors.
+		// Re-pushing returns ErrAlreadyExists while keeping the manifest indexed
+		// and restoring its digest entry in tagResolver, and tagging the spared
+		// manifest preserves Predecessors.
 		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, errdef.ErrAlreadyExists) {
 			t.Fatalf("re-Push(manifest) error = %v, want %v", err, errdef.ErrAlreadyExists)
+		}
+		if got, err := s.Resolve(ctx, manifestDesc.Digest.String()); err != nil || got.Digest != manifestDesc.Digest {
+			t.Fatalf("Resolve(digest) after re-Push = %+v, %v, want %s", got, err, manifestDesc.Digest)
+		}
+		if got, err := s.UnsafePush(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, errdef.ErrAlreadyExists) || !reflect.DeepEqual(got, manifestDesc) {
+			t.Fatalf("UnsafePush(manifest) = %+v, %v, want %+v, %v", got, err, manifestDesc, errdef.ErrAlreadyExists)
 		}
 		if err := s.Tag(ctx, manifestDesc, "v1"); err != nil {
 			t.Fatal("Tag() error =", err)
@@ -3561,6 +3568,36 @@ func TestStore_GC_GracePeriod(t *testing.T) {
 		}
 		if !equalDescriptorSet(preds, []ocispec.Descriptor{manifestDesc}) {
 			t.Fatalf("Predecessors(layer) after Tag = %v, want [%v]", preds, manifestDesc)
+		}
+
+		// Also verify a manifest written directly to s.storage before GC (as by
+		// another Store on the same directory) is indexed when tagged after GC.
+		otherRoot := t.TempDir()
+		otherStore, err := New(otherRoot)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		for _, item := range []struct {
+			desc ocispec.Descriptor
+			blob []byte
+		}{
+			{configDesc, configBlob},
+			{layerDesc, layerBlob},
+			{manifestDesc, manifestJSON},
+		} {
+			if err := otherStore.storage.Push(ctx, item.desc, bytes.NewReader(item.blob)); err != nil {
+				t.Fatal("storage.Push() error =", err)
+			}
+		}
+		if err := otherStore.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+		if err := otherStore.Tag(ctx, manifestDesc, "v1"); err != nil {
+			t.Fatal("Tag() error =", err)
+		}
+		preds, err = otherStore.Predecessors(ctx, layerDesc)
+		if err != nil || !equalDescriptorSet(preds, []ocispec.Descriptor{manifestDesc}) {
+			t.Fatalf("Predecessors(layer) on storage-pushed manifest after Tag = %v, %v, want [%v]", preds, err, manifestDesc)
 		}
 	})
 }

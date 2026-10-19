@@ -498,12 +498,11 @@ changes:
   callers without a context deadline. Callers who want the old fail-fast
   behavior can set `Transport.Policy` or `ClientBuilder.RetryPolicy` to a
   `retry.GenericPolicy` literal with the old values.
-- `oci.Store.GC` (and `AutoGC` triggered by `Delete`) now keeps unreachable
-  blobs modified within the last hour, matching the grace period already
-  applied to `ingest/` and temporary metadata files so in-flight multi-step
-  copies do not lose freshly pushed layers. Unreachable blobs modified less
-  than an hour before `GC` are reclaimed on a subsequent `GC` after the grace
-  window expires.
+- `oci.Store.GC` now keeps unreachable blobs modified within the last hour,
+  matching the grace period already applied to `ingest/` and temporary metadata
+  files so in-flight multi-step copies do not lose freshly pushed layers.
+  Unreachable blobs modified less than an hour before `GC` are reclaimed on a
+  subsequent `GC` after the grace window expires.
 
 ## Major additions in v3
 
