@@ -660,7 +660,8 @@ func (s *Store) writeIndexFile() error {
 // otherwise coordinate with concurrent writers: it rebuilds the index from this
 // Store's in-memory references and overwrites index.json, which drops tags and
 // manifests written by another Store since this Store was opened, and does not
-// protect writes that take longer than the grace period.
+// protect writes that take longer than the grace period, nor existing blobs
+// that a copy skips pushing, since their modification time is not refreshed.
 func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
@@ -802,7 +803,8 @@ func (s *Store) gcIndex(ctx context.Context) (*resolver.Memory, *graph.Memory, e
 
 // gcReachable is the rule that decides which content a Store keeps when it is
 // garbage collected. [Store.GC] and [Verify] both apply it, so that what Verify
-// reports as unreferenced is what GC removes.
+// reports as unreferenced is what GC removes (excluding recent blobs within the
+// GC grace period).
 //
 // refMap holds the references of the store, as returned by
 // [resolver.Memory.Map]: a tag maps to its descriptor, and an entry whose key is
