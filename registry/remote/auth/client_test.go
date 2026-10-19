@@ -6131,4 +6131,3 @@ func TestClient_Do_Bearer_Auth_Cached_400Denied_CrossOriginRedirectGuard(t *test
 		t.Errorf("authCalls = %d, want 0 (cross-origin redirect challenge must not be answered)", got)
 	}
 }
-

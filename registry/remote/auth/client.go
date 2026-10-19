@@ -690,4 +690,3 @@ func isInvalidTokenResponse(resp *http.Response) bool {
 	}
 	return false
 }
-
