@@ -2414,6 +2414,13 @@ func (s *manifestStore) verifyPullContentDigest(resp *http.Response, expected di
 	if err := checkDigestAlgorithm(digestSourceReference, expected); err != nil {
 		return fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 	}
+	// checkDigestAlgorithm leaves a malformed digest to the caller, but a
+	// descriptor passed to Fetch may come unparsed from a registry, for example
+	// a referrer. go-digest panics on Algorithm and Verifier when the digest
+	// has no "algorithm:" prefix, so reject that format here.
+	if err := expected.Validate(); errors.Is(err, digest.ErrDigestInvalidFormat) {
+		return fmt.Errorf("%s %q: invalid digest %q: %w", resp.Request.Method, resp.Request.URL, expected, err)
+	}
 	headerStr := resp.Header.Get(headerDockerContentDigest)
 	if headerStr == "" {
 		// Manifests fetched without a header were never bounded by
