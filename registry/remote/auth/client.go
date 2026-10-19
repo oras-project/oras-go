@@ -134,6 +134,30 @@ type Client struct {
 	// - https://distribution.github.io/distribution/spec/auth/oauth/
 	TokenFetcher TokenFetcher
 
+	// TrustedRealmHosts is an opt-in list of bearer realm hosts that skip the
+	// internal-address check. Exact hostnames and "*.domain" suffix patterns
+	// are supported. "*.domain" does not match the apex "domain". Matching is
+	// case-insensitive; a single trailing dot is stripped on both sides.
+	// An explicitly named host is allowed regardless of the address it
+	// resolves to, including IP literals. The scheme check and the
+	// https-to-http downgrade check still apply.
+	//
+	// The zero value keeps the default strict validation. Configure this per
+	// registry via remote.ClientBuilder; do not set it on a shared
+	// multi-registry client such as DefaultClient.
+	TrustedRealmHosts []string
+
+	// AllowInternalRealms, when true, allows bearer realm hosts that resolve
+	// to private (RFC 1918) or IPv6 unique-local addresses. Loopback,
+	// unspecified, link-local, and carrier-grade NAT addresses (including
+	// 100.100.100.200) remain rejected. The scheme check and the
+	// https-to-http downgrade check still apply.
+	//
+	// The zero value keeps the default strict validation. Configure this per
+	// registry via remote.ClientBuilder; do not set it on a shared
+	// multi-registry client such as DefaultClient.
+	AllowInternalRealms bool
+
 	// redirectSafeClientOnce guards the lazy construction of
 	// redirectSafeClientValue below.
 	redirectSafeClientOnce sync.Once
@@ -158,12 +182,14 @@ type Client struct {
 // synchronization state and is unsafe once c has sent a request.
 func (c *Client) Clone() *Client {
 	return &Client{
-		Client:         c.Client,
-		Header:         c.Header,
-		CredentialFunc: c.CredentialFunc,
-		Cache:          c.Cache,
-		ClientID:       c.ClientID,
-		TokenFetcher:   c.TokenFetcher,
+		Client:              c.Client,
+		Header:              c.Header,
+		CredentialFunc:      c.CredentialFunc,
+		Cache:               c.Cache,
+		ClientID:            c.ClientID,
+		TokenFetcher:        c.TokenFetcher,
+		TrustedRealmHosts:   c.TrustedRealmHosts,
+		AllowInternalRealms: c.AllowInternalRealms,
 	}
 }
 
@@ -306,6 +332,68 @@ func isInternalAddr(addr netip.Addr) bool {
 		addr.IsPrivate() || addr.IsUnspecified() || cgnatPrefix.Contains(addr)
 }
 
+// isBlockedUnderAllowInternal reports whether addr is still rejected when
+// AllowInternalRealms is set. Private (RFC 1918) and IPv6 unique-local
+// addresses are allowed; loopback, unspecified, link-local, and CGNAT
+// (including 100.100.100.200) stay blocked.
+func isBlockedUnderAllowInternal(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	return addr.IsLoopback() || addr.IsUnspecified() ||
+		addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
+		cgnatPrefix.Contains(addr)
+}
+
+// addrRejected reports whether addr fails the address-class check.
+func addrRejected(addr netip.Addr, allowInternal bool) bool {
+	if allowInternal {
+		return isBlockedUnderAllowInternal(addr)
+	}
+	return isInternalAddr(addr)
+}
+
+// realmTrust is the opt-in policy applied at the address-class step of
+// validateRealm. The zero value is the default strict behaviour.
+type realmTrust struct {
+	hosts         []string
+	allowInternal bool
+}
+
+func (c *Client) realmTrust() realmTrust {
+	return realmTrust{
+		hosts:         c.TrustedRealmHosts,
+		allowInternal: c.AllowInternalRealms,
+	}
+}
+
+// canonicalRealmHost lowercases host and strips a single trailing dot so
+// FQDNs match the same trust entries as bare names.
+func canonicalRealmHost(host string) string {
+	return strings.ToLower(strings.TrimSuffix(host, "."))
+}
+
+// matchesHost reports whether host is an exact trusted host or matches a
+// "*.domain" suffix pattern. "*.domain" does not match the apex "domain".
+func (t realmTrust) matchesHost(host string) bool {
+	host = canonicalRealmHost(host)
+	if host == "" {
+		return false
+	}
+	for _, pattern := range t.hosts {
+		pattern = canonicalRealmHost(pattern)
+		if strings.HasPrefix(pattern, "*.") {
+			suffix := pattern[1:] // ".domain"
+			if strings.HasSuffix(host, suffix) && host != pattern[2:] {
+				return true
+			}
+			continue
+		}
+		if host == pattern {
+			return true
+		}
+	}
+	return false
+}
+
 // validateRealm rejects bearer token realm URLs that would have the client
 // forward credentials to obviously unsafe destinations:
 //
@@ -322,6 +410,13 @@ func isInternalAddr(addr netip.Addr) bool {
 // as the realm, the address check is skipped so loopback and in-cluster
 // deployments continue to work.
 //
+// trust is applied only at the address-class step. A host listed in
+// trust.hosts (exact or "*.domain") skips the address-class check entirely.
+// When trust.allowInternal is set, private and IPv6 unique-local addresses
+// are allowed, but loopback, unspecified, link-local, and CGNAT stay
+// blocked. The scheme and downgrade checks always apply, trusted or not.
+// The zero-value trust is the default strict behaviour.
+//
 // A realm host that is not an IP literal is resolved with ctx, and the realm
 // is rejected if any of its A or AAAA records is an internal address. If the
 // lookup fails, the realm is allowed: behind an HTTP proxy the client may be
@@ -335,7 +430,7 @@ func isInternalAddr(addr netip.Addr) bool {
 // References:
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-xf85-363p-868w
 //   - https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
-func validateRealm(ctx context.Context, realm string, registryURL *url.URL) error {
+func validateRealm(ctx context.Context, realm string, registryURL *url.URL, trust realmTrust) error {
 	if realm == "" {
 		return nil
 	}
@@ -357,8 +452,11 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 	if registryURL != nil && strings.EqualFold(host, registryURL.Hostname()) {
 		return nil
 	}
+	if trust.matchesHost(host) {
+		return nil
+	}
 	if addr, err := netip.ParseAddr(host); err == nil {
-		if isInternalAddr(addr) {
+		if addrRejected(addr, trust.allowInternal) {
 			return fmt.Errorf("bearer realm host %q is a loopback, link-local, private, unspecified, or carrier-grade NAT address", host)
 		}
 		return nil
@@ -370,7 +468,7 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 	}
 	for _, ipAddr := range addrs {
 		addr, ok := netip.AddrFromSlice(ipAddr.IP)
-		if ok && isInternalAddr(addr) {
+		if ok && addrRejected(addr, trust.allowInternal) {
 			return fmt.Errorf("bearer realm host %q resolves to %s, a loopback, link-local, private, unspecified, or carrier-grade NAT address", host, addr.Unmap())
 		}
 	}
@@ -381,16 +479,17 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL) erro
 // applies validateRealm to every redirect hop of a token request, measured
 // against registryURL, before delegating to the CheckRedirect of client. This
 // keeps a validated realm from redirecting the token request to an internal
-// address or from https to http.
+// address or from https to http. trust is the same policy used for the
+// initial realm so redirect hops are evaluated consistently.
 // Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-mm27-wq9c-mxxr
-func realmRedirectGuard(client *http.Client, registryURL *url.URL) *http.Client {
+func realmRedirectGuard(client *http.Client, registryURL *url.URL, trust realmTrust) *http.Client {
 	if client == nil {
 		client = http.DefaultClient
 	}
 	clientCopy := *client
 	checkRedirect := client.CheckRedirect
 	clientCopy.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if err := validateRealm(req.Context(), req.URL.String(), registryURL); err != nil {
+		if err := validateRealm(req.Context(), req.URL.String(), registryURL, trust); err != nil {
 			return fmt.Errorf("redirect of token request rejected: %w", err)
 		}
 		if checkRedirect != nil {
@@ -522,12 +621,14 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
-		if err := validateRealm(ctx, realm, originalReq.URL); err != nil {
+		trust := c.realmTrust()
+		if err := validateRealm(ctx, realm, originalReq.URL, trust); err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 		service := params["service"]
 		token, err := cache.Set(ctx, cacheKey, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			return c.fetchBearerToken(withTokenRegistryURL(ctx, originalReq.URL), resource, realm, service, scopes)
+			tokenCtx := withTokenRealmTrust(withTokenRegistryURL(ctx, originalReq.URL), trust)
+			return c.fetchBearerToken(tokenCtx, resource, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)

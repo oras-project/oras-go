@@ -33,6 +33,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +81,37 @@ func TestClientBuilder_Build(t *testing.T) {
 	}
 	if client.Cache == nil {
 		t.Error("Build() returned client with nil cache")
+	}
+	if len(client.TrustedRealmHosts) != 0 {
+		t.Errorf("Build() TrustedRealmHosts = %v, want empty default", client.TrustedRealmHosts)
+	}
+	if client.AllowInternalRealms {
+		t.Error("Build() AllowInternalRealms = true, want false default")
+	}
+}
+
+func TestClientBuilder_Build_TrustedRealmHosts(t *testing.T) {
+	builder := NewClientBuilder()
+	props := &properties.Registry{
+		Reference: properties.Reference{
+			Registry:   "registry.corp.example",
+			Repository: "test/repo",
+		},
+		Attributes: properties.Attributes{
+			TrustedRealmHosts:   []string{"gitlab.corp.example", "*.auth.corp.example"},
+			AllowInternalRealms: true,
+		},
+	}
+
+	client, err := builder.Build(props)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if !reflect.DeepEqual(client.TrustedRealmHosts, props.Attributes.TrustedRealmHosts) {
+		t.Errorf("TrustedRealmHosts = %v, want %v", client.TrustedRealmHosts, props.Attributes.TrustedRealmHosts)
+	}
+	if !client.AllowInternalRealms {
+		t.Error("AllowInternalRealms = false, want true")
 	}
 }
 

@@ -220,3 +220,38 @@ func Test_buildMirrorRepositories_doesNotShareCredential(t *testing.T) {
 		t.Errorf("mirror client resolved credential %v; the primary's credential must not reach a mirror", got)
 	}
 }
+
+// Test_buildMirrorRepositories_doesNotInheritRealmTrust checks that a
+// primary's TrustedRealmHosts and AllowInternalRealms are not copied onto
+// the client built for a mirror.
+func Test_buildMirrorRepositories_doesNotInheritRealmTrust(t *testing.T) {
+	props := &properties.Registry{
+		Reference: properties.Reference{Registry: "registry.example.com", Repository: "app"},
+		Attributes: properties.Attributes{
+			TrustedRealmHosts:   []string{"gitlab.corp.example"},
+			AllowInternalRealms: true,
+		},
+		Mirrors: []properties.Mirror{
+			{Location: "mirror.internal"},
+		},
+	}
+
+	mirrors, err := buildMirrorRepositories(props, NewClientBuilder())
+	if err != nil {
+		t.Fatalf("buildMirrorRepositories: %v", err)
+	}
+	if len(mirrors) != 1 {
+		t.Fatalf("got %d mirrors, want 1", len(mirrors))
+	}
+
+	authClient, ok := mirrors[0].Registry.Client.(*auth.Client)
+	if !ok {
+		t.Fatalf("mirror client is %T, want *auth.Client", mirrors[0].Registry.Client)
+	}
+	if len(authClient.TrustedRealmHosts) != 0 {
+		t.Errorf("mirror TrustedRealmHosts = %v, want empty", authClient.TrustedRealmHosts)
+	}
+	if authClient.AllowInternalRealms {
+		t.Error("mirror AllowInternalRealms = true, want false")
+	}
+}
