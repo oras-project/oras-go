@@ -86,7 +86,7 @@ func (s *blobStore) UnsafePush(ctx context.Context, expected ocispec.Descriptor,
 	if headLimit < math.MaxInt64 {
 		headLimit++
 	}
-	source := &unsafePushReader{r: r, expected: expected}
+	source := &unsafePushReader{r: ioutil.NewContextReader(ctx, r), expected: expected}
 	head, err := io.ReadAll(io.LimitReader(source, headLimit))
 	if err != nil {
 		// source already names the descriptor in its error.

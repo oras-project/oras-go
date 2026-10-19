@@ -40,6 +40,7 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/container/set"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/internal/graph"
+	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/manifestutil"
 	"github.com/oras-project/oras-go/v3/internal/resolver"
 	"github.com/oras-project/oras-go/v3/registry"
@@ -235,7 +236,7 @@ func (s *Store) UnsafePush(ctx context.Context, expected ocispec.Descriptor, r i
 	s.sync.RLock()
 	defer s.sync.RUnlock()
 
-	desc, err := s.storage.unsafePush(expected, r, s.MaxUnsafePushBytes)
+	desc, err := s.storage.unsafePush(expected, ioutil.NewContextReader(ctx, r), s.MaxUnsafePushBytes)
 	if err != nil {
 		return desc, err
 	}
