@@ -215,6 +215,16 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 	defer s.sync.RUnlock()
 
 	if err := s.storage.Push(ctx, expected, reader); err != nil {
+		if errors.Is(err, errdef.ErrAlreadyExists) && !s.graph.Exists(expected) {
+			if indexErr := s.graph.Index(ctx, s.storage, expected); indexErr != nil {
+				return indexErr
+			}
+			if descriptor.IsManifest(expected) {
+				if tagErr := s.tag(ctx, expected, expected.Digest.String()); tagErr != nil {
+					return tagErr
+				}
+			}
+		}
 		return err
 	}
 	if err := s.graph.Index(ctx, s.storage, expected); err != nil {
@@ -346,6 +356,11 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 	}
 	if !exists {
 		return fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrNotFound)
+	}
+	if descriptor.IsManifest(desc) && !s.graph.Exists(desc) {
+		if err := s.graph.IndexAll(ctx, s.storage, descriptor.Plain(desc)); err != nil {
+			return err
+		}
 	}
 
 	return s.tag(ctx, desc, reference)
@@ -678,6 +693,7 @@ func (s *Store) GC(ctx context.Context) error {
 			return fmt.Errorf("unable to save index: %w", err)
 		}
 	}
+	oldGraph := s.graph
 	s.tagResolver = tagResolver
 	s.graph = graph
 	reachableNodes := s.graph.DigestSet()
@@ -716,11 +732,19 @@ func (s *Store) GC(ctx context.Context) error {
 				// skip irrelevant content
 				continue
 			}
-			if !reachableNodes.Contains(blobDigest) && stale(digestEntry) {
-				// remove the blob from storage if it does not exist in Store
-				blobPath := path.Join(algPath, dgst)
-				if err := os.Remove(blobPath); err != nil {
-					return fmt.Errorf("unable to remove %s: %w", blobPath, err)
+			if !reachableNodes.Contains(blobDigest) {
+				if stale(digestEntry) {
+					// remove the blob from storage if it does not exist in Store
+					blobPath := path.Join(algPath, dgst)
+					if err := os.Remove(blobPath); err != nil {
+						return fmt.Errorf("unable to remove %s: %w", blobPath, err)
+					}
+				} else if desc, ok := oldGraph.Node(blobDigest); ok {
+					// keep spared blobs indexed so Predecessors still sees
+					// manifests pushed before GC
+					if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+						return err
+					}
 				}
 			}
 		}

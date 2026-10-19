@@ -3502,6 +3502,67 @@ func TestStore_GC_GracePeriod(t *testing.T) {
 			t.Errorf("Exists(stale) = %v, %v, want false", exists, err)
 		}
 	})
+
+	t.Run("spared manifest remains in graph for Predecessors across GC, re-push, and Tag", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+
+		configBlob := []byte(`{"architecture":"amd64","os":"linux"}`)
+		configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configBlob)
+		layerBlob := []byte("layer for spared manifest")
+		layerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layerBlob)
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Config:    configDesc,
+			Layers:    []ocispec.Descriptor{layerDesc},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+
+		if err := s.Push(ctx, configDesc, bytes.NewReader(configBlob)); err != nil {
+			t.Fatal("Push(config) error =", err)
+		}
+		if err := s.Push(ctx, layerDesc, bytes.NewReader(layerBlob)); err != nil {
+			t.Fatal("Push(layer) error =", err)
+		}
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("Push(manifest) error =", err)
+		}
+
+		// GC runs after the manifest is pushed but before it is tagged.
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+
+		preds, err := s.Predecessors(ctx, layerDesc)
+		if err != nil {
+			t.Fatal("Predecessors(layer) after GC error =", err)
+		}
+		if !equalDescriptorSet(preds, []ocispec.Descriptor{manifestDesc}) {
+			t.Fatalf("Predecessors(layer) after GC = %v, want [%v]", preds, manifestDesc)
+		}
+
+		// Re-pushing returns ErrAlreadyExists while keeping the manifest indexed,
+		// and tagging the spared manifest preserves Predecessors.
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, errdef.ErrAlreadyExists) {
+			t.Fatalf("re-Push(manifest) error = %v, want %v", err, errdef.ErrAlreadyExists)
+		}
+		if err := s.Tag(ctx, manifestDesc, "v1"); err != nil {
+			t.Fatal("Tag() error =", err)
+		}
+		preds, err = s.Predecessors(ctx, layerDesc)
+		if err != nil {
+			t.Fatal("Predecessors(layer) after Tag error =", err)
+		}
+		if !equalDescriptorSet(preds, []ocispec.Descriptor{manifestDesc}) {
+			t.Fatalf("Predecessors(layer) after Tag = %v, want [%v]", preds, manifestDesc)
+		}
+	})
 }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
