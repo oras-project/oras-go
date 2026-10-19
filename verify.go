@@ -51,7 +51,7 @@ var DefaultVerifyGraphOptions VerifyGraphOptions
 // VerifyGraphOptions contains parameters for [oras.VerifyGraph].
 type VerifyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent verify tasks.
-	// If less than or equal to 0, a default (currently 3) is used.
+	// If less than or equal to 0, a default (currently 8) is used.
 	Concurrency int
 	// MaxMetadataBytes limits the maximum size of the metadata (i.e.
 	// manifests) that can be cached in memory while walking the graph.

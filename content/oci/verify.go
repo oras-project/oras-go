@@ -36,6 +36,9 @@ import (
 )
 
 // defaultVerifyConcurrency is the default value of VerifyOptions.Concurrency.
+// OCI verification hashes local blob files from disk rather than performing
+// network round trips, so it intentionally does not follow the graph
+// copy/verify default.
 const defaultVerifyConcurrency = 3
 
 // VerifyOptions contains parameters for [Verify].
