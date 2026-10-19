@@ -115,6 +115,8 @@ var (
 	_ registry.ReferenceParser = (*manifestStore)(nil)
 )
 
+var _ content.UnsafePusher = (*Repository)(nil)
+
 // Repository is an HTTP client to a remote repository.
 type Repository struct {
 	// Registry is the parent registry. Must not be nil.
@@ -498,6 +500,19 @@ func (r *Repository) fetch(ctx context.Context, target ocispec.Descriptor) (io.R
 // Push pushes the content, matching the expected descriptor.
 func (r *Repository) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
 	return r.blobStore(expected).Push(ctx, expected, content)
+}
+
+// UnsafePush pushes content whose digest or size may be unknown. See
+// [content.UnsafePusher] for verification and error semantics. Like Push, it
+// routes by media type (see [Repository.ManifestMediaTypes]): manifests are
+// buffered and verified up to [Registry.MaxMetadataBytes] before the PUT and
+// indexed for referrers as with Push; other content is pushed as a blob,
+// bounded by [Repository.MaxUnsafePushBytes].
+func (r *Repository) UnsafePush(ctx context.Context, expected ocispec.Descriptor, content io.Reader) (ocispec.Descriptor, error) {
+	if isManifest(r.manifestMediaTypes(), expected) {
+		return r.manifests().UnsafePush(ctx, expected, content)
+	}
+	return r.blobs().UnsafePush(ctx, expected, content)
 }
 
 // Mount makes the blob with the given digest in fromRepo

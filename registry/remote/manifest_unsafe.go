@@ -81,7 +81,7 @@ func (s *manifestStore) UnsafePush(ctx context.Context, expected ocispec.Descrip
 	}
 
 	var buf bytes.Buffer
-	desc, err := ioutil.CopyUnsafe(&buf, r, nil, expected, limit)
+	desc, err := ioutil.CopyUnsafe(&buf, ioutil.NewContextReader(ctx, r), nil, expected, limit)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
