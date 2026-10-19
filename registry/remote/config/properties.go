@@ -43,6 +43,7 @@ func (rc *RegistriesConfig) RegistryProperties(ref string) (*properties.Registry
 // If regConf is nil, only reference parsing is performed.
 func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.Registry, error) {
 	var origReg *Registry
+	var sourceRef string
 	if regConf != nil {
 		// Step 1: Resolve aliases.
 		if resolved, ok := regConf.ResolveAlias(ref); ok {
@@ -59,13 +60,29 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 		origReg = regConf.FindRegistry(ref)
 
 		// Step 3: Rewrite reference using Location rules.
-		ref = regConf.RewriteReference(ref)
+		rewrittenRef := regConf.RewriteReference(ref)
+		if rewrittenRef != ref {
+			sourceRef = ref
+		}
+		ref = rewrittenRef
 	}
 
 	// Step 4: Parse the reference into properties.
 	props, err := properties.NewRegistry(ref)
 	if err != nil {
 		return nil, err
+	}
+	if sourceRef != "" {
+		source, err := properties.NewReference(sourceRef)
+		if err != nil {
+			return nil, err
+		}
+		if source.Registry != props.Reference.Registry || source.Repository != props.Reference.Repository {
+			props.Source = properties.Reference{
+				Registry:   source.Registry,
+				Repository: source.Repository,
+			}
+		}
 	}
 
 	// Step 5: Apply transport settings, attributes, and mirrors from the

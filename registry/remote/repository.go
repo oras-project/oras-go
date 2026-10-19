@@ -239,9 +239,10 @@ type Repository struct {
 	// Repository is constructed via the ClientBuilder; a Repository created
 	// directly has no mirrors.
 	mirrors []mirrorRepository
+	// sourceReference 是 registries.conf location 重写前的仓库根路径。
+	sourceReference properties.Reference
 
-	// The fields below are not copied by clone(); it resets them.
-	// TestRepository_clone_copiesEveryField covers both groups.
+	// 后续运行时状态由 clone() 重置；所有未导出字段的复制或重置策略均由测试覆盖。
 
 	// referrersState indicates whether the repository supports the Referrers
 	// API. It stores a properties.ReferrersAPI value.
@@ -321,6 +322,7 @@ func (r *Repository) clone() *Repository {
 		SingleRequestPushThreshold: r.SingleRequestPushThreshold,
 		MaxUnsafePushBytes:         r.MaxUnsafePushBytes,
 		mirrors:                    r.mirrors,
+		sourceReference:            r.sourceReference,
 	}
 }
 
@@ -690,10 +692,16 @@ func (r *Repository) ParseReference(reference string) (properties.Reference, err
 			return properties.Reference{}, err
 		}
 	} else if ref.Registry != repoRef.Registry || ref.Repository != repoRef.Repository {
-		return properties.Reference{}, fmt.Errorf(
-			"%w: mismatch between received %q and expected %q",
-			errdef.ErrInvalidReference, ref, repoRef,
-		)
+		if r.sourceReference.Registry != "" && r.sourceReference.Repository != "" &&
+			ref.Registry == r.sourceReference.Registry && ref.Repository == r.sourceReference.Repository {
+			ref.Registry = repoRef.Registry
+			ref.Repository = repoRef.Repository
+		} else {
+			return properties.Reference{}, fmt.Errorf(
+				"%w: mismatch between received %q and expected %q",
+				errdef.ErrInvalidReference, ref, repoRef,
+			)
+		}
 	}
 
 	if ref.GetReference() == "" {
