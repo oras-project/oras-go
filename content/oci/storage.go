@@ -124,7 +124,7 @@ func (s *Storage) UnsafePush(ctx context.Context, expected ocispec.Descriptor, r
 	if err := ctx.Err(); err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	return s.unsafePush(expected, r, s.MaxUnsafePushBytes)
+	return s.unsafePush(expected, ioutil.NewContextReader(ctx, r), s.MaxUnsafePushBytes)
 }
 
 func (s *Storage) unsafePush(expected ocispec.Descriptor, r io.Reader, limit int64) (ocispec.Descriptor, error) {

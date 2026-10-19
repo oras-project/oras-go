@@ -569,3 +569,75 @@ func TestBlobStore_UnsafePush_SmallReplayable(t *testing.T) {
 		})
 	}
 }
+
+func TestBlobStore_UnsafePush_CanceledDuringCopy(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		content       string
+		cancelAfter   int
+		wantMethods   []string
+		wantCancelled bool
+	}{
+		{name: "head", content: "abc", cancelAfter: 1},
+		{
+			name: "chunked", content: "0123456789abcdef", cancelAfter: 6,
+			wantMethods:   []string{http.MethodPost, http.MethodPatch, http.MethodDelete},
+			wantCancelled: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := &chunkedUploadRegistry{t: t}
+			srv := httptest.NewServer(reg.handler())
+			defer srv.Close()
+			repo := newChunkedTestRepo(t, srv, 4)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			r := &unsafeCancelReader{data: tt.content, cancel: cancel, cancelAfter: tt.cancelAfter}
+			got, err := repo.blobs().UnsafePush(ctx, ocispec.Descriptor{MediaType: "test", Size: -1}, r)
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("UnsafePush() error = %v, want context.Canceled", err)
+			}
+			if !reflect.DeepEqual(got, ocispec.Descriptor{}) {
+				t.Errorf("UnsafePush() desc = %+v, want empty", got)
+			}
+			if r.reads != tt.cancelAfter {
+				t.Errorf("source read %d times, want %d", r.reads, tt.cancelAfter)
+			}
+			if r.served >= len(tt.content) {
+				t.Errorf("source fully consumed: served %d bytes", r.served)
+			}
+			methods := reg.methodSequence()
+			if !slices.Equal(methods, tt.wantMethods) {
+				t.Errorf("method sequence = %v, want %v", methods, tt.wantMethods)
+			}
+			reg.mu.Lock()
+			cancelled := reg.cancelled
+			reg.mu.Unlock()
+			if cancelled != tt.wantCancelled {
+				t.Errorf("upload cancelled = %v, want %v", cancelled, tt.wantCancelled)
+			}
+		})
+	}
+}
+
+// unsafeCancelReader serves one byte per Read to cancel inside a partial chunk.
+type unsafeCancelReader struct {
+	data        string
+	cancel      context.CancelFunc
+	cancelAfter int
+	reads       int
+	served      int
+}
+
+func (r *unsafeCancelReader) Read(p []byte) (int, error) {
+	r.reads++
+	if r.served == len(r.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data[r.served:r.served+1])
+	r.served += n
+	if r.served == r.cancelAfter {
+		r.cancel()
+	}
+	return n, nil
+}

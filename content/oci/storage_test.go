@@ -824,3 +824,56 @@ func TestStorage_UnsafePush_DuplicateWrongSize(t *testing.T) {
 	}
 	assertUnsafeIngestEmpty(t, s)
 }
+
+// cancelAfterFirstRead cancels after reading at most three bytes.
+type cancelAfterFirstRead struct {
+	io.Reader
+	cancel context.CancelFunc
+	reads  int
+}
+
+func (r *cancelAfterFirstRead) Read(p []byte) (int, error) {
+	r.reads++
+	n, err := r.Reader.Read(p[:min(len(p), 3)])
+	r.cancel()
+	return n, err
+}
+
+func TestUnsafePush_CanceledDuringCopy(t *testing.T) {
+	blob := []byte("foobarbazqux")
+	for _, kind := range []string{"Storage", "Store"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			var p content.UnsafePusher
+			var err error
+			if kind == "Storage" {
+				p, err = NewStorage(root)
+			} else {
+				p, err = New(root)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			r := &cancelAfterFirstRead{Reader: bytes.NewReader(blob), cancel: cancel}
+			got, err := p.UnsafePush(ctx, ocispec.Descriptor{MediaType: "test", Size: -1}, r)
+			if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(got, ocispec.Descriptor{}) {
+				t.Fatalf("UnsafePush() = %+v, %v, want empty, context.Canceled", got, err)
+			}
+			if r.reads != 1 {
+				t.Errorf("source read %d times, want 1", r.reads)
+			}
+			if entries, err := os.ReadDir(filepath.Join(root, "blobs", "sha256")); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			} else if len(entries) != 0 {
+				t.Errorf("blob dir not empty: %d entries", len(entries))
+			}
+			if entries, err := os.ReadDir(filepath.Join(root, ingestDirName)); err != nil {
+				t.Fatal(err)
+			} else if len(entries) != 0 {
+				t.Errorf("ingest dir not cleaned: %d entries", len(entries))
+			}
+		})
+	}
+}
