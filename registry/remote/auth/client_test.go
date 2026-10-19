@@ -5643,3 +5643,491 @@ func TestClient_Do_Bearer_OpaqueChallengeScope(t *testing.T) {
 		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
 	}
 }
+
+func TestClient_Do_Bearer_Auth_Cached_InvalidToken400Denied(t *testing.T) {
+	const deniedBody = `{"errors":[{"code":"DENIED","message":"Your Authorization Token is invalid."}]}`
+
+	for _, useScopeHints := range []bool{true, false} {
+		name := "with scope hints"
+		if !useScopeHints {
+			name = "via scope-change cache retry"
+		}
+		t.Run(name, func(t *testing.T) {
+			username := "test_user"
+			password := "test_password"
+			accessToken := "stale_token"
+			var requestCount, authCount atomic.Int64
+			var service string
+			scope := "repository:test:pull"
+
+			as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				authCount.Add(1)
+				token := accessToken
+				if _, err := fmt.Fprintf(w, `{"access_token":%q}`, token); err != nil {
+					t.Errorf("failed to write token: %v", err)
+				}
+			}))
+			defer as.Close()
+
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestCount.Add(1)
+				auth := r.Header.Get("Authorization")
+				if auth == "" {
+					challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, scope)
+					w.Header().Set("Www-Authenticate", challenge)
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				if auth != "Bearer "+accessToken {
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(deniedBody))
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer ts.Close()
+
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+			service = uri.Host
+
+			cache := NewCache()
+			client := &Client{
+				CredentialFunc: credentials.StaticCredentialFunc(uri.Host, credentials.Credential{
+					Username: username,
+					Password: password,
+				}),
+				Cache: cache,
+			}
+			client.TokenFetcher = NewCompositeTokenFetcher(client.Client, client.Header, client.ClientID, true)
+
+			ctx := context.Background()
+			if useScopeHints {
+				ctx = withScopesForHost(ctx, uri.Host, scope)
+			}
+
+			// First request populates the cache with "stale_token".
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v2/test/manifests/latest", nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Client.Do() error = %v", err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+			}
+			if got := authCount.Load(); got != 1 {
+				t.Fatalf("authCount = %d, want 1", got)
+			}
+
+			// Rotate token on the server so the cached token is rejected with 400 DENIED.
+			accessToken = "fresh_token"
+			requestCount.Store(0)
+
+			req, err = http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v2/test/manifests/latest", nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			resp, err = client.Do(req)
+			if err != nil {
+				t.Fatalf("Client.Do() error = %v", err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
+			}
+			if got := authCount.Load(); got != 2 {
+				t.Errorf("authCount = %d, want 2", got)
+			}
+			if got := requestCount.Load(); got != 3 {
+				t.Errorf("requestCount = %d, want 3", got)
+			}
+
+			// Verify the cache now holds "fresh_token".
+			res := requestResource(req)
+			cachedTok, err := cache.GetToken(ctx, res.String(), SchemeBearer, scope)
+			if err != nil {
+				t.Fatalf("cache.GetToken() error = %v", err)
+			}
+			if cachedTok != "fresh_token" {
+				t.Errorf("cached token = %q, want %q", cachedTok, "fresh_token")
+			}
+		})
+	}
+}
+
+func TestClient_Do_Bearer_Auth_Cached_400WithoutDenied(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "other OCI error code",
+			body: `{"errors":[{"code":"NAME_INVALID","message":"invalid repository name"}]}`,
+		},
+		{
+			name: "plain text 400 body",
+			body: "bad request payload",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requestCount atomic.Int64
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestCount.Add(1)
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+
+			cache := NewCache()
+			ctx := withScopesForHost(context.Background(), uri.Host, "repository:test:pull")
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v2/test/manifests/latest", nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			res := requestResource(req)
+			if _, err := cache.Set(ctx, res.String(), SchemeBearer, "repository:test:pull", func(context.Context) (string, error) {
+				return "cached_token", nil
+			}); err != nil {
+				t.Fatalf("cache.Set() error = %v", err)
+			}
+
+			client := &Client{Cache: cache}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Client.Do() error = %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusBadRequest)
+			}
+			gotBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("io.ReadAll(resp.Body) error = %v", err)
+			}
+			if string(gotBody) != tt.body {
+				t.Errorf("resp.Body = %q, want %q", string(gotBody), tt.body)
+			}
+			if got := requestCount.Load(); got != 1 {
+				t.Errorf("requestCount = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestClient_Do_Bearer_Auth_400Denied_NoRetryWithoutCachedTokenOrWithCallerAuth(t *testing.T) {
+	const deniedBody = `{"errors":[{"code":"DENIED","message":"Your Authorization Token is invalid."}]}`
+
+	tests := []struct {
+		name       string
+		cache      Cache
+		callerAuth string
+	}{
+		{
+			name:  "nil cache",
+			cache: nil,
+		},
+		{
+			name:  "empty cache",
+			cache: NewCache(),
+		},
+		{
+			name:       "caller-supplied Authorization header",
+			cache:      NewCache(),
+			callerAuth: "Bearer caller_supplied_token",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requestCount atomic.Int64
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestCount.Add(1)
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(deniedBody))
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+
+			ctx := withScopesForHost(context.Background(), uri.Host, "repository:test:pull")
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v2/test/manifests/latest", nil)
+			if err != nil {
+				t.Fatalf("failed to create test request: %v", err)
+			}
+			if tt.callerAuth != "" {
+				req.Header.Set("Authorization", tt.callerAuth)
+				if tt.cache != nil {
+					res := requestResource(req)
+					_, _ = tt.cache.Set(ctx, res.String(), SchemeBearer, "repository:test:pull", func(context.Context) (string, error) {
+						return "cached_token", nil
+					})
+				}
+			}
+
+			client := &Client{Cache: tt.cache}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("Client.Do() error = %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusBadRequest)
+			}
+			gotBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("io.ReadAll(resp.Body) error = %v", err)
+			}
+			if string(gotBody) != deniedBody {
+				t.Errorf("resp.Body = %q, want %q", string(gotBody), deniedBody)
+			}
+			if got := requestCount.Load(); got != 1 {
+				t.Errorf("requestCount = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestClient_Do_Bearer_Auth_Cached_Second400AfterRetry(t *testing.T) {
+	const deniedBody = `{"errors":[{"code":"DENIED","message":"Your Authorization Token is invalid."}]}`
+	var requestCount atomic.Int64
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(deniedBody))
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	cache := NewCache()
+	ctx := withScopesForHost(context.Background(), uri.Host, "repository:test:pull")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v2/test/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	res := requestResource(req)
+	if _, err := cache.Set(ctx, res.String(), SchemeBearer, "repository:test:pull", func(context.Context) (string, error) {
+		return "stale_token", nil
+	}); err != nil {
+		t.Fatalf("cache.Set() error = %v", err)
+	}
+
+	client := &Client{Cache: cache}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusBadRequest)
+	}
+	gotBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("io.ReadAll(resp.Body) error = %v", err)
+	}
+	if string(gotBody) != deniedBody {
+		t.Errorf("resp.Body = %q, want %q", string(gotBody), deniedBody)
+	}
+	if got := requestCount.Load(); got != 2 {
+		t.Errorf("requestCount = %d, want 2 (initial send + single retry)", got)
+	}
+}
+
+func TestClient_Do_Bearer_Auth_Cached_400Denied_RequestBody(t *testing.T) {
+	const deniedBody = `{"errors":[{"code":"DENIED","message":"Your Authorization Token is invalid."}]}`
+	const payload = "manifest-payload-bytes"
+
+	t.Run("rewindable PUT body succeeds", func(t *testing.T) {
+		const freshToken = "fresh_token"
+		var requestCount atomic.Int64
+		var service string
+		scope := "repository:test:pull,push"
+
+		as := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = fmt.Fprintf(w, `{"token":%q}`, freshToken)
+		}))
+		defer as.Close()
+
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCount.Add(1)
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("failed to read request body: %v", err)
+			}
+			if string(bodyBytes) != payload {
+				t.Errorf("request body = %q, want %q", string(bodyBytes), payload)
+			}
+			auth := r.Header.Get("Authorization")
+			if auth == "" {
+				w.Header().Set("Www-Authenticate", fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", as.URL, service, scope))
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if auth != "Bearer "+freshToken {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(deniedBody))
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+		service = uri.Host
+
+		cache := NewCache()
+		ctx := withScopesForHost(context.Background(), uri.Host, scope)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, ts.URL+"/v2/test/manifests/latest", strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("failed to create test request: %v", err)
+		}
+		res := requestResource(req)
+		if _, err := cache.Set(ctx, res.String(), SchemeBearer, scope, func(context.Context) (string, error) {
+			return "stale_token", nil
+		}); err != nil {
+			t.Fatalf("cache.Set() error = %v", err)
+		}
+
+		client := &Client{Cache: cache}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Client.Do() error = %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusCreated)
+		}
+		if got := requestCount.Load(); got != 3 {
+			t.Errorf("requestCount = %d, want 3", got)
+		}
+	})
+
+	t.Run("non-rewindable PUT body returns original 400", func(t *testing.T) {
+		var requestCount atomic.Int64
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requestCount.Add(1)
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(deniedBody))
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		cache := NewCache()
+		scope := "repository:test:pull,push"
+		ctx := withScopesForHost(context.Background(), uri.Host, scope)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, ts.URL+"/v2/test/manifests/latest", io.NopCloser(strings.NewReader(payload)))
+		if err != nil {
+			t.Fatalf("failed to create test request: %v", err)
+		}
+		res := requestResource(req)
+		if _, err := cache.Set(ctx, res.String(), SchemeBearer, scope, func(context.Context) (string, error) {
+			return "stale_token", nil
+		}); err != nil {
+			t.Fatalf("cache.Set() error = %v", err)
+		}
+
+		client := &Client{Cache: cache}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("Client.Do() error = %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusBadRequest)
+		}
+		gotBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("io.ReadAll(resp.Body) error = %v", err)
+		}
+		if string(gotBody) != deniedBody {
+			t.Errorf("resp.Body = %q, want %q", string(gotBody), deniedBody)
+		}
+		if got := requestCount.Load(); got != 1 {
+			t.Errorf("requestCount = %d, want 1", got)
+		}
+	})
+}
+
+func TestClient_Do_Bearer_Auth_Cached_400Denied_CrossOriginRedirectGuard(t *testing.T) {
+	const deniedBody = `{"errors":[{"code":"DENIED","message":"Your Authorization Token is invalid."}]}`
+	var authCalls atomic.Int64
+
+	evilAuth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authCalls.Add(1)
+		_, _ = fmt.Fprintf(w, `{"token":"evil_token"}`)
+	}))
+	defer evilAuth.Close()
+
+	evilRegistry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Www-Authenticate", fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", evilAuth.URL, "evil", "repository:test:pull"))
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer evilRegistry.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(deniedBody))
+			return
+		}
+		// Unauthenticated retry redirects to a different origin that challenges with 401.
+		http.Redirect(w, r, evilRegistry.URL+"/v2/test/manifests/latest", http.StatusFound)
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	cache := NewCache()
+	scope := "repository:test:pull"
+	ctx := withScopesForHost(context.Background(), uri.Host, scope)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v2/test/manifests/latest", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	res := requestResource(req)
+	if _, err := cache.Set(ctx, res.String(), SchemeBearer, scope, func(context.Context) (string, error) {
+		return "stale_token", nil
+	}); err != nil {
+		t.Fatalf("cache.Set() error = %v", err)
+	}
+
+	client := &Client{
+		Cache: cache,
+		CredentialFunc: credentials.StaticCredentialFunc(uri.Host, credentials.Credential{
+			Username: "user",
+			Password: "password",
+		}),
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Client.Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("Client.Do() = %v, want %v", resp.StatusCode, http.StatusUnauthorized)
+	}
+	if got := authCalls.Load(); got != 0 {
+		t.Errorf("authCalls = %d, want 0 (cross-origin redirect challenge must not be answered)", got)
+	}
+}
