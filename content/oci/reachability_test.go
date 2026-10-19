@@ -428,6 +428,7 @@ func TestVerify_Reachability_MatchesGC(t *testing.T) {
 		t.Fatal("WalkDir() before GC:", err)
 	}
 
+	backdateBlobs(t, dir)
 	if err := store.GC(context.Background()); err != nil {
 		t.Fatal("GC() error =", err)
 	}

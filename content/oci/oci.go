@@ -652,6 +652,15 @@ func (s *Store) writeIndexFile() error {
 //   - unreferenced (dangling) blobs in Store which have no predecessors
 //   - garbage blobs in the storage whose metadata is not stored in Store
 //   - temporary files left behind by interrupted blob and metadata writes
+//
+// Unreachable blobs and temporary files modified within the last hour are kept,
+// so blobs pushed by a multi-step copy (for example, layers pushed before their
+// manifest is pushed and tagged) or by another Store on the same directory are
+// not removed while the operation completes within that window. GC does not
+// otherwise coordinate with concurrent writers: it rebuilds the index from this
+// Store's in-memory references and overwrites index.json, which drops tags and
+// manifests written by another Store since this Store was opened, and does not
+// protect writes that take longer than the grace period.
 func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
@@ -673,6 +682,7 @@ func (s *Store) GC(ctx context.Context) error {
 	reachableNodes := s.graph.DigestSet()
 
 	// clean up garbage blobs in the storage
+	stale := olderThan(leftoverExpiry)
 	rootpath := filepath.Join(s.root, ocispec.ImageBlobsDir)
 	algDirs, err := os.ReadDir(rootpath)
 	if err != nil {
@@ -705,7 +715,7 @@ func (s *Store) GC(ctx context.Context) error {
 				// skip irrelevant content
 				continue
 			}
-			if !reachableNodes.Contains(blobDigest) {
+			if !reachableNodes.Contains(blobDigest) && stale(digestEntry) {
 				// remove the blob from storage if it does not exist in Store
 				blobPath := path.Join(algPath, dgst)
 				if err := os.Remove(blobPath); err != nil {
@@ -722,9 +732,10 @@ func (s *Store) GC(ctx context.Context) error {
 	return nil
 }
 
-// leftoverExpiry is how long a temporary file must have been untouched before
-// GC reclaims it, so that a write in progress -- possibly by another Store on
-// the same directory -- is never reclaimed from underneath.
+// leftoverExpiry is how long an unreachable blob or temporary file must have
+// been untouched before GC reclaims it, giving a write or multi-step copy in
+// progress -- on this Store or another Store on the same directory -- a grace
+// period to finish and record its references before its files can be collected.
 const leftoverExpiry = time.Hour
 
 // gcLeftovers removes the temporary files that interrupted writes leave

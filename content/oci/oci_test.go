@@ -2814,6 +2814,7 @@ func TestStore_GC(t *testing.T) {
 
 	// tag manifest blob 3
 	s.Tag(ctx, descs[3], "latest")
+	backdateBlobs(t, tempDir)
 
 	// perform double GC
 	if err = s.GC(ctx); err != nil {
@@ -2858,6 +2859,7 @@ func TestStore_GCPersistsIndex(t *testing.T) {
 	if err := s.Tag(ctx, keptDesc, "kept"); err != nil {
 		t.Fatal(err)
 	}
+	backdateBlobs(t, root)
 	if err := s.GC(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -2955,6 +2957,7 @@ func TestStore_GCManualSaveIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	backdateBlobs(t, root)
 	if err := s.GC(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -3291,6 +3294,7 @@ func TestStore_GCSkipsNonEmptyDigestNamedDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	backdateBlobs(t, tempDir)
 	if err := s.GC(ctx); err != nil {
 		t.Fatal("GC() error =", err)
 	}
@@ -3355,6 +3359,7 @@ func TestStore_GCRemoveError(t *testing.T) {
 	if err := s.storage.Push(ctx, garbageDesc, bytes.NewReader(garbage)); err != nil {
 		t.Fatal(err)
 	}
+	backdateBlobs(t, tempDir)
 
 	algPath := path.Join(tempDir, ocispec.ImageBlobsDir, garbageDesc.Digest.Algorithm().String())
 	if err := os.Chmod(algPath, 0555); err != nil {
@@ -3370,6 +3375,133 @@ func TestStore_GCRemoveError(t *testing.T) {
 	if !strings.Contains(err.Error(), blobPath) {
 		t.Fatalf("GC() error = %v, want it to mention %s", err, blobPath)
 	}
+}
+
+// backdateBlobs sets the modification time of every file under blobs/ in root
+// past leftoverExpiry so that GC treats them as eligible for removal.
+func backdateBlobs(tb testing.TB, root string) {
+	tb.Helper()
+	old := time.Now().Add(-2 * leftoverExpiry)
+	blobsRoot := filepath.Join(root, ocispec.ImageBlobsDir)
+	err := filepath.WalkDir(blobsRoot, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		return os.Chtimes(p, old, old)
+	})
+	if err != nil {
+		tb.Fatal("backdateBlobs:", err)
+	}
+}
+
+func TestStore_GC_GracePeriod(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("layer pushed before GC survives until manifest is pushed and tagged", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+
+		configBlob := []byte(`{"architecture":"amd64","os":"linux"}`)
+		configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configBlob)
+		layerBlob := []byte("layer content in flight")
+		layerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layerBlob)
+
+		if err := s.Push(ctx, configDesc, bytes.NewReader(configBlob)); err != nil {
+			t.Fatal("Push(config) error =", err)
+		}
+		if err := s.Push(ctx, layerDesc, bytes.NewReader(layerBlob)); err != nil {
+			t.Fatal("Push(layer) error =", err)
+		}
+
+		// GC runs mid-copy before the manifest referencing the layer is pushed.
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+
+		for _, desc := range []ocispec.Descriptor{configDesc, layerDesc} {
+			exists, err := s.Exists(ctx, desc)
+			if err != nil {
+				t.Fatal("Exists() error =", err)
+			}
+			if !exists {
+				t.Fatalf("recent blob %s was deleted by GC during a copy in progress", desc.Digest)
+			}
+		}
+
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Config:    configDesc,
+			Layers:    []ocispec.Descriptor{layerDesc},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("Push(manifest) error =", err)
+		}
+		if err := s.Tag(ctx, manifestDesc, "v1"); err != nil {
+			t.Fatal("Tag() error =", err)
+		}
+
+		// Once tagged, even after the grace period expires, a subsequent GC keeps everything.
+		backdateBlobs(t, root)
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("second GC() error =", err)
+		}
+
+		rc, err := s.Fetch(ctx, layerDesc)
+		if err != nil {
+			t.Fatal("Fetch(layer) error =", err)
+		}
+		defer rc.Close()
+		got, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, layerBlob) {
+			t.Errorf("Fetch(layer) = %q, want %q", got, layerBlob)
+		}
+	})
+
+	t.Run("unreachable blob older than leftoverExpiry is removed while recent one is kept", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+
+		recentBlob := []byte("recent unreachable blob")
+		recentDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, recentBlob)
+		if err := s.Push(ctx, recentDesc, bytes.NewReader(recentBlob)); err != nil {
+			t.Fatal("Push(recent) error =", err)
+		}
+
+		staleBlob := []byte("stale unreachable blob")
+		staleDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, staleBlob)
+		if err := s.Push(ctx, staleDesc, bytes.NewReader(staleBlob)); err != nil {
+			t.Fatal("Push(stale) error =", err)
+		}
+		stalePath := filepath.Join(root, ocispec.ImageBlobsDir, staleDesc.Digest.Algorithm().String(), staleDesc.Digest.Encoded())
+		old := time.Now().Add(-2 * leftoverExpiry)
+		if err := os.Chtimes(stalePath, old, old); err != nil {
+			t.Fatal("Chtimes() error =", err)
+		}
+
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+
+		if exists, err := s.Exists(ctx, recentDesc); err != nil || !exists {
+			t.Errorf("Exists(recent) = %v, %v, want true", exists, err)
+		}
+		if exists, err := s.Exists(ctx, staleDesc); err != nil || exists {
+			t.Errorf("Exists(stale) = %v, %v, want false", exists, err)
+		}
+	})
 }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
