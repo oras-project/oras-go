@@ -4904,6 +4904,149 @@ func TestGCReachable_MissingUntaggedEntry(t *testing.T) {
 	}
 }
 
+func TestStore_GC_MissingUntaggedEntry(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Set up a valid tagged manifest with config and layer.
+	configBlob := []byte(`{"architecture":"amd64","os":"linux"}`)
+	configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configBlob)
+	if err := s.Push(ctx, configDesc, bytes.NewReader(configBlob)); err != nil {
+		t.Fatal(err)
+	}
+
+	layerBlob := []byte("tagged layer content")
+	layerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layerBlob)
+	if err := s.Push(ctx, layerDesc, bytes.NewReader(layerBlob)); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := ocispec.Manifest{
+		Config: configDesc,
+		Layers: []ocispec.Descriptor{layerDesc},
+	}
+	manifest.SchemaVersion = 2
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taggedDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+	if err := s.Push(ctx, taggedDesc, bytes.NewReader(manifestJSON)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Tag(ctx, taggedDesc, "v1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Unrelated orphan blob that should remain unreferenced and removed by GC.
+	orphan := []byte("orphan blob")
+	orphanDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, orphan)
+	if err := s.Push(ctx, orphanDesc, bytes.NewReader(orphan)); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. Untagged referrer whose subject is missing.
+	missingSubject := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromString("missing subject"),
+		Size:      123,
+	}
+	refConfig := []byte(`{"type":"referrer-config"}`)
+	refConfigDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, refConfig)
+	if err := s.Push(ctx, refConfigDesc, bytes.NewReader(refConfig)); err != nil {
+		t.Fatal(err)
+	}
+	referrerManifest := ocispec.Manifest{
+		Config:  refConfigDesc,
+		Subject: &missingSubject,
+	}
+	referrerManifest.SchemaVersion = 2
+	referrerJSON, err := json.Marshal(referrerManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	referrerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, referrerJSON)
+	if err := s.Push(ctx, referrerDesc, bytes.NewReader(referrerJSON)); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Untagged entry for a missing manifest in index.json.
+	// Push a manifest so s.tag records it in index.json, then remove its blob from disk.
+	missingManifestBlob := []byte(`{"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","size":1},"layers":[]}`)
+	missingDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, missingManifestBlob)
+	if err := s.Push(ctx, missingDesc, bytes.NewReader(missingManifestBlob)); err != nil {
+		t.Fatal(err)
+	}
+	missingBlobPath := filepath.Join(tempDir, ocispec.ImageBlobsDir, missingDesc.Digest.Algorithm().String(), missingDesc.Digest.Encoded())
+	if err := os.Remove(missingBlobPath); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify missingDesc blob is absent prior to GC.
+	exists, err := s.Exists(ctx, missingDesc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exists {
+		t.Fatal("missingDesc blob should not exist before GC")
+	}
+
+	// Run Store.GC and verify that it succeeds.
+	if err := s.GC(ctx); err != nil {
+		t.Fatalf("Store.GC() error = %v, want nil", err)
+	}
+
+	// Verify rewritten index.json: tagged manifest is kept, dangling entries are dropped.
+	indexPath := filepath.Join(tempDir, ocispec.ImageIndexFile)
+	indexFile, err := os.Open(indexPath)
+	if err != nil {
+		t.Fatal("failed to open rewritten index.json:", err)
+	}
+	defer indexFile.Close()
+
+	var index ocispec.Index
+	if err := json.NewDecoder(indexFile).Decode(&index); err != nil {
+		t.Fatal("failed to decode rewritten index.json:", err)
+	}
+
+	if len(index.Manifests) != 1 {
+		t.Fatalf("len(index.Manifests) = %d, want 1; got: %+v", len(index.Manifests), index.Manifests)
+	}
+	kept := index.Manifests[0]
+	if kept.Digest != taggedDesc.Digest {
+		t.Errorf("kept manifest digest = %s, want %s", kept.Digest, taggedDesc.Digest)
+	}
+	if kept.Annotations[ocispec.AnnotationRefName] != "v1" {
+		t.Errorf("kept manifest tag = %q, want %q", kept.Annotations[ocispec.AnnotationRefName], "v1")
+	}
+
+	// Verify blobs: tagged manifest, config, and layer must be kept.
+	for _, desc := range []ocispec.Descriptor{taggedDesc, configDesc, layerDesc} {
+		exists, err := s.Exists(ctx, desc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			t.Errorf("expected blob %s to exist after GC", desc.Digest)
+		}
+	}
+
+	// Verify removed blobs: orphan, referrer manifest, and referrer config must be removed.
+	for _, desc := range []ocispec.Descriptor{orphanDesc, referrerDesc, refConfigDesc} {
+		exists, err := s.Exists(ctx, desc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exists {
+			t.Errorf("expected blob %s to be removed by GC", desc.Digest)
+		}
+	}
+}
+
 var _ content.UnsafePusher = (*Store)(nil)
 
 func TestStore_UnsafePush(t *testing.T) {
