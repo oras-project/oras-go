@@ -36,7 +36,10 @@ import (
 )
 
 // defaultConcurrency is the default value of CopyGraphOptions.Concurrency.
-const defaultConcurrency int = 3 // This value is consistent with dockerd and containerd.
+// Copy and graph verification are usually network- and latency-bound and
+// often traverse many small nodes, so 8 is a better default than the old
+// value aligned with dockerd and containerd.
+const defaultConcurrency int = 8
 
 // SkipNode signals to stop copying a node. When returned from PreCopy the blob must exist in the target.
 // This can be used to signal that a blob has been made available in the target repository by "Mount()" or some other technique.
@@ -95,7 +98,7 @@ var DefaultCopyGraphOptions CopyGraphOptions
 // CopyGraphOptions contains parameters for [oras.CopyGraph].
 type CopyGraphOptions struct {
 	// Concurrency limits the maximum number of concurrent copy tasks.
-	// If less than or equal to 0, a default (currently 3) is used.
+	// If less than or equal to 0, a default (currently 8) is used.
 	Concurrency int
 	// MaxMetadataBytes limits the maximum size of the metadata that can be
 	// cached in the memory.

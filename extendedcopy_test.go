@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2142,6 +2143,73 @@ func BenchmarkExtendedCopyGraph_FindPredecessorsLatency(b *testing.B) {
 			for b.Loop() {
 				dst := memory.New()
 				if err := oras.ExtendedCopyGraph(ctx, src, dst, node, opts); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// latentStorage delays each destination content request by latency.
+// Fetch is delayed too so every Storage call is one simulated round trip;
+// CopyGraph uses Exists and Push on the destination.
+type latentStorage struct {
+	content.Storage
+	latency time.Duration
+}
+
+func (s latentStorage) Exists(ctx context.Context, desc ocispec.Descriptor) (bool, error) {
+	time.Sleep(s.latency)
+	return s.Storage.Exists(ctx, desc)
+}
+
+func (s latentStorage) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
+	time.Sleep(s.latency)
+	return s.Storage.Fetch(ctx, desc)
+}
+
+func (s latentStorage) Push(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error {
+	time.Sleep(s.latency)
+	return s.Storage.Push(ctx, desc, r)
+}
+
+// BenchmarkCopyGraph_DestinationLatency copies a 42-node artifact (one
+// manifest, one config, and 40 layers) to a destination that sleeps for 5 ms
+// on every content request. SkipExistsCheckBelowSize stays at zero, so
+// concurrency is the only variable.
+func BenchmarkCopyGraph_DestinationLatency(b *testing.B) {
+	const (
+		latency = 5 * time.Millisecond
+		layers  = 40
+	)
+	ctx := context.Background()
+	src := memory.New()
+	config, err := pushBlob(ctx, ocispec.MediaTypeImageConfig, []byte("config"), src)
+	if err != nil {
+		b.Fatal(err)
+	}
+	layerDescs := make([]ocispec.Descriptor, layers)
+	for i := range layerDescs {
+		layerDescs[i], err = pushBlob(ctx, ocispec.MediaTypeImageLayer, []byte("layer"+strconv.Itoa(i)), src)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	manifestJSON, err := generateManifestContent(config, layerDescs...)
+	if err != nil {
+		b.Fatal(err)
+	}
+	manifest, err := pushBlob(ctx, ocispec.MediaTypeImageManifest, manifestJSON, src)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for _, concurrency := range []int{1, 3, 8, 16, 32} {
+		b.Run("concurrency="+strconv.Itoa(concurrency), func(b *testing.B) {
+			opts := oras.CopyGraphOptions{Concurrency: concurrency}
+			for b.Loop() {
+				dst := latentStorage{Storage: memory.New(), latency: latency}
+				if err := oras.CopyGraph(ctx, src, dst, manifest, opts); err != nil {
 					b.Fatal(err)
 				}
 			}
