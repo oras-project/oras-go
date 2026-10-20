@@ -1508,6 +1508,132 @@ func TestExtendedCopyGraph_FilterArtifactTypeWithRegex_ArtifactTypeInDescriptor(
 	}
 }
 
+func TestExtendedCopyGraph_FilterArtifactTypeWithRegex_ImageManifest(t *testing.T) {
+	ctx := context.Background()
+	src := memory.New()
+	pushBlob := func(mediaType string, blob []byte) ocispec.Descriptor {
+		desc := content.NewDescriptorFromBytes(mediaType, blob)
+		if err := src.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+			t.Fatalf("failed to push test content to src: %v", err)
+		}
+		return desc
+	}
+	subject := pushBlob(ocispec.MediaTypeImageLayer, []byte("foo"))
+	emptyConfig := pushBlob(ocispec.MediaTypeEmptyJSON, []byte("{}"))
+	typedConfig := pushBlob("application/vnd.example.config.v1+json", []byte(`{"bar":"woo"}`))
+	pushManifest := func(artifactType string, config ocispec.Descriptor) ocispec.Descriptor {
+		manifest := ocispec.Manifest{
+			Versioned:    specs.Versioned{SchemaVersion: 2},
+			MediaType:    ocispec.MediaTypeImageManifest,
+			ArtifactType: artifactType,
+			Config:       config,
+			Layers:       []ocispec.Descriptor{emptyConfig},
+			Subject:      &subject,
+		}
+		manifestJSON, err := json.Marshal(manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pushBlob(ocispec.MediaTypeImageManifest, manifestJSON)
+	}
+	sbom := pushManifest("application/vnd.example.sbom.v1", emptyConfig)
+	signature := pushManifest("application/vnd.example.signature.v1", typedConfig)
+	configOnly := pushManifest("", typedConfig)
+	pushIndex := func(artifactType string) ocispec.Descriptor {
+		index := ocispec.Index{
+			Versioned:    specs.Versioned{SchemaVersion: 2},
+			MediaType:    ocispec.MediaTypeImageIndex,
+			ArtifactType: artifactType,
+			Subject:      &subject,
+		}
+		indexJSON, err := json.Marshal(index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pushBlob(ocispec.MediaTypeImageIndex, indexJSON)
+	}
+	typedIndex := pushIndex("application/vnd.example.index.v1")
+	untypedIndex := pushIndex("")
+	referrers := []ocispec.Descriptor{sbom, signature, configOnly, typedIndex, untypedIndex}
+
+	tests := []struct {
+		name  string
+		regex string
+		want  []ocispec.Descriptor
+	}{
+		{"artifactType is used over an empty config media type", `sbom`, []ocispec.Descriptor{sbom}},
+		{"artifactType is used over a config media type", `signature`, []ocispec.Descriptor{signature}},
+		{"empty config media type is not the artifact type", `empty`, nil},
+		{"config media type is used when artifactType is unset", `example\.config`, []ocispec.Descriptor{configOnly}},
+		{"index artifactType is used", `example\.index`, []ocispec.Descriptor{typedIndex}},
+		{"only an index without artifactType has an empty type", `^$`, []ocispec.Descriptor{untypedIndex}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := memory.New()
+			opts := oras.ExtendedCopyGraphOptions{}
+			opts.FilterArtifactType(regexp.MustCompile(tt.regex))
+			if err := oras.ExtendedCopyGraph(ctx, src, dst, subject, opts); err != nil {
+				t.Fatalf("ExtendedCopyGraph() error = %v, wantErr %v", err, false)
+			}
+			for _, referrer := range referrers {
+				want := false
+				for _, w := range tt.want {
+					want = want || content.Equal(w, referrer)
+				}
+				got, err := dst.Exists(ctx, referrer)
+				if err != nil {
+					t.Fatalf("dst.Exists() error = %v, wantErr %v", err, false)
+				}
+				if got != want {
+					t.Errorf("copied %s = %v, want %v", referrer.Digest, got, want)
+				}
+			}
+		})
+	}
+}
+
+// invalidIndexStore serves undecodable content for every image index.
+type invalidIndexStore struct {
+	*memory.Store
+}
+
+func (s *invalidIndexStore) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCloser, error) {
+	if target.MediaType == ocispec.MediaTypeImageIndex {
+		return io.NopCloser(strings.NewReader("x")), nil
+	}
+	return s.Store.Fetch(ctx, target)
+}
+
+func TestExtendedCopyGraph_FilterArtifactTypeWithRegex_InvalidIndex(t *testing.T) {
+	ctx := context.Background()
+	store := memory.New()
+	subject := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, []byte("foo"))
+	if err := store.Push(ctx, subject, bytes.NewReader([]byte("foo"))); err != nil {
+		t.Fatalf("failed to push test content to src: %v", err)
+	}
+	indexJSON, err := json.Marshal(ocispec.Index{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Subject:   &subject,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, indexJSON)
+	if err := store.Push(ctx, index, bytes.NewReader(indexJSON)); err != nil {
+		t.Fatalf("failed to push test content to src: %v", err)
+	}
+
+	opts := oras.ExtendedCopyGraphOptions{}
+	opts.FilterArtifactType(regexp.MustCompile(`.`))
+	err = oras.ExtendedCopyGraph(ctx, &invalidIndexStore{store}, memory.New(), subject, opts)
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Errorf("ExtendedCopyGraph() error = %v, want a JSON syntax error", err)
+	}
+}
+
 func TestExtendedCopyGraph_FilterArtifactTypeWithMultipleRegex_Referrers(t *testing.T) {
 	// generate test content
 	var blobs [][]byte
