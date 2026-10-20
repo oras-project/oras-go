@@ -2814,6 +2814,7 @@ func TestStore_GC(t *testing.T) {
 
 	// tag manifest blob 3
 	s.Tag(ctx, descs[3], "latest")
+	backdateBlobs(t, tempDir)
 
 	// perform double GC
 	if err = s.GC(ctx); err != nil {
@@ -2858,6 +2859,7 @@ func TestStore_GCPersistsIndex(t *testing.T) {
 	if err := s.Tag(ctx, keptDesc, "kept"); err != nil {
 		t.Fatal(err)
 	}
+	backdateBlobs(t, root)
 	if err := s.GC(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -2955,6 +2957,7 @@ func TestStore_GCManualSaveIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	backdateBlobs(t, root)
 	if err := s.GC(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -3291,6 +3294,7 @@ func TestStore_GCSkipsNonEmptyDigestNamedDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	backdateBlobs(t, tempDir)
 	if err := s.GC(ctx); err != nil {
 		t.Fatal("GC() error =", err)
 	}
@@ -3355,6 +3359,7 @@ func TestStore_GCRemoveError(t *testing.T) {
 	if err := s.storage.Push(ctx, garbageDesc, bytes.NewReader(garbage)); err != nil {
 		t.Fatal(err)
 	}
+	backdateBlobs(t, tempDir)
 
 	algPath := path.Join(tempDir, ocispec.ImageBlobsDir, garbageDesc.Digest.Algorithm().String())
 	if err := os.Chmod(algPath, 0555); err != nil {
@@ -3370,6 +3375,309 @@ func TestStore_GCRemoveError(t *testing.T) {
 	if !strings.Contains(err.Error(), blobPath) {
 		t.Fatalf("GC() error = %v, want it to mention %s", err, blobPath)
 	}
+}
+
+// backdateBlobs sets the modification time of every file under blobs/ in root
+// past leftoverExpiry so that GC treats them as eligible for removal.
+func backdateBlobs(tb testing.TB, root string) {
+	tb.Helper()
+	old := time.Now().Add(-2 * leftoverExpiry)
+	blobsRoot := filepath.Join(root, ocispec.ImageBlobsDir)
+	err := filepath.WalkDir(blobsRoot, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		return os.Chtimes(p, old, old)
+	})
+	if err != nil {
+		tb.Fatal("backdateBlobs:", err)
+	}
+}
+
+func TestStore_GC_GracePeriod(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("layer pushed before GC survives until manifest is pushed and tagged", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+
+		configBlob := []byte(`{"architecture":"amd64","os":"linux"}`)
+		configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configBlob)
+		layerBlob := []byte("layer content in flight")
+		layerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layerBlob)
+
+		if err := s.Push(ctx, configDesc, bytes.NewReader(configBlob)); err != nil {
+			t.Fatal("Push(config) error =", err)
+		}
+		if err := s.Push(ctx, layerDesc, bytes.NewReader(layerBlob)); err != nil {
+			t.Fatal("Push(layer) error =", err)
+		}
+
+		// GC runs mid-copy before the manifest referencing the layer is pushed.
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+
+		for _, desc := range []ocispec.Descriptor{configDesc, layerDesc} {
+			exists, err := s.Exists(ctx, desc)
+			if err != nil {
+				t.Fatal("Exists() error =", err)
+			}
+			if !exists {
+				t.Fatalf("recent blob %s was deleted by GC during a copy in progress", desc.Digest)
+			}
+		}
+
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Config:    configDesc,
+			Layers:    []ocispec.Descriptor{layerDesc},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("Push(manifest) error =", err)
+		}
+		if err := s.Tag(ctx, manifestDesc, "v1"); err != nil {
+			t.Fatal("Tag() error =", err)
+		}
+
+		// Once tagged, even after the grace period expires, a subsequent GC keeps everything.
+		backdateBlobs(t, root)
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("second GC() error =", err)
+		}
+
+		rc, err := s.Fetch(ctx, layerDesc)
+		if err != nil {
+			t.Fatal("Fetch(layer) error =", err)
+		}
+		defer rc.Close()
+		got, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, layerBlob) {
+			t.Errorf("Fetch(layer) = %q, want %q", got, layerBlob)
+		}
+	})
+
+	t.Run("unreachable blob older than leftoverExpiry is removed while recent one is kept", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+
+		recentBlob := []byte("recent unreachable blob")
+		recentDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, recentBlob)
+		if err := s.Push(ctx, recentDesc, bytes.NewReader(recentBlob)); err != nil {
+			t.Fatal("Push(recent) error =", err)
+		}
+
+		staleBlob := []byte("stale unreachable blob")
+		staleDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, staleBlob)
+		if err := s.Push(ctx, staleDesc, bytes.NewReader(staleBlob)); err != nil {
+			t.Fatal("Push(stale) error =", err)
+		}
+		stalePath := filepath.Join(root, ocispec.ImageBlobsDir, staleDesc.Digest.Algorithm().String(), staleDesc.Digest.Encoded())
+		old := time.Now().Add(-2 * leftoverExpiry)
+		if err := os.Chtimes(stalePath, old, old); err != nil {
+			t.Fatal("Chtimes() error =", err)
+		}
+
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+
+		if exists, err := s.Exists(ctx, recentDesc); err != nil || !exists {
+			t.Errorf("Exists(recent) = %v, %v, want true", exists, err)
+		}
+		if exists, err := s.Exists(ctx, staleDesc); err != nil || exists {
+			t.Errorf("Exists(stale) = %v, %v, want false", exists, err)
+		}
+	})
+
+	t.Run("spared manifest remains in graph for Predecessors across GC, re-push, and Tag", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+
+		configBlob := []byte(`{"architecture":"amd64","os":"linux"}`)
+		configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configBlob)
+		layerBlob := []byte("layer for spared manifest")
+		layerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layerBlob)
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Config:    configDesc,
+			Layers:    []ocispec.Descriptor{layerDesc},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+
+		if err := s.Push(ctx, configDesc, bytes.NewReader(configBlob)); err != nil {
+			t.Fatal("Push(config) error =", err)
+		}
+		if err := s.Push(ctx, layerDesc, bytes.NewReader(layerBlob)); err != nil {
+			t.Fatal("Push(layer) error =", err)
+		}
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("Push(manifest) error =", err)
+		}
+
+		// GC runs after the manifest is pushed but before it is tagged.
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+
+		preds, err := s.Predecessors(ctx, layerDesc)
+		if err != nil {
+			t.Fatal("Predecessors(layer) after GC error =", err)
+		}
+		if !equalDescriptorSet(preds, []ocispec.Descriptor{manifestDesc}) {
+			t.Fatalf("Predecessors(layer) after GC = %v, want [%v]", preds, manifestDesc)
+		}
+		if got, err := s.Resolve(ctx, manifestDesc.Digest.String()); err != nil || got.MediaType != manifestDesc.MediaType {
+			t.Fatalf("Resolve(digest) after GC = %+v, %v, want media type %s", got, err, manifestDesc.MediaType)
+		}
+
+		// Re-pushing returns ErrAlreadyExists while keeping the manifest indexed
+		// and restoring its digest entry in tagResolver, and tagging the spared
+		// manifest preserves Predecessors.
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, errdef.ErrAlreadyExists) {
+			t.Fatalf("re-Push(manifest) error = %v, want %v", err, errdef.ErrAlreadyExists)
+		}
+		if got, err := s.Resolve(ctx, manifestDesc.Digest.String()); err != nil || got.Digest != manifestDesc.Digest {
+			t.Fatalf("Resolve(digest) after re-Push = %+v, %v, want %s", got, err, manifestDesc.Digest)
+		}
+		if got, err := s.UnsafePush(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, errdef.ErrAlreadyExists) || !reflect.DeepEqual(got, manifestDesc) {
+			t.Fatalf("UnsafePush(manifest) = %+v, %v, want %+v, %v", got, err, manifestDesc, errdef.ErrAlreadyExists)
+		}
+		if err := s.Tag(ctx, manifestDesc, "v1"); err != nil {
+			t.Fatal("Tag() error =", err)
+		}
+		preds, err = s.Predecessors(ctx, layerDesc)
+		if err != nil {
+			t.Fatal("Predecessors(layer) after Tag error =", err)
+		}
+		if !equalDescriptorSet(preds, []ocispec.Descriptor{manifestDesc}) {
+			t.Fatalf("Predecessors(layer) after Tag = %v, want [%v]", preds, manifestDesc)
+		}
+
+		// Also verify a manifest written directly to s.storage before GC (as by
+		// another Store on the same directory) is indexed when tagged after GC.
+		otherRoot := t.TempDir()
+		otherStore, err := New(otherRoot)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		for _, item := range []struct {
+			desc ocispec.Descriptor
+			blob []byte
+		}{
+			{configDesc, configBlob},
+			{layerDesc, layerBlob},
+			{manifestDesc, manifestJSON},
+		} {
+			if err := otherStore.storage.Push(ctx, item.desc, bytes.NewReader(item.blob)); err != nil {
+				t.Fatal("storage.Push() error =", err)
+			}
+		}
+		if err := otherStore.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+		if err := otherStore.Tag(ctx, manifestDesc, "v1"); err != nil {
+			t.Fatal("Tag() error =", err)
+		}
+		preds, err = otherStore.Predecessors(ctx, layerDesc)
+		if err != nil || !equalDescriptorSet(preds, []ocispec.Descriptor{manifestDesc}) {
+			t.Fatalf("Predecessors(layer) on storage-pushed manifest after Tag = %v, %v, want [%v]", preds, err, manifestDesc)
+		}
+	})
+
+	t.Run("re-push of manifest written directly to storage records its digest", func(t *testing.T) {
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		manifestJSON := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2},"layers":[]}`)
+		manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		if err := s.storage.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("storage.Push() error =", err)
+		}
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, errdef.ErrAlreadyExists) {
+			t.Fatalf("Push(manifest) error = %v, want %v", err, errdef.ErrAlreadyExists)
+		}
+		if got, err := s.Resolve(ctx, manifestDesc.Digest.String()); err != nil || got.MediaType != manifestDesc.MediaType {
+			t.Fatalf("Resolve(digest) after re-Push = %+v, %v, want media type %s", got, err, manifestDesc.MediaType)
+		}
+	})
+}
+
+func TestStore_CorruptManifestIndexError(t *testing.T) {
+	ctx := context.Background()
+	manifestJSON := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2},"layers":[]}`)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+	corrupt := func(t *testing.T, root string) {
+		t.Helper()
+		blobPath := filepath.Join(root, ocispec.ImageBlobsDir, manifestDesc.Digest.Algorithm().String(), manifestDesc.Digest.Encoded())
+		if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(blobPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(blobPath, []byte("corrupt"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("Push, UnsafePush and Tag fail to index an existing corrupt manifest", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		corrupt(t, root)
+
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err == nil || errors.Is(err, errdef.ErrAlreadyExists) {
+			t.Errorf("Push() error = %v, want index error", err)
+		}
+		if _, err := s.UnsafePush(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err == nil || errors.Is(err, errdef.ErrAlreadyExists) {
+			t.Errorf("UnsafePush() error = %v, want index error", err)
+		}
+		if err := s.Tag(ctx, manifestDesc, "v1"); err == nil {
+			t.Error("Tag() error = nil, want index error")
+		}
+	})
+
+	t.Run("GC fails to re-index a spared manifest corrupted on disk", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("Push() error =", err)
+		}
+		// drop the digest reference so only the spare path in GC reads the
+		// manifest, not gcReachable
+		s.tagResolver.Untag(manifestDesc.Digest.String())
+		corrupt(t, root)
+
+		if err := s.GC(ctx); err == nil {
+			t.Error("GC() error = nil, want index error")
+		}
+	})
 }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
@@ -4996,6 +5304,7 @@ func TestStore_GC_MissingUntaggedEntry(t *testing.T) {
 	}
 
 	// Run Store.GC and verify that it succeeds.
+	backdateBlobs(t, tempDir)
 	if err := s.GC(ctx); err != nil {
 		t.Fatalf("Store.GC() error = %v, want nil", err)
 	}

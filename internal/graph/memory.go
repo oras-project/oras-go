@@ -214,3 +214,12 @@ func (m *Memory) Exists(node ocispec.Descriptor) bool {
 	_, exists := m.nodes[node.Digest]
 	return exists
 }
+
+// Node returns the descriptor indexed for dgst, if present in the graph.
+func (m *Memory) Node(dgst digest.Digest) (ocispec.Descriptor, bool) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	desc, exists := m.nodes[dgst]
+	return desc, exists
+}

@@ -102,14 +102,12 @@ type VerifyReport struct {
 	// followed completely: see Unverifiable.
 	//
 	// Unreferenced is only authoritative on a quiescent layout. Verify takes
-	// no lock and does not coordinate with writers: a blob that a concurrent
-	// [Storage.Push] has already renamed into blobs/ but that index.json does
-	// not name yet is present and intact, and is reported here. [Store.GC]
-	// would remove the same blob, since its lock only serializes operations
-	// within one Store and its leftover expiry covers only ingest/ and
-	// temporary metadata files. Do not delete based on this list without
-	// excluding concurrent writers, for example by running against a layout no
-	// other process has open.
+	// no lock, applies no grace period, and does not coordinate with writers:
+	// a blob that a concurrent [Storage.Push] has already renamed into blobs/
+	// but that index.json does not name yet is present and intact, and is
+	// reported here even while [Store.GC] would still spare it as recent. Do
+	// not delete based on this list without excluding concurrent writers, for
+	// example by running against a layout no other process has open.
 	Unreferenced []VerifyEntry
 }
 

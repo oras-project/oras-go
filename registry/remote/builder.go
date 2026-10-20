@@ -329,8 +329,9 @@ func (b *ClientBuilder) NewRepository(props *properties.Registry) (*Repository, 
 
 	// Create repository
 	repo := &Repository{
-		Registry:       reg,
-		RepositoryName: props.Reference.Repository,
+		Registry:        reg,
+		RepositoryName:  props.Reference.Repository,
+		sourceReference: props.Source,
 	}
 
 	// Set Referrers API capability if specified

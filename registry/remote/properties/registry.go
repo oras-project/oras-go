@@ -20,6 +20,11 @@ type Registry struct {
 	// Reference contains the parsed registry and repository reference.
 	Reference Reference
 
+	// Source holds the registry and repository as they were before the
+	// registries.conf location rewrite (after alias resolution). It is empty
+	// when no rewrite changed the base, and never carries a tag or digest.
+	Source Reference
+
 	// Transport is properties describing the communication layer.
 	Transport Transport
 

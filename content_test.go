@@ -498,6 +498,10 @@ func TestTagN_Repository(t *testing.T) {
 	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
 		t.Fatalf("oras.TagN() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
 	}
+	expected := fmt.Sprintf("content size %d exceeds MaxMetadataBytes 1: %v", indexDesc.Size, errdef.ErrSizeExceedsLimit)
+	if err.Error() != expected {
+		t.Errorf("oras.TagN() error = %q, want %q", err.Error(), expected)
+	}
 }
 
 func TestResolve_Memory(t *testing.T) {
@@ -1283,9 +1287,12 @@ func TestFetchBytes_Memory(t *testing.T) {
 	}
 
 	// test FetchBytes with MaxBytes = 1
-	_, _, err = oras.FetchBytes(ctx, target, manifestTag, oras.FetchBytesOptions{MaxBytes: 1})
+	gotDesc, _, err = oras.FetchBytes(ctx, target, manifestTag, oras.FetchBytesOptions{MaxBytes: 1})
 	if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
 		t.Fatalf("oras.FetchBytes() error = %v, wantErr %v", err, errdef.ErrSizeExceedsLimit)
+	}
+	if !reflect.DeepEqual(gotDesc, manifestDesc) {
+		t.Errorf("oras.FetchBytes() = %v, want %v", gotDesc, manifestDesc)
 	}
 
 	// test FetchBytes with TargetPlatform
