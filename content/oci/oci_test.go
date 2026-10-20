@@ -3603,6 +3603,81 @@ func TestStore_GC_GracePeriod(t *testing.T) {
 			t.Fatalf("Predecessors(layer) on storage-pushed manifest after Tag = %v, %v, want [%v]", preds, err, manifestDesc)
 		}
 	})
+
+	t.Run("re-push of manifest written directly to storage records its digest", func(t *testing.T) {
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		manifestJSON := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2},"layers":[]}`)
+		manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		if err := s.storage.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("storage.Push() error =", err)
+		}
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); !errors.Is(err, errdef.ErrAlreadyExists) {
+			t.Fatalf("Push(manifest) error = %v, want %v", err, errdef.ErrAlreadyExists)
+		}
+		if got, err := s.Resolve(ctx, manifestDesc.Digest.String()); err != nil || got.MediaType != manifestDesc.MediaType {
+			t.Fatalf("Resolve(digest) after re-Push = %+v, %v, want media type %s", got, err, manifestDesc.MediaType)
+		}
+	})
+}
+
+func TestStore_CorruptManifestIndexError(t *testing.T) {
+	ctx := context.Background()
+	manifestJSON := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2},"layers":[]}`)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+	corrupt := func(t *testing.T, root string) {
+		t.Helper()
+		blobPath := filepath.Join(root, ocispec.ImageBlobsDir, manifestDesc.Digest.Algorithm().String(), manifestDesc.Digest.Encoded())
+		if err := os.MkdirAll(filepath.Dir(blobPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(blobPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(blobPath, []byte("corrupt"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("Push, UnsafePush and Tag fail to index an existing corrupt manifest", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		corrupt(t, root)
+
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err == nil || errors.Is(err, errdef.ErrAlreadyExists) {
+			t.Errorf("Push() error = %v, want index error", err)
+		}
+		if _, err := s.UnsafePush(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err == nil || errors.Is(err, errdef.ErrAlreadyExists) {
+			t.Errorf("UnsafePush() error = %v, want index error", err)
+		}
+		if err := s.Tag(ctx, manifestDesc, "v1"); err == nil {
+			t.Error("Tag() error = nil, want index error")
+		}
+	})
+
+	t.Run("GC fails to re-index a spared manifest corrupted on disk", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("Push() error =", err)
+		}
+		// drop the digest reference so only the spare path in GC reads the
+		// manifest, not gcReachable
+		s.tagResolver.Untag(manifestDesc.Digest.String())
+		corrupt(t, root)
+
+		if err := s.GC(ctx); err == nil {
+			t.Error("GC() error = nil, want index error")
+		}
+	})
 }
 
 func equalDescriptorSet(actual []ocispec.Descriptor, expected []ocispec.Descriptor) bool {
