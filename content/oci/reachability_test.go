@@ -370,7 +370,8 @@ func TestVerify_Reachability_UntaggedAndReferrers(t *testing.T) {
 }
 
 // TestVerify_Reachability_MatchesGC checks the contract of the feature, that
-// Unreferenced is what GC removes, by running both on the same layout.
+// Unreferenced is what GC removes (excluding recent blobs within the GC grace
+// period), by running both on the same layout.
 func TestVerify_Reachability_MatchesGC(t *testing.T) {
 	b := newLayoutBuilder(t)
 	root, _, _ := b.image("root", nil)
@@ -428,6 +429,7 @@ func TestVerify_Reachability_MatchesGC(t *testing.T) {
 		t.Fatal("WalkDir() before GC:", err)
 	}
 
+	backdateBlobs(t, dir)
 	if err := store.GC(context.Background()); err != nil {
 		t.Fatal("GC() error =", err)
 	}
