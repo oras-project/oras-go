@@ -3546,6 +3546,9 @@ func TestStore_GC_GracePeriod(t *testing.T) {
 		if !equalDescriptorSet(preds, []ocispec.Descriptor{manifestDesc}) {
 			t.Fatalf("Predecessors(layer) after GC = %v, want [%v]", preds, manifestDesc)
 		}
+		if got, err := s.Resolve(ctx, manifestDesc.Digest.String()); err != nil || got.MediaType != manifestDesc.MediaType {
+			t.Fatalf("Resolve(digest) after GC = %+v, %v, want media type %s", got, err, manifestDesc.MediaType)
+		}
 
 		// Re-pushing returns ErrAlreadyExists while keeping the manifest indexed
 		// and restoring its digest entry in tagResolver, and tagging the spared
@@ -5226,6 +5229,7 @@ func TestStore_GC_MissingUntaggedEntry(t *testing.T) {
 	}
 
 	// Run Store.GC and verify that it succeeds.
+	backdateBlobs(t, tempDir)
 	if err := s.GC(ctx); err != nil {
 		t.Fatalf("Store.GC() error = %v, want nil", err)
 	}

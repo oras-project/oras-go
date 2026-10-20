@@ -764,6 +764,13 @@ func (s *Store) GC(ctx context.Context) error {
 					if err := s.graph.Index(ctx, s.storage, desc); err != nil {
 						return err
 					}
+					if descriptor.IsManifest(desc) {
+						// keep the digest reference so Resolve does not fall
+						// back to an untyped blob descriptor
+						if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), blobDigest.String()); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}
