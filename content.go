@@ -349,7 +349,7 @@ func FetchBytes(ctx context.Context, target ReadOnlyTarget, reference string, op
 	defer rc.Close()
 
 	if desc.Size > opts.MaxBytes {
-		return ocispec.Descriptor{}, nil, fmt.Errorf(
+		return desc, nil, fmt.Errorf(
 			"content size %v exceeds MaxBytes %v: %w",
 			desc.Size,
 			opts.MaxBytes,
