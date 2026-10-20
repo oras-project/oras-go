@@ -641,28 +641,28 @@ func (s *Store) saveIndexFrom(tagResolver *resolver.Memory) error {
 	s.indexLock.Lock()
 	defer s.indexLock.Unlock()
 
-	list := s.manifests
-	if list.resolver != tagResolver {
-		list = newManifestCollection(tagResolver)
-	} else if len(list.manifests) > 0 && len(s.index.Manifests) > 0 &&
-		&list.manifests[0] == &s.index.Manifests[0] {
+	collection := s.manifests
+	if collection.resolver != tagResolver {
+		collection = newManifestCollection(tagResolver)
+	} else if len(collection.manifests) > 0 && len(s.index.Manifests) > 0 &&
+		&collection.manifests[0] == &s.index.Manifests[0] {
 		// Preserve the committed index if syncing or writing fails.
-		list.detach()
+		collection.detach()
 	}
 
-	list.sync()
+	collection.sync()
 
 	oldManifests := s.index.Manifests
-	s.index.Manifests = list.manifests
+	s.index.Manifests = collection.manifests
 	if err := s.writeIndexFile(); err != nil {
 		s.index.Manifests = oldManifests
 		if tagResolver == s.tagResolver {
-			s.manifests = list
+			s.manifests = collection
 		}
 		return err
 	}
 
-	s.manifests = list
+	s.manifests = collection
 	return nil
 }
 
