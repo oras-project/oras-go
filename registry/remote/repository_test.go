@@ -9040,6 +9040,7 @@ func TestRepository_clone_copiesEveryField(t *testing.T) {
 	orig := &Repository{
 		Registry:                   &Registry{},
 		RepositoryName:             "repo/image",
+		sourceReference:            properties.Reference{Registry: "source.example.test", Repository: "repo/image"},
 		ManifestMediaTypes:         []string{ocispec.MediaTypeImageManifest},
 		TagListPageSize:            1,
 		ReferrerListPageSize:       2,
@@ -9063,6 +9064,7 @@ func TestRepository_clone_copiesEveryField(t *testing.T) {
 	repoType := origValue.Type()
 	wantUnexported := map[string]bool{
 		"mirrors":            true,
+		"sourceReference":    true,
 		"referrersState":     true,
 		"referrersPingLock":  true,
 		"referrersMergePool": true,
@@ -9088,6 +9090,9 @@ func TestRepository_clone_copiesEveryField(t *testing.T) {
 
 	if clone.Registry != orig.Registry {
 		t.Error("clone().Registry should share the original pointer")
+	}
+	if clone.sourceReference != orig.sourceReference {
+		t.Errorf("clone().sourceReference = %#v, want %#v", clone.sourceReference, orig.sourceReference)
 	}
 	if len(orig.mirrors) == 0 {
 		t.Fatal("test needs updating: original.mirrors is empty")
