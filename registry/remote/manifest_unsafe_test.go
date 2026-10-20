@@ -605,3 +605,20 @@ func TestManifestStore_UnsafePush_AuthReplay(t *testing.T) {
 		t.Errorf("UnsafePush() = %+v, %v; want %+v, nil", got, err, want)
 	}
 }
+
+func TestManifestStore_UnsafePush_CanceledDuringCopy(t *testing.T) {
+	repo := newManifestUnsafeRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := &unsafeCancelReader{data: `{"schemaVersion":2,"layers":[]}`, cancel: cancel, cancelAfter: 1}
+	got, err := repo.manifests().UnsafePush(ctx, ocispec.Descriptor{MediaType: ocispec.MediaTypeImageManifest, Size: -1}, r)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("UnsafePush() error = %v, want context.Canceled", err)
+	}
+	if !reflect.DeepEqual(got, ocispec.Descriptor{}) {
+		t.Errorf("UnsafePush() desc = %+v, want empty", got)
+	}
+	if r.reads != 1 {
+		t.Errorf("source read %d times, want 1", r.reads)
+	}
+}
