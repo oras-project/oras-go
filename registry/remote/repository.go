@@ -239,10 +239,12 @@ type Repository struct {
 	// Repository is constructed via the ClientBuilder; a Repository created
 	// directly has no mirrors.
 	mirrors []mirrorRepository
-	// sourceReference 是 registries.conf location 重写前的仓库根路径。
+	// sourceReference is the registry and repository before a registries.conf
+	// location rewrite. ParseReference re-roots references that match it.
 	sourceReference properties.Reference
 
-	// 后续运行时状态由 clone() 重置；所有未导出字段的复制或重置策略均由测试覆盖。
+	// The fields below are not copied by clone(); it resets them.
+	// TestRepository_clone_copiesEveryField covers both groups.
 
 	// referrersState indicates whether the repository supports the Referrers
 	// API. It stores a properties.ReferrersAPI value.
@@ -663,9 +665,12 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 // Tag, digest, or fully qualified references are accepted as input.
 //
 // If reference is a fully qualified reference, then ParseReference parses it
-// and returns the parsed reference. If the parsed reference does not share
-// the same base reference with the Repository r, ParseReference returns a
-// wrapped error ErrInvalidReference.
+// and returns the parsed reference. If the parsed reference matches the
+// repository's base as it was before a registries.conf location rewrite,
+// ParseReference re-roots it at the rewritten location and keeps the tag or
+// digest. Otherwise, if the parsed reference does not share the same base
+// reference with the Repository r, ParseReference returns a wrapped error
+// ErrInvalidReference.
 func (r *Repository) ParseReference(reference string) (properties.Reference, error) {
 	repoRef := r.reference()
 	ref, err := properties.NewReference(reference)

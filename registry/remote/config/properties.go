@@ -77,6 +77,7 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 		if err != nil {
 			return nil, err
 		}
+		// Guard against rewrites that only normalize the string without changing the base.
 		if source.Registry != props.Reference.Registry || source.Repository != props.Reference.Repository {
 			props.Source = properties.Reference{
 				Registry:   source.Registry,
