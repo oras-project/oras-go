@@ -713,6 +713,7 @@ func (s *Store) GC(ctx context.Context) error {
 		}
 	}
 	oldGraph := s.graph
+	spared := false
 	s.tagResolver = tagResolver
 	s.graph = graph
 	reachableNodes := s.graph.DigestSet()
@@ -770,12 +771,23 @@ func (s *Store) GC(ctx context.Context) error {
 						if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), blobDigest.String()); err != nil {
 							return err
 						}
+						spared = true
 					}
 				}
 			}
 		}
 	}
 
+	// Re-tagging the spared manifests changed the resolver after the index was
+	// saved above, so the index lacks their digest entries until the next save.
+	// Bring it in step, so that index.json lists every manifest the store
+	// holds, as it does after any other operation. Without AutoSaveIndex the
+	// changes stay pending in the resolver for the next SaveIndex.
+	if spared && s.AutoSaveIndex {
+		if err := s.saveIndexFrom(s.tagResolver); err != nil {
+			return fmt.Errorf("unable to save index: %w", err)
+		}
+	}
 	// Reclaiming leftovers is opportunistic: the collection above has already
 	// completed, so a temporary file that cannot be removed must not turn a
 	// successful GC into a failed one.

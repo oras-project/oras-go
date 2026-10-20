@@ -292,7 +292,18 @@ func TestStore_IndexManifests(t *testing.T) {
 	step("untag e", func() error { return s.Untag(ctx, "e") })
 	images.push(1)
 	step("tag k on m1", func() error { return s.Tag(ctx, m1, "k") })
-	step("gc", func() error { return s.GC(ctx) })
+
+	// Unreferenced blobs younger than the grace period are spared, together
+	// with their digest entries, so the index must keep listing them.
+	step("gc within the grace period", func() error { return s.GC(ctx) })
+	wantEntries("spared m2 keeps its entry", m2.Digest, 0, 1)
+	wantEntries("spared m0 keeps its entry", m0.Digest, 0, 1)
+	wantEntries("tagged m1 kept", m1.Digest, 1, 0)
+
+	// Once the grace period is over they are collected, entries included.
+	backdateBlobs(t, s.root)
+	step("gc after the grace period", func() error { return s.GC(ctx) })
+
 	wantEntries("after gc, untagged m2 collected", m2.Digest, 0, 0)
 	wantEntries("after gc, untagged m0 collected", m0.Digest, 0, 0)
 	wantEntries("after gc, tagged m1 kept", m1.Digest, 1, 0)
@@ -614,4 +625,75 @@ func TestStore_IndexManifestsFailedSaveRollsBackIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertManifestsMatchResolver(t, s, true)
+}
+
+// TestStore_IndexManifestsGCSparedBlobs checks that the manifests GC spares
+// within its grace period are listed by the index in memory and on disk right
+// after GC, not only after a later save.
+func TestStore_IndexManifestsGCSparedBlobs(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("autosave", func(t *testing.T) {
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		images := newTestImages(t, s, 2)
+		m0, m1 := images.push(0), images.push(1)
+		if err := s.Tag(ctx, m0, "a"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.GC(ctx); err != nil {
+			t.Fatal(err)
+		}
+		// m1 is unreferenced but recent, so GC spared it
+		assertManifestsMatchResolver(t, s, true)
+		if got := len(s.index.Manifests); got != 2 {
+			t.Errorf("len(index.Manifests) = %d, want 2 (a and the spared m1)", got)
+		}
+
+		// a store opened on the saved layout still knows the spared manifest
+		reopened, err := New(s.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := refDigests(reopened)[m1.Digest.String()]; !ok {
+			t.Error("reopened store lost the digest reference of the spared manifest")
+		}
+
+		// and changes after GC are still followed incrementally
+		if err := s.Tag(ctx, m1, "b"); err != nil {
+			t.Fatal(err)
+		}
+		assertManifestsMatchResolver(t, s, true)
+		if err := s.Untag(ctx, "b"); err != nil {
+			t.Fatal(err)
+		}
+		assertManifestsMatchResolver(t, s, true)
+	})
+
+	t.Run("without autosave", func(t *testing.T) {
+		s, err := New(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		images := newTestImages(t, s, 2)
+		m0 := images.push(0)
+		images.push(1)
+		if err := s.Tag(ctx, m0, "a"); err != nil {
+			t.Fatal(err)
+		}
+		s.AutoSaveIndex = false
+		if err := s.GC(ctx); err != nil {
+			t.Fatal(err)
+		}
+		// the spared reference stays pending until the index is saved
+		if err := s.SaveIndex(); err != nil {
+			t.Fatal(err)
+		}
+		assertManifestsMatchResolver(t, s, true)
+		if got := len(s.index.Manifests); got != 2 {
+			t.Errorf("len(index.Manifests) = %d, want 2", got)
+		}
+	})
 }
