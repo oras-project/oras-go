@@ -115,6 +115,8 @@ var (
 	_ registry.ReferenceParser = (*manifestStore)(nil)
 )
 
+var _ content.UnsafePusher = (*Repository)(nil)
+
 // Repository is an HTTP client to a remote repository.
 type Repository struct {
 	// Registry is the parent registry. Must not be nil.
@@ -239,6 +241,9 @@ type Repository struct {
 	// Repository is constructed via the ClientBuilder; a Repository created
 	// directly has no mirrors.
 	mirrors []mirrorRepository
+	// sourceReference is the registry and repository before a registries.conf
+	// location rewrite. ParseReference re-roots references that match it.
+	sourceReference properties.Reference
 
 	// The fields below are not copied by clone(); it resets them.
 	// TestRepository_clone_copiesEveryField covers both groups.
@@ -321,6 +326,7 @@ func (r *Repository) clone() *Repository {
 		SingleRequestPushThreshold: r.SingleRequestPushThreshold,
 		MaxUnsafePushBytes:         r.MaxUnsafePushBytes,
 		mirrors:                    r.mirrors,
+		sourceReference:            r.sourceReference,
 	}
 }
 
@@ -500,6 +506,19 @@ func (r *Repository) Push(ctx context.Context, expected ocispec.Descriptor, cont
 	return r.blobStore(expected).Push(ctx, expected, content)
 }
 
+// UnsafePush pushes content whose digest or size may be unknown. See
+// [content.UnsafePusher] for verification and error semantics. Like Push, it
+// routes by media type (see [Repository.ManifestMediaTypes]): manifests are
+// buffered and verified up to [Registry.MaxMetadataBytes] before the PUT and
+// indexed for referrers as with Push; other content is pushed as a blob,
+// bounded by [Repository.MaxUnsafePushBytes].
+func (r *Repository) UnsafePush(ctx context.Context, expected ocispec.Descriptor, content io.Reader) (ocispec.Descriptor, error) {
+	if isManifest(r.manifestMediaTypes(), expected) {
+		return r.manifests().UnsafePush(ctx, expected, content)
+	}
+	return r.blobs().UnsafePush(ctx, expected, content)
+}
+
 // Mount makes the blob with the given digest in fromRepo
 // available in the repository signified by the receiver.
 //
@@ -661,9 +680,12 @@ func (r *Repository) FetchReference(ctx context.Context, reference string) (ocis
 // Tag, digest, or fully qualified references are accepted as input.
 //
 // If reference is a fully qualified reference, then ParseReference parses it
-// and returns the parsed reference. If the parsed reference does not share
-// the same base reference with the Repository r, ParseReference returns a
-// wrapped error ErrInvalidReference.
+// and returns the parsed reference. If the parsed reference matches the
+// repository's base as it was before a registries.conf location rewrite,
+// ParseReference re-roots it at the rewritten location and keeps the tag or
+// digest. Otherwise, if the parsed reference does not share the same base
+// reference with the Repository r, ParseReference returns a wrapped error
+// ErrInvalidReference.
 func (r *Repository) ParseReference(reference string) (properties.Reference, error) {
 	repoRef := r.reference()
 	ref, err := properties.NewReference(reference)
@@ -690,10 +712,16 @@ func (r *Repository) ParseReference(reference string) (properties.Reference, err
 			return properties.Reference{}, err
 		}
 	} else if ref.Registry != repoRef.Registry || ref.Repository != repoRef.Repository {
-		return properties.Reference{}, fmt.Errorf(
-			"%w: mismatch between received %q and expected %q",
-			errdef.ErrInvalidReference, ref, repoRef,
-		)
+		if r.sourceReference.Registry != "" && r.sourceReference.Repository != "" &&
+			ref.Registry == r.sourceReference.Registry && ref.Repository == r.sourceReference.Repository {
+			ref.Registry = repoRef.Registry
+			ref.Repository = repoRef.Repository
+		} else {
+			return properties.Reference{}, fmt.Errorf(
+				"%w: mismatch between received %q and expected %q",
+				errdef.ErrInvalidReference, ref, repoRef,
+			)
+		}
 	}
 
 	if ref.GetReference() == "" {
