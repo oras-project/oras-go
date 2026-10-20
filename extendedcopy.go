@@ -434,6 +434,9 @@ func fetchArtifactType(ctx context.Context, src content.ReadOnlyGraphStorage, de
 		if err := json.NewDecoder(rc).Decode(&manifest); err != nil {
 			return "", err
 		}
+		if manifest.ArtifactType != "" {
+			return manifest.ArtifactType, nil
+		}
 		return manifest.Config.MediaType, nil
 	default:
 		return "", nil
