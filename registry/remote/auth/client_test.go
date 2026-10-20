@@ -5547,6 +5547,31 @@ func TestClient_Clone(t *testing.T) {
 	}
 }
 
+func TestClient_Clone_TrustedRealmHostsIndependence(t *testing.T) {
+	t.Run("non-nil", func(t *testing.T) {
+		original := &Client{
+			TrustedRealmHosts: []string{"gitlab.corp.example", "auth.example.com"},
+		}
+		want := []string{"gitlab.corp.example", "auth.example.com"}
+		clone := original.Clone()
+		clone.TrustedRealmHosts[0] = "evil.example"
+		clone.TrustedRealmHosts = append(clone.TrustedRealmHosts, "extra.example")
+		if !reflect.DeepEqual(original.TrustedRealmHosts, want) {
+			t.Errorf("original.TrustedRealmHosts = %v, want %v", original.TrustedRealmHosts, want)
+		}
+		if len(original.TrustedRealmHosts) != len(want) {
+			t.Errorf("original.TrustedRealmHosts len = %d, want %d", len(original.TrustedRealmHosts), len(want))
+		}
+	})
+	t.Run("nil", func(t *testing.T) {
+		original := &Client{}
+		clone := original.Clone()
+		if clone.TrustedRealmHosts != nil {
+			t.Errorf("clone.TrustedRealmHosts = %v, want nil", clone.TrustedRealmHosts)
+		}
+	})
+}
+
 // TestClient_Clone_copiesEveryExportedField fails when an exported field is
 // added to Client but not to Clone, which would otherwise be a silent drop:
 // Login would quietly stop carrying that field onto its local client. It sets

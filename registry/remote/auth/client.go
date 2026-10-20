@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 
@@ -173,7 +174,8 @@ type Client struct {
 // clone's fields does not affect c — for example to attach a different
 // CredentialFunc before use — but the Header map and the Cache and Client
 // values it references are shared with c, so mutating those through the clone
-// is visible to c as well.
+// is visible to c as well. TrustedRealmHosts is copied so index or append
+// mutations on the clone do not change c.
 //
 // The clone does not inherit c's cached, lazily-built redirect-safe client;
 // it builds and caches its own the first time it sends a request. This makes
@@ -188,7 +190,7 @@ func (c *Client) Clone() *Client {
 		Cache:               c.Cache,
 		ClientID:            c.ClientID,
 		TokenFetcher:        c.TokenFetcher,
-		TrustedRealmHosts:   c.TrustedRealmHosts,
+		TrustedRealmHosts:   slices.Clone(c.TrustedRealmHosts),
 		AllowInternalRealms: c.AllowInternalRealms,
 	}
 }
