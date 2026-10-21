@@ -19,3 +19,12 @@ require (
 	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 )
+
+// Development tags published before the release candidates. They were deleted
+// from the repository but remain on the module proxy.
+retract (
+	v3.0.3-dev
+	v3.0.2-dev
+	v3.0.1-dev
+	v3.0.0-dev
+)
