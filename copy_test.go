@@ -1629,6 +1629,78 @@ func TestCopyGraph_WithOptions(t *testing.T) {
 		}
 	})
 
+	t.Run("MountFrom copied PreCopy", func(t *testing.T) {
+		errPreCopy := errors.New("pre-copy failed")
+		tests := []struct {
+			name    string
+			preCopy error
+			wantErr error
+		}{
+			{"SkipNode", oras.SkipNode, nil},
+			{"error", errPreCopy, errPreCopy},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				root = descs[6]
+				dst := &countingStorage{storage: cas.NewMemory()}
+				// like a registry that declines the mount: the content is
+				// pushed from getContent, whose error is wrapped
+				dst.mount = func(ctx context.Context,
+					desc ocispec.Descriptor,
+					fromRepo string,
+					getContent func() (io.ReadCloser, error),
+				) error {
+					rc, err := getContent()
+					if err != nil {
+						return fmt.Errorf("cannot read source blob: %w", err)
+					}
+					defer rc.Close()
+					return dst.storage.Push(ctx, desc, rc) // bypass the counters
+				}
+				opts = oras.CopyGraphOptions{}
+				var numPostCopy, numOnMounted atomic.Int64
+				opts.PreCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+					if desc.Digest != descs[1].Digest {
+						return nil
+					}
+					if tt.preCopy == oras.SkipNode {
+						// blob 1 is made available in the target by other means
+						if err := dst.storage.Push(ctx, desc, bytes.NewReader(blobs[1])); err != nil {
+							t.Errorf("Failed to push: %v", err)
+						}
+					}
+					return tt.preCopy
+				}
+				opts.PostCopy = func(ctx context.Context, desc ocispec.Descriptor) error {
+					numPostCopy.Add(1)
+					return nil
+				}
+				opts.OnMounted = func(ctx context.Context, d ocispec.Descriptor) error {
+					numOnMounted.Add(1)
+					return nil
+				}
+				opts.MountFrom = func(ctx context.Context, desc ocispec.Descriptor) ([]string, error) {
+					return []string{"source"}, nil
+				}
+				err := oras.CopyGraph(ctx, src, dst, root, opts)
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("CopyGraph() error = %v, wantErr %v", err, tt.wantErr)
+				}
+				if tt.wantErr != nil {
+					return
+				}
+
+				// 7 (nodes) - 1 (skipped) = 6 PostCopy calls expected
+				if got, expected := numPostCopy.Load(), int64(6); got != expected {
+					t.Errorf("count(PostCopy()) = %d, want %d", got, expected)
+				}
+				if got, expected := numOnMounted.Load(), int64(0); got != expected {
+					t.Errorf("count(OnMounted()) = %d, want %d", got, expected)
+				}
+			})
+		}
+	})
+
 	t.Run("MountFrom mounted second try", func(t *testing.T) {
 		root = descs[6]
 		dst := &countingStorage{storage: cas.NewMemory()}
