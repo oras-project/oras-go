@@ -409,8 +409,10 @@ func TestStore_GCSparedBlobsSaveFailure(t *testing.T) {
 	}
 }
 
-// TestStore_IndexManifestsFailedSave checks that a failed write never makes the
-// index, or later saves, diverge from the references.
+// TestStore_IndexManifestsFailedSave verifies that failed index writes preserve
+// the last successfully saved index and that subsequent operations reconcile
+// it with the resolver. It covers failed tag saves, saves after GC replaces
+// the resolver without autosaving, and failed GC operations.
 func TestStore_IndexManifestsFailedSave(t *testing.T) {
 	ctx := context.Background()
 	setFailing := toggleIndexWriteFailure(t)
@@ -422,45 +424,31 @@ func TestStore_IndexManifestsFailedSave(t *testing.T) {
 		}
 		images := newTestImages(t, s, 2)
 		m0, m1 := images.push(0), images.push(1)
+
 		if err := s.Tag(ctx, m0, "a"); err != nil {
 			t.Fatal(err)
 		}
-
-		// Snapshot the last successfully saved index.
 		before := cloneManifests(s.index.Manifests)
 
-		// the tag is in the references even though it could not be saved, and
-		// the in-memory index follows the references
 		setFailing(true)
-		if err := s.Tag(ctx, m1, "b"); err == nil {
+		err = s.Tag(ctx, m1, "b")
+		setFailing(false)
+		if err == nil {
 			t.Fatal("Tag() succeeded despite the failing write")
 		}
-		setFailing(false)
 
-		// A failed write must preserve the previous in-memory index.
 		if !reflect.DeepEqual(s.index.Manifests, before) {
 			t.Fatalf("index.Manifests changed after failed save:\ngot  %#v\nwant %#v",
 				s.index.Manifests, before)
 		}
 
-		// The resolver contains the failed tag, so the next save must catch up.
+		// The resolver retains the failed tag; a later save must catch up.
 		if err := s.SaveIndex(); err != nil {
 			t.Fatal(err)
 		}
-
-		assertManifestsMatchResolver(t, s, false)
-
-		// the next save writes everything that was missed
-		if err := s.SaveIndex(); err != nil {
-			t.Fatal(err)
-		}
-
 		assertManifestsMatchResolver(t, s, true)
 	})
 
-	// After GC replaced the resolver without saving the index, the first save
-	// builds the list from the replacement. If that save fails, the list must
-	// not be lost, since the resolver does not report its references again.
 	t.Run("save after GC without autosave", func(t *testing.T) {
 		s, err := New(t.TempDir())
 		if err != nil {
@@ -468,8 +456,12 @@ func TestStore_IndexManifestsFailedSave(t *testing.T) {
 		}
 		images := newTestImages(t, s, 2)
 		m0, m1 := images.push(0), images.push(1)
+
 		s.AutoSaveIndex = false
-		for ref, m := range map[string]ocispec.Descriptor{"a": m0, "b": m1} {
+		for ref, m := range map[string]ocispec.Descriptor{
+			"a": m0,
+			"b": m1,
+		} {
 			if err := s.Tag(ctx, m, ref); err != nil {
 				t.Fatal(err)
 			}
@@ -482,10 +474,12 @@ func TestStore_IndexManifestsFailedSave(t *testing.T) {
 		}
 
 		setFailing(true)
-		if err := s.SaveIndex(); err == nil {
+		err = s.SaveIndex()
+		setFailing(false)
+		if err == nil {
 			t.Fatal("SaveIndex() succeeded despite the failing write")
 		}
-		setFailing(false)
+
 		assertManifestsMatchResolver(t, s, false)
 
 		if err := s.SaveIndex(); err != nil {
@@ -497,8 +491,6 @@ func TestStore_IndexManifestsFailedSave(t *testing.T) {
 		}
 	})
 
-	// A failed GC leaves the store as it was, including its index, and the
-	// store keeps following its references afterwards.
 	t.Run("GC", func(t *testing.T) {
 		s, err := New(t.TempDir())
 		if err != nil {
@@ -506,31 +498,36 @@ func TestStore_IndexManifestsFailedSave(t *testing.T) {
 		}
 		images := newTestImages(t, s, 3)
 		m0, m2 := images.push(0), images.push(2)
-		// image1 is pushed but unreferenced, so GC would drop its entry
-		images.push(1)
+		images.push(1) // Unreferenced; GC should remove its entry.
+
 		if err := s.Tag(ctx, m0, "a"); err != nil {
 			t.Fatal(err)
 		}
 		wantResolver := s.tagResolver
-		wantLen := len(s.index.Manifests)
+		before := cloneManifests(s.index.Manifests)
 
 		setFailing(true)
-		if err := s.GC(ctx); err == nil {
+		err = s.GC(ctx)
+		setFailing(false)
+		if err == nil {
 			t.Fatal("GC() succeeded despite the failing write")
 		}
-		setFailing(false)
+
 		if s.tagResolver != wantResolver {
 			t.Error("GC() replaced the resolver despite failing")
 		}
-		if got := len(s.index.Manifests); got != wantLen {
-			t.Errorf("len(index.Manifests) after failed GC = %d, want %d", got, wantLen)
+		if !reflect.DeepEqual(s.index.Manifests, before) {
+			t.Errorf("index.Manifests changed after failed GC:\ngot  %#v\nwant %#v",
+				s.index.Manifests, before)
 		}
-		assertManifestsMatchResolver(t, s, false)
+		assertManifestsMatchResolver(t, s, true)
 
+		// The store must continue tracking reference changes after failed GC.
 		if err := s.Tag(ctx, m2, "c"); err != nil {
 			t.Fatal(err)
 		}
 		assertManifestsMatchResolver(t, s, true)
+
 		if err := s.Untag(ctx, "a"); err != nil {
 			t.Fatal(err)
 		}
@@ -669,56 +666,6 @@ func TestStore_IndexManifestsDifferential(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestStore_IndexManifestsFailedSaveRollsBackIndex verifies that a failed
-// index write leaves the in-memory index unchanged and that a subsequent
-// successful save reconciles the index with the resolver, including changes
-// made by the operation whose initial save failed.
-func TestStore_IndexManifestsFailedSaveRollsBackIndex(t *testing.T) {
-	ctx := context.Background()
-	s, err := New(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	images := newTestImages(t, s, 2)
-	m0, m1 := images.push(0), images.push(1)
-
-	if err := s.Tag(ctx, m0, "a"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Snapshot the last successfully saved in-memory index.
-	before, err := json.Marshal(s.index.Manifests)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	setFailing := toggleIndexWriteFailure(t)
-	setFailing(true)
-	err = s.Tag(ctx, m1, "b")
-	setFailing(false)
-
-	if err == nil {
-		t.Fatal("Tag() succeeded despite the failing write")
-	}
-
-	// The failed write must not change the in-memory index.
-	after, err := json.Marshal(s.index.Manifests)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(after, before) {
-		t.Errorf("index.Manifests changed after failed save:\nbefore: %s\nafter:  %s", before, after)
-	}
-
-	// The resolver still contains the failed tag, so a later save must
-	// persist it and bring the index back in sync.
-	if err := s.SaveIndex(); err != nil {
-		t.Fatal(err)
-	}
-	assertManifestsMatchResolver(t, s, true)
 }
 
 // TestStore_IndexManifestsGCSparedBlobs checks that the manifests GC spares
