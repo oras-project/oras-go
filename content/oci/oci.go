@@ -803,6 +803,19 @@ func (s *Store) GC(ctx context.Context) error {
 		}
 	}
 
+	// Re-tagging the spared manifests changed the resolver after the index was
+	// saved above, so index.json lacks their digest entries until the next
+	// save. Write them now, so that the index lists every manifest the store
+	// holds, as it does after any other operation.
+	//
+	// This is opportunistic, like reclaiming leftovers: the collection above
+	// has already removed blobs, so a failed save must not turn a completed GC
+	// into a failed one. The entries stay pending in the collection and are
+	// written by the next save, and without AutoSaveIndex that is SaveIndex.
+	if len(sparedManifests) > 0 && s.AutoSaveIndex {
+		_ = s.saveIndexFrom(s.tagResolver)
+	}
+
 	// Reclaiming leftovers is opportunistic: the collection above has already
 	// completed, so a temporary file that cannot be removed must not turn a
 	// successful GC into a failed one.

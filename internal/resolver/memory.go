@@ -33,10 +33,9 @@ type Memory struct {
 	lock  sync.RWMutex
 	index map[string]ocispec.Descriptor
 	tags  map[digest.Digest]set.Set[string]
-
 	// changed holds the references that [Memory.Flush] has yet to report. It is
-	// nil until the first Flush, so a Memory that is never flushed records
-	// nothing.
+	// nil until [Memory.Snapshot] starts the tracking, so a Memory that is
+	// never snapshotted records nothing.
 	changed set.Set[string]
 }
 
@@ -82,7 +81,6 @@ func (m *Memory) Tag(_ context.Context, desc ocispec.Descriptor, reference strin
 		tagSet = set.New[string]()
 		m.tags[desc.Digest] = tagSet
 	}
-	m.markChanged(reference, desc.Digest.String())
 	tagSet.Add(reference)
 	return nil
 }
@@ -157,7 +155,8 @@ func (m *Memory) tagged(desc ocispec.Descriptor) bool {
 	return len(tagSet) > 0
 }
 
-// Change describes the current state of a resolver reference at flush time [Memory.Flush].
+// Change describes the current state of a resolver reference, as reported by
+// [Memory.Snapshot] and [Memory.Flush].
 type Change struct {
 	// Ref is the reference whose state changed.
 	Ref string
@@ -169,38 +168,54 @@ type Change struct {
 	Tagged bool
 }
 
-// Flush delivers pending reference changes to fn.
+// Snapshot delivers every existing reference to fn, and starts recording the
+// changes that [Memory.Flush] reports, discarding the ones recorded before.
 //
-// The first call reports all existing references. Subsequent calls report
-// references changed since the previous flush, with each reference represented
-// by its latest state. Changes are coalesced by reference.
+// It gives a consumer the complete state to start from, whether or not the
+// Memory was snapshotted or flushed before, so the consumer need not know the
+// history of the Memory. The caller tracks whether it has taken a snapshot.
+//
+// Snapshot invokes fn while holding the resolver's write lock. The callback
+// must not call methods on the same resolver, as doing so may deadlock.
+// Snapshot and Flush are intended for a single consumer.
+func (m *Memory) Snapshot(fn func(Change)) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
+	m.changed = set.New[string]()
+	for ref := range m.index {
+		m.report(ref, fn)
+	}
+}
+
+// Flush delivers the references changed since the previous [Memory.Snapshot] or
+// Flush to fn, with each reference represented by its latest state. Changes are
+// coalesced by reference.
+//
+// Flush reports nothing until Snapshot was called, because the changes are not
+// recorded before then.
 //
 // Flush invokes fn while holding the resolver's write lock. The callback must
-// not call methods on the same resolver, as doing so may deadlock. Flush is
-// intended for a single consumer.
+// not call methods on the same resolver, as doing so may deadlock.
 func (m *Memory) Flush(fn func(Change)) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	report := func(ref string) {
-		desc, ok := m.index[ref]
-		fn(Change{Ref: ref, Desc: desc, Exists: ok, Tagged: ok && m.tagged(desc)})
-	}
-	if m.changed == nil {
-		m.changed = set.New[string]()
-		for ref := range m.index {
-			report(ref)
-		}
-		return
-	}
 	for ref := range m.changed {
-		report(ref)
+		m.report(ref, fn)
 	}
 	clear(m.changed)
 }
 
-// markChanged records that the references changed, if Flush is in use. The
-// caller must hold the write lock.
+// report delivers the current state of ref to fn. The caller must hold the
+// write lock.
+func (m *Memory) report(ref string, fn func(Change)) {
+	desc, ok := m.index[ref]
+	fn(Change{Ref: ref, Desc: desc, Exists: ok, Tagged: ok && m.tagged(desc)})
+}
+
+// markChanged records that the references changed, if the changes are tracked.
+// The caller must hold the write lock.
 func (m *Memory) markChanged(refs ...string) {
 	if m.changed == nil {
 		return

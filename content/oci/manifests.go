@@ -43,10 +43,15 @@ type manifestCollection struct {
 	refs []string
 	// refIndexes maps a reference to the position of its entry in manifests.
 	refIndexes map[string]int
+	// primed reports whether the list was filled from a snapshot of the
+	// resolver, after which only changes are applied. It is tracked here, not
+	// inferred from the state of the resolver, so a list created for a resolver
+	// that was flushed before, by another list, is still filled completely.
+	primed bool
 }
 
-// newManifestCollection returns an empty list that mirrors src. It is filled by the
-// first call of sync.
+// newManifestCollection returns an empty list that mirrors src, whatever the
+// state of src. It is filled by the first call of sync.
 func newManifestCollection(src *resolver.Memory) *manifestCollection {
 	return &manifestCollection{
 		resolver: src,
@@ -56,10 +61,17 @@ func newManifestCollection(src *resolver.Memory) *manifestCollection {
 	}
 }
 
-// sync applies all pending resolver changes to the collection.
-// Changes are coalesced by reference, so each reference is reconciled against
-// its latest resolver state rather than replaying intermediate operations.
+// sync brings the collection in step with the resolver. The first call takes a
+// snapshot of all references of the resolver; later calls apply only the
+// changes since the previous call. Changes are coalesced by reference, so each
+// reference is reconciled against its latest resolver state rather than
+// replaying intermediate operations.
 func (m *manifestCollection) sync() {
+	if !m.primed {
+		m.resolver.Snapshot(m.apply)
+		m.primed = true
+		return
+	}
 	m.resolver.Flush(m.apply)
 }
 
@@ -80,7 +92,7 @@ func (m *manifestCollection) apply(c resolver.Change) {
 	}
 }
 
-// remove removes the entry owned by ref in constant time.
+// remove removes the entry at position i in constant time.
 // The last entry is moved into the removed position when necessary, so
 // manifest ordering is not preserved.
 func (m *manifestCollection) remove(i int) {

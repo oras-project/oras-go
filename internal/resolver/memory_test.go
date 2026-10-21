@@ -221,6 +221,13 @@ func flushed(s *Memory) map[string]Change {
 	return got
 }
 
+// snapshotted returns the references reported by Snapshot by reference.
+func snapshotted(s *Memory) map[string]Change {
+	got := make(map[string]Change)
+	s.Snapshot(func(c Change) { got[c.Ref] = c })
+	return got
+}
+
 func TestMemoryFlush(t *testing.T) {
 	ctx := context.Background()
 	newDesc := func(name string) ocispec.Descriptor {
@@ -243,16 +250,16 @@ func TestMemoryFlush(t *testing.T) {
 		}
 	}
 
-	// the first flush reports every reference
-	got := flushed(s)
+	// the snapshot reports every reference
+	got := snapshotted(s)
 	if len(got) != 3 {
-		t.Fatalf("first Flush() reported %d references, want 3: %v", len(got), got)
+		t.Fatalf("Snapshot() reported %d references, want 3: %v", len(got), got)
 	}
 	if c := got["a"]; !c.Exists || c.Desc.Digest != d1.Digest || !c.Tagged {
-		t.Errorf("Flush() change of a = %+v, want an existing tagged reference to d1", c)
+		t.Errorf("Snapshot() change of a = %+v, want an existing tagged reference to d1", c)
 	}
 	if c := got[dg2]; !c.Exists || c.Tagged {
-		t.Errorf("Flush() change of the digest of d2 = %+v, want an existing untagged reference", c)
+		t.Errorf("Snapshot() change of the digest of d2 = %+v, want an existing untagged reference", c)
 	}
 
 	// nothing changed since
@@ -312,8 +319,64 @@ func TestMemoryFlush(t *testing.T) {
 	}
 }
 
+// TestMemorySnapshot checks that a snapshot is complete whatever was reported
+// before, and restarts the tracking of changes.
+func TestMemorySnapshot(t *testing.T) {
+	ctx := context.Background()
+	desc := func(name string) ocispec.Descriptor {
+		return ocispec.Descriptor{MediaType: "test", Digest: digest.FromBytes([]byte(name)), Size: int64(len(name))}
+	}
+	d1, d2 := desc("one"), desc("two")
+	tag := func(s *Memory, d ocispec.Descriptor, ref string) {
+		t.Helper()
+		if err := s.Tag(ctx, d, ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := NewMemory()
+	tag(s, d1, "a")
+	snapshotted(s)
+	tag(s, d2, "b")
+	flushed(s)
+	tag(s, d1, "c") // pending, not flushed
+
+	// a consumer that starts now still gets every reference, although the
+	// Memory was snapshotted and flushed before
+	got := snapshotted(s)
+	for _, ref := range []string{"a", "b", "c"} {
+		if c, ok := got[ref]; !ok || !c.Exists {
+			t.Errorf("Snapshot() after Flush did not report existing reference %q: %v", ref, got)
+		}
+	}
+
+	// the snapshot discarded the changes that were pending, as it reported them
+	if got := flushed(s); len(got) != 0 {
+		t.Errorf("Flush() after Snapshot reported %v, want nothing", got)
+	}
+
+	// and changes are recorded from the snapshot on
+	tag(s, d2, "d")
+	if got := flushed(s); !got["d"].Exists {
+		t.Errorf("Flush() after Snapshot and Tag = %v, want d", got)
+	}
+}
+
+// TestMemoryFlushBeforeSnapshot checks that Flush reports nothing while the
+// changes are not tracked, rather than reporting the whole Memory.
+func TestMemoryFlushBeforeSnapshot(t *testing.T) {
+	desc := ocispec.Descriptor{MediaType: "test", Digest: digest.FromBytes([]byte("x")), Size: 1}
+	s := NewMemory()
+	if err := s.Tag(context.Background(), desc, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if got := flushed(s); len(got) != 0 {
+		t.Errorf("Flush() before Snapshot() reported %v, want nothing", got)
+	}
+}
+
 // TestMemoryFlushRecordsOnlyWhenUsed checks that a Memory that is never
-// flushed does not accumulate changes.
+// snapshotted does not accumulate changes.
 func TestMemoryFlushRecordsOnlyWhenUsed(t *testing.T) {
 	ctx := context.Background()
 	desc := ocispec.Descriptor{MediaType: "test", Digest: digest.FromBytes([]byte("x")), Size: 1}
@@ -325,6 +388,6 @@ func TestMemoryFlushRecordsOnlyWhenUsed(t *testing.T) {
 		s.Untag(ref)
 	}
 	if s.changed != nil {
-		t.Errorf("Memory recorded %d changes without Flush", len(s.changed))
+		t.Errorf("Memory recorded %d changes without Snapshot", len(s.changed))
 	}
 }
