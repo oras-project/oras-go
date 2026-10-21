@@ -3503,6 +3503,142 @@ func TestStore_GC_GracePeriod(t *testing.T) {
 		}
 	})
 
+	t.Run("stale blob referenced by a spared manifest is kept", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+
+		configBlob := []byte(`{"architecture":"amd64","os":"linux"}`)
+		configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configBlob)
+		layerBlob := []byte("layer left behind by an earlier copy")
+		layerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layerBlob)
+		if err := s.Push(ctx, configDesc, bytes.NewReader(configBlob)); err != nil {
+			t.Fatal("Push(config) error =", err)
+		}
+		if err := s.Push(ctx, layerDesc, bytes.NewReader(layerBlob)); err != nil {
+			t.Fatal("Push(layer) error =", err)
+		}
+		// A copy that finds these blobs already on disk skips pushing them, so
+		// their modification time is not refreshed and they age out.
+		backdateBlobs(t, root)
+
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Config:    configDesc,
+			Layers:    []ocispec.Descriptor{layerDesc},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		if err := s.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil {
+			t.Fatal("Push(manifest) error =", err)
+		}
+
+		// GC runs after the manifest is pushed but before it is tagged.
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+		for _, desc := range []ocispec.Descriptor{configDesc, layerDesc, manifestDesc} {
+			exists, err := s.Exists(ctx, desc)
+			if err != nil {
+				t.Fatal("Exists() error =", err)
+			}
+			if !exists {
+				t.Fatalf("content %s of a spared manifest was deleted by GC", desc.Digest)
+			}
+		}
+
+		if err := s.Tag(ctx, manifestDesc, "v1"); err != nil {
+			t.Fatal("Tag() error =", err)
+		}
+		rc, err := s.Fetch(ctx, layerDesc)
+		if err != nil {
+			t.Fatal("Fetch(layer) error =", err)
+		}
+		defer rc.Close()
+		got, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, layerBlob) {
+			t.Errorf("Fetch(layer) = %q, want %q", got, layerBlob)
+		}
+	})
+
+	t.Run("spared index keeps the stale manifest it references", func(t *testing.T) {
+		root := t.TempDir()
+		s, err := New(root)
+		if err != nil {
+			t.Fatal("New() error =", err)
+		}
+
+		configBlob := []byte(`{"architecture":"arm64","os":"linux"}`)
+		configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configBlob)
+		layerBlob := []byte("layer of a manifest reached through an index")
+		layerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layerBlob)
+		manifestJSON, err := json.Marshal(ocispec.Manifest{
+			MediaType: ocispec.MediaTypeImageManifest,
+			Config:    configDesc,
+			Layers:    []ocispec.Descriptor{layerDesc},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestJSON)
+		for _, item := range []struct {
+			desc ocispec.Descriptor
+			blob []byte
+		}{{configDesc, configBlob}, {layerDesc, layerBlob}, {manifestDesc, manifestJSON}} {
+			if err := s.Push(ctx, item.desc, bytes.NewReader(item.blob)); err != nil {
+				t.Fatal("Push() error =", err)
+			}
+		}
+		backdateBlobs(t, root)
+
+		// The index also names a platform manifest that is not on disk, as an
+		// index copied without all of its platforms would.
+		missingJSON := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2},"layers":[]}`)
+		missingDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, missingJSON)
+		indexJSON, err := json.Marshal(ocispec.Index{
+			MediaType: ocispec.MediaTypeImageIndex,
+			Manifests: []ocispec.Descriptor{manifestDesc, missingDesc},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		indexDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, indexJSON)
+		if err := s.Push(ctx, indexDesc, bytes.NewReader(indexJSON)); err != nil {
+			t.Fatal("Push(index) error =", err)
+		}
+
+		if err := s.GC(ctx); err != nil {
+			t.Fatal("GC() error =", err)
+		}
+		for _, desc := range []ocispec.Descriptor{configDesc, layerDesc, manifestDesc, indexDesc} {
+			exists, err := s.Exists(ctx, desc)
+			if err != nil {
+				t.Fatal("Exists() error =", err)
+			}
+			if !exists {
+				t.Fatalf("content %s of a spared index was deleted by GC", desc.Digest)
+			}
+		}
+
+		if err := s.Tag(ctx, indexDesc, "v1"); err != nil {
+			t.Fatal("Tag() error =", err)
+		}
+		rc, err := s.Fetch(ctx, layerDesc)
+		if err != nil {
+			t.Fatal("Fetch(layer) error =", err)
+		}
+		if err := rc.Close(); err != nil {
+			t.Fatal("Close() error =", err)
+		}
+	})
+
 	t.Run("spared manifest remains in graph for Predecessors across GC, re-push, and Tag", func(t *testing.T) {
 		root := t.TempDir()
 		s, err := New(root)
