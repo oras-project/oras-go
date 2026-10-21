@@ -104,7 +104,7 @@ func (s *Store) UnsafePush(ctx context.Context, expected ocispec.Descriptor, r i
 	if expected.Size >= 0 && expected.Size <= math.MaxInt {
 		buf.Grow(int(min(expected.Size, maxInitialUnsafePushBufferSize)))
 	}
-	desc, err := ioutil.CopyUnsafe(&buf, r, nil, expected, limit)
+	desc, err := ioutil.CopyUnsafe(&buf, ioutil.NewContextReader(ctx, r), nil, expected, limit)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}

@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	_ "crypto/sha512"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -29,6 +30,7 @@ import (
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
@@ -686,5 +688,87 @@ func TestManifestDigestPushGetBodyRedirect(t *testing.T) {
 	}
 	if len(puts) != 2 {
 		t.Fatalf("PUT count = %d, want 2 (307 then 201); paths %v", len(puts), puts)
+	}
+}
+
+// A digest without an "algorithm:" prefix makes go-digest panic in Algorithm
+// and Verifier, so it must be rejected before either is called.
+func TestManifestPullMalformedDigest(t *testing.T) {
+	body := []byte(`{"schemaVersion":2}`)
+	repo, err := NewRepository("example.com/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &manifestStore{repo: repo}
+	for _, d := range []digest.Digest{"sha256", ":abc", "sha256:"} {
+		for _, header := range []string{"", digest.SHA256.FromBytes(body).String(), digest.SHA512.FromBytes(body).String()} {
+			t.Run(string(d)+"/"+header, func(t *testing.T) {
+				req := httptest.NewRequest(http.MethodGet, "http://example.com/v2/test/manifests/x", nil)
+				resp := &http.Response{Request: req, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(body))}
+				if header != "" {
+					resp.Header.Set("Docker-Content-Digest", header)
+				}
+				defer func() { resp.Body.Close() }()
+				if err := store.verifyPullContentDigest(resp, d); !errors.Is(err, digest.ErrDigestInvalidFormat) {
+					t.Fatalf("error = %v, want digest.ErrDigestInvalidFormat", err)
+				}
+			})
+		}
+	}
+}
+
+// A registry controls the descriptors Referrers returns, so fetching one with a
+// malformed digest must return an error rather than panic.
+func TestManifestFetchMalformedReferrerDigest(t *testing.T) {
+	subject := []byte(`{"schemaVersion":2}`)
+	subjectDesc := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageManifest, Digest: digest.FromBytes(subject), Size: int64(len(subject))}
+	for _, d := range []digest.Digest{"sha256", ":abc"} {
+		for _, header := range []string{"", digest.FromBytes([]byte("{}")).String()} {
+			t.Run(string(d)+"/"+header, func(t *testing.T) {
+				index, err := json.Marshal(ocispec.Index{
+					Versioned: specs.Versioned{SchemaVersion: 2},
+					MediaType: ocispec.MediaTypeImageIndex,
+					Manifests: []ocispec.Descriptor{{MediaType: ocispec.MediaTypeImageManifest, Digest: d, Size: 2}},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/v2/test/referrers/" + subjectDesc.Digest.String():
+						w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+						_, _ = w.Write(index)
+					case "/v2/test/manifests/" + string(d):
+						w.Header().Set("Content-Type", ocispec.MediaTypeImageManifest)
+						if header != "" {
+							w.Header().Set("Docker-Content-Digest", header)
+						}
+						_, _ = w.Write([]byte("{}"))
+					default:
+						w.WriteHeader(http.StatusNotFound)
+					}
+				}))
+				defer server.Close()
+				repo, err := NewRepository(strings.TrimPrefix(server.URL, "http://") + "/test")
+				if err != nil {
+					t.Fatal(err)
+				}
+				repo.Registry.PlainHTTP = true
+				ctx := context.Background()
+				err = repo.Referrers(ctx, subjectDesc, "", func(referrers []ocispec.Descriptor) error {
+					for _, desc := range referrers {
+						rc, err := repo.Fetch(ctx, desc)
+						if err != nil {
+							return err
+						}
+						rc.Close()
+					}
+					return nil
+				})
+				if !errors.Is(err, digest.ErrDigestInvalidFormat) {
+					t.Fatalf("Referrers() then Fetch() error = %v, want digest.ErrDigestInvalidFormat", err)
+				}
+			})
+		}
 	}
 }

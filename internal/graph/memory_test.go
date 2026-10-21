@@ -957,6 +957,32 @@ func TestMemory_Exists(t *testing.T) {
 	}
 }
 
+func TestMemory_Node(t *testing.T) {
+	ctx := context.Background()
+	blob := []byte("node")
+	desc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	testFetcher := cas.NewMemory()
+	if err := testFetcher.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+		t.Fatal("testFetcher.Push() error =", err)
+	}
+	testMemory := NewMemory()
+
+	if _, ok := testMemory.Node(desc.Digest); ok {
+		t.Fatalf("Node(%s) before Index found, want not found", desc.Digest)
+	}
+	if err := testMemory.Index(ctx, testFetcher, desc); err != nil {
+		t.Fatal("Index() error =", err)
+	}
+	got, ok := testMemory.Node(desc.Digest)
+	if !ok || !reflect.DeepEqual(got, desc) {
+		t.Errorf("Node(%s) = %v, %v, want %v, true", desc.Digest, got, ok, desc)
+	}
+}
+
 // TestMemory_SharedBlobDigestUnderDifferentMediaType is a regression test for
 // the garbage-collection bug fixed in #1095 (reported in #1093): when two
 // manifests reference the same blob digest under different media types, the

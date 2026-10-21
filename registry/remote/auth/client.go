@@ -17,10 +17,13 @@ limitations under the License.
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -30,6 +33,7 @@ import (
 	"sync"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
 )
@@ -523,6 +527,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 	// attempt cached auth token
 	var attemptedKey string
+	var cachedBearer bool
 	cache := c.cache()
 	resource := requestResource(originalReq)
 	// Credentials may be namespaced, so a token fetched for one repository
@@ -543,6 +548,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			token, err := cache.GetToken(ctx, cacheKey, SchemeBearer, attemptedKey)
 			if err == nil {
 				req.Header.Set(headerAuthorization, "Bearer "+token)
+				cachedBearer = true
 			}
 		}
 	}
@@ -550,6 +556,21 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	resp, err := c.send(req)
 	if err != nil {
 		return nil, err
+	}
+	// Some registries (notably Amazon ECR Public) reject an expired or
+	// invalid bearer token with 400 DENIED and no WWW-Authenticate header
+	// instead of 401. When the token came from the cache, resend the
+	// request once without Authorization so the registry issues a fresh
+	// 401 challenge.
+	if cachedBearer && isInvalidTokenResponse(resp) {
+		req = originalReq.Clone(ctx)
+		if err := rewindRequestBody(req); err == nil {
+			resp.Body.Close()
+			resp, err = c.send(req)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
 		return resp, nil
@@ -608,7 +629,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 				if err != nil {
 					return nil, err
 				}
-				if resp.StatusCode != http.StatusUnauthorized {
+				if resp.StatusCode != http.StatusUnauthorized && !isInvalidTokenResponse(resp) {
 					return resp, nil
 				}
 				resp.Body.Close()
@@ -729,4 +750,39 @@ func rewindRequestBody(req *http.Request) error {
 	}
 	req.Body = body
 	return nil
+}
+
+// isInvalidTokenResponse reports whether resp is a 400 Bad Request carrying a
+// DENIED error code, which registries such as Amazon ECR Public return instead
+// of a 401 challenge when a bearer token is invalid or expired.
+//
+// The response body is read up to maxResponseBytes and restored on resp.Body so
+// that callers still see the original body when the response is returned.
+func isInvalidTokenResponse(resp *http.Response) bool {
+	if resp.StatusCode != http.StatusBadRequest || resp.Body == nil {
+		return false
+	}
+	buf, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: io.MultiReader(bytes.NewReader(buf), resp.Body),
+		Closer: resp.Body,
+	}
+	if err != nil {
+		return false
+	}
+	var body struct {
+		Errors errcode.Errors `json:"errors"`
+	}
+	if err := json.Unmarshal(buf, &body); err != nil {
+		return false
+	}
+	for _, e := range body.Errors {
+		if e.Code == errcode.ErrorCodeDenied {
+			return true
+		}
+	}
+	return false
 }

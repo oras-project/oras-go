@@ -61,7 +61,8 @@ type Pusher interface {
 // On other errors, the returned descriptor is empty. As with Push, if graph
 // indexing or tagging fails after content is stored, the content remains stored
 // and an error is returned. Validation occurs before reading content. A canceled
-// context is checked before starting; cancellation during the read is not guaranteed.
+// context is checked before starting and before each read of content; a read
+// already blocked in the reader is not interrupted.
 type UnsafePusher interface {
 	// UnsafePush pushes the content, matching the specified field in the expected descriptor.
 	//   - The Digest of the expected descriptor is recalculated if empty

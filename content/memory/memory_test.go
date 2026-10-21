@@ -810,3 +810,36 @@ func TestStore_UnsafePush(t *testing.T) {
 		}
 	})
 }
+
+// cancelAfterFirstRead cancels after reading at most three bytes.
+type cancelAfterFirstRead struct {
+	io.Reader
+	cancel context.CancelFunc
+	reads  int
+}
+
+func (r *cancelAfterFirstRead) Read(p []byte) (int, error) {
+	r.reads++
+	n, err := r.Reader.Read(p[:min(len(p), 3)])
+	r.cancel()
+	return n, err
+}
+
+func TestStore_UnsafePush_CanceledDuringCopy(t *testing.T) {
+	blob := []byte("foobarbazqux")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := New()
+	r := &cancelAfterFirstRead{Reader: bytes.NewReader(blob), cancel: cancel}
+
+	got, err := s.UnsafePush(ctx, ocispec.Descriptor{MediaType: "test", Size: -1}, r)
+	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(got, ocispec.Descriptor{}) {
+		t.Fatalf("UnsafePush() = %+v, %v, want empty, context.Canceled", got, err)
+	}
+	if r.reads != 1 {
+		t.Errorf("source read %d times, want 1", r.reads)
+	}
+	if got := len(s.storage.(*cas.Memory).Map()); got != 0 {
+		t.Errorf("storage.Map() = %v, want 0 after cancellation", got)
+	}
+}

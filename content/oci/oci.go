@@ -40,6 +40,7 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/container/set"
 	"github.com/oras-project/oras-go/v3/internal/descriptor"
 	"github.com/oras-project/oras-go/v3/internal/graph"
+	"github.com/oras-project/oras-go/v3/internal/ioutil"
 	"github.com/oras-project/oras-go/v3/internal/manifestutil"
 	"github.com/oras-project/oras-go/v3/internal/resolver"
 	"github.com/oras-project/oras-go/v3/registry"
@@ -214,16 +215,14 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, reader io
 	defer s.sync.RUnlock()
 
 	if err := s.storage.Push(ctx, expected, reader); err != nil {
+		if errors.Is(err, errdef.ErrAlreadyExists) {
+			if indexErr := s.ensureIndexed(ctx, expected); indexErr != nil {
+				return indexErr
+			}
+		}
 		return err
 	}
-	if err := s.graph.Index(ctx, s.storage, expected); err != nil {
-		return err
-	}
-	if descriptor.IsManifest(expected) {
-		// tag by digest
-		return s.tag(ctx, expected, expected.Digest.String())
-	}
-	return nil
+	return s.indexNode(ctx, expected)
 }
 
 // UnsafePush pushes content whose digest or size may be unknown, subject to
@@ -235,19 +234,50 @@ func (s *Store) UnsafePush(ctx context.Context, expected ocispec.Descriptor, r i
 	s.sync.RLock()
 	defer s.sync.RUnlock()
 
-	desc, err := s.storage.unsafePush(expected, r, s.MaxUnsafePushBytes)
+	desc, err := s.storage.unsafePush(expected, ioutil.NewContextReader(ctx, r), s.MaxUnsafePushBytes)
 	if err != nil {
+		if errors.Is(err, errdef.ErrAlreadyExists) {
+			if indexErr := s.ensureIndexed(ctx, desc); indexErr != nil {
+				return ocispec.Descriptor{}, indexErr
+			}
+		}
 		return desc, err
 	}
-	if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+	if err := s.indexNode(ctx, desc); err != nil {
 		return ocispec.Descriptor{}, err
 	}
+	return desc, nil
+}
+
+// indexNode indexes desc in s.graph and records its digest in s.tagResolver
+// when desc is a manifest.
+func (s *Store) indexNode(ctx context.Context, desc ocispec.Descriptor) error {
+	if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+		return err
+	}
 	if descriptor.IsManifest(desc) {
-		if err := s.tag(ctx, desc, desc.Digest.String()); err != nil {
-			return ocispec.Descriptor{}, err
+		// tag by digest
+		return s.tag(ctx, desc, desc.Digest.String())
+	}
+	return nil
+}
+
+// ensureIndexed ensures that an already-stored blob (for example, one spared on
+// disk by a prior GC within leftoverExpiry) is indexed in s.graph and, if it is
+// a manifest, recorded by digest in s.tagResolver.
+func (s *Store) ensureIndexed(ctx context.Context, desc ocispec.Descriptor) error {
+	if !s.graph.Exists(desc) {
+		if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+			return err
 		}
 	}
-	return desc, nil
+	if descriptor.IsManifest(desc) {
+		dgst := desc.Digest.String()
+		if _, err := s.tagResolver.Resolve(ctx, dgst); errors.Is(err, errdef.ErrNotFound) {
+			return s.tag(ctx, desc, dgst)
+		}
+	}
+	return nil
 }
 
 // Exists returns true if the described content exists.
@@ -345,6 +375,11 @@ func (s *Store) Tag(ctx context.Context, desc ocispec.Descriptor, reference stri
 	}
 	if !exists {
 		return fmt.Errorf("%s: %s: %w", desc.Digest, desc.MediaType, errdef.ErrNotFound)
+	}
+	if descriptor.IsManifest(desc) && !s.graph.Exists(desc) {
+		if err := s.graph.IndexAll(ctx, s.storage, descriptor.Plain(desc)); err != nil {
+			return err
+		}
 	}
 
 	return s.tag(ctx, desc, reference)
@@ -651,6 +686,16 @@ func (s *Store) writeIndexFile() error {
 //   - unreferenced (dangling) blobs in Store which have no predecessors
 //   - garbage blobs in the storage whose metadata is not stored in Store
 //   - temporary files left behind by interrupted blob and metadata writes
+//
+// Unreachable blobs and temporary files modified within the last hour are kept,
+// so blobs pushed by a multi-step copy (for example, layers pushed before their
+// manifest is pushed and tagged) or by another Store on the same directory are
+// not removed while the operation completes within that window. GC does not
+// otherwise coordinate with concurrent writers: it rebuilds the index from this
+// Store's in-memory references and overwrites index.json, which drops tags and
+// manifests written by another Store since this Store was opened, and does not
+// protect writes that take longer than the grace period, nor existing blobs
+// that a copy skips pushing, since their modification time is not refreshed.
 func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
@@ -667,11 +712,13 @@ func (s *Store) GC(ctx context.Context) error {
 			return fmt.Errorf("unable to save index: %w", err)
 		}
 	}
+	oldGraph := s.graph
 	s.tagResolver = tagResolver
 	s.graph = graph
 	reachableNodes := s.graph.DigestSet()
 
 	// clean up garbage blobs in the storage
+	stale := olderThan(leftoverExpiry)
 	rootpath := filepath.Join(s.root, ocispec.ImageBlobsDir)
 	algDirs, err := os.ReadDir(rootpath)
 	if err != nil {
@@ -705,10 +752,25 @@ func (s *Store) GC(ctx context.Context) error {
 				continue
 			}
 			if !reachableNodes.Contains(blobDigest) {
-				// remove the blob from storage if it does not exist in Store
-				blobPath := path.Join(algPath, dgst)
-				if err := os.Remove(blobPath); err != nil {
-					return fmt.Errorf("unable to remove %s: %w", blobPath, err)
+				if stale(digestEntry) {
+					// remove the blob from storage if it does not exist in Store
+					blobPath := path.Join(algPath, dgst)
+					if err := os.Remove(blobPath); err != nil {
+						return fmt.Errorf("unable to remove %s: %w", blobPath, err)
+					}
+				} else if desc, ok := oldGraph.Node(blobDigest); ok {
+					// keep spared blobs indexed so Predecessors still sees
+					// manifests pushed before GC
+					if err := s.graph.Index(ctx, s.storage, desc); err != nil {
+						return err
+					}
+					if descriptor.IsManifest(desc) {
+						// keep the digest reference so Resolve does not fall
+						// back to an untyped blob descriptor
+						if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), blobDigest.String()); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}
@@ -721,9 +783,10 @@ func (s *Store) GC(ctx context.Context) error {
 	return nil
 }
 
-// leftoverExpiry is how long a temporary file must have been untouched before
-// GC reclaims it, so that a write in progress -- possibly by another Store on
-// the same directory -- is never reclaimed from underneath.
+// leftoverExpiry is how long an unreachable blob or temporary file must have
+// been untouched before GC reclaims it, giving a write or multi-step copy in
+// progress -- on this Store or another Store on the same directory -- a grace
+// period to finish and record its references before its files can be collected.
 const leftoverExpiry = time.Hour
 
 // gcLeftovers removes the temporary files that interrupted writes leave
@@ -790,7 +853,8 @@ func (s *Store) gcIndex(ctx context.Context) (*resolver.Memory, *graph.Memory, e
 
 // gcReachable is the rule that decides which content a Store keeps when it is
 // garbage collected. [Store.GC] and [Verify] both apply it, so that what Verify
-// reports as unreferenced is what GC removes.
+// reports as unreferenced is what GC removes (excluding recent blobs within the
+// GC grace period).
 //
 // refMap holds the references of the store, as returned by
 // [resolver.Memory.Map]: a tag maps to its descriptor, and an entry whose key is
