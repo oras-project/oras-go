@@ -4777,6 +4777,7 @@ func Test_validateRealm(t *testing.T) {
 		{"Alibaba metadata is rejected", "http://100.100.100.200/latest/meta-data/", registryHTTP, nil, true, "100.100.100.200/32"},
 		{"Azure WireServer is rejected", "http://168.63.129.16/token", registryHTTP, nil, true, "168.63.129.16/32"},
 		{"AWS IPv6 metadata is rejected", "http://[fd00:ec2::254]/token", registryHTTP, nil, true, "fd00:ec2::254/128"},
+		{"AWS EKS Pod Identity IPv6 is rejected", "http://[fd00:ec2::23]/token", registryHTTP, nil, true, "fd00:ec2::23/128"},
 		{"Google Cloud IPv6 metadata is rejected", "http://[fd20:ce::254]/token", registryHTTP, nil, true, "fd20:ce::254/128"},
 		{"RFC1918 is allowed by default", "http://10.0.0.5/token", registryHTTP, nil, false, ""},
 		{"#1631 GitLab RFC1918 realm is allowed by default", "http://192.168.110.193/token", registryHTTP, nil, false, ""},
