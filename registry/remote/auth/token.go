@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 
@@ -55,6 +56,10 @@ type TokenFetcher interface {
 // contacted at, carried from Client.Do to the token request.
 type tokenRegistryURLKey struct{}
 
+// tokenBlockedPrefixesKey is the context key for the realm address denylist
+// carried from Client.Do to redirect hops of the token request.
+type tokenBlockedPrefixesKey struct{}
+
 // withTokenRegistryURL returns a copy of ctx carrying registryURL, against
 // which sendRequest validates every redirect hop of a token request.
 func withTokenRegistryURL(ctx context.Context, registryURL *url.URL) context.Context {
@@ -65,6 +70,19 @@ func withTokenRegistryURL(ctx context.Context, registryURL *url.URL) context.Con
 func tokenRegistryURL(ctx context.Context) *url.URL {
 	registryURL, _ := ctx.Value(tokenRegistryURLKey{}).(*url.URL)
 	return registryURL
+}
+
+// withTokenBlockedPrefixes returns a copy of ctx carrying prefixes, applied
+// to every redirect hop of a token request alongside the registry URL.
+func withTokenBlockedPrefixes(ctx context.Context, prefixes []netip.Prefix) context.Context {
+	return context.WithValue(ctx, tokenBlockedPrefixesKey{}, prefixes)
+}
+
+// tokenBlockedPrefixes returns the realm address denylist carried by ctx, or
+// nil (defaults) if none is set.
+func tokenBlockedPrefixes(ctx context.Context) []netip.Prefix {
+	prefixes, _ := ctx.Value(tokenBlockedPrefixesKey{}).([]netip.Prefix)
+	return prefixes
 }
 
 // sendRequest adds the custom headers to the request and sends it using the
@@ -78,7 +96,7 @@ func tokenRegistryURL(ctx context.Context) *url.URL {
 //
 // When the request context carries the registry URL (set by Client.Do), every
 // redirect hop is also validated by validateRealm against that URL, so that a
-// validated realm cannot redirect the token request to an internal address
+// validated realm cannot redirect the token request into a blocked prefix
 // or downgrade it from https to http.
 //
 // References:
@@ -89,7 +107,7 @@ func sendRequest(client *http.Client, header http.Header, req *http.Request) (*h
 		req.Header[key] = append(req.Header[key], values...)
 	}
 	if registryURL := tokenRegistryURL(req.Context()); registryURL != nil {
-		client = realmRedirectGuard(client, registryURL)
+		client = realmRedirectGuard(client, registryURL, tokenBlockedPrefixes(req.Context()))
 	}
 	safeClient := redirectSafeClient(client)
 	checkRedirect := safeClient.CheckRedirect
