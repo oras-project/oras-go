@@ -28,6 +28,19 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/container/set"
 )
 
+// Change describes the current state of a resolver reference, as reported by
+// [Memory.Snapshot] and [Memory.Flush].
+type Change struct {
+	// Ref is the reference whose state changed.
+	Ref string
+	// Desc is the descriptor associated with Ref when Exists is true.
+	Desc ocispec.Descriptor
+	// Exists reports whether Ref currently exists in the resolver.
+	Exists bool
+	// Tagged reports whether the descriptor's digest is referenced by a tag.
+	Tagged bool
+}
+
 // Memory is a memory based resolver.
 type Memory struct {
 	lock  sync.RWMutex
@@ -153,19 +166,6 @@ func (m *Memory) tagged(desc ocispec.Descriptor) bool {
 		return len(tagSet) > 1
 	}
 	return len(tagSet) > 0
-}
-
-// Change describes the current state of a resolver reference, as reported by
-// [Memory.Snapshot] and [Memory.Flush].
-type Change struct {
-	// Ref is the reference whose state changed.
-	Ref string
-	// Desc is the descriptor associated with Ref when Exists is true.
-	Desc ocispec.Descriptor
-	// Exists reports whether Ref currently exists in the resolver.
-	Exists bool
-	// Tagged reports whether the descriptor's digest is referenced by a tag.
-	Tagged bool
 }
 
 // Snapshot delivers every existing reference to fn, and starts recording the

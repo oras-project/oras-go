@@ -316,6 +316,99 @@ func TestStore_IndexManifests(t *testing.T) {
 	wantEntries("after delete", m1.Digest, 0, 0)
 }
 
+// TestManifestCollection_FlushedResolver checks that a collection created for a
+// resolver that was flushed before, by another collection, is still filled
+// with every reference rather than with the changes since that flush.
+func TestManifestCollection_FlushedResolver(t *testing.T) {
+	ctx := context.Background()
+	descs, _ := newImage(t, "image0", 2)
+	m := descs[len(descs)-1]
+	tag := func(res *resolver.Memory, ref string) {
+		t.Helper()
+		if err := res.Tag(ctx, m, ref); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertMatches := func(res *resolver.Memory, c *manifestCollection, name string) {
+		t.Helper()
+		want := rebuildManifests(res.Map())
+		if got := canonicalManifests(c.manifests); !slices.Equal(got, want) {
+			t.Errorf("%s: manifests =\n%s\nwant\n%s", name, got, want)
+		}
+	}
+
+	res := resolver.NewMemory()
+	tag(res, m.Digest.String())
+	tag(res, "a")
+
+	first := newManifestCollection(res)
+	first.sync()
+	tag(res, "b")
+	first.sync()
+	assertMatches(res, first, "first collection")
+
+	second := newManifestCollection(res)
+	second.sync()
+	assertMatches(res, second, "second collection on a flushed resolver")
+
+	// it follows the changes from then on
+	res.Untag("a")
+	tag(res, "c")
+	second.sync()
+	assertMatches(res, second, "second collection after changes")
+}
+
+// TestStore_GCSparedBlobsSaveFailure checks that GC does not fail when it
+// cannot write the entries of the manifests it spared, since it has already
+// removed blobs by then, and that the next save writes them.
+func TestStore_GCSparedBlobsSaveFailure(t *testing.T) {
+	ctx := context.Background()
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	images := newTestImages(t, s, 3)
+	m0, m2 := images.push(0), images.push(2)
+	if err := s.Tag(ctx, m0, "a"); err != nil {
+		t.Fatal(err)
+	}
+	// m2 is unreferenced and old, so GC removes it
+	backdateBlobs(t, s.root)
+	// m1 is unreferenced and recent, so GC spares it
+	images.push(1)
+
+	// The first write of index.json by GC succeeds, the one after it removed
+	// blobs and spared manifests fails.
+	var writes atomic.Int32
+	original := fileWrite
+	fileWrite = func(f *os.File, data []byte) (int, error) {
+		if isTempFileOf(filepath.Base(f.Name()), ocispec.ImageIndexFile) && writes.Add(1) == 2 {
+			return 0, errors.New("no space left on device")
+		}
+		return original(f, data)
+	}
+	t.Cleanup(func() { fileWrite = original })
+
+	if err := s.GC(ctx); err != nil {
+		t.Fatal("GC() error =", err)
+	}
+	if got := writes.Load(); got != 2 {
+		t.Fatalf("GC() wrote index.json %d times, want 2", got)
+	}
+	if exists, err := s.Exists(ctx, m2); err != nil || exists {
+		t.Errorf("Exists(old unreferenced manifest) = %v, %v, want false, nil", exists, err)
+	}
+
+	// the entry of the spared manifest was not lost, and the next save writes it
+	if err := s.SaveIndex(); err != nil {
+		t.Fatal(err)
+	}
+	assertManifestsMatchResolver(t, s, true)
+	if got := len(s.index.Manifests); got != 2 {
+		t.Errorf("len(index.Manifests) = %d, want 2 (a and the spared manifest)", got)
+	}
+}
+
 // TestStore_IndexManifestsFailedSave checks that a failed write never makes the
 // index, or later saves, diverge from the references.
 func TestStore_IndexManifestsFailedSave(t *testing.T) {
@@ -697,97 +790,4 @@ func TestStore_IndexManifestsGCSparedBlobs(t *testing.T) {
 			t.Errorf("len(index.Manifests) = %d, want 2", got)
 		}
 	})
-}
-
-// TestManifestCollection_FlushedResolver checks that a collection created for a
-// resolver that was flushed before, by another collection, is still filled
-// with every reference rather than with the changes since that flush.
-func TestManifestCollection_FlushedResolver(t *testing.T) {
-	ctx := context.Background()
-	descs, _ := newImage(t, "image0", 2)
-	m := descs[len(descs)-1]
-	tag := func(res *resolver.Memory, ref string) {
-		t.Helper()
-		if err := res.Tag(ctx, m, ref); err != nil {
-			t.Fatal(err)
-		}
-	}
-	assertMatches := func(res *resolver.Memory, c *manifestCollection, name string) {
-		t.Helper()
-		want := rebuildManifests(res.Map())
-		if got := canonicalManifests(c.manifests); !slices.Equal(got, want) {
-			t.Errorf("%s: manifests =\n%s\nwant\n%s", name, got, want)
-		}
-	}
-
-	res := resolver.NewMemory()
-	tag(res, m.Digest.String())
-	tag(res, "a")
-
-	first := newManifestCollection(res)
-	first.sync()
-	tag(res, "b")
-	first.sync()
-	assertMatches(res, first, "first collection")
-
-	second := newManifestCollection(res)
-	second.sync()
-	assertMatches(res, second, "second collection on a flushed resolver")
-
-	// it follows the changes from then on
-	res.Untag("a")
-	tag(res, "c")
-	second.sync()
-	assertMatches(res, second, "second collection after changes")
-}
-
-// TestStore_GCSparedBlobsSaveFailure checks that GC does not fail when it
-// cannot write the entries of the manifests it spared, since it has already
-// removed blobs by then, and that the next save writes them.
-func TestStore_GCSparedBlobsSaveFailure(t *testing.T) {
-	ctx := context.Background()
-	s, err := New(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	images := newTestImages(t, s, 3)
-	m0, m2 := images.push(0), images.push(2)
-	if err := s.Tag(ctx, m0, "a"); err != nil {
-		t.Fatal(err)
-	}
-	// m2 is unreferenced and old, so GC removes it
-	backdateBlobs(t, s.root)
-	// m1 is unreferenced and recent, so GC spares it
-	images.push(1)
-
-	// The first write of index.json by GC succeeds, the one after it removed
-	// blobs and spared manifests fails.
-	var writes atomic.Int32
-	original := fileWrite
-	fileWrite = func(f *os.File, data []byte) (int, error) {
-		if isTempFileOf(filepath.Base(f.Name()), ocispec.ImageIndexFile) && writes.Add(1) == 2 {
-			return 0, errors.New("no space left on device")
-		}
-		return original(f, data)
-	}
-	t.Cleanup(func() { fileWrite = original })
-
-	if err := s.GC(ctx); err != nil {
-		t.Fatal("GC() error =", err)
-	}
-	if got := writes.Load(); got != 2 {
-		t.Fatalf("GC() wrote index.json %d times, want 2", got)
-	}
-	if exists, err := s.Exists(ctx, m2); err != nil || exists {
-		t.Errorf("Exists(old unreferenced manifest) = %v, %v, want false, nil", exists, err)
-	}
-
-	// the entry of the spared manifest was not lost, and the next save writes it
-	if err := s.SaveIndex(); err != nil {
-		t.Fatal(err)
-	}
-	assertManifestsMatchResolver(t, s, true)
-	if got := len(s.index.Manifests); got != 2 {
-		t.Errorf("len(index.Manifests) = %d, want 2 (a and the spared manifest)", got)
-	}
 }
