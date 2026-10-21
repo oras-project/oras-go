@@ -22,6 +22,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"testing/iotest"
 
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -152,6 +153,23 @@ func TestVerifyReader_Verify(t *testing.T) {
 	// call vr.Verify again, the result should be the same
 	if err := vr.Verify(); !errors.Is(err, ErrMismatchedDigest) {
 		t.Fatalf("2nd Verify() error = %v, want %v", err, ErrMismatchedDigest)
+	}
+
+	// read error after the full content, the read error should be reported
+	errRead := errors.New("connection reset")
+	content = []byte("example content")
+	desc = NewDescriptorFromBytes("test", content)
+	vr = NewVerifyReader(io.MultiReader(bytes.NewReader(content), iotest.ErrReader(errRead)), desc)
+	buf = make([]byte, len(content))
+	if _, err := vr.Read(buf); err != nil {
+		t.Fatal("Read() error = ", err)
+	}
+	if err := vr.Verify(); !errors.Is(err, errRead) {
+		t.Fatalf("Verify() error = %v, want %v", err, errRead)
+	}
+	// call vr.Verify again, the result should be the same
+	if err := vr.Verify(); !errors.Is(err, errRead) {
+		t.Fatalf("2nd Verify() error = %v, want %v", err, errRead)
 	}
 }
 
