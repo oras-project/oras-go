@@ -501,8 +501,9 @@ changes:
 - `oci.Store.GC` now keeps unreachable blobs modified within the last hour,
   matching the grace period already applied to `ingest/` and temporary metadata
   files so in-flight multi-step copies do not lose freshly pushed layers. What
-  a kept manifest references is kept with it, whatever its modification time,
-  so a copy that skipped pushing a layer already on disk does not lose it.
+  a kept manifest pushed through the same `Store` references is kept with it,
+  whatever its modification time, so a copy that skipped pushing a layer
+  already on disk does not lose it.
   Unreachable blobs modified less than an hour before `GC` are reclaimed on a
   subsequent `GC` after the grace window expires.
 
