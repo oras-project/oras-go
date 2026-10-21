@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"reflect"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -221,15 +223,14 @@ func Test_buildMirrorRepositories_doesNotShareCredential(t *testing.T) {
 	}
 }
 
-// Test_buildMirrorRepositories_doesNotInheritRealmTrust checks that a
-// primary's TrustedRealmHosts and AllowInternalRealms are not copied onto
-// the client built for a mirror.
-func Test_buildMirrorRepositories_doesNotInheritRealmTrust(t *testing.T) {
+// Test_buildMirrorRepositories_inheritsBlockedRealmPrefixes checks that a
+// primary's custom denylist is copied onto the client built for a mirror.
+func Test_buildMirrorRepositories_inheritsBlockedRealmPrefixes(t *testing.T) {
+	prefixes := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 	props := &properties.Registry{
 		Reference: properties.Reference{Registry: "registry.example.com", Repository: "app"},
 		Attributes: properties.Attributes{
-			TrustedRealmHosts:   []string{"gitlab.corp.example"},
-			AllowInternalRealms: true,
+			BlockedRealmPrefixes: prefixes,
 		},
 		Mirrors: []properties.Mirror{
 			{Location: "mirror.internal"},
@@ -248,10 +249,7 @@ func Test_buildMirrorRepositories_doesNotInheritRealmTrust(t *testing.T) {
 	if !ok {
 		t.Fatalf("mirror client is %T, want *auth.Client", mirrors[0].Registry.Client)
 	}
-	if len(authClient.TrustedRealmHosts) != 0 {
-		t.Errorf("mirror TrustedRealmHosts = %v, want empty", authClient.TrustedRealmHosts)
-	}
-	if authClient.AllowInternalRealms {
-		t.Error("mirror AllowInternalRealms = true, want false")
+	if !reflect.DeepEqual(authClient.BlockedRealmPrefixes, prefixes) {
+		t.Errorf("mirror BlockedRealmPrefixes = %v, want %v", authClient.BlockedRealmPrefixes, prefixes)
 	}
 }

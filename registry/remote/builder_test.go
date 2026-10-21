@@ -31,6 +31,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -82,24 +83,21 @@ func TestClientBuilder_Build(t *testing.T) {
 	if client.Cache == nil {
 		t.Error("Build() returned client with nil cache")
 	}
-	if len(client.TrustedRealmHosts) != 0 {
-		t.Errorf("Build() TrustedRealmHosts = %v, want empty default", client.TrustedRealmHosts)
-	}
-	if client.AllowInternalRealms {
-		t.Error("Build() AllowInternalRealms = true, want false default")
+	if client.BlockedRealmPrefixes != nil {
+		t.Errorf("Build() BlockedRealmPrefixes = %v, want nil (defaults at validation)", client.BlockedRealmPrefixes)
 	}
 }
 
-func TestClientBuilder_Build_TrustedRealmHosts(t *testing.T) {
+func TestClientBuilder_Build_BlockedRealmPrefixes(t *testing.T) {
 	builder := NewClientBuilder()
+	prefixes := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 	props := &properties.Registry{
 		Reference: properties.Reference{
 			Registry:   "registry.corp.example",
 			Repository: "test/repo",
 		},
 		Attributes: properties.Attributes{
-			TrustedRealmHosts:   []string{"gitlab.corp.example", "*.auth.corp.example"},
-			AllowInternalRealms: true,
+			BlockedRealmPrefixes: prefixes,
 		},
 	}
 
@@ -107,11 +105,8 @@ func TestClientBuilder_Build_TrustedRealmHosts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if !reflect.DeepEqual(client.TrustedRealmHosts, props.Attributes.TrustedRealmHosts) {
-		t.Errorf("TrustedRealmHosts = %v, want %v", client.TrustedRealmHosts, props.Attributes.TrustedRealmHosts)
-	}
-	if !client.AllowInternalRealms {
-		t.Error("AllowInternalRealms = false, want true")
+	if !reflect.DeepEqual(client.BlockedRealmPrefixes, prefixes) {
+		t.Errorf("BlockedRealmPrefixes = %v, want %v", client.BlockedRealmPrefixes, prefixes)
 	}
 }
 

@@ -15,6 +15,8 @@ limitations under the License.
 
 package properties
 
+import "net/netip"
+
 // ReferrersAPI represents the Referrers API capability of a registry.
 type ReferrersAPI int
 
@@ -88,25 +90,8 @@ type Attributes struct {
 	// credentials. TokenFlowDefault leaves the choice to the client.
 	TokenFlow TokenFlow
 
-	// TrustedRealmHosts is an opt-in list of bearer realm hosts that skip the
-	// internal-address check for this registry. Exact hostnames and "*.domain"
-	// suffix patterns are supported. "*.domain" does not match the apex
-	// "domain". Matching is case-insensitive; a single trailing dot is
-	// stripped on both sides. An explicitly named host is allowed regardless
-	// of the address it resolves to. The scheme check and the https-to-http
-	// downgrade check still apply.
-	//
-	// The zero value keeps the default strict validation. Configure this per
-	// registry; do not set it on a shared multi-registry client.
-	TrustedRealmHosts []string
-
-	// AllowInternalRealms, when true, allows bearer realm hosts that resolve
-	// to private (RFC 1918) or IPv6 unique-local addresses. Loopback,
-	// unspecified, link-local, and carrier-grade NAT addresses (including
-	// 100.100.100.200) remain rejected. The scheme check and the
-	// https-to-http downgrade check still apply.
-	//
-	// The zero value keeps the default strict validation. Configure this per
-	// registry; do not set it on a shared multi-registry client.
-	AllowInternalRealms bool
+	// BlockedRealmPrefixes is copied onto auth.Client as-is. nil uses
+	// auth.DefaultBlockedRealmPrefixes; an empty non-nil slice blocks
+	// nothing; a non-empty slice is the exact denylist.
+	BlockedRealmPrefixes []netip.Prefix
 }

@@ -26,6 +26,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"strings"
@@ -4716,25 +4717,25 @@ func setLookupIPAddr(t *testing.T, lookup func(context.Context, string) ([]net.I
 
 func Test_validateRealm(t *testing.T) {
 	setLookupIPAddr(t, fakeLookupIPAddr(map[string][]string{
-		"auth.example.com":                 {"93.184.215.14"},
-		"other.example.com":                {"93.184.215.15", "2606:2800:21f:cb07:6820:80da:af6b:8b2c"},
-		"loopback.example.com":             {"127.0.0.1"},
-		"loopback6.example.com":            {"::1"},
-		"private.example.com":              {"10.1.2.3"},
-		"imds.example.com":                 {"169.254.169.254"},
-		"cgnat.example.com":                {"100.64.0.1"},
-		"alibaba-imds.example.com":         {"100.100.100.200"},
-		"unspecified.example.com":          {"0.0.0.0"},
-		"mapped.example.com":               {"::ffff:169.254.169.254"},
-		"mixed.example.com":                {"93.184.215.14", "10.0.0.1"},
-		"registry.internal":                {"10.0.0.5"},
-		"cgnat-boundary.example.com":       {"100.128.0.1"},
-		"gitlab.corp.example":              {"10.1.2.3"},
-		"evil.corp.example":                {"10.1.2.4"},
-		"gitlab.other.example":             {"10.1.2.5"},
-		"corp.example":                     {"10.1.2.6"},
-		"gitlab.corp.example.attacker.com": {"10.1.2.7"},
-		"ula.example.com":                  {"fd00::1"},
+		"auth.example.com":           {"93.184.215.14"},
+		"other.example.com":          {"93.184.215.15", "2606:2800:21f:cb07:6820:80da:af6b:8b2c"},
+		"loopback.example.com":       {"127.0.0.1"},
+		"loopback6.example.com":      {"::1"},
+		"private.example.com":        {"10.1.2.3"},
+		"imds.example.com":           {"169.254.169.254"},
+		"cgnat.example.com":          {"100.64.0.1"},
+		"unspecified.example.com":    {"0.0.0.0"},
+		"mapped.example.com":         {"::ffff:169.254.169.254"},
+		"nat64.example.com":          {"64:ff9b::a9fe:a9fe"},
+		"sixto4.example.com":         {"2002:a9fe:a9fe::"},
+		"mixed-imds.example.com":     {"93.184.215.14", "169.254.169.254"},
+		"registry.internal":          {"10.0.0.5"},
+		"ula.example.com":            {"fd00::1"},
+		"aws-imds6.example.com":      {"fd00:ec2::254"},
+		"linklocal6.example.com":     {"fe80::1"},
+		"mcast.example.com":          {"224.0.0.1"},
+		"mcast6.example.com":         {"ff02::1"},
+		"custom-blocked.example.com": {"93.184.215.14"},
 	}))
 
 	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
@@ -4742,75 +4743,123 @@ func Test_validateRealm(t *testing.T) {
 	registryLoopback, _ := url.Parse("http://127.0.0.1:5000/v2/")
 	registryInternal, _ := url.Parse("http://registry.internal:5000/v2/")
 
+	empty := []netip.Prefix{}
+	custom := []netip.Prefix{netip.MustParsePrefix("93.184.215.14/32")}
+	strict := append(DefaultBlockedRealmPrefixes(), PrivateRealmPrefixes()...)
+
 	tests := []struct {
 		name     string
 		realm    string
 		registry *url.URL
+		prefixes []netip.Prefix
 		wantErr  bool
-		trust    realmTrust
+		wantSub  string
 	}{
-		{"empty realm is allowed", "", registryHTTPS, false, realmTrust{}},
-		{"https realm is allowed", "https://auth.example.com/token", registryHTTPS, false, realmTrust{}},
-		{"https cross-host realm is allowed", "https://other.example.com/token", registryHTTPS, false, realmTrust{}},
-		{"http realm against plain-http registry is allowed", "http://auth.example.com/token", registryHTTP, false, realmTrust{}},
-		{"http realm against https registry is rejected (TLS downgrade)", "http://auth.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"non-http scheme is rejected", "file:///etc/passwd", registryHTTPS, true, realmTrust{}},
-		{"ftp scheme is rejected", "ftp://auth.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"IMDS IPv4 is rejected", "http://169.254.169.254/latest/meta-data/", registryHTTP, true, realmTrust{}},
-		{"loopback IPv4 is rejected when registry is on a public host", "http://127.0.0.1:9090/token", registryHTTPS, true, realmTrust{}},
-		{"loopback IPv6 is rejected when registry is on a public host", "http://[::1]:9090/token", registryHTTPS, true, realmTrust{}},
-		{"private RFC1918 is rejected when registry is on a public host", "http://10.0.0.5/token", registryHTTP, true, realmTrust{}},
-		{"unspecified address is rejected", "http://0.0.0.0/token", registryHTTP, true, realmTrust{}},
-		{"CGNAT literal is rejected", "http://100.64.0.1/token", registryHTTP, true, realmTrust{}},
-		{"Alibaba Cloud metadata literal is rejected", "http://100.100.100.200/latest/meta-data/", registryHTTP, true, realmTrust{}},
-		{"address just above CGNAT range is allowed", "http://100.128.0.1/token", registryHTTP, false, realmTrust{}},
-		{"IPv4-mapped IMDS literal is rejected", "http://[::ffff:169.254.169.254]/token", registryHTTP, true, realmTrust{}},
-		{"loopback realm is allowed when registry shares the loopback hostname", "http://127.0.0.1:9090/token", registryLoopback, false, realmTrust{}},
-		{"unparseable realm is rejected", "://bad-url", registryHTTPS, true, realmTrust{}},
-		{"hostname resolving to loopback is rejected", "https://loopback.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"hostname resolving to IPv6 loopback is rejected", "https://loopback6.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"hostname resolving to private address is rejected", "https://private.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"hostname resolving to IMDS is rejected", "http://imds.example.com/latest/meta-data/", registryHTTP, true, realmTrust{}},
-		{"hostname resolving to CGNAT is rejected", "https://cgnat.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"hostname resolving to Alibaba Cloud metadata is rejected", "http://alibaba-imds.example.com/", registryHTTP, true, realmTrust{}},
-		{"hostname resolving to unspecified address is rejected", "https://unspecified.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"hostname resolving to IPv4-mapped IMDS is rejected", "https://mapped.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"hostname with any internal address is rejected", "https://mixed.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"hostname resolving just above CGNAT range is allowed", "https://cgnat-boundary.example.com/token", registryHTTPS, false, realmTrust{}},
-		{"hostname whose lookup fails is allowed", "https://unresolvable.example.com/token", registryHTTPS, false, realmTrust{}},
-		{"internal hostname is allowed when registry shares the hostname", "http://registry.internal:5001/token", registryInternal, false, realmTrust{}},
-		{"internal hostname is allowed when registry shares the hostname in another case", "http://Registry.Internal:5001/token", registryInternal, false, realmTrust{}},
-		{"internal hostname is rejected when registry is on another host", "http://registry.internal:5001/token", registryHTTP, true, realmTrust{}},
-		{"internal hostname is rejected without a registry URL", "http://registry.internal:5001/token", nil, true, realmTrust{}},
-		{"trusted host resolving to RFC1918 is allowed", "https://private.example.com/token", registryHTTPS, false, realmTrust{hosts: []string{"private.example.com"}}},
-		{"untrusted host resolving to RFC1918 is rejected", "https://private.example.com/token", registryHTTPS, true, realmTrust{}},
-		{"wildcard matches subdomain", "https://gitlab.corp.example/token", registryHTTPS, false, realmTrust{hosts: []string{"*.corp.example"}}},
-		{"wildcard does not match sibling domain", "https://gitlab.other.example/token", registryHTTPS, true, realmTrust{hosts: []string{"*.corp.example"}}},
-		{"wildcard does not match sibling under the same parent", "https://evil.corp.example/token", registryHTTPS, true, realmTrust{hosts: []string{"*.gitlab.corp.example"}}},
-		{"wildcard does not match attacker suffix", "https://gitlab.corp.example.attacker.com/token", registryHTTPS, true, realmTrust{hosts: []string{"*.corp.example"}}},
-		{"wildcard does not match apex", "https://corp.example/token", registryHTTPS, true, realmTrust{hosts: []string{"*.corp.example"}}},
-		{"trusted host match is case-insensitive", "https://GitLab.Corp.Example/token", registryHTTPS, false, realmTrust{hosts: []string{"gitlab.corp.example"}}},
-		{"trusted host match strips a trailing dot", "https://gitlab.corp.example./token", registryHTTPS, false, realmTrust{hosts: []string{"gitlab.corp.example"}}},
-		{"allow-internal: private hostname is allowed", "https://private.example.com/token", registryHTTPS, false, realmTrust{allowInternal: true}},
-		{"allow-internal: IPv6 ULA hostname is allowed", "https://ula.example.com/token", registryHTTPS, false, realmTrust{allowInternal: true}},
-		{"allow-internal: RFC1918 literal is allowed", "http://10.0.0.5/token", registryHTTP, false, realmTrust{allowInternal: true}},
-		{"allow-internal: link-local literal is rejected", "http://169.254.169.254/latest/meta-data/", registryHTTP, true, realmTrust{allowInternal: true}},
-		{"allow-internal: IMDS hostname is rejected", "http://imds.example.com/latest/meta-data/", registryHTTP, true, realmTrust{allowInternal: true}},
-		{"allow-internal: Alibaba metadata hostname is rejected", "http://alibaba-imds.example.com/", registryHTTP, true, realmTrust{allowInternal: true}},
-		{"allow-internal: Alibaba metadata literal is rejected", "http://100.100.100.200/latest/meta-data/", registryHTTP, true, realmTrust{allowInternal: true}},
-		{"allow-internal: CGNAT is rejected", "https://cgnat.example.com/token", registryHTTPS, true, realmTrust{allowInternal: true}},
-		{"allow-internal: loopback hostname is rejected", "https://loopback.example.com/token", registryHTTPS, true, realmTrust{allowInternal: true}},
-		{"allow-internal: unspecified is rejected", "http://0.0.0.0/token", registryHTTP, true, realmTrust{allowInternal: true}},
-		{"named link-local host is allowed", "http://169.254.169.254/latest/meta-data/", registryHTTP, false, realmTrust{hosts: []string{"169.254.169.254"}}},
-		{"named IMDS hostname is allowed", "http://imds.example.com/latest/meta-data/", registryHTTP, false, realmTrust{hosts: []string{"imds.example.com"}}},
-		{"downgrade is rejected for a trusted host", "http://private.example.com/token", registryHTTPS, true, realmTrust{hosts: []string{"private.example.com"}}},
-		{"downgrade is rejected when allow-internal is set", "http://private.example.com/token", registryHTTPS, true, realmTrust{allowInternal: true}},
+		{"empty realm is allowed", "", registryHTTPS, nil, false, ""},
+		{"https realm is allowed", "https://auth.example.com/token", registryHTTPS, nil, false, ""},
+		{"https cross-host realm is allowed", "https://other.example.com/token", registryHTTPS, nil, false, ""},
+		{"http realm against plain-http registry is allowed", "http://auth.example.com/token", registryHTTP, nil, false, ""},
+		{"http realm against https registry is rejected (TLS downgrade)", "http://auth.example.com/token", registryHTTPS, nil, true, ""},
+		{"non-http scheme is rejected", "file:///etc/passwd", registryHTTPS, nil, true, ""},
+		{"ftp scheme is rejected", "ftp://auth.example.com/token", registryHTTPS, nil, true, ""},
+		{"nil prefixes use defaults: IMDS IPv4", "http://169.254.169.254/latest/meta-data/", registryHTTP, nil, true, "169.254.0.0/16"},
+		{"nil prefixes use defaults: loopback IPv4", "http://127.0.0.1:9090/token", registryHTTP, nil, true, "127.0.0.0/8"},
+		{"loopback IPv6 is rejected", "http://[::1]:9090/token", registryHTTP, nil, true, "::1/128"},
+		{"link-local IPv6 is rejected", "http://[fe80::1]/token", registryHTTP, nil, true, "fe80::/10"},
+		{"link-local multicast IPv4 is rejected", "http://224.0.0.1/token", registryHTTP, nil, true, "224.0.0.0/24"},
+		{"link-local multicast IPv6 is rejected", "http://[ff02::1]/token", registryHTTP, nil, true, "ff02::/16"},
+		{"unspecified IPv4 0.0.0.0/8 is rejected", "http://0.0.0.0/token", registryHTTP, nil, true, "0.0.0.0/8"},
+		{"0.0.0.0/8 also rejects 0.0.0.1", "http://0.0.0.1/token", registryHTTP, nil, true, "0.0.0.0/8"},
+		{"unspecified IPv6 is rejected", "http://[::]/token", registryHTTP, nil, true, "::/128"},
+		{"Alibaba metadata is rejected", "http://100.100.100.200/latest/meta-data/", registryHTTP, nil, true, "100.100.100.200/32"},
+		{"Azure WireServer is rejected", "http://168.63.129.16/token", registryHTTP, nil, true, "168.63.129.16/32"},
+		{"AWS IPv6 metadata is rejected", "http://[fd00:ec2::254]/token", registryHTTP, nil, true, "fd00:ec2::254/128"},
+		{"Google Cloud IPv6 metadata is rejected", "http://[fd20:ce::254]/token", registryHTTP, nil, true, "fd20:ce::254/128"},
+		{"RFC1918 is allowed by default", "http://10.0.0.5/token", registryHTTP, nil, false, ""},
+		{"#1631 GitLab RFC1918 realm is allowed by default", "http://192.168.110.193/token", registryHTTP, nil, false, ""},
+		{"CGNAT is allowed by default", "http://100.64.0.1/token", registryHTTP, nil, false, ""},
+		{"ULA is allowed by default", "http://[fd00::1]/token", registryHTTP, nil, false, ""},
+		{"empty prefixes allow loopback", "http://127.0.0.1:9090/token", registryHTTP, empty, false, ""},
+		{"empty prefixes allow IMDS", "http://169.254.169.254/latest/meta-data/", registryHTTP, empty, false, ""},
+		{"custom list blocks only that prefix", "https://auth.example.com/token", registryHTTPS, custom, true, "93.184.215.14/32"},
+		{"custom list allows loopback", "http://127.0.0.1:9090/token", registryHTTP, custom, false, ""},
+		{"strict PrivateRealmPrefixes rejects RFC1918", "http://10.0.0.5/token", registryHTTP, strict, true, "10.0.0.0/8"},
+		{"IPv4-mapped IMDS is rejected", "http://[::ffff:169.254.169.254]/token", registryHTTP, nil, true, "169.254.169.254"},
+		{"NAT64 IMDS is rejected", "http://[64:ff9b::a9fe:a9fe]/token", registryHTTP, nil, true, "169.254.169.254"},
+		{"6to4 IMDS is rejected", "http://[2002:a9fe:a9fe::]/token", registryHTTP, nil, true, "169.254.169.254"},
+		{"loopback realm is allowed when registry shares the hostname", "http://127.0.0.1:9090/token", registryLoopback, nil, false, ""},
+		{"unparseable realm is rejected", "://bad-url", registryHTTPS, nil, true, ""},
+		{"hostname resolving to loopback is rejected", "https://loopback.example.com/token", registryHTTPS, nil, true, "127.0.0.1"},
+		{"hostname resolving to IPv6 loopback is rejected", "https://loopback6.example.com/token", registryHTTPS, nil, true, "::1"},
+		{"hostname resolving to RFC1918 is allowed by default", "https://private.example.com/token", registryHTTPS, nil, false, ""},
+		{"hostname resolving to IMDS is rejected", "http://imds.example.com/latest/meta-data/", registryHTTP, nil, true, "169.254.169.254"},
+		{"hostname resolving to NAT64 IMDS is rejected", "https://nat64.example.com/token", registryHTTPS, nil, true, "169.254.169.254"},
+		{"hostname resolving to 6to4 IMDS is rejected", "https://sixto4.example.com/token", registryHTTPS, nil, true, "169.254.169.254"},
+		{"hostname resolving to IPv4-mapped IMDS is rejected", "https://mapped.example.com/token", registryHTTPS, nil, true, "169.254.169.254"},
+		{"hostname with any blocked address is rejected", "https://mixed-imds.example.com/token", registryHTTPS, nil, true, "169.254.169.254"},
+		{"hostname resolving to unspecified is rejected", "https://unspecified.example.com/token", registryHTTPS, nil, true, "0.0.0.0"},
+		{"hostname resolving to AWS IPv6 metadata is rejected", "https://aws-imds6.example.com/token", registryHTTPS, nil, true, "fd00:ec2::254"},
+		{"hostname resolving to CGNAT is allowed by default", "https://cgnat.example.com/token", registryHTTPS, nil, false, ""},
+		{"hostname whose lookup fails is allowed", "https://unresolvable.example.com/token", registryHTTPS, nil, false, ""},
+		{"internal hostname is allowed when registry shares the hostname", "http://registry.internal:5001/token", registryInternal, nil, false, ""},
+		{"internal hostname is allowed when registry shares the hostname in another case", "http://Registry.Internal:5001/token", registryInternal, nil, false, ""},
+		{"empty prefixes skip DNS rejection", "https://loopback.example.com/token", registryHTTPS, empty, false, ""},
+		{"downgrade is rejected even with an empty denylist", "http://auth.example.com/token", registryHTTPS, empty, true, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateRealm(context.Background(), tt.realm, tt.registry, tt.trust)
+			err := validateRealm(context.Background(), tt.realm, tt.registry, tt.prefixes)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
+			}
+			if err != nil && tt.wantSub != "" && !strings.Contains(err.Error(), tt.wantSub) {
+				t.Errorf("validateRealm() error = %v, want substring %q", err, tt.wantSub)
+			}
+		})
+	}
+}
+
+// TestClient_BlockedRealmPrefixes_PerClientIsolation verifies that a custom
+// denylist on client A does not apply to client B, whose nil list still uses
+// the defaults.
+func TestClient_BlockedRealmPrefixes_PerClientIsolation(t *testing.T) {
+	setLookupIPAddr(t, fakeLookupIPAddr(map[string][]string{
+		"private.example.com":  {"192.168.110.193"},
+		"loopback.example.com": {"127.0.0.1"},
+	}))
+	registryHTTP, _ := url.Parse("http://registry.example.com/v2/")
+	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
+
+	clientA := &Client{
+		BlockedRealmPrefixes: []netip.Prefix{netip.MustParsePrefix("192.168.0.0/16")},
+	}
+	clientB := &Client{}
+
+	tests := []struct {
+		name     string
+		client   *Client
+		realm    string
+		registry *url.URL
+		wantErr  bool
+		wantSub  string
+	}{
+		{"A rejects 192.168.x literal", clientA, "http://192.168.110.193/token", registryHTTP, true, "192.168.0.0/16"},
+		{"B allows 192.168.x literal", clientB, "http://192.168.110.193/token", registryHTTP, false, ""},
+		{"A rejects hostname resolving to 192.168.x", clientA, "https://private.example.com/token", registryHTTPS, true, "192.168.0.0/16"},
+		{"B allows hostname resolving to 192.168.x", clientB, "https://private.example.com/token", registryHTTPS, false, ""},
+		{"A allows loopback", clientA, "http://127.0.0.1:9090/token", registryHTTP, false, ""},
+		{"B rejects loopback", clientB, "http://127.0.0.1:9090/token", registryHTTP, true, "127.0.0.0/8"},
+		{"A allows hostname resolving to loopback", clientA, "https://loopback.example.com/token", registryHTTPS, false, ""},
+		{"B rejects hostname resolving to loopback", clientB, "https://loopback.example.com/token", registryHTTPS, true, "127.0.0.0/8"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRealm(context.Background(), tt.realm, tt.registry, tt.client.BlockedRealmPrefixes)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
+			}
+			if err != nil && tt.wantSub != "" && !strings.Contains(err.Error(), tt.wantSub) {
+				t.Errorf("validateRealm() error = %v, want substring %q", err, tt.wantSub)
 			}
 		})
 	}
@@ -4825,7 +4874,7 @@ func Test_validateRealm_UsesContext(t *testing.T) {
 		return []net.IPAddr{{IP: net.ParseIP("93.184.215.14")}}, nil
 	})
 	registry, _ := url.Parse("https://registry.example.com/v2/")
-	if err := validateRealm(ctx, "https://auth.example.com/token", registry, realmTrust{}); err != nil {
+	if err := validateRealm(ctx, "https://auth.example.com/token", registry, nil); err != nil {
 		t.Fatalf("validateRealm() error = %v", err)
 	}
 	if gotMarker != "marker" {
@@ -4873,8 +4922,6 @@ func TestClient_Do_Bearer_RealmRedirect_Validated(t *testing.T) {
 		// oauth2 selects the default OAuth2 POST flow instead of the legacy
 		// distribution GET.
 		oauth2 bool
-		// trustedHosts is copied onto Client.TrustedRealmHosts.
-		trustedHosts []string
 		// target returns the redirect target given the URL of the internal
 		// server.
 		target func(internalURL string) string
@@ -4885,11 +4932,6 @@ func TestClient_Do_Bearer_RealmRedirect_Validated(t *testing.T) {
 		{
 			name:    "redirect to hostname resolving to IMDS is rejected",
 			target:  func(string) string { return "http://metadata.test/latest/meta-data/" },
-			wantErr: "redirect of token request rejected",
-		},
-		{
-			name:    "redirect to hostname resolving to CGNAT is rejected",
-			target:  func(string) string { return "http://cgnat.test/latest/meta-data/" },
 			wantErr: "redirect of token request rejected",
 		},
 		{
@@ -4909,12 +4951,6 @@ func TestClient_Do_Bearer_RealmRedirect_Validated(t *testing.T) {
 		{
 			name:   "redirect to public hostname is allowed",
 			target: func(string) string { return "http://auth2.test/token" },
-		},
-		{
-			name:         "redirect from a trusted realm to an untrusted internal host is rejected",
-			trustedHosts: []string{"auth.test"},
-			target:       func(string) string { return "http://metadata.test/latest/meta-data/" },
-			wantErr:      "redirect of token request rejected",
 		},
 		{
 			name:    "OAuth2 redirect to public hostname is rejected",
@@ -4957,14 +4993,12 @@ func TestClient_Do_Bearer_RealmRedirect_Validated(t *testing.T) {
 				"auth.test":     {"93.184.215.14"},
 				"auth2.test":    {"93.184.215.15"},
 				"metadata.test": {"169.254.169.254"},
-				"cgnat.test":    {"100.100.100.200"},
 			}))
 			hosts := map[string]string{
 				"registry.test": registry.Listener.Addr().String(),
 				"auth.test":     realm.Listener.Addr().String(),
 				"auth2.test":    auth2.Listener.Addr().String(),
 				"metadata.test": internal.Listener.Addr().String(),
-				"cgnat.test":    internal.Listener.Addr().String(),
 			}
 			client := &Client{
 				Client: &http.Client{
@@ -4973,7 +5007,6 @@ func TestClient_Do_Bearer_RealmRedirect_Validated(t *testing.T) {
 				CredentialFunc: func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
 					return credentials.Credential{Username: "test_user", Password: "test_password"}, nil
 				},
-				TrustedRealmHosts: tt.trustedHosts,
 			}
 			if !tt.oauth2 {
 				// Legacy mode sends the credential to the realm with GET.
@@ -5070,176 +5103,26 @@ func TestClient_Do_Bearer_RealmRedirect_Downgrade(t *testing.T) {
 		t.Errorf("http redirect target received %d requests, want 0", got)
 	}
 
-	// The same hop must still be rejected when the realm host is trusted:
-	// scheme and downgrade checks always apply.
-	trusted := &Client{
-		Client:            &http.Client{Transport: transport},
-		TrustedRealmHosts: []string{"auth.test", "plain.test"},
+	// The same hop must still be rejected with an empty denylist: scheme
+	// and downgrade checks always apply.
+	open := &Client{
+		Client:               &http.Client{Transport: transport},
+		BlockedRealmPrefixes: []netip.Prefix{},
 	}
 	req, err = http.NewRequest(http.MethodGet, "https://registry.test/v2/", nil)
 	if err != nil {
 		t.Fatalf("failed to create test request: %v", err)
 	}
-	resp, err = trusted.Do(req)
+	resp, err = open.Do(req)
 	if err == nil {
 		resp.Body.Close()
-		t.Fatal("trusted Client.Do() error = nil, want TLS downgrade rejection")
+		t.Fatal("open Client.Do() error = nil, want TLS downgrade rejection")
 	}
 	if !strings.Contains(err.Error(), "uses http but registry was contacted over https") {
-		t.Errorf("trusted Client.Do() error = %v, want TLS downgrade rejection", err)
+		t.Errorf("open Client.Do() error = %v, want TLS downgrade rejection", err)
 	}
 	if got := plainHits.Load(); got != 0 {
-		t.Errorf("http redirect target received %d requests after trusted retry, want 0", got)
-	}
-}
-
-// TestClient_Do_Bearer_TrustedRealmHost_Private verifies a named trusted realm
-// host that resolves to RFC 1918 is allowed, while the same realm is rejected
-// without trust.
-func TestClient_Do_Bearer_TrustedRealmHost_Private(t *testing.T) {
-	const wantToken = "test/access/token"
-	realm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, wantToken); err != nil {
-			t.Errorf("failed to write token response: %v", err)
-		}
-	}))
-	defer realm.Close()
-
-	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") == "Bearer "+wantToken {
-			return
-		}
-		challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", "http://gitlab.corp.example/token", "registry.test", "repository:test:pull")
-		w.Header().Set("Www-Authenticate", challenge)
-		w.WriteHeader(http.StatusUnauthorized)
-	}))
-	defer registry.Close()
-
-	setLookupIPAddr(t, fakeLookupIPAddr(map[string][]string{
-		"gitlab.corp.example": {"10.1.2.3"},
-	}))
-	hosts := map[string]string{
-		"registry.test":       registry.Listener.Addr().String(),
-		"gitlab.corp.example": realm.Listener.Addr().String(),
-	}
-	transport := &http.Transport{DialContext: hostDialer(t, hosts)}
-	cred := func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
-		return credentials.Credential{Username: "test_user", Password: "test_password"}, nil
-	}
-
-	untrusted := &Client{
-		Client:         &http.Client{Transport: transport},
-		CredentialFunc: cred,
-		TokenFetcher:   NewCompositeTokenFetcher(&http.Client{Transport: transport}, nil, "", true),
-	}
-	req, err := http.NewRequest(http.MethodGet, "http://registry.test/v2/test/manifests/latest", nil)
-	if err != nil {
-		t.Fatalf("failed to create test request: %v", err)
-	}
-	resp, err := untrusted.Do(req)
-	if err == nil {
-		resp.Body.Close()
-		t.Fatal("untrusted Client.Do() error = nil, want rejection of RFC1918 realm")
-	}
-	if !strings.Contains(err.Error(), "loopback, link-local, private") {
-		t.Errorf("untrusted Client.Do() error = %v, want internal-address rejection", err)
-	}
-
-	trusted := &Client{
-		Client:            &http.Client{Transport: transport},
-		CredentialFunc:    cred,
-		TokenFetcher:      NewCompositeTokenFetcher(&http.Client{Transport: transport}, nil, "", true),
-		TrustedRealmHosts: []string{"gitlab.corp.example"},
-	}
-	req, err = http.NewRequest(http.MethodGet, "http://registry.test/v2/test/manifests/latest", nil)
-	if err != nil {
-		t.Fatalf("failed to create test request: %v", err)
-	}
-	resp, err = trusted.Do(req)
-	if err != nil {
-		t.Fatalf("trusted Client.Do() error = %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("trusted Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
-	}
-}
-
-// TestClient_Do_Bearer_TrustedRealmHosts_Isolated verifies that trust
-// configured on the client for registry A does not apply to challenges from
-// registry B.
-func TestClient_Do_Bearer_TrustedRealmHosts_Isolated(t *testing.T) {
-	const wantToken = "test/access/token"
-	realm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := fmt.Fprintf(w, `{"access_token":%q}`, wantToken); err != nil {
-			t.Errorf("failed to write token response: %v", err)
-		}
-	}))
-	defer realm.Close()
-
-	newRegistry := func() *httptest.Server {
-		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Authorization") == "Bearer "+wantToken {
-				return
-			}
-			challenge := fmt.Sprintf("Bearer realm=%q,service=%q,scope=%q", "http://gitlab.corp.example/token", "unused", "repository:test:pull")
-			w.Header().Set("Www-Authenticate", challenge)
-			w.WriteHeader(http.StatusUnauthorized)
-		}))
-	}
-	registryA := newRegistry()
-	defer registryA.Close()
-	registryB := newRegistry()
-	defer registryB.Close()
-
-	setLookupIPAddr(t, fakeLookupIPAddr(map[string][]string{
-		"gitlab.corp.example": {"10.1.2.3"},
-	}))
-	hosts := map[string]string{
-		"registry-a.test":     registryA.Listener.Addr().String(),
-		"registry-b.test":     registryB.Listener.Addr().String(),
-		"gitlab.corp.example": realm.Listener.Addr().String(),
-	}
-	transport := &http.Transport{DialContext: hostDialer(t, hosts)}
-	cred := func(ctx context.Context, reg properties.Resource) (credentials.Credential, error) {
-		return credentials.Credential{Username: "test_user", Password: "test_password"}, nil
-	}
-
-	clientA := &Client{
-		Client:            &http.Client{Transport: transport},
-		CredentialFunc:    cred,
-		TokenFetcher:      NewCompositeTokenFetcher(&http.Client{Transport: transport}, nil, "", true),
-		TrustedRealmHosts: []string{"gitlab.corp.example"},
-	}
-	reqA, err := http.NewRequest(http.MethodGet, "http://registry-a.test/v2/test/manifests/latest", nil)
-	if err != nil {
-		t.Fatalf("failed to create test request: %v", err)
-	}
-	resp, err := clientA.Do(reqA)
-	if err != nil {
-		t.Fatalf("client A Client.Do() error = %v", err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("client A Client.Do() = %v, want %v", resp.StatusCode, http.StatusOK)
-	}
-
-	clientB := &Client{
-		Client:         &http.Client{Transport: transport},
-		CredentialFunc: cred,
-		TokenFetcher:   NewCompositeTokenFetcher(&http.Client{Transport: transport}, nil, "", true),
-	}
-	reqB, err := http.NewRequest(http.MethodGet, "http://registry-b.test/v2/test/manifests/latest", nil)
-	if err != nil {
-		t.Fatalf("failed to create test request: %v", err)
-	}
-	resp, err = clientB.Do(reqB)
-	if err == nil {
-		resp.Body.Close()
-		t.Fatal("client B Client.Do() error = nil, want rejection; trust on A must not apply to B")
-	}
-	if !strings.Contains(err.Error(), "loopback, link-local, private") {
-		t.Errorf("client B Client.Do() error = %v, want internal-address rejection", err)
+		t.Errorf("http redirect target received %d requests after empty-denylist retry, want 0", got)
 	}
 }
 
@@ -5547,29 +5430,50 @@ func TestClient_Clone(t *testing.T) {
 	}
 }
 
-func TestClient_Clone_TrustedRealmHostsIndependence(t *testing.T) {
+func TestClient_Clone_BlockedRealmPrefixesIndependence(t *testing.T) {
 	t.Run("non-nil", func(t *testing.T) {
 		original := &Client{
-			TrustedRealmHosts: []string{"gitlab.corp.example", "auth.example.com"},
+			BlockedRealmPrefixes: []netip.Prefix{
+				netip.MustParsePrefix("10.0.0.0/8"),
+				netip.MustParsePrefix("192.168.0.0/16"),
+			},
 		}
-		want := []string{"gitlab.corp.example", "auth.example.com"}
+		want := []netip.Prefix{
+			netip.MustParsePrefix("10.0.0.0/8"),
+			netip.MustParsePrefix("192.168.0.0/16"),
+		}
 		clone := original.Clone()
-		clone.TrustedRealmHosts[0] = "evil.example"
-		clone.TrustedRealmHosts = append(clone.TrustedRealmHosts, "extra.example")
-		if !reflect.DeepEqual(original.TrustedRealmHosts, want) {
-			t.Errorf("original.TrustedRealmHosts = %v, want %v", original.TrustedRealmHosts, want)
-		}
-		if len(original.TrustedRealmHosts) != len(want) {
-			t.Errorf("original.TrustedRealmHosts len = %d, want %d", len(original.TrustedRealmHosts), len(want))
+		clone.BlockedRealmPrefixes[0] = netip.MustParsePrefix("127.0.0.0/8")
+		clone.BlockedRealmPrefixes = append(clone.BlockedRealmPrefixes, netip.MustParsePrefix("::1/128"))
+		if !reflect.DeepEqual(original.BlockedRealmPrefixes, want) {
+			t.Errorf("original.BlockedRealmPrefixes = %v, want %v", original.BlockedRealmPrefixes, want)
 		}
 	})
 	t.Run("nil", func(t *testing.T) {
 		original := &Client{}
 		clone := original.Clone()
-		if clone.TrustedRealmHosts != nil {
-			t.Errorf("clone.TrustedRealmHosts = %v, want nil", clone.TrustedRealmHosts)
+		if clone.BlockedRealmPrefixes != nil {
+			t.Errorf("clone.BlockedRealmPrefixes = %v, want nil", clone.BlockedRealmPrefixes)
 		}
 	})
+}
+
+func TestDefaultBlockedRealmPrefixes_Independence(t *testing.T) {
+	a := DefaultBlockedRealmPrefixes()
+	b := DefaultBlockedRealmPrefixes()
+	if len(a) == 0 {
+		t.Fatal("DefaultBlockedRealmPrefixes() returned empty")
+	}
+	a[0] = netip.MustParsePrefix("8.8.8.8/32")
+	if reflect.DeepEqual(a, b) {
+		t.Error("DefaultBlockedRealmPrefixes() returned a shared slice")
+	}
+	p := PrivateRealmPrefixes()
+	q := PrivateRealmPrefixes()
+	p[0] = netip.MustParsePrefix("8.8.8.8/32")
+	if reflect.DeepEqual(p, q) {
+		t.Error("PrivateRealmPrefixes() returned a shared slice")
+	}
 }
 
 // TestClient_Clone_copiesEveryExportedField fails when an exported field is
@@ -5584,11 +5488,10 @@ func TestClient_Clone_copiesEveryExportedField(t *testing.T) {
 		CredentialFunc: func(context.Context, properties.Resource) (credentials.Credential, error) {
 			return credentials.EmptyCredential, nil
 		},
-		Cache:               DefaultCache,
-		ClientID:            "original-id",
-		TokenFetcher:        NewCompositeTokenFetcher(nil, nil, "", false),
-		TrustedRealmHosts:   []string{"auth.example.com"},
-		AllowInternalRealms: true,
+		Cache:                DefaultCache,
+		ClientID:             "original-id",
+		TokenFetcher:         NewCompositeTokenFetcher(nil, nil, "", false),
+		BlockedRealmPrefixes: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")},
 	}
 
 	originalValue := reflect.ValueOf(original).Elem()

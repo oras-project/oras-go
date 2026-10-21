@@ -121,13 +121,12 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 
 	// Create auth client
 	client := &auth.Client{
-		Client:              httpClient,
-		Header:              header,
-		CredentialFunc:      credentialFunc,
-		Cache:               cache,
-		TokenFetcher:        b.tokenFetcher(props, httpClient, header),
-		TrustedRealmHosts:   props.Attributes.TrustedRealmHosts,
-		AllowInternalRealms: props.Attributes.AllowInternalRealms,
+		Client:               httpClient,
+		Header:               header,
+		CredentialFunc:       credentialFunc,
+		Cache:                cache,
+		TokenFetcher:         b.tokenFetcher(props, httpClient, header),
+		BlockedRealmPrefixes: props.Attributes.BlockedRealmPrefixes,
 	}
 
 	return client, nil
@@ -375,12 +374,13 @@ func buildMirrorRepositories(props *properties.Registry, builder *ClientBuilder)
 				Repository: props.Reference.Repository,
 			},
 			Transport: m.Transport,
-			// TokenFlow and ReferrersAPI follow the primary. Realm trust is
-			// per registry and is not inherited by mirrors: a mirror is a
-			// different host and may be operated by a different party.
+			// TokenFlow, ReferrersAPI, and the realm address denylist follow
+			// the primary so a custom BlockedRealmPrefixes applies to mirror
+			// challenges as well.
 			Attributes: properties.Attributes{
-				ReferrersAPI: props.Attributes.ReferrersAPI,
-				TokenFlow:    props.Attributes.TokenFlow,
+				ReferrersAPI:         props.Attributes.ReferrersAPI,
+				TokenFlow:            props.Attributes.TokenFlow,
+				BlockedRealmPrefixes: props.Attributes.BlockedRealmPrefixes,
 			},
 		}
 
