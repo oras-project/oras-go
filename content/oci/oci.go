@@ -690,18 +690,22 @@ func (s *Store) writeIndexFile() error {
 // Unreachable blobs and temporary files modified within the last hour are kept,
 // so blobs pushed by a multi-step copy (for example, layers pushed before their
 // manifest is pushed and tagged) or by another Store on the same directory are
-// not removed while the operation completes within that window. GC does not
-// otherwise coordinate with concurrent writers: it rebuilds the index from this
-// Store's in-memory references and overwrites index.json, which drops tags and
-// manifests written by another Store since this Store was opened, and does not
-// protect writes that take longer than the grace period, nor existing blobs
-// that a copy skips pushing, since their modification time is not refreshed.
+// not removed while the operation completes within that window. What a kept
+// manifest pushed through this Store references is kept with it, whatever its
+// modification time, so that a copy which skipped pushing a layer already on
+// disk does not lose it. GC does not otherwise coordinate with concurrent
+// writers: it rebuilds the index from this Store's in-memory references and
+// overwrites index.json, which drops tags and manifests written by another
+// Store since this Store was opened, and does not protect writes that take
+// longer than the grace period, nor existing blobs that a copy skips pushing
+// unless the manifest referencing them was pushed through this Store, since
+// their modification time is not refreshed.
 func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
 
 	// get reachable nodes by reloading the index
-	tagResolver, graph, err := s.gcIndex(ctx)
+	tagResolver, newGraph, err := s.gcIndex(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to reload index: %w", err)
 	}
@@ -713,9 +717,8 @@ func (s *Store) GC(ctx context.Context) error {
 		}
 	}
 	oldGraph := s.graph
-	spared := false
 	s.tagResolver = tagResolver
-	s.graph = graph
+	s.graph = newGraph
 	reachableNodes := s.graph.DigestSet()
 
 	// clean up garbage blobs in the storage
@@ -725,6 +728,8 @@ func (s *Store) GC(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	stalePaths := make(map[digest.Digest]string)
+	var sparedManifests []ocispec.Descriptor
 	for _, algDir := range algDirs {
 		if !algDir.IsDir() {
 			continue
@@ -754,11 +759,9 @@ func (s *Store) GC(ctx context.Context) error {
 			}
 			if !reachableNodes.Contains(blobDigest) {
 				if stale(digestEntry) {
-					// remove the blob from storage if it does not exist in Store
-					blobPath := path.Join(algPath, dgst)
-					if err := os.Remove(blobPath); err != nil {
-						return fmt.Errorf("unable to remove %s: %w", blobPath, err)
-					}
+					// the blob does not exist in Store, so collect it for
+					// removal once the spared manifests are known
+					stalePaths[blobDigest] = path.Join(algPath, dgst)
 				} else if desc, ok := oldGraph.Node(blobDigest); ok {
 					// keep spared blobs indexed so Predecessors still sees
 					// manifests pushed before GC
@@ -771,23 +774,35 @@ func (s *Store) GC(ctx context.Context) error {
 						if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), blobDigest.String()); err != nil {
 							return err
 						}
-						spared = true
+						sparedManifests = append(sparedManifests, desc)
 					}
 				}
 			}
 		}
 	}
 
-	// Re-tagging the spared manifests changed the resolver after the index was
-	// saved above, so the index lacks their digest entries until the next save.
-	// Bring it in step, so that index.json lists every manifest the store
-	// holds, as it does after any other operation. Without AutoSaveIndex the
-	// changes stay pending in the resolver for the next SaveIndex.
-	if spared && s.AutoSaveIndex {
-		if err := s.saveIndexFrom(s.tagResolver); err != nil {
-			return fmt.Errorf("unable to save index: %w", err)
+	// A spared manifest is kept on its own modification time, but a blob it
+	// references is judged on that blob's: a copy that finds a layer already on
+	// disk skips pushing it, so the layer can be stale while the manifest is
+	// not. Keep it too, or tagging the manifest later leaves content missing.
+	if len(stalePaths) > 0 && len(sparedManifests) > 0 {
+		referenced := graph.NewMemory()
+		if err := referenced.IndexAll(ctx, s.storage, sparedManifests...); err != nil {
+			return err
+		}
+		for dgst := range referenced.DigestSet() {
+			delete(stalePaths, dgst)
 		}
 	}
+	for _, blobPath := range stalePaths {
+		if err := isContextDone(ctx); err != nil {
+			return err
+		}
+		if err := os.Remove(blobPath); err != nil {
+			return fmt.Errorf("unable to remove %s: %w", blobPath, err)
+		}
+	}
+
 	// Reclaiming leftovers is opportunistic: the collection above has already
 	// completed, so a temporary file that cannot be removed must not turn a
 	// successful GC into a failed one.

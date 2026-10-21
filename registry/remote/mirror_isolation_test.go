@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"reflect"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -218,5 +220,36 @@ func Test_buildMirrorRepositories_doesNotShareCredential(t *testing.T) {
 	}
 	if got != credentials.EmptyCredential {
 		t.Errorf("mirror client resolved credential %v; the primary's credential must not reach a mirror", got)
+	}
+}
+
+// Test_buildMirrorRepositories_inheritsBlockedRealmPrefixes checks that a
+// primary's custom denylist is copied onto the client built for a mirror.
+func Test_buildMirrorRepositories_inheritsBlockedRealmPrefixes(t *testing.T) {
+	prefixes := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	props := &properties.Registry{
+		Reference: properties.Reference{Registry: "registry.example.com", Repository: "app"},
+		Attributes: properties.Attributes{
+			BlockedRealmPrefixes: prefixes,
+		},
+		Mirrors: []properties.Mirror{
+			{Location: "mirror.internal"},
+		},
+	}
+
+	mirrors, err := buildMirrorRepositories(props, NewClientBuilder())
+	if err != nil {
+		t.Fatalf("buildMirrorRepositories: %v", err)
+	}
+	if len(mirrors) != 1 {
+		t.Fatalf("got %d mirrors, want 1", len(mirrors))
+	}
+
+	authClient, ok := mirrors[0].Registry.Client.(*auth.Client)
+	if !ok {
+		t.Fatalf("mirror client is %T, want *auth.Client", mirrors[0].Registry.Client)
+	}
+	if !reflect.DeepEqual(authClient.BlockedRealmPrefixes, prefixes) {
+		t.Errorf("mirror BlockedRealmPrefixes = %v, want %v", authClient.BlockedRealmPrefixes, prefixes)
 	}
 }
