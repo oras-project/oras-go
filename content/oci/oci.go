@@ -690,15 +690,16 @@ func (s *Store) writeIndexFile() error {
 // Unreachable blobs and temporary files modified within the last hour are kept,
 // so blobs pushed by a multi-step copy (for example, layers pushed before their
 // manifest is pushed and tagged) or by another Store on the same directory are
-// not removed while the operation completes within that window. What such a
-// kept manifest references is kept with it, whatever its modification time, so
-// that a copy which skipped pushing a layer already on disk does not lose it.
-// GC does not otherwise coordinate with concurrent writers: it rebuilds the
-// index from this Store's in-memory references and overwrites index.json, which
-// drops tags and manifests written by another Store since this Store was
-// opened, and does not protect writes that take longer than the grace period,
-// nor existing blobs that a copy skips pushing until the manifest referencing
-// them has been pushed, since their modification time is not refreshed.
+// not removed while the operation completes within that window. What a kept
+// manifest pushed through this Store references is kept with it, whatever its
+// modification time, so that a copy which skipped pushing a layer already on
+// disk does not lose it. GC does not otherwise coordinate with concurrent
+// writers: it rebuilds the index from this Store's in-memory references and
+// overwrites index.json, which drops tags and manifests written by another
+// Store since this Store was opened, and does not protect writes that take
+// longer than the grace period, nor existing blobs that a copy skips pushing
+// unless the manifest referencing them was pushed through this Store, since
+// their modification time is not refreshed.
 func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
