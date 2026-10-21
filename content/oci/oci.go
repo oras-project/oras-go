@@ -688,6 +688,7 @@ func (s *Store) writeIndexFile() error {
 //   - temporary files left behind by interrupted blob and metadata writes
 //
 // Unreachable blobs and temporary files modified within the last hour are kept,
+// along with successors of recent manifests indexed in this Store,
 // so blobs pushed by a multi-step copy (for example, layers pushed before their
 // manifest is pushed and tagged) or by another Store on the same directory are
 // not removed while the operation completes within that window. GC does not
@@ -695,7 +696,7 @@ func (s *Store) writeIndexFile() error {
 // Store's in-memory references and overwrites index.json, which drops tags and
 // manifests written by another Store since this Store was opened, and does not
 // protect writes that take longer than the grace period, nor existing blobs
-// that a copy skips pushing, since their modification time is not refreshed.
+// that a copy skips pushing before their manifest is indexed in this Store.
 func (s *Store) GC(ctx context.Context) error {
 	s.sync.Lock()
 	defer s.sync.Unlock()
@@ -717,7 +718,9 @@ func (s *Store) GC(ctx context.Context) error {
 	s.graph = graph
 	reachableNodes := s.graph.DigestSet()
 
-	// clean up garbage blobs in the storage
+	// collect garbage blobs in the storage
+	staleNodes := make(map[digest.Digest]string)
+	var recentNodes []ocispec.Descriptor
 	stale := olderThan(leftoverExpiry)
 	rootpath := filepath.Join(s.root, ocispec.ImageBlobsDir)
 	algDirs, err := os.ReadDir(rootpath)
@@ -753,25 +756,38 @@ func (s *Store) GC(ctx context.Context) error {
 			}
 			if !reachableNodes.Contains(blobDigest) {
 				if stale(digestEntry) {
-					// remove the blob from storage if it does not exist in Store
-					blobPath := path.Join(algPath, dgst)
-					if err := os.Remove(blobPath); err != nil {
-						return fmt.Errorf("unable to remove %s: %w", blobPath, err)
-					}
+					staleNodes[blobDigest] = path.Join(algPath, dgst)
 				} else if desc, ok := oldGraph.Node(blobDigest); ok {
-					// keep spared blobs indexed so Predecessors still sees
-					// manifests pushed before GC
-					if err := s.graph.Index(ctx, s.storage, desc); err != nil {
-						return err
-					}
-					if descriptor.IsManifest(desc) {
-						// keep the digest reference so Resolve does not fall
-						// back to an untyped blob descriptor
-						if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), blobDigest.String()); err != nil {
-							return err
-						}
-					}
+					recentNodes = append(recentNodes, desc)
 				}
+			}
+		}
+	}
+
+	// keep spared blobs and their successors indexed
+	if err := s.graph.IndexAll(ctx, s.storage, recentNodes...); err != nil {
+		return err
+	}
+	keptNodes := s.graph.DigestSet()
+	for blobDigest := range keptNodes {
+		if reachableNodes.Contains(blobDigest) {
+			continue
+		}
+		if desc, ok := s.graph.Node(blobDigest); ok && descriptor.IsManifest(desc) {
+			// keep the digest reference so Resolve does not fall
+			// back to an untyped blob descriptor
+			if err := s.tagResolver.Tag(ctx, deleteAnnotationRefName(desc), blobDigest.String()); err != nil {
+				return err
+			}
+		}
+	}
+	for blobDigest, blobPath := range staleNodes {
+		if err := isContextDone(ctx); err != nil {
+			return err
+		}
+		if !keptNodes.Contains(blobDigest) {
+			if err := os.Remove(blobPath); err != nil {
+				return fmt.Errorf("unable to remove %s: %w", blobPath, err)
 			}
 		}
 	}

@@ -3623,6 +3623,171 @@ func TestStore_GC_GracePeriod(t *testing.T) {
 	})
 }
 
+func TestStore_GC_RecentManifestKeepsStaleSuccessors(t *testing.T) {
+	type testBlob struct {
+		desc ocispec.Descriptor
+		data []byte
+	}
+	for _, tt := range []struct {
+		name       string
+		indexDepth int
+	}{
+		{name: "manifest"},
+		{name: "index", indexDepth: 1},
+		{name: "nested index", indexDepth: 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			root := t.TempDir()
+			s, err := New(root)
+			if err != nil {
+				t.Fatal("New() error =", err)
+			}
+
+			configBlob := []byte(`{"architecture":"amd64","os":"linux"}`)
+			configDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configBlob)
+			layerBlob := []byte("reused layer content")
+			layerDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, layerBlob)
+			blobs := []testBlob{
+				{configDesc, configBlob},
+				{layerDesc, layerBlob},
+			}
+			rootBlob, err := json.Marshal(ocispec.Manifest{
+				MediaType: ocispec.MediaTypeImageManifest,
+				Config:    configDesc,
+				Layers:    []ocispec.Descriptor{layerDesc},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rootDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, rootBlob)
+			for range tt.indexDepth {
+				blobs = append(blobs, testBlob{rootDesc, rootBlob})
+				rootBlob, err = json.Marshal(ocispec.Index{
+					MediaType: ocispec.MediaTypeImageIndex,
+					Manifests: []ocispec.Descriptor{rootDesc},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				rootDesc = content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, rootBlob)
+			}
+			for _, blob := range blobs {
+				if err := s.Push(ctx, blob.desc, bytes.NewReader(blob.data)); err != nil {
+					t.Fatal("Push() error =", err)
+				}
+			}
+			garbageBlob := []byte("unrelated stale layer")
+			garbageDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, garbageBlob)
+			if err := s.Push(ctx, garbageDesc, bytes.NewReader(garbageBlob)); err != nil {
+				t.Fatal("Push(garbage) error =", err)
+			}
+			backdateBlobs(t, root)
+
+			// Reuse existing successors before pushing the untagged root.
+			if exists, err := s.Exists(ctx, layerDesc); err != nil || !exists {
+				t.Fatalf("Exists(layer) = %v, %v, want true", exists, err)
+			}
+			if err := s.Push(ctx, rootDesc, bytes.NewReader(rootBlob)); err != nil {
+				t.Fatal("Push(root) error =", err)
+			}
+			blobs = append(blobs, testBlob{rootDesc, rootBlob})
+
+			for range 2 {
+				if err := s.GC(ctx); err != nil {
+					t.Fatal("GC() error =", err)
+				}
+				for _, blob := range blobs {
+					if exists, err := s.Exists(ctx, blob.desc); err != nil || !exists {
+						t.Errorf("Exists(%s) after GC = %v, %v, want true", blob.desc.Digest, exists, err)
+					}
+					if descriptor.IsManifest(blob.desc) {
+						if got, err := s.Resolve(ctx, blob.desc.Digest.String()); err != nil || got.MediaType != blob.desc.MediaType {
+							t.Errorf("Resolve(%s) after GC = %+v, %v, want media type %s", blob.desc.Digest, got, err, blob.desc.MediaType)
+						}
+					}
+				}
+				if exists, err := s.Exists(ctx, garbageDesc); err != nil || exists {
+					t.Errorf("Exists(garbage) after GC = %v, %v, want false", exists, err)
+				}
+			}
+
+			if err := s.Tag(ctx, rootDesc, "v1"); err != nil {
+				t.Fatal("Tag() error =", err)
+			}
+			backdateBlobs(t, root)
+			if err := s.GC(ctx); err != nil {
+				t.Fatal("GC() after Tag error =", err)
+			}
+			for _, blob := range blobs {
+				got, err := content.FetchAll(ctx, s, blob.desc)
+				if err != nil {
+					t.Fatalf("FetchAll(%s) after Tag error = %v", blob.desc.Digest, err)
+				}
+				if !bytes.Equal(got, blob.data) {
+					t.Errorf("FetchAll(%s) = %q, want %q", blob.desc.Digest, got, blob.data)
+				}
+			}
+
+			// Untagged content is collected once the grace period expires.
+			if err := s.Untag(ctx, "v1"); err != nil {
+				t.Fatal("Untag() error =", err)
+			}
+			if err := s.GC(ctx); err != nil {
+				t.Fatal("GC() after Untag error =", err)
+			}
+			for _, blob := range blobs {
+				if exists, err := s.Exists(ctx, blob.desc); err != nil || exists {
+					t.Errorf("Exists(%s) after Untag and GC = %v, %v, want false", blob.desc.Digest, exists, err)
+				}
+			}
+		})
+	}
+}
+
+func TestStore_GC_RecentIndexSuccessorError(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	s, err := New(root)
+	if err != nil {
+		t.Fatal("New() error =", err)
+	}
+
+	// Store the child directly so GC discovers its corruption through the index.
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifest)
+	if err := s.storage.Push(ctx, manifestDesc, bytes.NewReader(manifest)); err != nil {
+		t.Fatal("storage.Push(manifest) error =", err)
+	}
+	corruptBlob(t, root, manifestDesc.Digest)
+	garbage := []byte("stale garbage must survive a failed traversal")
+	garbageDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageLayer, garbage)
+	if err := s.storage.Push(ctx, garbageDesc, bytes.NewReader(garbage)); err != nil {
+		t.Fatal("storage.Push(garbage) error =", err)
+	}
+	backdateBlobs(t, root)
+
+	index, err := json.Marshal(ocispec.Index{
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: []ocispec.Descriptor{manifestDesc},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexDesc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, index)
+	if err := s.Push(ctx, indexDesc, bytes.NewReader(index)); err != nil {
+		t.Fatal("Push(index) error =", err)
+	}
+	if err := s.GC(ctx); !errors.Is(err, content.ErrTrailingData) {
+		t.Fatalf("GC() error = %v, want %v", err, content.ErrTrailingData)
+	}
+	for _, desc := range []ocispec.Descriptor{manifestDesc, garbageDesc, indexDesc} {
+		if exists, err := s.Exists(ctx, desc); err != nil || !exists {
+			t.Errorf("Exists(%s) after failed GC = %v, %v, want true", desc.Digest, exists, err)
+		}
+	}
+}
+
 func TestStore_CorruptManifestIndexError(t *testing.T) {
 	ctx := context.Background()
 	manifestJSON := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2},"layers":[]}`)
