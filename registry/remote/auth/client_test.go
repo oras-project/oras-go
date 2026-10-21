@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"strings"
@@ -4011,12 +4012,18 @@ func Test_validateRealm(t *testing.T) {
 		"private.example.com":        {"10.1.2.3"},
 		"imds.example.com":           {"169.254.169.254"},
 		"cgnat.example.com":          {"100.64.0.1"},
-		"alibaba-imds.example.com":   {"100.100.100.200"},
 		"unspecified.example.com":    {"0.0.0.0"},
 		"mapped.example.com":         {"::ffff:169.254.169.254"},
-		"mixed.example.com":          {"93.184.215.14", "10.0.0.1"},
+		"nat64.example.com":          {"64:ff9b::a9fe:a9fe"},
+		"sixto4.example.com":         {"2002:a9fe:a9fe::"},
+		"mixed-imds.example.com":     {"93.184.215.14", "169.254.169.254"},
 		"registry.internal":          {"10.0.0.5"},
-		"cgnat-boundary.example.com": {"100.128.0.1"},
+		"ula.example.com":            {"fd00::1"},
+		"aws-imds6.example.com":      {"fd00:ec2::254"},
+		"linklocal6.example.com":     {"fe80::1"},
+		"mcast.example.com":          {"224.0.0.1"},
+		"mcast6.example.com":         {"ff02::1"},
+		"custom-blocked.example.com": {"93.184.215.14"},
 	}))
 
 	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
@@ -4024,53 +4031,147 @@ func Test_validateRealm(t *testing.T) {
 	registryLoopback, _ := url.Parse("http://127.0.0.1:5000/v2/")
 	registryInternal, _ := url.Parse("http://registry.internal:5000/v2/")
 
+	empty := []netip.Prefix{}
+	custom := []netip.Prefix{netip.MustParsePrefix("93.184.215.14/32")}
+	strict := append(DefaultBlockedRealmPrefixes(), PrivateRealmPrefixes()...)
+
 	tests := []struct {
 		name     string
 		realm    string
 		registry *url.URL
+		prefixes []netip.Prefix
 		wantErr  bool
+		wantSub  string
 	}{
-		{"empty realm is allowed", "", registryHTTPS, false},
-		{"https realm is allowed", "https://auth.example.com/token", registryHTTPS, false},
-		{"https cross-host realm is allowed", "https://other.example.com/token", registryHTTPS, false},
-		{"http realm against plain-http registry is allowed", "http://auth.example.com/token", registryHTTP, false},
-		{"http realm against https registry is rejected (TLS downgrade)", "http://auth.example.com/token", registryHTTPS, true},
-		{"non-http scheme is rejected", "file:///etc/passwd", registryHTTPS, true},
-		{"ftp scheme is rejected", "ftp://auth.example.com/token", registryHTTPS, true},
-		{"IMDS IPv4 is rejected", "http://169.254.169.254/latest/meta-data/", registryHTTP, true},
-		{"loopback IPv4 is rejected when registry is on a public host", "http://127.0.0.1:9090/token", registryHTTPS, true},
-		{"loopback IPv6 is rejected when registry is on a public host", "http://[::1]:9090/token", registryHTTPS, true},
-		{"private RFC1918 is rejected when registry is on a public host", "http://10.0.0.5/token", registryHTTP, true},
-		{"unspecified address is rejected", "http://0.0.0.0/token", registryHTTP, true},
-		{"CGNAT literal is rejected", "http://100.64.0.1/token", registryHTTP, true},
-		{"Alibaba Cloud metadata literal is rejected", "http://100.100.100.200/latest/meta-data/", registryHTTP, true},
-		{"address just above CGNAT range is allowed", "http://100.128.0.1/token", registryHTTP, false},
-		{"IPv4-mapped IMDS literal is rejected", "http://[::ffff:169.254.169.254]/token", registryHTTP, true},
-		{"loopback realm is allowed when registry shares the loopback hostname", "http://127.0.0.1:9090/token", registryLoopback, false},
-		{"unparseable realm is rejected", "://bad-url", registryHTTPS, true},
-		{"hostname resolving to loopback is rejected", "https://loopback.example.com/token", registryHTTPS, true},
-		{"hostname resolving to IPv6 loopback is rejected", "https://loopback6.example.com/token", registryHTTPS, true},
-		{"hostname resolving to private address is rejected", "https://private.example.com/token", registryHTTPS, true},
-		{"hostname resolving to IMDS is rejected", "http://imds.example.com/latest/meta-data/", registryHTTP, true},
-		{"hostname resolving to CGNAT is rejected", "https://cgnat.example.com/token", registryHTTPS, true},
-		{"hostname resolving to Alibaba Cloud metadata is rejected", "http://alibaba-imds.example.com/", registryHTTP, true},
-		{"hostname resolving to unspecified address is rejected", "https://unspecified.example.com/token", registryHTTPS, true},
-		{"hostname resolving to IPv4-mapped IMDS is rejected", "https://mapped.example.com/token", registryHTTPS, true},
-		{"hostname with any internal address is rejected", "https://mixed.example.com/token", registryHTTPS, true},
-		{"hostname resolving just above CGNAT range is allowed", "https://cgnat-boundary.example.com/token", registryHTTPS, false},
-		{"hostname whose lookup fails is allowed", "https://unresolvable.example.com/token", registryHTTPS, false},
-		{"internal hostname is allowed when registry shares the hostname", "http://registry.internal:5001/token", registryInternal, false},
-		{"internal hostname is allowed when registry shares the hostname in another case", "http://Registry.Internal:5001/token", registryInternal, false},
-		{"internal hostname is rejected when registry is on another host", "http://registry.internal:5001/token", registryHTTP, true},
-		{"internal hostname is rejected without a registry URL", "http://registry.internal:5001/token", nil, true},
+		{"empty realm is allowed", "", registryHTTPS, nil, false, ""},
+		{"https realm is allowed", "https://auth.example.com/token", registryHTTPS, nil, false, ""},
+		{"https cross-host realm is allowed", "https://other.example.com/token", registryHTTPS, nil, false, ""},
+		{"http realm against plain-http registry is allowed", "http://auth.example.com/token", registryHTTP, nil, false, ""},
+		{"http realm against https registry is rejected (TLS downgrade)", "http://auth.example.com/token", registryHTTPS, nil, true, ""},
+		{"non-http scheme is rejected", "file:///etc/passwd", registryHTTPS, nil, true, ""},
+		{"ftp scheme is rejected", "ftp://auth.example.com/token", registryHTTPS, nil, true, ""},
+		{"nil prefixes use defaults: IMDS IPv4", "http://169.254.169.254/latest/meta-data/", registryHTTP, nil, true, "169.254.0.0/16"},
+		{"nil prefixes use defaults: loopback IPv4", "http://127.0.0.1:9090/token", registryHTTP, nil, true, "127.0.0.0/8"},
+		{"loopback IPv6 is rejected", "http://[::1]:9090/token", registryHTTP, nil, true, "::1/128"},
+		{"zoned loopback IPv6 is rejected", "http://[::1%25lo0]/token", registryHTTP, nil, true, "::1/128"},
+		{"link-local IPv6 is rejected", "http://[fe80::1]/token", registryHTTP, nil, true, "fe80::/10"},
+		{"zoned link-local IPv6 is rejected", "http://[fe80::1%25eth0]/token", registryHTTP, nil, true, "fe80::/10"},
+		{"zoned IPv4-mapped loopback is rejected", "http://[::ffff:127.0.0.1%25eth0]/token", registryHTTP, nil, true, "127.0.0.0/8"},
+		{"link-local multicast IPv4 is rejected", "http://224.0.0.1/token", registryHTTP, nil, true, "224.0.0.0/24"},
+		{"link-local multicast IPv6 is rejected", "http://[ff02::1]/token", registryHTTP, nil, true, "ff02::/16"},
+		{"unspecified IPv4 0.0.0.0/8 is rejected", "http://0.0.0.0/token", registryHTTP, nil, true, "0.0.0.0/8"},
+		{"0.0.0.0/8 also rejects 0.0.0.1", "http://0.0.0.1/token", registryHTTP, nil, true, "0.0.0.0/8"},
+		{"unspecified IPv6 is rejected", "http://[::]/token", registryHTTP, nil, true, "::/128"},
+		{"Alibaba metadata is rejected", "http://100.100.100.200/latest/meta-data/", registryHTTP, nil, true, "100.100.100.200/32"},
+		{"Azure WireServer is rejected", "http://168.63.129.16/token", registryHTTP, nil, true, "168.63.129.16/32"},
+		{"AWS IPv6 metadata is rejected", "http://[fd00:ec2::254]/token", registryHTTP, nil, true, "fd00:ec2::254/128"},
+		{"AWS EKS Pod Identity IPv6 is rejected", "http://[fd00:ec2::23]/token", registryHTTP, nil, true, "fd00:ec2::23/128"},
+		{"Google Cloud IPv6 metadata is rejected", "http://[fd20:ce::254]/token", registryHTTP, nil, true, "fd20:ce::254/128"},
+		{"RFC1918 is allowed by default", "http://10.0.0.5/token", registryHTTP, nil, false, ""},
+		{"#1631 GitLab RFC1918 realm is allowed by default", "http://192.168.110.193/token", registryHTTP, nil, false, ""},
+		{"CGNAT is allowed by default", "http://100.64.0.1/token", registryHTTP, nil, false, ""},
+		{"ULA is allowed by default", "http://[fd00::1]/token", registryHTTP, nil, false, ""},
+		{"empty prefixes allow loopback", "http://127.0.0.1:9090/token", registryHTTP, empty, false, ""},
+		{"empty prefixes allow IMDS", "http://169.254.169.254/latest/meta-data/", registryHTTP, empty, false, ""},
+		{"custom list blocks only that prefix", "https://auth.example.com/token", registryHTTPS, custom, true, "93.184.215.14/32"},
+		{"custom list allows loopback", "http://127.0.0.1:9090/token", registryHTTP, custom, false, ""},
+		{"strict PrivateRealmPrefixes rejects RFC1918", "http://10.0.0.5/token", registryHTTP, strict, true, "10.0.0.0/8"},
+		{"IPv4-mapped IMDS is rejected", "http://[::ffff:169.254.169.254]/token", registryHTTP, nil, true, "169.254.169.254"},
+		{"NAT64 IMDS is rejected", "http://[64:ff9b::a9fe:a9fe]/token", registryHTTP, nil, true, "169.254.169.254"},
+		{"6to4 IMDS is rejected", "http://[2002:a9fe:a9fe::]/token", registryHTTP, nil, true, "169.254.169.254"},
+		{"loopback realm is allowed when registry shares the hostname", "http://127.0.0.1:9090/token", registryLoopback, nil, false, ""},
+		{"unparseable realm is rejected", "://bad-url", registryHTTPS, nil, true, ""},
+		{"hostname resolving to loopback is rejected", "https://loopback.example.com/token", registryHTTPS, nil, true, "127.0.0.1"},
+		{"hostname resolving to IPv6 loopback is rejected", "https://loopback6.example.com/token", registryHTTPS, nil, true, "::1"},
+		{"hostname resolving to RFC1918 is allowed by default", "https://private.example.com/token", registryHTTPS, nil, false, ""},
+		{"hostname resolving to IMDS is rejected", "http://imds.example.com/latest/meta-data/", registryHTTP, nil, true, "169.254.169.254"},
+		{"hostname resolving to NAT64 IMDS is rejected", "https://nat64.example.com/token", registryHTTPS, nil, true, "169.254.169.254"},
+		{"hostname resolving to 6to4 IMDS is rejected", "https://sixto4.example.com/token", registryHTTPS, nil, true, "169.254.169.254"},
+		{"hostname resolving to IPv4-mapped IMDS is rejected", "https://mapped.example.com/token", registryHTTPS, nil, true, "169.254.169.254"},
+		{"hostname with any blocked address is rejected", "https://mixed-imds.example.com/token", registryHTTPS, nil, true, "169.254.169.254"},
+		{"hostname resolving to unspecified is rejected", "https://unspecified.example.com/token", registryHTTPS, nil, true, "0.0.0.0"},
+		{"hostname resolving to AWS IPv6 metadata is rejected", "https://aws-imds6.example.com/token", registryHTTPS, nil, true, "fd00:ec2::254"},
+		{"hostname resolving to CGNAT is allowed by default", "https://cgnat.example.com/token", registryHTTPS, nil, false, ""},
+		{"hostname whose lookup fails is allowed", "https://unresolvable.example.com/token", registryHTTPS, nil, false, ""},
+		{"internal hostname is allowed when registry shares the hostname", "http://registry.internal:5001/token", registryInternal, nil, false, ""},
+		{"internal hostname is allowed when registry shares the hostname in another case", "http://Registry.Internal:5001/token", registryInternal, nil, false, ""},
+		{"empty prefixes skip DNS rejection", "https://loopback.example.com/token", registryHTTPS, empty, false, ""},
+		{"downgrade is rejected even with an empty denylist", "http://auth.example.com/token", registryHTTPS, empty, true, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateRealm(context.Background(), tt.realm, tt.registry)
+			err := validateRealm(context.Background(), tt.realm, tt.registry, tt.prefixes)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
 			}
+			if err != nil && tt.wantSub != "" && !strings.Contains(err.Error(), tt.wantSub) {
+				t.Errorf("validateRealm() error = %v, want substring %q", err, tt.wantSub)
+			}
 		})
+	}
+}
+
+// TestClient_BlockedRealmPrefixes_PerClientIsolation verifies that a custom
+// denylist on client A does not apply to client B, whose nil list still uses
+// the defaults.
+func TestClient_BlockedRealmPrefixes_PerClientIsolation(t *testing.T) {
+	setLookupIPAddr(t, fakeLookupIPAddr(map[string][]string{
+		"private.example.com":  {"192.168.110.193"},
+		"loopback.example.com": {"127.0.0.1"},
+	}))
+	registryHTTP, _ := url.Parse("http://registry.example.com/v2/")
+	registryHTTPS, _ := url.Parse("https://registry.example.com/v2/")
+
+	clientA := &Client{
+		BlockedRealmPrefixes: []netip.Prefix{netip.MustParsePrefix("192.168.0.0/16")},
+	}
+	clientB := &Client{}
+
+	tests := []struct {
+		name     string
+		client   *Client
+		realm    string
+		registry *url.URL
+		wantErr  bool
+		wantSub  string
+	}{
+		{"A rejects 192.168.x literal", clientA, "http://192.168.110.193/token", registryHTTP, true, "192.168.0.0/16"},
+		{"B allows 192.168.x literal", clientB, "http://192.168.110.193/token", registryHTTP, false, ""},
+		{"A rejects hostname resolving to 192.168.x", clientA, "https://private.example.com/token", registryHTTPS, true, "192.168.0.0/16"},
+		{"B allows hostname resolving to 192.168.x", clientB, "https://private.example.com/token", registryHTTPS, false, ""},
+		{"A allows loopback", clientA, "http://127.0.0.1:9090/token", registryHTTP, false, ""},
+		{"B rejects loopback", clientB, "http://127.0.0.1:9090/token", registryHTTP, true, "127.0.0.0/8"},
+		{"A allows hostname resolving to loopback", clientA, "https://loopback.example.com/token", registryHTTPS, false, ""},
+		{"B rejects hostname resolving to loopback", clientB, "https://loopback.example.com/token", registryHTTPS, true, "127.0.0.0/8"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRealm(context.Background(), tt.realm, tt.registry, tt.client.BlockedRealmPrefixes)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateRealm(%q, %v) error = %v, wantErr %v", tt.realm, tt.registry, err, tt.wantErr)
+			}
+			if err != nil && tt.wantSub != "" && !strings.Contains(err.Error(), tt.wantSub) {
+				t.Errorf("validateRealm() error = %v, want substring %q", err, tt.wantSub)
+			}
+		})
+	}
+}
+
+func TestDefaultBlockedRealmPrefixes_Independence(t *testing.T) {
+	a := DefaultBlockedRealmPrefixes()
+	b := DefaultBlockedRealmPrefixes()
+	if len(a) == 0 {
+		t.Fatal("DefaultBlockedRealmPrefixes() returned empty")
+	}
+	a[0] = netip.MustParsePrefix("8.8.8.8/32")
+	if reflect.DeepEqual(a, b) {
+		t.Error("DefaultBlockedRealmPrefixes() returned a shared slice")
+	}
+	p := PrivateRealmPrefixes()
+	q := PrivateRealmPrefixes()
+	p[0] = netip.MustParsePrefix("8.8.8.8/32")
+	if reflect.DeepEqual(p, q) {
+		t.Error("PrivateRealmPrefixes() returned a shared slice")
 	}
 }
 
@@ -4083,7 +4184,7 @@ func Test_validateRealm_UsesContext(t *testing.T) {
 		return []net.IPAddr{{IP: net.ParseIP("93.184.215.14")}}, nil
 	})
 	registry, _ := url.Parse("https://registry.example.com/v2/")
-	if err := validateRealm(ctx, "https://auth.example.com/token", registry); err != nil {
+	if err := validateRealm(ctx, "https://auth.example.com/token", registry, nil); err != nil {
 		t.Fatalf("validateRealm() error = %v", err)
 	}
 	if gotMarker != "marker" {
@@ -4314,6 +4415,28 @@ func TestClient_Do_Bearer_RealmRedirect_Downgrade(t *testing.T) {
 	}
 	if got := plainHits.Load(); got != 0 {
 		t.Errorf("http redirect target received %d requests, want 0", got)
+	}
+
+	// The same hop must still be rejected with an empty denylist: scheme
+	// and downgrade checks always apply.
+	open := &Client{
+		Client:               &http.Client{Transport: transport},
+		BlockedRealmPrefixes: []netip.Prefix{},
+	}
+	req, err = http.NewRequest(http.MethodGet, "https://registry.test/v2/", nil)
+	if err != nil {
+		t.Fatalf("failed to create test request: %v", err)
+	}
+	resp, err = open.Do(req)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("open Client.Do() error = nil, want TLS downgrade rejection")
+	}
+	if !strings.Contains(err.Error(), "uses http but registry was contacted over https") {
+		t.Errorf("open Client.Do() error = %v, want TLS downgrade rejection", err)
+	}
+	if got := plainHits.Load(); got != 0 {
+		t.Errorf("http redirect target received %d requests after empty-denylist retry, want 0", got)
 	}
 }
 
