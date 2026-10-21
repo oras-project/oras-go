@@ -91,6 +91,7 @@ func TestClientBuilder_Build(t *testing.T) {
 func TestClientBuilder_Build_BlockedRealmPrefixes(t *testing.T) {
 	builder := NewClientBuilder()
 	prefixes := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	want := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 	props := &properties.Registry{
 		Reference: properties.Reference{
 			Registry:   "registry.corp.example",
@@ -105,8 +106,26 @@ func TestClientBuilder_Build_BlockedRealmPrefixes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if !reflect.DeepEqual(client.BlockedRealmPrefixes, prefixes) {
-		t.Errorf("BlockedRealmPrefixes = %v, want %v", client.BlockedRealmPrefixes, prefixes)
+	if !reflect.DeepEqual(client.BlockedRealmPrefixes, want) {
+		t.Errorf("BlockedRealmPrefixes = %v, want %v", client.BlockedRealmPrefixes, want)
+	}
+	prefixes[0] = netip.MustParsePrefix("127.0.0.0/8")
+	if !reflect.DeepEqual(client.BlockedRealmPrefixes, want) {
+		t.Errorf("mutating caller slice changed client.BlockedRealmPrefixes = %v, want %v", client.BlockedRealmPrefixes, want)
+	}
+
+	nilProps := &properties.Registry{
+		Reference: properties.Reference{
+			Registry:   "registry.corp.example",
+			Repository: "test/repo",
+		},
+	}
+	nilClient, err := builder.Build(nilProps)
+	if err != nil {
+		t.Fatalf("Build() nil prefixes error = %v", err)
+	}
+	if nilClient.BlockedRealmPrefixes != nil {
+		t.Errorf("Build() BlockedRealmPrefixes = %v, want nil", nilClient.BlockedRealmPrefixes)
 	}
 }
 

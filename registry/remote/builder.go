@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
@@ -126,7 +127,7 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 		CredentialFunc:       credentialFunc,
 		Cache:                cache,
 		TokenFetcher:         b.tokenFetcher(props, httpClient, header),
-		BlockedRealmPrefixes: props.Attributes.BlockedRealmPrefixes,
+		BlockedRealmPrefixes: slices.Clone(props.Attributes.BlockedRealmPrefixes),
 	}
 
 	return client, nil
@@ -374,14 +375,9 @@ func buildMirrorRepositories(props *properties.Registry, builder *ClientBuilder)
 				Repository: props.Reference.Repository,
 			},
 			Transport: m.Transport,
-			// TokenFlow, ReferrersAPI, and the realm address denylist follow
-			// the primary so a custom BlockedRealmPrefixes applies to mirror
-			// challenges as well.
-			Attributes: properties.Attributes{
-				ReferrersAPI:         props.Attributes.ReferrersAPI,
-				TokenFlow:            props.Attributes.TokenFlow,
-				BlockedRealmPrefixes: props.Attributes.BlockedRealmPrefixes,
-			},
+			// Mirrors inherit the primary's attributes, including a custom
+			// BlockedRealmPrefixes, so it applies to mirror challenges as well.
+			Attributes: props.Attributes,
 		}
 
 		mirrorClient, err := builder.Build(mirrorProps)

@@ -354,8 +354,10 @@ func PrivateRealmPrefixes() []netip.Prefix {
 
 // unwrapRealmAddr returns the IPv4 address embedded in an IPv4-mapped,
 // NAT64, or 6to4 IPv6 address. Other addresses are returned unmapped.
+// The IPv6 zone is stripped so Prefix.Contains can match scoped literals
+// such as [::1%lo0].
 func unwrapRealmAddr(addr netip.Addr) netip.Addr {
-	addr = addr.Unmap()
+	addr = addr.Unmap().WithZone("")
 	if !addr.Is6() {
 		return addr
 	}
