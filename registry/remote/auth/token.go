@@ -303,8 +303,9 @@ func (s *realmSet) add(realm string) {
 //   - Otherwise, use the OAuth2 fetcher. If the token server rejects a
 //     username/password grant with 400, 401, 404 or 405, which registries
 //     without an OAuth2 token endpoint answer, retry with the distribution
-//     fetcher unless StrictOAuth2 is set. Refresh tokens are never retried,
-//     as they cannot be used with the distribution spec.
+//     fetcher unless StrictOAuth2 is set. If that fails too, both errors are
+//     returned. Refresh tokens are never retried, as they cannot be used with
+//     the distribution spec.
 func (f *CompositeTokenFetcher) FetchToken(ctx context.Context, params TokenParams, cred credentials.Credential) (string, error) {
 	// Return access token directly if provided
 	if cred.AccessToken != "" {
@@ -322,15 +323,16 @@ func (f *CompositeTokenFetcher) FetchToken(ctx context.Context, params TokenPara
 	}
 
 	// Use OAuth2 fetcher otherwise
-	token, err := f.OAuth2.FetchToken(ctx, params, cred)
-	if err == nil || !canFallback || !isOAuth2Unsupported(err) {
-		return token, err
+	token, oauth2Err := f.OAuth2.FetchToken(ctx, params, cred)
+	if oauth2Err == nil || !canFallback || !isOAuth2Unsupported(oauth2Err) {
+		return token, oauth2Err
 	}
-	token, err = f.Distribution.FetchToken(ctx, params, cred)
-	if err == nil {
-		f.distributionRealms.add(params.Realm)
+	token, err := f.Distribution.FetchToken(ctx, params, cred)
+	if err != nil {
+		return "", errors.Join(err, oauth2Err)
 	}
-	return token, err
+	f.distributionRealms.add(params.Realm)
+	return token, nil
 }
 
 // isOAuth2Unsupported reports whether err is the response of a token server

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -235,6 +236,9 @@ func TestCompositeTokenFetcher_FetchToken_DoesNotRememberFailedFallback(t *testi
 		var errResp *errcode.ErrorResponse
 		if !errors.As(err, &errResp) || errResp.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("FetchToken() error = %v, want the 401 from the distribution GET", err)
+		}
+		if !strings.Contains(err.Error(), "404") {
+			t.Fatalf("FetchToken() error = %v, want it to include the 404 from the OAuth2 POST", err)
 		}
 	}
 	if got := ts.posts.Load(); got != 2 {

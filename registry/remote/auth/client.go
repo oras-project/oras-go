@@ -135,8 +135,8 @@ type Client struct {
 	// To use OAuth2 only, without the retry, set StrictOAuth2 on a composite
 	// fetcher.
 	//
-	// Note that in either case the registry itself is authenticated with a
-	// bearer token; the two differ only in how that token is obtained. The
+	// Note that in every case the registry itself is authenticated with a
+	// bearer token; they differ only in how that token is obtained. The
 	// authentication scheme itself is not configurable — it is whatever the
 	// registry advertises in its WWW-Authenticate challenge.
 	//
