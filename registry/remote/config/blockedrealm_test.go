@@ -101,6 +101,16 @@ func Test_resolveBlockedRealmPrefixes(t *testing.T) {
 			entries: []string{"10.0.0.0/33"},
 			wantErr: "blocked-realm-prefixes",
 		},
+		{
+			name:    "IPv4-mapped prefix",
+			entries: []string{"::ffff:10.0.0.0/104"},
+			wantErr: "IPv4-mapped prefixes in IPv4 form",
+		},
+		{
+			name:    "bare IPv4-mapped address",
+			entries: []string{"::ffff:10.0.0.1"},
+			want:    []netip.Prefix{netip.PrefixFrom(netip.MustParseAddr("10.0.0.1"), 32)},
+		},
 	}
 
 	for _, tt := range tests {
@@ -376,6 +386,22 @@ func TestMergeRegistriesConfig_BlockedRealmPrefixes(t *testing.T) {
 			t.Errorf("BlockedRealmPrefixes = %v, want empty", p)
 		}
 	})
+}
+
+func TestNewRegistryProperties_BlockedRealmPrefixes_registryInError(t *testing.T) {
+	cfg := &RegistriesConfig{
+		Registries: []Registry{
+			{Prefix: "bad.example", BlockedRealmPrefixes: []string{"not-valid"}},
+		},
+		Aliases: map[string]string{},
+	}
+	_, err := NewRegistryProperties("bad.example/image:v1", cfg)
+	if err == nil {
+		t.Fatal("NewRegistryProperties() error = nil, want an error")
+	}
+	if !strings.Contains(err.Error(), `registry "bad.example"`) {
+		t.Errorf("error = %v, want it to contain registry %q", err, "bad.example")
+	}
 }
 
 func TestNewRegistryProperties_BlockedRealmPrefixes_mergeDropInSemantics(t *testing.T) {

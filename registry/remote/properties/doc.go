@@ -45,5 +45,5 @@ limitations under the License.
 //
 //	// Configure registry attributes
 //	reg.Attributes.ReferrersAPI = properties.ReferrersAPISupported
-//	reg.Attributes.BlockedRealmPrefixes = nil // library default denylist
+//	reg.Attributes.BlockedRealmPrefixes = auth.PrivateRealmPrefixes()
 package properties

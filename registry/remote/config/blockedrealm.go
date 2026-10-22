@@ -36,7 +36,7 @@ func resolveBlockedRealmPrefixes(entries []string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
 	for _, entry := range entries {
 		if entry == "none" {
-			return nil, fmt.Errorf("invalid blocked-realm-prefixes entry %q: %q must be the only entry", entry, "none")
+			return nil, fmt.Errorf("invalid blocked-realm-prefixes entry %q: \"none\" must be the only entry", entry)
 		}
 		switch entry {
 		case "default":
@@ -56,12 +56,17 @@ func resolveBlockedRealmPrefixes(entries []string) ([]netip.Prefix, error) {
 
 func parseBlockedRealmPrefixEntry(entry string) (netip.Prefix, error) {
 	if prefix, err := netip.ParsePrefix(entry); err == nil {
+		if prefix.Addr().Is4In6() {
+			return netip.Prefix{}, fmt.Errorf("invalid blocked-realm-prefixes entry %q: write IPv4-mapped prefixes in IPv4 form", entry)
+		}
 		return prefix, nil
 	}
 	addr, err := netip.ParseAddr(entry)
 	if err != nil {
 		return netip.Prefix{}, fmt.Errorf("invalid blocked-realm-prefixes entry %q: not a CIDR prefix, IP address, or known name", entry)
 	}
+	// Unmap so an IPv4-mapped literal matches resolved IPv4 realm addresses.
+	addr = addr.Unmap()
 	bits := 32
 	if addr.Is6() {
 		bits = 128

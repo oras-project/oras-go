@@ -361,12 +361,6 @@ func (b *ClientBuilder) NewRepository(props *properties.Registry) (*Repository, 
 	return repo, nil
 }
 
-// mirrorAttributes returns a copy of the primary's attributes for mirror clients.
-// Mirrors inherit the primary's realm denylist along with TokenFlow and ReferrersAPI.
-func mirrorAttributes(primary properties.Attributes) properties.Attributes {
-	return primary
-}
-
 // buildMirrorRepositories creates mirror Repository instances from the
 // mirror properties. Each mirror gets its own auth.Client built from the
 // mirror's transport settings.
@@ -388,8 +382,10 @@ func buildMirrorRepositories(props *properties.Registry, builder *ClientBuilder)
 				Registry:   m.Location,
 				Repository: props.Reference.Repository,
 			},
-			Transport:  m.Transport,
-			Attributes: mirrorAttributes(props.Attributes),
+			Transport: m.Transport,
+			// Mirrors inherit the primary's attributes, including a custom
+			// BlockedRealmPrefixes, so it applies to mirror challenges as well.
+			Attributes: props.Attributes,
 		}
 
 		mirrorClient, err := builder.Build(mirrorProps)
