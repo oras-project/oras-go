@@ -223,18 +223,28 @@ func Test_buildMirrorRepositories_doesNotShareCredential(t *testing.T) {
 	}
 }
 
-// Test_buildMirrorRepositories_inheritsBlockedRealmPrefixes checks that a
-// primary's custom denylist is copied onto the client built for a mirror.
-func Test_buildMirrorRepositories_inheritsBlockedRealmPrefixes(t *testing.T) {
+// Test_buildMirrorRepositories_doesNotInheritBlockedRealmPrefixes checks that a
+// mirror uses the library default denylist while other attributes still inherit.
+func Test_buildMirrorRepositories_doesNotInheritBlockedRealmPrefixes(t *testing.T) {
 	prefixes := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 	props := &properties.Registry{
 		Reference: properties.Reference{Registry: "registry.example.com", Repository: "app"},
 		Attributes: properties.Attributes{
 			BlockedRealmPrefixes: prefixes,
+			TokenFlow:            properties.TokenFlowDistribution,
+			ReferrersAPI:         properties.ReferrersAPISupported,
 		},
 		Mirrors: []properties.Mirror{
 			{Location: "mirror.internal"},
 		},
+	}
+
+	primaryAuth, err := NewClientBuilder().Build(props)
+	if err != nil {
+		t.Fatalf("Build(primary): %v", err)
+	}
+	if !reflect.DeepEqual(primaryAuth.BlockedRealmPrefixes, prefixes) {
+		t.Errorf("primary BlockedRealmPrefixes = %v, want %v", primaryAuth.BlockedRealmPrefixes, prefixes)
 	}
 
 	mirrors, err := buildMirrorRepositories(props, NewClientBuilder())
@@ -249,7 +259,10 @@ func Test_buildMirrorRepositories_inheritsBlockedRealmPrefixes(t *testing.T) {
 	if !ok {
 		t.Fatalf("mirror client is %T, want *auth.Client", mirrors[0].Registry.Client)
 	}
-	if !reflect.DeepEqual(authClient.BlockedRealmPrefixes, prefixes) {
-		t.Errorf("mirror BlockedRealmPrefixes = %v, want %v", authClient.BlockedRealmPrefixes, prefixes)
+	if authClient.BlockedRealmPrefixes != nil {
+		t.Errorf("mirror BlockedRealmPrefixes = %v, want nil (library defaults)", authClient.BlockedRealmPrefixes)
+	}
+	if authClient.TokenFetcher == nil {
+		t.Error("mirror TokenFetcher = nil, want distribution flow inherited from primary")
 	}
 }
