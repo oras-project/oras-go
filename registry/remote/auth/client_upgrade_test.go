@@ -112,7 +112,7 @@ func TestClient_Do_HTTPSUpgrade(t *testing.T) {
 						return Credential{Username: "user", Password: "pass"}, nil
 					},
 				}
-				// Repeat with a shared cache to check that HTTPS Credential never
+				// Repeat with a shared cache to check that HTTPS credentials never
 				// become preemptive authentication on the HTTP endpoint.
 				for range 2 {
 					method := http.MethodGet
@@ -177,10 +177,10 @@ func TestClient_Do_HTTPSUpgradeBoundaries(t *testing.T) {
 		{name: "different host", urls: []string{initial, "https://other.example.com/v2/team/image/manifests/latest"}},
 		{name: "different HTTPS port", urls: []string{initial, "https://registry.example.com:8443/v2/team/image/manifests/latest"}},
 		{name: "different HTTP port", urls: []string{"http://registry.example.com:8080/v2/team/image/manifests/latest", target}},
-		{name: "different repository", urls: []string{initial, "https://registry.example.com/v2/other/image/manifests/latest"}},
+		{name: "different repository", urls: []string{initial, "https://registry.example.com/v2/other/image/manifests/latest"}, wantAuth: true},
 		{name: "host detour", urls: []string{initial, "http://other.example.com/v2/team/image/manifests/latest", target}},
 		{name: "port detour", urls: []string{initial, "http://registry.example.com:8080/v2/team/image/manifests/latest", target}},
-		{name: "repository detour", urls: []string{initial, "http://registry.example.com/v2/other/image/manifests/latest", target}},
+		{name: "repository detour", urls: []string{initial, "http://registry.example.com/v2/other/image/manifests/latest", target}, wantAuth: true},
 		{name: "HTTPS downgrade", urls: []string{initial, target, "http://registry.example.com/v2/team/image/manifests/next", "https://registry.example.com/v2/team/image/manifests/next"}},
 		{name: "userinfo", urls: []string{initial, "https://user:password@registry.example.com/v2/team/image/manifests/latest"}},
 		{name: "overridden host", urls: []string{initial, target}, host: "other.example.com"},

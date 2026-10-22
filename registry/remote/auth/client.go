@@ -30,7 +30,6 @@ import (
 	"slices"
 	"strings"
 
-	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote/internal/errutil"
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
@@ -240,7 +239,7 @@ func safeHTTPSUpgrade(original, last *http.Request) bool {
 		return false
 	}
 	for req := last; ; {
-		if crossesRepository(original.URL, req.URL) || req.URL.User != nil {
+		if req.URL.User != nil {
 			return false
 		}
 		if req.Response == nil {
@@ -380,35 +379,6 @@ var endpointSeparators = []string{
 	"/blobs/",
 	"/tags/list",
 	"/referrers/",
-}
-
-func repositoryFromPath(path string) string {
-	path, ok := strings.CutPrefix(path, apiPrefix)
-	if !ok {
-		return ""
-	}
-
-	end := -1
-	for _, separator := range endpointSeparators {
-		if index := strings.LastIndex(path, separator); index > end {
-			end = index
-		}
-	}
-	if end <= 0 {
-		return ""
-	}
-
-	repository := path[:end]
-	if err := (registry.Reference{Repository: repository}).ValidateRepository(); err != nil {
-		return ""
-	}
-	return repository
-}
-
-func crossesRepository(a, b *url.URL) bool {
-	from := repositoryFromPath(a.Path)
-	to := repositoryFromPath(b.Path)
-	return from != "" && to != "" && from != to
 }
 
 // validateRealm rejects bearer token realm URLs that would have the client
@@ -588,9 +558,6 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	authReq := originalReq
 	if resp.Request != nil {
 		responseURL := resp.Request.URL
-		if crossesRepository(originalReq.URL, responseURL) {
-			return resp, nil
-		}
 		if !sameHTTPOrigin(originalReq.URL, responseURL) {
 			if !safeHTTPSUpgrade(originalReq, resp.Request) {
 				return resp, nil
