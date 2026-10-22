@@ -21,7 +21,12 @@ limitations under the License.
 // The main types in this package are:
 //   - Registry: Contains complete configuration for connecting to a remote registry
 //   - Transport: Describes transport layer settings (TLS, HTTP, headers)
-//   - Attributes: Contains registry-specific attributes like Referrers API support
+//   - Attributes: Registry-specific settings (Referrers API, token flow,
+//     blocked realm prefixes). BlockedRealmPrefixes nil uses auth defaults;
+//     an empty non-nil slice blocks no realm addresses.
+//     registries.conf drop-ins replace a whole [[registry]] row by prefix,
+//     so field-level settings are not merged across layers.
+//     Mirror clients inherit BlockedRealmPrefixes from the primary, like TokenFlow.
 //
 // Example usage:
 //
@@ -40,4 +45,5 @@ limitations under the License.
 //
 //	// Configure registry attributes
 //	reg.Attributes.ReferrersAPI = properties.ReferrersAPISupported
+//	reg.Attributes.BlockedRealmPrefixes = auth.PrivateRealmPrefixes()
 package properties

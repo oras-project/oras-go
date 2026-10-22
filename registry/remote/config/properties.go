@@ -116,6 +116,14 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 				origReg.TokenFlow, origReg.Prefix, "oauth2", "distribution")
 		}
 
+		if origReg.BlockedRealmPrefixes != nil {
+			prefixes, err := resolveBlockedRealmPrefixes(origReg.BlockedRealmPrefixes)
+			if err != nil {
+				return nil, fmt.Errorf("registry %q: %w", origReg.Prefix, err)
+			}
+			props.Attributes.BlockedRealmPrefixes = prefixes
+		}
+
 		// Step 6: Populate mirrors.
 		if len(origReg.Mirrors) > 0 {
 			props.Mirrors = make([]properties.Mirror, len(origReg.Mirrors))

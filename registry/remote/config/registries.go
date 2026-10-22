@@ -69,6 +69,12 @@ type Registry struct {
 	// value defaults to auto-detection on first use. This is an ORAS-specific
 	// field and may be ignored by other tools that parse registries.conf.
 	ReferrersAPI string `toml:"referrers-api"`
+	// BlockedRealmPrefixes configures the bearer realm address denylist for
+	// this registry. Entries are CIDR prefixes, bare addresses, or named sets
+	// ("default", "private", "none"). An absent key uses library defaults; an
+	// empty array blocks nothing. This is an ORAS-specific field and may be
+	// ignored by other tools that parse registries.conf.
+	BlockedRealmPrefixes []string `toml:"blocked-realm-prefixes"`
 }
 
 // Mirror represents a registry mirror configuration.

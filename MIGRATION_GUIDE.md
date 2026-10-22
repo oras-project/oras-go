@@ -541,6 +541,22 @@ changes:
 - **Copy diagnostics:** `oras.CopyError.Descriptor` identifies the failing
   content.
 
+### ORAS-specific `registries.conf` keys
+
+Besides the keys defined by [containers/image](https://github.com/containers/image/blob/main/docs/containers-registries.conf.5.md), ORAS reads optional per-`[[registry]]` fields such as `token-flow`, `referrers-api`, and `blocked-realm-prefixes`. Other tools may ignore them.
+
+`blocked-realm-prefixes` sets the bearer realm address denylist for that registry entry (see `auth.Client.BlockedRealmPrefixes`). Each value is a CIDR prefix, a bare IP address (`/32` or `/128`), or a named set:
+
+- `default` — `auth.DefaultBlockedRealmPrefixes()`
+- `private` — `auth.PrivateRealmPrefixes()`
+- `none` — block nothing; must be the only entry
+
+When the key is **absent**, the library default denylist applies. When it is present as an **empty array** (`[]`) or `["none"]`, nothing is blocked. Values replace the defaults; combine explicit prefixes with `default` or `private` when you want those lists included.
+
+`mergeRegistriesConfig` replaces a whole `[[registry]]` row when a drop-in uses the same `prefix`. A drop-in that only sets `insecure = true` does not merge field-by-field, so a `blocked-realm-prefixes` list from the base file is dropped unless the drop-in sets it again.
+
+Mirror clients inherit `blocked-realm-prefixes` from the primary's properties, like `token-flow` and `referrers-api`.
+
 For current API documentation and examples, see
 [pkg.go.dev](https://pkg.go.dev/github.com/oras-project/oras-go/v3).
 
