@@ -22,8 +22,8 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
-// Test_ClientBuilder_tokenFlowWiring checks that a distribution flow requested
-// in registries.conf reaches the auth client, and that an explicitly configured
+// Test_ClientBuilder_tokenFlowWiring checks that a token flow requested in
+// registries.conf reaches the auth client, and that an explicitly configured
 // TokenFetcher still outranks it.
 func Test_ClientBuilder_tokenFlowWiring(t *testing.T) {
 	newProps := func(flow properties.TokenFlow) *properties.Registry {
@@ -39,17 +39,24 @@ func Test_ClientBuilder_tokenFlowWiring(t *testing.T) {
 			t.Fatalf("Build: %v", err)
 		}
 		if client.TokenFetcher != nil {
-			t.Errorf("TokenFetcher = %T, want nil so the client default (OAuth2) applies", client.TokenFetcher)
+			t.Errorf("TokenFetcher = %T, want nil so the client default (OAuth2 with a fallback) applies", client.TokenFetcher)
 		}
 	})
 
-	t.Run("oauth2 is the client default, so still nil", func(t *testing.T) {
+	t.Run("oauth2 installs a composite fetcher that does not fall back", func(t *testing.T) {
 		client, err := NewClientBuilder().Build(newProps(properties.TokenFlowOAuth2))
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}
-		if client.TokenFetcher != nil {
-			t.Errorf("TokenFetcher = %T, want nil", client.TokenFetcher)
+		composite, ok := client.TokenFetcher.(*auth.CompositeTokenFetcher)
+		if !ok {
+			t.Fatalf("TokenFetcher = %T, want *auth.CompositeTokenFetcher", client.TokenFetcher)
+		}
+		if composite.LegacyMode {
+			t.Error("LegacyMode = true, want false for token-flow=oauth2")
+		}
+		if !composite.StrictOAuth2 {
+			t.Error("StrictOAuth2 = false, want true for token-flow=oauth2")
 		}
 	})
 

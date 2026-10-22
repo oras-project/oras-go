@@ -25,8 +25,10 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
@@ -260,6 +262,37 @@ type CompositeTokenFetcher struct {
 	// instead of OAuth2 with password grant when authenticating using
 	// username and password.
 	LegacyMode bool
+	// StrictOAuth2 disables the fallback to the distribution spec. By default,
+	// when the token server rejects the OAuth2 password grant in a way that
+	// means it does not implement OAuth2, the request is retried as a
+	// distribution spec token request. If StrictOAuth2 is true, the OAuth2
+	// error is returned instead.
+	StrictOAuth2 bool
+
+	// distributionRealms remembers the realms that fell back to the
+	// distribution spec, so that later fetches do not pay for the OAuth2
+	// attempt again. A nil value remembers nothing.
+	distributionRealms *realmSet
+}
+
+// realmSet is a set of token realms, safe for concurrent use. The zero value
+// is an empty set and a nil *realmSet is a set that never remembers.
+type realmSet struct {
+	realms sync.Map
+}
+
+func (s *realmSet) has(realm string) bool {
+	if s == nil {
+		return false
+	}
+	_, ok := s.realms.Load(realm)
+	return ok
+}
+
+func (s *realmSet) add(realm string) {
+	if s != nil {
+		s.realms.Store(realm, struct{}{})
+	}
 }
 
 // FetchToken selects the appropriate fetcher and delegates the token acquisition.
@@ -267,7 +300,11 @@ type CompositeTokenFetcher struct {
 //   - If credential has an access token, return it directly.
 //   - If credential is empty or (has no refresh token and legacy mode is enabled),
 //     use the distribution fetcher.
-//   - Otherwise, use the OAuth2 fetcher.
+//   - Otherwise, use the OAuth2 fetcher. If the token server rejects a
+//     username/password grant with 400, 401, 404 or 405, which registries
+//     without an OAuth2 token endpoint answer, retry with the distribution
+//     fetcher unless StrictOAuth2 is set. Refresh tokens are never retried,
+//     as they cannot be used with the distribution spec.
 func (f *CompositeTokenFetcher) FetchToken(ctx context.Context, params TokenParams, cred credentials.Credential) (string, error) {
 	// Return access token directly if provided
 	if cred.AccessToken != "" {
@@ -279,8 +316,37 @@ func (f *CompositeTokenFetcher) FetchToken(ctx context.Context, params TokenPara
 		return f.Distribution.FetchToken(ctx, params, cred)
 	}
 
+	canFallback := cred.RefreshToken == "" && !f.StrictOAuth2
+	if canFallback && f.distributionRealms.has(params.Realm) {
+		return f.Distribution.FetchToken(ctx, params, cred)
+	}
+
 	// Use OAuth2 fetcher otherwise
-	return f.OAuth2.FetchToken(ctx, params, cred)
+	token, err := f.OAuth2.FetchToken(ctx, params, cred)
+	if err == nil || !canFallback || !isOAuth2Unsupported(err) {
+		return token, err
+	}
+	token, err = f.Distribution.FetchToken(ctx, params, cred)
+	if err == nil {
+		f.distributionRealms.add(params.Realm)
+	}
+	return token, err
+}
+
+// isOAuth2Unsupported reports whether err is the response of a token server
+// that does not implement the OAuth2 token endpoint. Registries are known to
+// answer the OAuth2 POST with 400 (ACR), 401 (JFrog Artifactory), 404 (GCR,
+// GitLab) or 405 (GHCR).
+func isOAuth2Unsupported(err error) bool {
+	var errResp *errcode.ErrorResponse
+	if !errors.As(err, &errResp) {
+		return false
+	}
+	switch errResp.StatusCode {
+	case http.StatusBadRequest, http.StatusUnauthorized, http.StatusNotFound, http.StatusMethodNotAllowed:
+		return true
+	}
+	return false
 }
 
 // NewCompositeTokenFetcher creates a new CompositeTokenFetcher with default
@@ -296,6 +362,7 @@ func NewCompositeTokenFetcher(client *http.Client, header http.Header, clientID 
 			Header:   header,
 			ClientID: clientID,
 		},
-		LegacyMode: legacyMode,
+		LegacyMode:         legacyMode,
+		distributionRealms: &realmSet{},
 	}
 }

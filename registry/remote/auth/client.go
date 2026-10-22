@@ -123,11 +123,17 @@ type Client struct {
 	//
 	// If nil, the client fetches an anonymous token via the distribution spec
 	// when there is no credential, and otherwise uses OAuth2 with password
-	// grant. To follow the legacy distribution spec instead — the approach used
+	// grant. If the token server rejects the password grant with 400, 401, 404
+	// or 405, which registries without an OAuth2 token endpoint do, the client
+	// retries with the distribution spec and remembers that for the realm.
+	// To follow the legacy distribution spec from the start — the approach used
 	// in oras-go v1 and v2 — set a composite fetcher in legacy mode:
 	//
 	//	client.TokenFetcher = auth.NewCompositeTokenFetcher(
 	//		client.Client, client.Header, client.ClientID, true)
+	//
+	// To use OAuth2 only, without the retry, set StrictOAuth2 on a composite
+	// fetcher.
 	//
 	// Note that in either case the registry itself is authenticated with a
 	// bearer token; the two differ only in how that token is obtained. The
@@ -161,6 +167,10 @@ type Client struct {
 	// to the request being sent, so it only needs to be built once per
 	// Client rather than on every send.
 	redirectSafeClientValue *http.Client
+
+	// distributionRealms remembers the token realms for which the default
+	// token fetcher had to fall back from OAuth2 to the distribution spec.
+	distributionRealms realmSet
 }
 
 // Clone returns a shallow copy of c's exported configuration. Assigning to the
@@ -170,7 +180,8 @@ type Client struct {
 // is visible to c as well. BlockedRealmPrefixes is copied so index or append
 // mutations on the clone do not change c.
 //
-// The clone does not inherit c's cached, lazily-built redirect-safe client;
+// The clone does not inherit c's cached, lazily-built redirect-safe client or
+// its record of the realms that needed the distribution spec token flow;
 // it builds and caches its own the first time it sends a request. This makes
 // Clone the supported way to derive an independent Client: assigning a
 // Client value directly (dst := *c) also copies its internal
@@ -743,7 +754,9 @@ func (c *Client) fetchBearerToken(ctx context.Context, resource properties.Resou
 
 	fetcher := c.TokenFetcher
 	if fetcher == nil {
-		fetcher = NewCompositeTokenFetcher(c.Client, c.Header, c.ClientID, false)
+		composite := NewCompositeTokenFetcher(c.Client, c.Header, c.ClientID, false)
+		composite.distributionRealms = &c.distributionRealms
+		fetcher = composite
 	}
 	params := TokenParams{
 		Resource: resource,
