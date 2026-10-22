@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"slices"
 
 	"github.com/opencontainers/go-digest"
@@ -279,6 +280,16 @@ func deleteAnnotationRefName(desc ocispec.Descriptor) ocispec.Descriptor {
 			annotations[k] = v
 		}
 	}
+	desc.Annotations = annotations
+	return desc
+}
+
+// withAnnotationRefName sets the AnnotationRefName in the annotation map of
+// desc to ref. It does not modify the annotation map of desc.
+func withAnnotationRefName(desc ocispec.Descriptor, ref string) ocispec.Descriptor {
+	annotations := make(map[string]string, len(desc.Annotations)+1)
+	maps.Copy(annotations, desc.Annotations)
+	annotations[ocispec.AnnotationRefName] = ref
 	desc.Annotations = annotations
 	return desc
 }

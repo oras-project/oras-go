@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -97,6 +96,11 @@ type Store struct {
 	storage     *Storage
 	tagResolver *resolver.Memory
 	graph       *graph.Memory
+
+	// manifests is the manifest list of the index. It mirrors the resolver it
+	// was made for, which is s.tagResolver except right after a GC that did not
+	// save the index. It is guarded by indexLock.
+	manifests *manifestCollection
 
 	// sync ensures that most operations can be done concurrently, while Delete
 	// has the exclusive access to Store if a delete operation is underway.
@@ -176,14 +180,16 @@ func NewWithContext(ctx context.Context, root string) (*Store, error) {
 		return nil, fmt.Errorf("failed to create storage: %w", err)
 	}
 
+	tagResolver := resolver.NewMemory()
 	store := &Store{
 		AutoSaveIndex: true,
 		AutoGC:        true,
 		root:          rootAbs,
 		indexPath:     filepath.Join(rootAbs, ocispec.ImageIndexFile),
 		storage:       storage,
-		tagResolver:   resolver.NewMemory(),
+		tagResolver:   tagResolver,
 		graph:         graph.NewMemory(),
+		manifests:     newManifestCollection(tagResolver),
 	}
 
 	if err := ensureDir(filepath.Join(rootAbs, ocispec.ImageBlobsDir)); err != nil {
@@ -621,49 +627,43 @@ func (s *Store) autoSaveIndex(ctx context.Context) error {
 	return s.saveIndex()
 }
 
-// saveIndexFrom writes the `index.json` file from the references in tagResolver.
-func (s *Store) saveIndexFrom(tagResolver *resolver.Memory) (err error) {
+// saveIndexFrom synchronizes index.json with the supplied tag resolver.
+//
+// The store's resolver uses incremental updates. A different resolver, such
+// as the one constructed during garbage collection, requires its own manifest
+// collection so that changes are not applied to the wrong reference state.
+//
+// The manifest slice is detached before mutation when it shares storage with
+// the current index. If saving the index fails, the previous in-memory index
+// is restored. The collection for the store's resolver is retained so pending
+// changes can be retried.
+func (s *Store) saveIndexFrom(tagResolver *resolver.Memory) error {
 	s.indexLock.Lock()
 	defer s.indexLock.Unlock()
 
-	// restore the previous manifest list if the write fails, so that a failed
-	// save leaves the in-memory index as it was
+	collection := s.manifests
+	if collection.resolver != tagResolver {
+		collection = newManifestCollection(tagResolver)
+	} else if len(collection.manifests) > 0 && len(s.index.Manifests) > 0 &&
+		&collection.manifests[0] == &s.index.Manifests[0] {
+		// Preserve the committed index if syncing or writing fails.
+		collection.detach()
+	}
+
+	collection.sync()
+
 	oldManifests := s.index.Manifests
-	defer func() {
-		if err != nil {
-			s.index.Manifests = oldManifests
+	s.index.Manifests = collection.manifests
+	if err := s.writeIndexFile(); err != nil {
+		s.index.Manifests = oldManifests
+		if tagResolver == s.tagResolver {
+			s.manifests = collection
 		}
-	}()
-
-	var manifests, untagged []ocispec.Descriptor
-	tagged := set.New[digest.Digest]()
-
-	// 1. Add descriptors that are associated with tags, in a single pass over
-	// the resolver so that the index is built from one consistent view of it
-	// Note: One descriptor can be associated with multiple tags.
-	for ref, desc := range tagResolver.All() {
-		if ref == desc.Digest.String() {
-			untagged = append(untagged, desc)
-			continue
-		}
-		annotations := make(map[string]string, len(desc.Annotations)+1)
-		maps.Copy(annotations, desc.Annotations)
-		annotations[ocispec.AnnotationRefName] = ref
-		desc.Annotations = annotations
-		manifests = append(manifests, desc)
-		// mark the digest as tagged for deduplication in step 2
-		tagged.Add(desc.Digest)
-	}
-	// 2. Add descriptors that are not associated with any tag
-	for _, desc := range untagged {
-		if !tagged.Contains(desc.Digest) {
-			// skip tagged ones since they have been added in step 1
-			manifests = append(manifests, deleteAnnotationRefName(desc))
-		}
+		return err
 	}
 
-	s.index.Manifests = manifests
-	return s.writeIndexFile()
+	s.manifests = collection
+	return nil
 }
 
 // writeIndexFile writes the `index.json` file. The caller must hold indexLock,
@@ -801,6 +801,19 @@ func (s *Store) GC(ctx context.Context) error {
 		if err := os.Remove(blobPath); err != nil {
 			return fmt.Errorf("unable to remove %s: %w", blobPath, err)
 		}
+	}
+
+	// Re-tagging the spared manifests changed the resolver after the index was
+	// saved above, so index.json lacks their digest entries until the next
+	// save. Write them now, so that the index lists every manifest the store
+	// holds, as it does after any other operation.
+	//
+	// This is opportunistic, like reclaiming leftovers: the collection above
+	// has already removed blobs, so a failed save must not turn a completed GC
+	// into a failed one. The entries stay pending in the collection and are
+	// written by the next save, and without AutoSaveIndex that is SaveIndex.
+	if len(sparedManifests) > 0 && s.AutoSaveIndex {
+		_ = s.saveIndexFrom(s.tagResolver)
 	}
 
 	// Reclaiming leftovers is opportunistic: the collection above has already
@@ -959,11 +972,7 @@ func gcReachable(ctx context.Context, fetcher content.Fetcher, refMap map[string
 
 // isTagged checks if the blob given by the descriptor is tagged.
 func (s *Store) isTagged(desc ocispec.Descriptor) bool {
-	tagSet := s.tagResolver.TagSet(desc)
-	if tagSet.Contains(string(desc.Digest)) {
-		return len(tagSet) > 1
-	}
-	return len(tagSet) > 0
+	return s.tagResolver.Tagged(desc)
 }
 
 // WithDeferredIndex calls fn with a context derived from ctx, and defers the
