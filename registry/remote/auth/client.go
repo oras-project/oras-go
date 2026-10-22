@@ -277,6 +277,38 @@ func sameHTTPOrigin(a, b *url.URL) bool {
 	return canonicalHost(a) == canonicalHost(b)
 }
 
+// isHTTPSUpgrade reports whether a redirect upgrades the same host from the
+// standard HTTP port to the standard HTTPS port.
+func isHTTPSUpgrade(from, to *url.URL) bool {
+	return from.Scheme == "http" && to.Scheme == "https" &&
+		strings.EqualFold(from.Hostname(), to.Hostname()) &&
+		(from.Port() == "" || from.Port() == "80") &&
+		(to.Port() == "" || to.Port() == "443")
+}
+
+// safeHTTPSUpgrade checks every hop before accepting an upgraded challenge.
+func safeHTTPSUpgrade(original, last *http.Request) bool {
+	if !isHTTPSUpgrade(original.URL, last.URL) {
+		return false
+	}
+	if original.Host != "" && !strings.EqualFold(original.Host, original.URL.Host) {
+		return false
+	}
+	for req := last; ; {
+		if crossesRepository(original.URL, req.URL) || req.URL.User != nil {
+			return false
+		}
+		if req.Response == nil {
+			return sameHTTPOrigin(original.URL, req.URL)
+		}
+		previous := req.Response.Request
+		if previous == nil || (!sameHTTPOrigin(previous.URL, req.URL) && !isHTTPSUpgrade(previous.URL, req.URL)) {
+			return false
+		}
+		req = previous
+	}
+}
+
 // canonicalHost returns the lower-cased host of u with the default port for its
 // scheme applied when no explicit port is present.
 func canonicalHost(u *url.URL) string {
@@ -514,6 +546,12 @@ func (c *Client) SetUserAgent(userAgent string) {
 // Do sends the request to the remote server, attempting to resolve
 // authentication if 'Authorization' header is not set.
 //
+// A same-host redirect from the standard HTTP port to the standard HTTPS port
+// can initiate authentication at the HTTPS endpoint. Other origin changes,
+// repository changes, and HTTPS downgrades cannot initiate authentication there.
+// Credentials obtained after an upgrade are not cached, to prevent their reuse
+// on a later HTTP request.
+//
 // On authentication failure due to bad credential,
 //   - Do returns error if it fails to fetch token for bearer auth.
 //   - Do returns the registry response without error for basic auth.
@@ -575,14 +613,28 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		return resp, nil
 	}
-	// If the challenge came from a different origin or repository than
-	// originally requested, do not resolve or send the registry credentials to
-	// that target.
+	// Resolve credentials only for the original origin and repository, or a
+	// same-host HTTPS upgrade. Authorization is still stripped on redirects.
 	// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-vh4v-2xq2-g5cg
+	authReq := originalReq
 	if resp.Request != nil {
 		responseURL := resp.Request.URL
-		if !sameHTTPOrigin(originalReq.URL, responseURL) || crossesRepository(originalReq.URL, responseURL) {
+		if crossesRepository(originalReq.URL, responseURL) {
 			return resp, nil
+		}
+		if !sameHTTPOrigin(originalReq.URL, responseURL) {
+			if !safeHTTPSUpgrade(originalReq, resp.Request) {
+				return resp, nil
+			}
+			// Retry at the HTTPS endpoint without replaying credentials over HTTP.
+			authReq = resp.Request.Clone(ctx)
+			authReq.Header = originalReq.Header.Clone()
+			if authReq.Method == originalReq.Method {
+				authReq.GetBody = originalReq.GetBody
+			}
+			// Cache keys do not distinguish HTTP from HTTPS. Do not cache an
+			// upgraded credential where a later HTTP request could reuse it.
+			cache = noCache{}
 		}
 	}
 
@@ -600,7 +652,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 
-		req = originalReq.Clone(ctx)
+		req = authReq.Clone(ctx)
 		req.Header.Set(headerAuthorization, "Basic "+token)
 	case SchemeBearer:
 		resp.Body.Close()
@@ -619,7 +671,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		// attempt the cache again if there is a scope change
 		if key != attemptedKey {
 			if token, err := cache.GetToken(ctx, cacheKey, SchemeBearer, key); err == nil {
-				req = originalReq.Clone(ctx)
+				req = authReq.Clone(ctx)
 				req.Header.Set(headerAuthorization, "Bearer "+token)
 				if err := rewindRequestBody(req); err != nil {
 					return nil, err
@@ -638,19 +690,19 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 
 		// attempt with credentials
 		realm := params["realm"]
-		if err := validateRealm(ctx, realm, originalReq.URL, c.BlockedRealmPrefixes); err != nil {
+		if err := validateRealm(ctx, realm, authReq.URL, c.BlockedRealmPrefixes); err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 		service := params["service"]
 		token, err := cache.Set(ctx, cacheKey, SchemeBearer, key, func(ctx context.Context) (string, error) {
-			tokenCtx := withTokenBlockedPrefixes(withTokenRegistryURL(ctx, originalReq.URL), c.BlockedRealmPrefixes)
+			tokenCtx := withTokenBlockedPrefixes(withTokenRegistryURL(ctx, authReq.URL), c.BlockedRealmPrefixes)
 			return c.fetchBearerToken(tokenCtx, resource, realm, service, scopes)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, err)
 		}
 
-		req = originalReq.Clone(ctx)
+		req = authReq.Clone(ctx)
 		req.Header.Set(headerAuthorization, "Bearer "+token)
 	default:
 		return resp, nil
