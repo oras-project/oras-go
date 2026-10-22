@@ -119,7 +119,7 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 		if origReg.BlockedRealmPrefixes != nil {
 			prefixes, err := resolveBlockedRealmPrefixes(origReg.BlockedRealmPrefixes)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("registry %q: %w", origReg.Prefix, err)
 			}
 			props.Attributes.BlockedRealmPrefixes = prefixes
 		}

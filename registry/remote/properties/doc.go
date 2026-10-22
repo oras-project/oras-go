@@ -26,7 +26,7 @@ limitations under the License.
 //     an empty non-nil slice blocks no realm addresses.
 //     registries.conf drop-ins replace a whole [[registry]] row by prefix,
 //     so field-level settings are not merged across layers.
-//     Mirror clients do not inherit BlockedRealmPrefixes from the primary.
+//     Mirror clients inherit BlockedRealmPrefixes from the primary, like TokenFlow.
 //
 // Example usage:
 //

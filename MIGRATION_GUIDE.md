@@ -549,7 +549,7 @@ When the key is **absent**, the library default denylist applies. When it is pre
 
 `mergeRegistriesConfig` replaces a whole `[[registry]]` row when a drop-in uses the same `prefix`. A drop-in that only sets `insecure = true` does not merge field-by-field, so a `blocked-realm-prefixes` list from the base file is dropped unless the drop-in sets it again.
 
-Mirrors do **not** inherit `blocked-realm-prefixes`; mirror clients use the library default denylist. `token-flow` and `referrers-api` still apply to mirrors built from the primary's properties.
+Mirror clients inherit `blocked-realm-prefixes` from the primary's properties, like `token-flow` and `referrers-api`.
 
 For current API documentation and examples, see
 [pkg.go.dev](https://pkg.go.dev/github.com/oras-project/oras-go/v3).

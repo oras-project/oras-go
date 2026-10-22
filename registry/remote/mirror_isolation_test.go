@@ -223,9 +223,9 @@ func Test_buildMirrorRepositories_doesNotShareCredential(t *testing.T) {
 	}
 }
 
-// Test_buildMirrorRepositories_doesNotInheritBlockedRealmPrefixes checks that a
-// mirror uses the library default denylist while other attributes still inherit.
-func Test_buildMirrorRepositories_doesNotInheritBlockedRealmPrefixes(t *testing.T) {
+// Test_buildMirrorRepositories_inheritsBlockedRealmPrefixes checks that a
+// mirror inherits the primary's realm denylist along with other attributes.
+func Test_buildMirrorRepositories_inheritsBlockedRealmPrefixes(t *testing.T) {
 	prefixes := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 	props := &properties.Registry{
 		Reference: properties.Reference{Registry: "registry.example.com", Repository: "app"},
@@ -259,8 +259,8 @@ func Test_buildMirrorRepositories_doesNotInheritBlockedRealmPrefixes(t *testing.
 	if !ok {
 		t.Fatalf("mirror client is %T, want *auth.Client", mirrors[0].Registry.Client)
 	}
-	if authClient.BlockedRealmPrefixes != nil {
-		t.Errorf("mirror BlockedRealmPrefixes = %v, want nil (library defaults)", authClient.BlockedRealmPrefixes)
+	if !reflect.DeepEqual(authClient.BlockedRealmPrefixes, prefixes) {
+		t.Errorf("mirror BlockedRealmPrefixes = %v, want %v", authClient.BlockedRealmPrefixes, prefixes)
 	}
 	if authClient.TokenFetcher == nil {
 		t.Error("mirror TokenFetcher = nil, want distribution flow inherited from primary")
