@@ -262,8 +262,11 @@ file.
 
 `auth.Client.ForceAttemptOAuth2` was replaced by `auth.Client.TokenFetcher`.
 With username/password credentials, the v3 default uses the OAuth2 password
-grant. To preserve the v2 default and use the distribution-spec token flow,
-configure a composite fetcher in legacy mode:
+grant. If the token server rejects it with 400, 401, 404 or 405, which
+registries without an OAuth2 token endpoint do, the client retries with the
+distribution-spec token flow and remembers that for the realm. To preserve the
+v2 default and use the distribution-spec token flow from the start, configure a
+composite fetcher in legacy mode:
 
 ```go
 client.TokenFetcher = auth.NewCompositeTokenFetcher(
@@ -274,8 +277,11 @@ client.TokenFetcher = auth.NewCompositeTokenFetcher(
 )
 ```
 
-When using `remote.ClientBuilder`, the same choice can be made through
-`properties.TokenFlowDistribution`. A caller-supplied
+To use OAuth2 only, with no fallback, set `StrictOAuth2` on a composite
+fetcher.
+
+When using `remote.ClientBuilder`, the same choices can be made through
+`properties.TokenFlowDistribution` and `properties.TokenFlowOAuth2`. A caller-supplied
 `ClientBuilder.TokenFetcher` takes precedence over the registry properties.
 
 ### Registry references

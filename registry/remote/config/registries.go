@@ -55,11 +55,14 @@ type Registry struct {
 	MirrorByDigestOnly bool `toml:"mirror-by-digest-only"`
 	// TokenFlow selects how a bearer token is acquired for username/password
 	// credentials when the registry issues a Bearer challenge. Valid values:
-	// "oauth2" (default) and "distribution". Use "distribution" for registries
-	// that implement only the distribution-spec token endpoint and not the
-	// OAuth2 password grant, which is a Docker extension. This is an
-	// ORAS-specific field and may be ignored by other tools that parse
-	// registries.conf.
+	// "oauth2" and "distribution". If unset, the OAuth2 password grant is used
+	// and, when the token endpoint does not support it, the distribution-spec
+	// flow. "oauth2" uses the OAuth2 password grant only, with no fallback.
+	// "distribution" uses the distribution-spec flow only; use it for
+	// registries that implement only the distribution-spec token endpoint and
+	// not the OAuth2 password grant, which is a Docker extension, to skip the
+	// OAuth2 attempt. This is an ORAS-specific field and may be ignored by
+	// other tools that parse registries.conf.
 	TokenFlow string `toml:"token-flow"`
 	// ReferrersAPI indicates whether the registry supports the OCI Referrers
 	// API. Valid values: "supported", "unsupported". An empty or unrecognized

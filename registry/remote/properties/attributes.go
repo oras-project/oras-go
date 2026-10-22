@@ -52,9 +52,12 @@ func (r ReferrersAPI) String() string {
 type TokenFlow int
 
 const (
-	// TokenFlowDefault leaves the choice to the client, which uses OAuth2.
+	// TokenFlowDefault leaves the choice to the client, which uses OAuth2 and
+	// falls back to the distribution-spec flow when the token endpoint does not
+	// support it.
 	TokenFlowDefault TokenFlow = iota
-	// TokenFlowOAuth2 posts an OAuth2 password grant to the token endpoint.
+	// TokenFlowOAuth2 posts an OAuth2 password grant to the token endpoint and
+	// does not fall back to the distribution-spec flow if it is rejected.
 	// Reference: https://distribution.github.io/distribution/spec/auth/oauth/
 	TokenFlowOAuth2
 	// TokenFlowDistribution performs a distribution-spec GET against the token

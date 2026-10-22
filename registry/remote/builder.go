@@ -138,14 +138,21 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 // An explicitly configured ClientBuilder.TokenFetcher wins: it is the caller
 // speaking directly, whereas the registry properties come from a config file.
 // Otherwise a distribution-spec flow requested via registries.conf is honoured
-// by handing the client a composite fetcher in legacy mode. A nil result leaves
-// the client on its own default, which is OAuth2.
+// by handing the client a composite fetcher in legacy mode, and an OAuth2 flow
+// by handing it one that does not fall back to the distribution spec. A nil
+// result leaves the client on its own default, which is OAuth2 with a fallback
+// to the distribution spec.
 func (b *ClientBuilder) tokenFetcher(props *properties.Registry, client *http.Client, header http.Header) auth.TokenFetcher {
 	if b.TokenFetcher != nil {
 		return b.TokenFetcher
 	}
-	if props.Attributes.TokenFlow == properties.TokenFlowDistribution {
+	switch props.Attributes.TokenFlow {
+	case properties.TokenFlowDistribution:
 		return auth.NewCompositeTokenFetcher(client, header, "", true)
+	case properties.TokenFlowOAuth2:
+		fetcher := auth.NewCompositeTokenFetcher(client, header, "", false)
+		fetcher.StrictOAuth2 = true
+		return fetcher
 	}
 	return nil
 }
