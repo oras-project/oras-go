@@ -46,13 +46,16 @@ var DefaultExtendedVerifyGraphOptions ExtendedVerifyGraphOptions = ExtendedVerif
 	VerifyGraphOptions: DefaultVerifyGraphOptions,
 }
 
-// ExtendedVerifyGraphOptions contains parameters for [oras.ExtendedVerifyGraph].
+// ExtendedVerifyGraphOptions contains parameters for [oras.ExtendedVerifyGraph]
+// and [oras.ExtendedVerifyGraphNodes].
 type ExtendedVerifyGraphOptions struct {
 	VerifyGraphOptions
 	// Depth limits the maximum depth of the directed acyclic graph (DAG) that
 	// will be extended-verified.
 	// If Depth is not specified, or the specified value is less than or
 	// equal to 0, the depth limit will be considered as infinity.
+	// When several start nodes are given, the depth is measured from the
+	// nearest start node.
 	Depth int
 	// FindPredecessors finds the predecessors of the current node.
 	// It may be called concurrently, so it must be safe for concurrent use.
@@ -90,9 +93,35 @@ func ExtendedVerify(ctx context.Context, src ReadOnlyGraphTarget, ref string, op
 // In other words, it verifies an artifact along with its referrers or other
 // predecessor manifests referencing it.
 // The node (e.g. a manifest of the artifact) is identified by a descriptor.
+//
+// To extended-verify from several nodes in one call, use
+// [ExtendedVerifyGraphNodes].
 func ExtendedVerifyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts ExtendedVerifyGraphOptions) (*VerifyGraphReport, error) {
+	return extendedVerifyGraph(ctx, "ExtendedVerifyGraph", src, []ocispec.Descriptor{node}, opts)
+}
+
+// ExtendedVerifyGraphNodes verifies the directed acyclic graph (DAG) that are
+// reachable from any of the given nodes from the source GraphStorage. It
+// behaves like [ExtendedVerifyGraph] started from several nodes at once: the
+// nodes share one traversal, one concurrency limit, one metadata cache and
+// one content status tracker, and the results are merged into a single
+// report.
+//
+// Every start node is at depth 0. If opts.Depth is set, the depth of any other
+// node is measured from the nearest start node.
+// Duplicate start nodes are visited once, and a start node that is also a
+// predecessor of another start node is visited once as well.
+//
+// It returns an error if nodes is empty.
+func ExtendedVerifyGraphNodes(ctx context.Context, src content.ReadOnlyGraphStorage, nodes []ocispec.Descriptor, opts ExtendedVerifyGraphOptions) (*VerifyGraphReport, error) {
+	return extendedVerifyGraph(ctx, "ExtendedVerifyGraphNodes", src, nodes, opts)
+}
+
+// extendedVerifyGraph implements [ExtendedVerifyGraph] and
+// [ExtendedVerifyGraphNodes]. op names the public function in errors.
+func extendedVerifyGraph(ctx context.Context, op string, src content.ReadOnlyGraphStorage, nodes []ocispec.Descriptor, opts ExtendedVerifyGraphOptions) (*VerifyGraphReport, error) {
 	if src == nil {
-		return nil, newCopyError("ExtendedVerifyGraph", CopyErrorOriginSource, ocispec.Descriptor{}, errors.New("nil source target"))
+		return nil, newCopyError(op, CopyErrorOriginSource, ocispec.Descriptor{}, errors.New("nil source target"))
 	}
 
 	// if Concurrency is not set or invalid, use the default concurrency
@@ -101,7 +130,7 @@ func ExtendedVerifyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, 
 	}
 	limiter := semaphore.NewWeighted(int64(opts.Concurrency))
 
-	roots, err := findRoots(ctx, src, node, findRootsOptions{
+	roots, err := findRoots(ctx, src, nodes, findRootsOptions{
 		Depth:            opts.Depth,
 		FindPredecessors: opts.FindPredecessors,
 	}, limiter)
