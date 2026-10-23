@@ -24,3 +24,4 @@ release:
   # Tags containing -alpha, -beta, or -rc are automatically marked pre-release.
   prerelease: auto
   draft: false
+  target_commitish: "{{ .Commit }}"
