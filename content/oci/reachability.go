@@ -127,7 +127,7 @@ func walkIndexReferences(ctx context.Context, storage content.Fetcher, index *oc
 			continue
 		}
 
-		successors, err := verifiySuccessors(ctx, storage, desc)
+		successors, err := verifiySuccessors(ctx, storage, desc, present)
 		if err != nil {
 			if errors.Is(err, context.Canceled) ||
 				errors.Is(err, context.DeadlineExceeded) {
@@ -162,8 +162,8 @@ func reportUnlistedDirectories(unlisted map[string]error, acc *verifyAccumulator
 }
 
 // verifiySuccessors returns a manifest's outgoing references, excluding its
-// subject when that subject appears first in the successor list.
-func verifiySuccessors(ctx context.Context, storage content.Fetcher, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+// subject when that subject is absent from the layout.
+func verifiySuccessors(ctx context.Context, storage content.Fetcher, desc ocispec.Descriptor, present map[string]struct{}) ([]ocispec.Descriptor, error) {
 	successors, err := content.Successors(ctx, storage, desc)
 	if err != nil {
 		return nil, err
@@ -177,7 +177,10 @@ func verifiySuccessors(ctx context.Context, storage content.Fetcher, desc ocispe
 	if subject != nil &&
 		len(successors) > 0 &&
 		successors[0].Digest == subject.Digest {
-		successors = successors[1:]
+		p, _, _ := blobPathOf(subject.Digest)
+		if _, exists := present[p]; !exists {
+			successors = successors[1:]
+		}
 	}
 
 	return successors, nil
