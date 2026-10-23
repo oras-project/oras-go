@@ -1050,6 +1050,74 @@ func TestStore_Dir_Add(t *testing.T) {
 		t.Errorf("Store.Fetch() = %v, want %v", got, gotgz)
 	}
 }
+
+func TestStore_Dir_Add_SymlinkedDir(t *testing.T) {
+	tempDir := t.TempDir()
+	targetPath := filepath.Join(tempDir, "target")
+	if err := os.MkdirAll(targetPath, 0777); err != nil {
+		t.Fatal("error calling Mkdir(), error =", err)
+	}
+
+	content := []byte("hello world")
+	fileName := "test.txt"
+	if err := os.WriteFile(filepath.Join(targetPath, fileName), content, 0444); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	// the directory is added through a relative symlink to it
+	linkName := "testdir"
+	linkPath := filepath.Join(tempDir, linkName)
+	if err := os.Symlink("target", linkPath); err != nil {
+		t.Skip("symlinks not available:", err)
+	}
+
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	desc, err := s.Add(ctx, linkName, "", linkPath)
+	if err != nil {
+		t.Fatal("Store.Add() error =", err)
+	}
+	rc, err := s.Fetch(ctx, desc)
+	if err != nil {
+		t.Fatal("Store.Fetch() error =", err)
+	}
+	defer rc.Close()
+
+	// test push with another file store instance
+	anotherTempDir := t.TempDir()
+	anotherS, err := New(anotherTempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer anotherS.Close()
+	if err := anotherS.Push(ctx, desc, rc); err != nil {
+		t.Fatal("Store.Push() error =", err)
+	}
+
+	// test file content
+	got, err := os.ReadFile(filepath.Join(anotherTempDir, linkName, fileName))
+	if err != nil {
+		t.Fatal("failed to read the pushed file, error =", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("pushed file content = %v, want %v", got, content)
+	}
+
+	// test a symlink to a missing directory
+	danglingPath := filepath.Join(tempDir, "dangling")
+	if err := os.Symlink("missing", danglingPath); err != nil {
+		t.Fatal("error calling Symlink(), error =", err)
+	}
+	if _, err := s.descriptorFromDir(ctx, "dangling", "", danglingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Store.descriptorFromDir() error = %v, want %v", err, os.ErrNotExist)
+	}
+}
+
 func TestStore_File_SameContent_DuplicateName(t *testing.T) {
 	content := []byte("hello world")
 	name := "test.txt"
