@@ -698,6 +698,12 @@ func (s *Store) tarModTime() *time.Time {
 
 // descriptorFromDir generates descriptor from the given directory.
 func (s *Store) descriptorFromDir(ctx context.Context, name, mediaType, dir string) (desc ocispec.Descriptor, err error) {
+	// the walk does not descend into a root that is a symlink
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
 	// make a temp file to store the gzip
 	gz, err := s.tempFile()
 	if err != nil {
