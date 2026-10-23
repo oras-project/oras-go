@@ -318,6 +318,10 @@ func TestExtendedCopyGraphNodes_EmptyNodes(t *testing.T) {
 			if err == nil {
 				t.Fatal("ExtendedCopyGraphNodes() error = nil, want an error")
 			}
+			var copyError *oras.CopyError
+			if !errors.As(err, &copyError) {
+				t.Fatalf("ExtendedCopyGraphNodes() error = %T, want *oras.CopyError", err)
+			}
 		})
 	}
 }

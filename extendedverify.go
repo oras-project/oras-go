@@ -130,7 +130,7 @@ func extendedVerifyGraph(ctx context.Context, op string, src content.ReadOnlyGra
 	}
 	limiter := semaphore.NewWeighted(int64(opts.Concurrency))
 
-	roots, err := findRoots(ctx, src, nodes, findRootsOptions{
+	roots, err := findRoots(ctx, op, src, nodes, findRootsOptions{
 		Depth:            opts.Depth,
 		FindPredecessors: opts.FindPredecessors,
 	}, limiter)

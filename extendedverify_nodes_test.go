@@ -161,6 +161,10 @@ func TestExtendedVerifyGraphNodes_EmptyNodes(t *testing.T) {
 			if err == nil {
 				t.Fatal("ExtendedVerifyGraphNodes() error = nil, want an error")
 			}
+			var copyError *oras.CopyError
+			if !errors.As(err, &copyError) {
+				t.Fatalf("ExtendedVerifyGraphNodes() error = %T, want *oras.CopyError", err)
+			}
 			if report != nil {
 				t.Errorf("ExtendedVerifyGraphNodes() report = %v, want nil", report)
 			}

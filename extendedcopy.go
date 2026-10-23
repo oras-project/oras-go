@@ -162,7 +162,7 @@ func extendedCopyGraph(ctx context.Context, op string, src content.ReadOnlyGraph
 	}
 	limiter := semaphore.NewWeighted(int64(opts.Concurrency))
 
-	roots, err := findRoots(ctx, src, nodes, findRootsOptions{
+	roots, err := findRoots(ctx, op, src, nodes, findRootsOptions{
 		Depth:            opts.Depth,
 		FindPredecessors: opts.FindPredecessors,
 	}, limiter)
@@ -198,9 +198,10 @@ func extendedCopyGraph(ctx context.Context, op string, src content.ReadOnlyGraph
 // All start nodes are at depth 0, duplicates are collapsed, and a start node
 // that is reachable from another start node is still visited only once.
 // It returns an error if nodes is empty.
-func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, nodes []ocispec.Descriptor, opts findRootsOptions, limiter *semaphore.Weighted) ([]ocispec.Descriptor, error) {
+func findRoots(ctx context.Context, op string, storage content.ReadOnlyGraphStorage, nodes []ocispec.Descriptor, opts findRootsOptions, limiter *semaphore.Weighted) ([]ocispec.Descriptor, error) {
 	if len(nodes) == 0 {
-		return nil, errors.New("at least one start node is required")
+		return nil, newCopyError(op, CopyErrorOriginSource, ocispec.Descriptor{}, errors.New("at least one start node is required"))
+
 	}
 
 	visited := set.New[descriptor.Descriptor]()
