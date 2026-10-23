@@ -1107,6 +1107,15 @@ func TestStore_Dir_Add_SymlinkedDir(t *testing.T) {
 	if !bytes.Equal(got, content) {
 		t.Errorf("pushed file content = %v, want %v", got, content)
 	}
+
+	// test a symlink to a missing directory
+	danglingPath := filepath.Join(tempDir, "dangling")
+	if err := os.Symlink("missing", danglingPath); err != nil {
+		t.Fatal("error calling Symlink(), error =", err)
+	}
+	if _, err := s.descriptorFromDir(ctx, "dangling", "", danglingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Store.descriptorFromDir() error = %v, want %v", err, os.ErrNotExist)
+	}
 }
 
 func TestStore_File_SameContent_DuplicateName(t *testing.T) {
