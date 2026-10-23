@@ -261,6 +261,62 @@ func TestVerify_Reachability_AbsentSubjectIsNotMissing(t *testing.T) {
 	wantPaths(t, "Unreferenced", report.Unreferenced)
 }
 
+func TestVerify_Reachability_PresentSubjectMissingLayer(t *testing.T) {
+	b := newLayoutBuilder(t)
+	subject, _, layer := b.image("subject", nil)
+	b.remove(layer)
+	r, _, _ := b.image("referrer", &subject)
+	b.tag(r, "referrer")
+
+	report := b.verify()
+	wantPaths(t, "Missing", report.Missing, layer)
+	got := mustContainPath(t, report.Missing, filePathOf(layer))
+	if want := "referenced by " + filePathOf(subject) + ": not found"; got.Reason.Error() != want {
+		t.Errorf("Missing reason = %v, want %s", got.Reason, want)
+	}
+	if !errors.Is(got.Reason, errdef.ErrNotFound) {
+		t.Errorf("Missing reason = %v, want %v", got.Reason, errdef.ErrNotFound)
+	}
+	wantPaths(t, "Failed", report.Failed)
+	wantPaths(t, "Unreferenced", report.Unreferenced)
+	wantPaths(t, "Unverifiable", report.Unverifiable)
+}
+
+func TestVerify_Reachability_PresentIndexSubjectMissingManifest(t *testing.T) {
+	b := newLayoutBuilder(t)
+	child, config, layer := b.image("child", nil)
+	data, err := json.Marshal(ocispec.Index{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: []ocispec.Descriptor{child},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject := b.blob(ocispec.MediaTypeImageIndex, data)
+	b.remove(child)
+	data, err = json.Marshal(ocispec.Index{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispec.MediaTypeImageIndex,
+		Subject:   &subject,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := b.blob(ocispec.MediaTypeImageIndex, data)
+	b.tag(r, "referrer")
+
+	report := b.verify()
+	wantPaths(t, "Missing", report.Missing, child)
+	got := mustContainPath(t, report.Missing, filePathOf(child))
+	if want := "referenced by " + filePathOf(subject) + ": not found"; got.Reason.Error() != want {
+		t.Errorf("Missing reason = %v, want %s", got.Reason, want)
+	}
+	wantPaths(t, "Failed", report.Failed)
+	wantPaths(t, "Unreferenced", report.Unreferenced, config, layer)
+	wantPaths(t, "Unverifiable", report.Unverifiable)
+}
+
 func TestVerify_Reachability_CorruptReferencedBlob(t *testing.T) {
 	b := newLayoutBuilder(t)
 	m, _, layer := b.image("a", nil)
