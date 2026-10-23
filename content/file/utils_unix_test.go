@@ -19,10 +19,12 @@ package file
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -299,5 +301,48 @@ func Test_extractTarDirectory_ReadOnlyDirectorySymlink(t *testing.T) {
 				t.Errorf("mode of directory outside the extraction root changed to %v, want %v", got, os.FileMode(0700))
 			}
 		})
+	}
+}
+
+func Test_restoreDirModes(t *testing.T) {
+	tempDir := t.TempDir()
+	dirPath := filepath.Join(tempDir, "base")
+	outsideDir := filepath.Join(tempDir, "outside")
+	for _, dir := range []string{filepath.Join(dirPath, "sub"), filepath.Join(outsideDir, "sub")} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(dirPath, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirPath, "file"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr error
+	}{
+		{name: "missing path", path: "base/missing"},
+		{name: "parent is a symlink", path: "base/link/sub", wantErr: ErrPathTraversalDisallowed},
+		{name: "parent is a file", path: "base/file/sub", wantErr: syscall.ENOTDIR},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := restoreDirModes(dirPath, []dirMode{{path: filepath.Join(tempDir, tt.path), mode: 0500}})
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("restoreDirModes() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+
+	fi, err := os.Stat(filepath.Join(outsideDir, "sub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fi.Mode().Perm(); got != 0700 {
+		t.Errorf("mode of directory outside the extraction root changed to %v, want %v", got, os.FileMode(0700))
 	}
 }
