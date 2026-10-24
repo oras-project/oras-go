@@ -20,6 +20,9 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -352,7 +355,7 @@ func TestNewSignedByVerifierFromConfig(t *testing.T) {
 		},
 	}
 
-	verifier := NewSignedByVerifierFromConfig(cfg, "registry.example.com/repo")
+	verifier := NewSignedByVerifierFromConfig(cfg)
 	if verifier == nil {
 		t.Fatal("NewSignedByVerifierFromConfig() returned nil")
 	}
@@ -366,8 +369,207 @@ func TestNewSignedByVerifierFromConfig_NoMatch(t *testing.T) {
 		Docker: map[string]config.RegistriesDDockerConfig{},
 	}
 
-	if verifier := NewSignedByVerifierFromConfig(cfg, "unknown.example.com"); verifier != nil {
-		t.Fatal("NewSignedByVerifierFromConfig() should return nil for no match")
+	verifier := NewSignedByVerifierFromConfig(cfg)
+	if verifier == nil {
+		t.Fatal("NewSignedByVerifierFromConfig() should never return nil")
+	}
+
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
+	keyFile := filepath.Join(t.TempDir(), "test.gpg")
+	if _, err := createKeyFile(t, entity, keyFile); err != nil {
+		t.Fatalf("createKeyFile() error: %v", err)
+	}
+
+	req := &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: keyFile,
+	}
+	image := policy.ImageReference{
+		Transport: "docker",
+		Scope:     "unknown.example.com/repo",
+		Reference: "unknown.example.com/repo@" + digest.FromString("test").String(),
+	}
+
+	allowed, err := verifier.Verify(context.Background(), req, image)
+	if allowed {
+		t.Error("Verify() = true, want false")
+	}
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("Verify() error = %v, want wrapping errdef.ErrUnsupported", err)
+	}
+}
+
+func TestNewSignedByVerifierFromConfig_Nil(t *testing.T) {
+	verifier := NewSignedByVerifierFromConfig(nil)
+	if verifier == nil {
+		t.Fatal("NewSignedByVerifierFromConfig(nil) should never return nil")
+	}
+
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
+	keyFile := filepath.Join(t.TempDir(), "test.gpg")
+	if _, err := createKeyFile(t, entity, keyFile); err != nil {
+		t.Fatalf("createKeyFile() error: %v", err)
+	}
+
+	req := &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: keyFile,
+	}
+	image := policy.ImageReference{
+		Transport: "docker",
+		Scope:     "any.example.com/repo",
+		Reference: "any.example.com/repo@" + digest.FromString("test").String(),
+	}
+
+	allowed, err := verifier.Verify(context.Background(), req, image)
+	if allowed {
+		t.Error("Verify() = true, want false")
+	}
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("Verify() error = %v, want wrapping errdef.ErrUnsupported", err)
+	}
+}
+
+func TestSignedByVerifierFromConfig_MultiScope(t *testing.T) {
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
+
+	keyFile := filepath.Join(t.TempDir(), "test.gpg")
+	if _, err := createKeyFile(t, entity, keyFile); err != nil {
+		t.Fatalf("createKeyFile() error: %v", err)
+	}
+
+	scope1 := "registry1.example.com/repo"
+	dgst1 := digest.FromString("scope1 content")
+	ref1 := scope1 + ":v1@" + dgst1.String()
+	payload1 := NewSimpleSigningPayload(dgst1, scope1+":v1")
+	payload1Bytes, _ := payload1.Marshal()
+	sig1, _ := CreateOpenPGPSignature(payload1Bytes, entity)
+
+	scope2 := "registry2.example.com/repo"
+	dgst2 := digest.FromString("scope2 content")
+	ref2 := scope2 + ":v2@" + dgst2.String()
+	payload2 := NewSimpleSigningPayload(dgst2, scope2+":v2")
+	payload2Bytes, _ := payload2.Marshal()
+	sig2, _ := CreateOpenPGPSignature(payload2Bytes, entity)
+
+	scopeDefault := "fallback.example.com/repo"
+	dgstDefault := digest.FromString("default content")
+	refDefault := scopeDefault + ":v3@" + dgstDefault.String()
+	payloadDefault := NewSimpleSigningPayload(dgstDefault, scopeDefault+":v3")
+	payloadDefaultBytes, _ := payloadDefault.Marshal()
+	sigDefault, _ := CreateOpenPGPSignature(payloadDefaultBytes, entity)
+
+	sigPath1 := fmt.Sprintf("/scope1/%s@%s=%s/signature-1", scope1, dgst1.Algorithm(), dgst1.Hex())
+	sigPath2 := fmt.Sprintf("/scope2/%s@%s=%s/signature-1", scope2, dgst2.Algorithm(), dgst2.Hex())
+	sigPathDefault := fmt.Sprintf("/default/%s@%s=%s/signature-1", scopeDefault, dgstDefault.Algorithm(), dgstDefault.Hex())
+
+	sigs := map[string][]byte{
+		sigPath1:       sig1,
+		sigPath2:       sig2,
+		sigPathDefault: sigDefault,
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if data, ok := sigs[r.URL.Path]; ok {
+			w.Write(data)
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := &config.RegistriesDConfig{
+		Docker: map[string]config.RegistriesDDockerConfig{
+			"registry1.example.com": {
+				Lookaside: ts.URL + "/scope1",
+			},
+			"registry2.example.com": {
+				Lookaside: ts.URL + "/scope2",
+			},
+		},
+		DefaultDocker: &config.RegistriesDDockerConfig{
+			Lookaside: ts.URL + "/default",
+		},
+	}
+
+	verifier := NewSignedByVerifierFromConfig(cfg)
+	req := &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: keyFile,
+	}
+
+	ctx := context.Background()
+
+	// Scope 1 verifies against its own lookaside URL
+	allowed, err := verifier.Verify(ctx, req, policy.ImageReference{
+		Transport: "docker",
+		Scope:     scope1,
+		Reference: ref1,
+		Digest:    dgst1,
+	})
+	if err != nil {
+		t.Fatalf("Verify() scope 1 error: %v", err)
+	}
+	if !allowed {
+		t.Error("Verify() scope 1 = false, want true")
+	}
+
+	// Scope 2 verifies against its own lookaside URL
+	allowed, err = verifier.Verify(ctx, req, policy.ImageReference{
+		Transport: "docker",
+		Scope:     scope2,
+		Reference: ref2,
+		Digest:    dgst2,
+	})
+	if err != nil {
+		t.Fatalf("Verify() scope 2 error: %v", err)
+	}
+	if !allowed {
+		t.Error("Verify() scope 2 = false, want true")
+	}
+
+	// Scope not in Docker map falls back to default-docker
+	allowed, err = verifier.Verify(ctx, req, policy.ImageReference{
+		Transport: "docker",
+		Scope:     scopeDefault,
+		Reference: refDefault,
+		Digest:    dgstDefault,
+	})
+	if err != nil {
+		t.Fatalf("Verify() default-docker error: %v", err)
+	}
+	if !allowed {
+		t.Error("Verify() default-docker = false, want true")
+	}
+
+	// When default-docker is not set, unconfigured scope returns errdef.ErrUnsupported
+	cfgNoDefault := &config.RegistriesDConfig{
+		Docker: map[string]config.RegistriesDDockerConfig{
+			"registry1.example.com": {
+				Lookaside: ts.URL + "/scope1",
+			},
+		},
+	}
+	verifierNoDefault := NewSignedByVerifierFromConfig(cfgNoDefault)
+	allowed, err = verifierNoDefault.Verify(ctx, req, policy.ImageReference{
+		Transport: "docker",
+		Scope:     "unconfigured.example.com/repo",
+		Reference: "unconfigured.example.com/repo@" + digest.FromString("unconfigured").String(),
+	})
+	if allowed {
+		t.Error("Verify() unconfigured scope = true, want false")
+	}
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("Verify() unconfigured scope error = %v, want wrapping errdef.ErrUnsupported", err)
 	}
 }
 
@@ -389,9 +591,14 @@ func TestDefaultSignedByVerifier_Verify_KeyRingError(t *testing.T) {
 }
 
 func TestDefaultSignedByVerifier_Verify_StoreError(t *testing.T) {
-	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
 	keyFile := filepath.Join(t.TempDir(), "test.gpg")
-	createKeyFile(t, entity, keyFile)
+	if _, err := createKeyFile(t, entity, keyFile); err != nil {
+		t.Fatalf("createKeyFile() error: %v", err)
+	}
 
 	verifier := NewSignedByVerifier(&errSignatureStore{err: errors.New("store unavailable")})
 	req := &policy.PRSignedBy{
@@ -761,8 +968,8 @@ func TestTypedNilVerifierRepro(t *testing.T) {
 		t.Fatalf("LoadPolicy() error: %v", err)
 	}
 
-	// registries.d with no lookaside for this scope -> typed nil
-	v := NewSignedByVerifierFromConfig(&config.RegistriesDConfig{}, "registry.example.com/repo")
+	// registries.d with no lookaside for this scope -> verifier fails closed
+	v := NewSignedByVerifierFromConfig(&config.RegistriesDConfig{})
 	eval, err := policy.NewEvaluator(p, policy.WithSignedByVerifier(v))
 	if err != nil {
 		t.Fatalf("NewEvaluator() error: %v", err)

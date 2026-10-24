@@ -18,6 +18,7 @@ package signature
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,7 @@ import (
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/config"
 )
 
@@ -262,24 +264,107 @@ func TestLookasideStore_HTTPBackend_ServerError(t *testing.T) {
 }
 
 func TestNewLookasideStoreFromConfig(t *testing.T) {
+	dgst := digest.FromString("test")
+	sigSuffix := "@" + dgst.Algorithm().String() + "=" + dgst.Hex() + "/signature-1"
+
+	// Only the read bases hold a signature, each with distinct content, so a
+	// GET resolved against the wrong scope returns the wrong bytes or a 404.
+	readSigs := map[string]string{
+		"/sigs1/registry.example.com/repo" + sigSuffix:       "sig-scope1",
+		"/sigs2/other.example.com/repo" + sigSuffix:          "sig-scope2",
+		"/default/unconfigured.example.com/repo" + sigSuffix: "sig-default",
+	}
+	var mu sync.Mutex
+	var puts []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if data, ok := readSigs[r.URL.Path]; ok {
+				w.Write([]byte(data))
+			} else {
+				w.WriteHeader(http.StatusNotFound)
+			}
+		case http.MethodPut:
+			mu.Lock()
+			puts = append(puts, r.URL.Path)
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer ts.Close()
+
 	cfg := &config.RegistriesDConfig{
 		Docker: map[string]config.RegistriesDDockerConfig{
 			"registry.example.com": {
-				Lookaside:        "https://sigstore.example.com/sigs",
-				LookasideStaging: "https://sigstore-staging.example.com/sigs",
+				Lookaside:        ts.URL + "/sigs1",
+				LookasideStaging: ts.URL + "/sigs1-staging",
 			},
+			"other.example.com": {
+				Lookaside:        ts.URL + "/sigs2",
+				LookasideStaging: ts.URL + "/sigs2-staging",
+			},
+		},
+		DefaultDocker: &config.RegistriesDDockerConfig{
+			Lookaside:        ts.URL + "/default",
+			LookasideStaging: ts.URL + "/default-staging",
 		},
 	}
 
-	store := NewLookasideStoreFromConfig(cfg, "registry.example.com/repo")
+	store := NewLookasideStoreFromConfig(cfg)
 	if store == nil {
 		t.Fatal("NewLookasideStoreFromConfig() returned nil")
 	}
-	if store.readURL != "https://sigstore.example.com/sigs" {
-		t.Errorf("readURL = %v, want https://sigstore.example.com/sigs", store.readURL)
+
+	ctx := context.Background()
+	tests := []struct {
+		name      string
+		ref       string
+		wantSig   string
+		wantWrite string
+	}{
+		{
+			name:      "scope 1",
+			ref:       "registry.example.com/repo",
+			wantSig:   "sig-scope1",
+			wantWrite: "/sigs1-staging/registry.example.com/repo" + sigSuffix,
+		},
+		{
+			name:      "scope 2",
+			ref:       "other.example.com/repo",
+			wantSig:   "sig-scope2",
+			wantWrite: "/sigs2-staging/other.example.com/repo" + sigSuffix,
+		},
+		{
+			name:      "default-docker fallback",
+			ref:       "unconfigured.example.com/repo",
+			wantSig:   "sig-default",
+			wantWrite: "/default-staging/unconfigured.example.com/repo" + sigSuffix,
+		},
 	}
-	if store.writeURL != "https://sigstore-staging.example.com/sigs" {
-		t.Errorf("writeURL = %v, want https://sigstore-staging.example.com/sigs", store.writeURL)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sigs, err := store.GetSignatures(ctx, tt.ref, dgst)
+			if err != nil {
+				t.Fatalf("GetSignatures() error: %v", err)
+			}
+			if len(sigs) != 1 || string(sigs[0]) != tt.wantSig {
+				t.Fatalf("GetSignatures() = %q, want [%q]", sigs, tt.wantSig)
+			}
+
+			mu.Lock()
+			puts = nil
+			mu.Unlock()
+			if err := store.PutSignature(ctx, tt.ref, dgst, []byte("sig")); err != nil {
+				t.Fatalf("PutSignature() error: %v", err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(puts) != 1 || puts[0] != tt.wantWrite {
+				t.Errorf("PutSignature() wrote to %q, want [%q]", puts, tt.wantWrite)
+			}
+		})
 	}
 }
 
@@ -288,9 +373,50 @@ func TestNewLookasideStoreFromConfig_NoMatch(t *testing.T) {
 		Docker: map[string]config.RegistriesDDockerConfig{},
 	}
 
-	store := NewLookasideStoreFromConfig(cfg, "unknown.example.com")
-	if store != nil {
-		t.Fatal("NewLookasideStoreFromConfig() should return nil for no match")
+	store := NewLookasideStoreFromConfig(cfg)
+	if store == nil {
+		t.Fatal("NewLookasideStoreFromConfig() should never return nil")
+	}
+
+	ctx := context.Background()
+	dgst := digest.FromString("test")
+
+	// GetSignatures on unconfigured scope fails with errdef.ErrUnsupported
+	_, err := store.GetSignatures(ctx, "unknown.example.com", dgst)
+	if err == nil {
+		t.Fatal("GetSignatures() should return error for unconfigured scope")
+	}
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("GetSignatures() error = %v, want wrapping errdef.ErrUnsupported", err)
+	}
+
+	// PutSignature on unconfigured scope fails with errdef.ErrUnsupported
+	err = store.PutSignature(ctx, "unknown.example.com", dgst, []byte("sig"))
+	if err == nil {
+		t.Fatal("PutSignature() should return error for unconfigured scope")
+	}
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("PutSignature() error = %v, want wrapping errdef.ErrUnsupported", err)
+	}
+}
+
+func TestNewLookasideStoreFromConfig_NilConfig(t *testing.T) {
+	store := NewLookasideStoreFromConfig(nil)
+	if store == nil {
+		t.Fatal("NewLookasideStoreFromConfig(nil) should never return nil")
+	}
+
+	ctx := context.Background()
+	dgst := digest.FromString("test")
+
+	_, err := store.GetSignatures(ctx, "any.example.com/repo", dgst)
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("GetSignatures() error = %v, want wrapping errdef.ErrUnsupported", err)
+	}
+
+	err = store.PutSignature(ctx, "any.example.com/repo", dgst, []byte("sig"))
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("PutSignature() error = %v, want wrapping errdef.ErrUnsupported", err)
 	}
 }
 

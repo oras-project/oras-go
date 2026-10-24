@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/signature"
@@ -150,13 +151,10 @@ func TestConfig_FullSignaturePipelineFromConfig(t *testing.T) {
 		t.Fatal("expected RegistriesDConfig to be loaded, got nil")
 	}
 
-	// Create verifier from registries.d config using the full scope.
+	// Create verifier from registries.d config.
 	// The YAML key is registryHost ("localhost:5000"); fullScope starts with that
-	// prefix so longest-prefix matching finds the configured lookaside URL.
-	verifier := signature.NewSignedByVerifierFromConfig(cfgs.RegistriesDConfig, fullScope)
-	if verifier == nil {
-		t.Fatal("NewSignedByVerifierFromConfig returned nil; expected a verifier for the configured scope")
-	}
+	// prefix so longest-prefix matching finds the configured lookaside URL dynamically.
+	verifier := signature.NewSignedByVerifierFromConfig(cfgs.RegistriesDConfig)
 
 	// Create evaluator from policy config with the verifier.
 	evaluator, err := cfgs.PolicyEvaluator(policy.WithSignedByVerifier(verifier))
@@ -181,7 +179,7 @@ func TestConfig_FullSignaturePipelineFromConfig(t *testing.T) {
 		t.Fatal("expected signed image to be allowed, but it was rejected")
 	}
 
-	// Assert image with a different scope (no stored signature) is rejected.
+	// Assert image with an unconfigured scope fails closed with an error.
 	differentScope := "example.com/nonexistent/repo"
 	differentRef := differentScope + "@" + desc.Digest.String()
 	allowed, err = evaluator.IsImageAllowed(ctx, policy.ImageReference{
@@ -189,10 +187,24 @@ func TestConfig_FullSignaturePipelineFromConfig(t *testing.T) {
 		Scope:     differentScope,
 		Reference: differentRef,
 	})
-	if err != nil {
-		t.Fatalf("IsImageAllowed (different scope) returned error: %v", err)
+	if err == nil {
+		t.Fatal("expected IsImageAllowed for unconfigured scope to fail closed with an error, got nil")
 	}
 	if allowed {
-		t.Fatal("expected image with no stored signature (different scope) to be rejected, but it was allowed")
+		t.Fatal("expected unconfigured scope to not be allowed")
+	}
+
+	// Assert unsigned image within the configured scope is rejected without error.
+	unsignedRef := fullScope + "@" + digest.FromString("unsigned-content").String()
+	allowed, err = evaluator.IsImageAllowed(ctx, policy.ImageReference{
+		Transport: policy.TransportNameDocker,
+		Scope:     fullScope,
+		Reference: unsignedRef,
+	})
+	if err != nil {
+		t.Fatalf("IsImageAllowed (unsigned image in configured scope) returned error: %v", err)
+	}
+	if allowed {
+		t.Fatal("expected unsigned image in configured scope to be rejected, but it was allowed")
 	}
 }

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/config"
 )
 
@@ -42,6 +43,7 @@ import (
 //   - file:// — filesystem read/write
 //   - http(s):// — HTTP GET (read), PUT (write)
 type LookasideStore struct {
+	cfg      *config.RegistriesDConfig
 	readURL  string
 	writeURL string
 	client   *http.Client
@@ -78,14 +80,22 @@ func NewLookasideStore(readURL, writeURL string) *LookasideStore {
 }
 
 // NewLookasideStoreFromConfig creates a LookasideStore from registries.d
-// configuration for the given image scope.
-// Returns nil if no lookaside URL is configured for the scope.
-func NewLookasideStoreFromConfig(cfg *config.RegistriesDConfig, scope string) *LookasideStore {
-	readURL, writeURL := cfg.GetLookasideURLs(scope)
-	if readURL == "" {
-		return nil
+// configuration. Lookaside storage is resolved dynamically per image scope
+// on each operation, so one store is safe to share across scopes.
+//
+// Operations fail closed with an error wrapping errdef.ErrUnsupported for
+// unconfigured scopes (those with no matching scope entry and no default-docker).
+// Signatures are looked up by the primary repository scope.
+//
+// NewLookasideStoreFromConfig never returns nil.
+func NewLookasideStoreFromConfig(cfg *config.RegistriesDConfig) *LookasideStore {
+	if cfg == nil {
+		cfg = &config.RegistriesDConfig{}
 	}
-	return NewLookasideStore(readURL, writeURL)
+	return &LookasideStore{
+		cfg:    cfg,
+		client: &http.Client{Timeout: lookasideTimeout},
+	}
 }
 
 // SetHTTPClient sets a custom HTTP client for HTTP(S) lookaside operations.
@@ -99,11 +109,24 @@ func (s *LookasideStore) SetHTTPClient(client *http.Client) {
 // GetSignatures returns all signatures for the given image reference and digest.
 // It enumerates signatures by incrementing the index until no more are found.
 func (s *LookasideStore) GetSignatures(ctx context.Context, ref string, dgst digest.Digest) ([][]byte, error) {
-	if s == nil || s.readURL == "" {
+	if s == nil {
 		return nil, nil
 	}
 
-	basePath := signaturePath(s.readURL, ref, dgst)
+	readURL := s.readURL
+	if s.cfg != nil {
+		read, _ := s.cfg.GetLookasideURLs(ref)
+		if read == "" {
+			return nil, fmt.Errorf("no lookaside URL configured for scope %q: %w", ref, errdef.ErrUnsupported)
+		}
+		readURL = strings.TrimRight(read, "/")
+	}
+
+	if readURL == "" {
+		return nil, nil
+	}
+
+	basePath := signaturePath(readURL, ref, dgst)
 	var signatures [][]byte
 
 	for i := 1; i <= maxSignatures; i++ {
@@ -131,11 +154,24 @@ func (s *LookasideStore) GetSignatures(ctx context.Context, ref string, dgst dig
 // PutSignature stores a signature for the given image reference and digest.
 // It finds the next available index and writes the signature there.
 func (s *LookasideStore) PutSignature(ctx context.Context, ref string, dgst digest.Digest, sig []byte) error {
-	if s == nil || s.writeURL == "" {
+	if s == nil {
 		return fmt.Errorf("no write URL configured for lookaside store")
 	}
 
-	basePath := signaturePath(s.writeURL, ref, dgst)
+	writeURL := s.writeURL
+	if s.cfg != nil {
+		_, write := s.cfg.GetLookasideURLs(ref)
+		if write == "" {
+			return fmt.Errorf("no lookaside URL configured for scope %q: %w", ref, errdef.ErrUnsupported)
+		}
+		writeURL = strings.TrimRight(write, "/")
+	}
+
+	if writeURL == "" {
+		return fmt.Errorf("no write URL configured for lookaside store")
+	}
+
+	basePath := signaturePath(writeURL, ref, dgst)
 
 	// Find the next available index.
 	index := 1
@@ -168,37 +204,46 @@ func signaturePath(baseURL, ref string, dgst digest.Digest) string {
 	return fmt.Sprintf("%s/%s@%s=%s", baseURL, ref, dgst.Algorithm(), dgst.Hex())
 }
 
-// fetch retrieves content from the given URL.
-func (s *LookasideStore) fetch(ctx context.Context, rawURL string) ([]byte, error) {
+// parseURL parses a lookaside URL into its scheme and filesystem or HTTP path.
+func parseURL(rawURL string) (scheme, path string, err error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid URL %s: %w", rawURL, err)
+		return "", "", fmt.Errorf("invalid URL %s: %w", rawURL, err)
+	}
+	return parsed.Scheme, parsed.Path, nil
+}
+
+// fetch retrieves content from the given URL.
+func (s *LookasideStore) fetch(ctx context.Context, rawURL string) ([]byte, error) {
+	scheme, path, err := parseURL(rawURL)
+	if err != nil {
+		return nil, err
 	}
 
-	switch parsed.Scheme {
+	switch scheme {
 	case "file", "":
-		return s.fetchFile(parsed.Path)
+		return s.fetchFile(path)
 	case "http", "https":
 		return s.fetchHTTP(ctx, rawURL)
 	default:
-		return nil, fmt.Errorf("unsupported URL scheme: %s", parsed.Scheme)
+		return nil, fmt.Errorf("unsupported URL scheme: %s", scheme)
 	}
 }
 
 // store writes content to the given URL.
 func (s *LookasideStore) store(ctx context.Context, rawURL string, data []byte) error {
-	parsed, err := url.Parse(rawURL)
+	scheme, path, err := parseURL(rawURL)
 	if err != nil {
-		return fmt.Errorf("invalid URL %s: %w", rawURL, err)
+		return err
 	}
 
-	switch parsed.Scheme {
+	switch scheme {
 	case "file", "":
-		return s.storeFile(parsed.Path, data)
+		return s.storeFile(path, data)
 	case "http", "https":
 		return s.storeHTTP(ctx, rawURL, data)
 	default:
-		return fmt.Errorf("unsupported URL scheme: %s", parsed.Scheme)
+		return fmt.Errorf("unsupported URL scheme: %s", scheme)
 	}
 }
 
