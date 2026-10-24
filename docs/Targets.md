@@ -368,6 +368,7 @@ Below is a mapping of major repository functions to their corresponding registry
 | `Push`         | PUT `/v2/<name>/manifests/<reference>`                                                                               |
 | `Resolve`      | HEAD `/v2/<name>/manifests/<reference>`                                                                              |
 | `Tag`          | PUT `/v2/<name>/manifests/<reference>`                                                                               |
+| `Untag`        | DELETE `/v2/<name>/manifests/<tag>`                                                                                  |
 | `Predecessors` | GET `/v2/<name>/referrers/<digest>?artifactType=<artifactType>`<br>Fallback to `Referrers Tag Schema` if unavailable |
 
 #### Blob Store Mappings

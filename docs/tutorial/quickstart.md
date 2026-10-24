@@ -167,7 +167,7 @@ _, fetchedManifestContent, err := oras.FetchBytes(ctx, repo, tag, oras.DefaultFe
 if err != nil {
 	panic(err)
 }
-fmt.Println(string(fetchedManifestContent))
+fmt.Println("Fetched manifest:", len(fetchedManifestContent), "bytes")
 ```
 
 ## Parse the fetched manifest content and get the layers
@@ -191,7 +191,7 @@ for _, layer := range manifest.Layers {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(string(layerContent))
+	fmt.Println("Fetched layer:", layer.Digest, len(layerContent), "bytes")
 }
 ```
 
@@ -236,8 +236,8 @@ tag2
 tag3
 Pushed manifest layer: sha256:4f19474743ecb04b60156ea41b73e06fdf6a5b758e007b788aaa92595dcd3a49
 Pushed and tagged manifest
-{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.example+type","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar","digest":"sha256:4f19474743ecb04b60156ea41b73e06fdf6a5b758e007b788aaa92595dcd3a49","size":22}],"annotations":{"org.opencontainers.image.created":"2025-04-18T03:15:26Z"}}
-example manifest layer
+Fetched manifest: 520 bytes
+Fetched layer: sha256:4f19474743ecb04b60156ea41b73e06fdf6a5b758e007b788aaa92595dcd3a49 22 bytes
 Copied the artifact
 ```
 
@@ -252,113 +252,5 @@ Suggested next steps:
 
 ## Completed Code
 
-This section contains the completed code from this tutorial.
-
-```go
-package main
-
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"os"
-
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/oras-project/oras-go/v3"
-	"github.com/oras-project/oras-go/v3/content"
-	"github.com/oras-project/oras-go/v3/content/oci"
-	"github.com/oras-project/oras-go/v3/registry/remote"
-	"github.com/oras-project/oras-go/v3/registry/remote/auth"
-	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
-	"github.com/oras-project/oras-go/v3/registry/remote/retry"
-)
-
-func main() {
-	// 1. Connect to a remote repository with token authentication
-	ref := "example.registry.com/myrepo"
-	repo, err := remote.NewRepository(ref)
-	if err != nil {
-		panic(err)
-	}
-	// Note: The below code can be omitted if authentication is not required.
-	repo.Registry.Client = &auth.Client{
-		Client: retry.DefaultClient,
-		Cache:  auth.NewCache(),
-		CredentialFunc: credentials.StaticCredentialFunc(repo.Registry.Reference.Registry, credentials.Credential{
-			Username: "username",
-			Password: "password",
-		}),
-	}
-
-	// 2. Show the tags in the repository
-	ctx := context.Background()
-	err = repo.Tags(ctx, "", func(tags []string) error {
-		for _, tag := range tags {
-			fmt.Println(tag)
-		}
-		return nil
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	// 3. push a layer to the repository
-	layer := []byte("example manifest layer")
-	layerDescriptor, err := oras.PushBytes(ctx, repo, ocispec.MediaTypeImageLayer, layer)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Pushed manifest layer:", layerDescriptor.Digest)
-
-	// 4. Push a manifest to the repository with the tag "quickstart"
-	packOpts := oras.PackManifestOptions{
-		Layers: []ocispec.Descriptor{layerDescriptor},
-	}
-	artifactType := "application/vnd.example+type"
-	desc, err := oras.PackManifest(ctx, repo, oras.PackManifestVersion1_1, artifactType, packOpts)
-	if err != nil {
-		panic(err)
-	}
-	tag := "quickstart"
-	err = repo.Tag(ctx, desc, tag)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Pushed and tagged manifest")
-
-	// 5. Fetch the manifest from the repository by tag
-	_, fetchedManifestContent, err := oras.FetchBytes(ctx, repo, tag, oras.DefaultFetchBytesOptions)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(string(fetchedManifestContent))
-
-	// 6. Parse the fetched manifest content and get the layers
-	var manifest ocispec.Manifest
-	if err := json.Unmarshal(fetchedManifestContent, &manifest); err != nil {
-		panic(err)
-	}
-	for _, layer := range manifest.Layers {
-		layerContent, err := content.FetchAll(ctx, repo, layer)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println(string(layerContent))
-	}
-
-	// 7. Copy the artifact to local OCI layout directory with a tag "quickstartOCI"
-	ociDir, err := os.MkdirTemp(".", "oras_oci_example_*")
-	if err != nil {
-		panic(err)
-	}
-	ociTarget, err := oci.New(ociDir)
-	if err != nil {
-		panic(err)
-	}
-	_, err = oras.Copy(ctx, repo, tag, ociTarget, "quickstartOCI", oras.DefaultCopyOptions)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Copied the artifact")
-}
-```
+The [completed program](./quickstart/main.go) is compiled by CI so the tutorial
+stays aligned with the current `oras-go` API.
