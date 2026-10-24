@@ -45,6 +45,7 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/errutil"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/urlutil"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
@@ -1380,19 +1381,7 @@ func (s *blobStore) pushSingleRequest(ctx context.Context, expected ocispec.Desc
 // normalizing implicit default ports (80 for http, 443 for https) so that
 // e.g. "example.com" and "example.com:443" compare equal over HTTPS.
 func sameUploadHost(location, reqURL *url.URL) bool {
-	if !strings.EqualFold(location.Hostname(), reqURL.Hostname()) {
-		return false
-	}
-	canonicalPort := func(u *url.URL) string {
-		if p := u.Port(); p != "" {
-			return p
-		}
-		if u.Scheme == "https" {
-			return "443"
-		}
-		return "80"
-	}
-	return canonicalPort(location) == canonicalPort(reqURL)
+	return urlutil.CanonicalHostPort(location) == urlutil.CanonicalHostPort(reqURL)
 }
 
 // resolveUploadLocation extracts the next blob-upload Location from resp,
@@ -1411,7 +1400,7 @@ func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, er
 	// like registry.wabbit-networks.io:443/myrepo, blob push will fail since
 	// the hostname of the Location header in the response is set to
 	// registry.wabbit-networks.io instead of registry.wabbit-networks.io:443.
-	if req.URL.Port() == "443" && strings.EqualFold(location.Hostname(), req.URL.Hostname()) && location.Port() == "" {
+	if req.URL.Port() == "443" && urlutil.SameHostname(location, req.URL) && location.Port() == "" {
 		location.Host = location.Hostname() + ":443"
 	}
 	// Validate the Location stays on the same host to prevent credentials from
