@@ -1380,7 +1380,7 @@ func (s *blobStore) pushSingleRequest(ctx context.Context, expected ocispec.Desc
 // normalizing implicit default ports (80 for http, 443 for https) so that
 // e.g. "example.com" and "example.com:443" compare equal over HTTPS.
 func sameUploadHost(location, reqURL *url.URL) bool {
-	if location.Hostname() != reqURL.Hostname() {
+	if !strings.EqualFold(location.Hostname(), reqURL.Hostname()) {
 		return false
 	}
 	canonicalPort := func(u *url.URL) string {
@@ -1411,7 +1411,7 @@ func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, er
 	// like registry.wabbit-networks.io:443/myrepo, blob push will fail since
 	// the hostname of the Location header in the response is set to
 	// registry.wabbit-networks.io instead of registry.wabbit-networks.io:443.
-	if req.URL.Port() == "443" && location.Hostname() == req.URL.Hostname() && location.Port() == "" {
+	if req.URL.Port() == "443" && strings.EqualFold(location.Hostname(), req.URL.Hostname()) && location.Port() == "" {
 		location.Host = location.Hostname() + ":443"
 	}
 	// Validate the Location stays on the same host to prevent credentials from
