@@ -65,6 +65,13 @@ type ClientBuilder struct {
 	// PolicyEvaluator is an optional policy evaluator for allow/deny decisions.
 	// If set, repositories created by NewRepository will
 	// automatically enforce policy on read/write operations.
+	//
+	// One PolicyEvaluator is safe to share across every repository created
+	// by ClientBuilder. When configured with a verifier created by
+	// signature.NewSignedByVerifierFromConfig, lookaside storage is resolved
+	// dynamically per scope, failing closed on unconfigured scopes. Signatures
+	// are looked up by the primary repository scope, even when content is
+	// served from a mirror.
 	PolicyEvaluator *policy.Evaluator
 
 	// Logger enables HTTP request/response debug logging when non-nil.
