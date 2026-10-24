@@ -68,9 +68,10 @@ type ClientBuilder struct {
 	PolicyEvaluator *policy.Evaluator
 
 	// Logger enables HTTP request/response debug logging when non-nil.
-	// Each retry attempt is logged individually. If nil, no logging transport
-	// is added. Logger is also used for registry warnings when WarningLogger is
-	// nil. Use slog.Default() to log to the default handler.
+	// Logging sits inside retry's Base transport so each retry attempt is
+	// logged individually. If nil, no logging transport is added. Logger is also
+	// used for registry warnings when WarningLogger is nil. Use slog.Default()
+	// to log to the default handler.
 	Logger *slog.Logger
 
 	// WarningLogger logs registry warnings at slog.LevelWarn, deduplicated per
@@ -214,19 +215,15 @@ func (b *ClientBuilder) buildTransport(tlsConfig *tls.Config) http.RoundTripper 
 		}
 	}
 
-	// Wrap with retry transport
-	var transport http.RoundTripper = &retry.Transport{
+	// Place logging inside retry's Base so each attempt is logged.
+	if b.Logger != nil {
+		base = NewLoggingTransport(base, b.Logger)
+	}
+
+	return &retry.Transport{
 		Base:   base,
 		Policy: b.RetryPolicy,
 	}
-
-	// Wrap with logging transport if a logger is configured.
-	// Placed outside retry so each attempt is individually logged.
-	if b.Logger != nil {
-		transport = NewLoggingTransport(transport, b.Logger)
-	}
-
-	return transport
 }
 
 func (b *ClientBuilder) warningLogger() *slog.Logger {
