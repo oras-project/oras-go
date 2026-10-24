@@ -37,6 +37,7 @@ import (
 	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/urlutil"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
@@ -4684,7 +4685,7 @@ func Test_sameHTTPOrigin(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to parse %q: %v", tt.b, err)
 			}
-			if got := sameHTTPOrigin(a, b); got != tt.want {
+			if got := urlutil.SameOrigin(a, b); got != tt.want {
 				t.Errorf("sameHTTPOrigin(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
 			}
 		})
