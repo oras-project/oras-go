@@ -179,6 +179,32 @@ var mediaTypeRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126
 //
 // If succeeded, returns a descriptor of the packed manifest.
 func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
+	return packManifest(ctx, pusher, packManifestVersion, artifactType, opts)
+}
+
+// PackManifestN packs an OCI Image Manifest like [PackManifest], pushes it to
+// target, and tags it with each of the given references.
+//
+// If target implements [registry.ReferencePusher] (as a remote repository
+// does), the manifest is pushed once per reference with a single request, so
+// no separate tag request is needed. Otherwise, the manifest is pushed and
+// then tagged with [content.Tagger].
+//
+// If references is empty, PackManifestN behaves like [PackManifest]. If the
+// packed manifest already exists in target, it is still tagged with
+// references. Only the manifest is tagged; config and layers are pushed as in
+// [PackManifest]. If tagging with a reference fails, the returned error names
+// that reference, and some other references may already have been applied.
+//
+// Duplicate references are applied only once. Digest-form references are passed
+// to target unchanged; validation follows target's Tag or PushReference behavior.
+//
+// If succeeded, returns a descriptor of the packed manifest.
+func PackManifestN(ctx context.Context, target Target, packManifestVersion PackManifestVersion, artifactType string, references []string, opts PackManifestOptions) (ocispec.Descriptor, error) {
+	return packManifest(ctx, withTags(target, references), packManifestVersion, artifactType, opts)
+}
+
+func packManifest(ctx context.Context, pusher content.Pusher, packManifestVersion PackManifestVersion, artifactType string, opts PackManifestOptions) (ocispec.Descriptor, error) {
 	if opts.DigestAlgorithm == "" {
 		opts.DigestAlgorithm = digest.Canonical
 	}
@@ -215,6 +241,19 @@ func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersio
 //
 // If succeeded, returns a descriptor of the packed index.
 func PackIndex(ctx context.Context, pusher content.Pusher, artifactType string, opts PackIndexOptions) (ocispec.Descriptor, error) {
+	return packIndex(ctx, pusher, artifactType, opts)
+}
+
+// PackIndexN packs an OCI Image Index like [PackIndex], pushes it to target,
+// and tags it with each of the given references. See [PackManifestN] for how
+// the references are applied.
+//
+// If succeeded, returns a descriptor of the packed index.
+func PackIndexN(ctx context.Context, target Target, artifactType string, references []string, opts PackIndexOptions) (ocispec.Descriptor, error) {
+	return packIndex(ctx, withTags(target, references), artifactType, opts)
+}
+
+func packIndex(ctx context.Context, pusher content.Pusher, artifactType string, opts PackIndexOptions) (ocispec.Descriptor, error) {
 	if opts.DigestAlgorithm == "" {
 		opts.DigestAlgorithm = digest.Canonical
 	}
@@ -513,6 +552,13 @@ func pushManifest(ctx context.Context, pusher content.Pusher, manifest any, medi
 	// populate ArtifactType and Annotations of the manifest into manifestDesc
 	manifestDesc.ArtifactType = artifactType
 	manifestDesc.Annotations = annotations
+	if tp, ok := pusher.(*taggingPusher); ok && len(tp.references) > 0 {
+		// push the manifest and tag it
+		if err := tagBytesN(ctx, tp.target, manifestDesc, manifestJSON, tp.references, TagBytesNOptions{Concurrency: defaultTagConcurrency}); err != nil {
+			return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
+		}
+		return manifestDesc, nil
+	}
 	// push manifest
 	if err := pusher.Push(ctx, manifestDesc, bytes.NewReader(manifestJSON)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to push manifest: %w", err)
@@ -579,4 +625,26 @@ func validateConfigDescriptor(desc ocispec.Descriptor) error {
 		return fmt.Errorf("invalid config digest %q: %v: %w", desc.Digest, err, errdef.ErrInvalidDigest)
 	}
 	return nil
+}
+
+// taggingPusher is a [content.Pusher] that also carries the references the
+// packed manifest or index is to be tagged with. Everything except the final
+// manifest is pushed to the target as usual.
+type taggingPusher struct {
+	Target
+	target     Target
+	references []string
+}
+
+func withTags(target Target, references []string) *taggingPusher {
+	seen := make(map[string]struct{}, len(references))
+	unique := make([]string, 0, len(references))
+	for _, ref := range references {
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		unique = append(unique, ref)
+	}
+	return &taggingPusher{Target: target, target: target, references: unique}
 }
