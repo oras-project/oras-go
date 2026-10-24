@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3/content"
 	"github.com/oras-project/oras-go/v3/errdef"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/urlutil"
 )
 
 // defaultMaxMetadataBytes specifies the default limit on how many response
@@ -60,34 +60,10 @@ func parseLink(resp *http.Response) (string, error) {
 	// registry. Restrict pagination to the same origin as the originating
 	// request so that a registry cannot redirect pagination to an arbitrary
 	// host and turn a listing call into a server-side request forgery.
-	if !isSameOrigin(resp.Request.URL, linkURL) {
+	if !urlutil.SameOrigin(resp.Request.URL, linkURL) {
 		return "", fmt.Errorf("invalid next link %q: not the same origin as %q", link, resp.Request.URL)
 	}
 	return linkURL.String(), nil
-}
-
-// isSameOrigin reports whether the two URLs share the same origin, that is the
-// same scheme, host, and port (with the default port applied for http/https).
-func isSameOrigin(a, b *url.URL) bool {
-	if !strings.EqualFold(a.Scheme, b.Scheme) {
-		return false
-	}
-	return canonicalHostPort(a) == canonicalHostPort(b)
-}
-
-// canonicalHostPort returns the lower-cased "host:port" of u, filling in the
-// default port for the http and https schemes when none is present.
-func canonicalHostPort(u *url.URL) string {
-	port := u.Port()
-	if port == "" {
-		switch strings.ToLower(u.Scheme) {
-		case "https":
-			port = "443"
-		case "http":
-			port = "80"
-		}
-	}
-	return strings.ToLower(u.Hostname()) + ":" + port
 }
 
 // limitReader returns a Reader that reads from r but stops with EOF after n

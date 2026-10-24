@@ -34,6 +34,7 @@ import (
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/urlutil"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
 )
@@ -274,28 +275,18 @@ func redirectSafeClient(client *http.Client) *http.Client {
 // Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-xc97-9f2f-9hrx
 func leftOrigin(via []*http.Request, req *http.Request) bool {
 	for _, r := range via[1:] {
-		if !sameHTTPOrigin(via[0].URL, r.URL) {
+		if !urlutil.SameOrigin(via[0].URL, r.URL) {
 			return true
 		}
 	}
-	return !sameHTTPOrigin(via[0].URL, req.URL)
-}
-
-// sameHTTPOrigin reports whether a and b share the same HTTP origin, i.e. the
-// same scheme and host. Default ports are normalized so that, for example,
-// "example.com" and "example.com:443" compare equal over https.
-func sameHTTPOrigin(a, b *url.URL) bool {
-	if !strings.EqualFold(a.Scheme, b.Scheme) {
-		return false
-	}
-	return canonicalHost(a) == canonicalHost(b)
+	return !urlutil.SameOrigin(via[0].URL, req.URL)
 }
 
 // isHTTPSUpgrade reports whether a redirect upgrades the same host from the
 // standard HTTP port to the standard HTTPS port.
 func isHTTPSUpgrade(from, to *url.URL) bool {
 	return from.Scheme == "http" && to.Scheme == "https" &&
-		strings.EqualFold(from.Hostname(), to.Hostname()) &&
+		urlutil.SameHostname(from, to) &&
 		(from.Port() == "" || from.Port() == "80") &&
 		(to.Port() == "" || to.Port() == "443")
 }
@@ -313,29 +304,14 @@ func safeHTTPSUpgrade(original, last *http.Request) bool {
 			return false
 		}
 		if req.Response == nil {
-			return sameHTTPOrigin(original.URL, req.URL)
+			return urlutil.SameOrigin(original.URL, req.URL)
 		}
 		previous := req.Response.Request
-		if previous == nil || (!sameHTTPOrigin(previous.URL, req.URL) && !isHTTPSUpgrade(previous.URL, req.URL)) {
+		if previous == nil || (!urlutil.SameOrigin(previous.URL, req.URL) && !isHTTPSUpgrade(previous.URL, req.URL)) {
 			return false
 		}
 		req = previous
 	}
-}
-
-// canonicalHost returns the lower-cased host of u with the default port for its
-// scheme applied when no explicit port is present.
-func canonicalHost(u *url.URL) string {
-	port := u.Port()
-	if port == "" {
-		switch strings.ToLower(u.Scheme) {
-		case "https":
-			port = "443"
-		case "http":
-			port = "80"
-		}
-	}
-	return strings.ToLower(u.Hostname()) + ":" + port
 }
 
 // credential resolves the credential for the given registry resource.
@@ -491,7 +467,7 @@ func validateRealm(ctx context.Context, realm string, registryURL *url.URL, pref
 		return fmt.Errorf("bearer realm %q uses unsupported scheme %q", realm, realmURL.Scheme)
 	}
 	host := realmURL.Hostname()
-	if registryURL != nil && strings.EqualFold(host, registryURL.Hostname()) {
+	if registryURL != nil && urlutil.SameHostname(realmURL, registryURL) {
 		return nil
 	}
 	prefixes = resolveBlockedPrefixes(prefixes)
@@ -636,7 +612,7 @@ func (c *Client) Do(originalReq *http.Request) (*http.Response, error) {
 		if crossesRepository(originalReq.URL, responseURL) {
 			return resp, nil
 		}
-		if !sameHTTPOrigin(originalReq.URL, responseURL) {
+		if !urlutil.SameOrigin(originalReq.URL, responseURL) {
 			if !safeHTTPSUpgrade(originalReq, resp.Request) {
 				return resp, nil
 			}
