@@ -374,9 +374,14 @@ func TestNewSignedByVerifierFromConfig_NoMatch(t *testing.T) {
 		t.Fatal("NewSignedByVerifierFromConfig() should never return nil")
 	}
 
-	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
 	keyFile := filepath.Join(t.TempDir(), "test.gpg")
-	createKeyFile(t, entity, keyFile)
+	if _, err := createKeyFile(t, entity, keyFile); err != nil {
+		t.Fatalf("createKeyFile() error: %v", err)
+	}
 
 	req := &policy.PRSignedBy{
 		KeyType: "GPGKeys",
@@ -403,9 +408,14 @@ func TestNewSignedByVerifierFromConfig_Nil(t *testing.T) {
 		t.Fatal("NewSignedByVerifierFromConfig(nil) should never return nil")
 	}
 
-	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
 	keyFile := filepath.Join(t.TempDir(), "test.gpg")
-	createKeyFile(t, entity, keyFile)
+	if _, err := createKeyFile(t, entity, keyFile); err != nil {
+		t.Fatalf("createKeyFile() error: %v", err)
+	}
 
 	req := &policy.PRSignedBy{
 		KeyType: "GPGKeys",
@@ -581,9 +591,14 @@ func TestDefaultSignedByVerifier_Verify_KeyRingError(t *testing.T) {
 }
 
 func TestDefaultSignedByVerifier_Verify_StoreError(t *testing.T) {
-	entity, _ := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
 	keyFile := filepath.Join(t.TempDir(), "test.gpg")
-	createKeyFile(t, entity, keyFile)
+	if _, err := createKeyFile(t, entity, keyFile); err != nil {
+		t.Fatalf("createKeyFile() error: %v", err)
+	}
 
 	verifier := NewSignedByVerifier(&errSignatureStore{err: errors.New("store unavailable")})
 	req := &policy.PRSignedBy{

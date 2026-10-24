@@ -206,22 +206,11 @@ func signaturePath(baseURL, ref string, dgst digest.Digest) string {
 
 // parseURL parses a lookaside URL into its scheme and filesystem or HTTP path.
 func parseURL(rawURL string) (scheme, path string, err error) {
-	if strings.HasPrefix(rawURL, "file://") {
-		p := strings.TrimPrefix(rawURL, "file://")
-		if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
-			p = p[1:]
-		}
-		return "file", filepath.FromSlash(p), nil
-	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return "", "", fmt.Errorf("invalid URL %s: %w", rawURL, err)
 	}
-	p := parsed.Path
-	if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
-		p = p[1:]
-	}
-	return parsed.Scheme, filepath.FromSlash(p), nil
+	return parsed.Scheme, parsed.Path, nil
 }
 
 // fetch retrieves content from the given URL.

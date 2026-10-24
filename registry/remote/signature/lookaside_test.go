@@ -24,7 +24,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
@@ -265,15 +264,30 @@ func TestLookasideStore_HTTPBackend_ServerError(t *testing.T) {
 }
 
 func TestNewLookasideStoreFromConfig(t *testing.T) {
+	dgst := digest.FromString("test")
+	sigSuffix := "@" + dgst.Algorithm().String() + "=" + dgst.Hex() + "/signature-1"
+
+	// Only the read bases hold a signature, each with distinct content, so a
+	// GET resolved against the wrong scope returns the wrong bytes or a 404.
+	readSigs := map[string]string{
+		"/sigs1/registry.example.com/repo" + sigSuffix:       "sig-scope1",
+		"/sigs2/other.example.com/repo" + sigSuffix:          "sig-scope2",
+		"/default/unconfigured.example.com/repo" + sigSuffix: "sig-default",
+	}
+	var mu sync.Mutex
+	var puts []string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			if strings.HasSuffix(r.URL.Path, "/signature-1") {
-				w.Write([]byte("sig-data"))
+			if data, ok := readSigs[r.URL.Path]; ok {
+				w.Write([]byte(data))
 			} else {
 				w.WriteHeader(http.StatusNotFound)
 			}
 		case http.MethodPut:
+			mu.Lock()
+			puts = append(puts, r.URL.Path)
+			mu.Unlock()
 			w.WriteHeader(http.StatusCreated)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -304,42 +318,53 @@ func TestNewLookasideStoreFromConfig(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	dgst := digest.FromString("test")
+	tests := []struct {
+		name      string
+		ref       string
+		wantSig   string
+		wantWrite string
+	}{
+		{
+			name:      "scope 1",
+			ref:       "registry.example.com/repo",
+			wantSig:   "sig-scope1",
+			wantWrite: "/sigs1-staging/registry.example.com/repo" + sigSuffix,
+		},
+		{
+			name:      "scope 2",
+			ref:       "other.example.com/repo",
+			wantSig:   "sig-scope2",
+			wantWrite: "/sigs2-staging/other.example.com/repo" + sigSuffix,
+		},
+		{
+			name:      "default-docker fallback",
+			ref:       "unconfigured.example.com/repo",
+			wantSig:   "sig-default",
+			wantWrite: "/default-staging/unconfigured.example.com/repo" + sigSuffix,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sigs, err := store.GetSignatures(ctx, tt.ref, dgst)
+			if err != nil {
+				t.Fatalf("GetSignatures() error: %v", err)
+			}
+			if len(sigs) != 1 || string(sigs[0]) != tt.wantSig {
+				t.Fatalf("GetSignatures() = %q, want [%q]", sigs, tt.wantSig)
+			}
 
-	// Scope 1 GET and PUT
-	sigs, err := store.GetSignatures(ctx, "registry.example.com/repo", dgst)
-	if err != nil {
-		t.Fatalf("GetSignatures() scope 1 error: %v", err)
-	}
-	if len(sigs) == 0 {
-		t.Fatal("GetSignatures() scope 1 returned no signatures")
-	}
-	if err := store.PutSignature(ctx, "registry.example.com/repo", dgst, []byte("sig")); err != nil {
-		t.Fatalf("PutSignature() scope 1 error: %v", err)
-	}
-
-	// Scope 2 GET and PUT
-	sigs, err = store.GetSignatures(ctx, "other.example.com/repo", dgst)
-	if err != nil {
-		t.Fatalf("GetSignatures() scope 2 error: %v", err)
-	}
-	if len(sigs) == 0 {
-		t.Fatal("GetSignatures() scope 2 returned no signatures")
-	}
-	if err := store.PutSignature(ctx, "other.example.com/repo", dgst, []byte("sig")); err != nil {
-		t.Fatalf("PutSignature() scope 2 error: %v", err)
-	}
-
-	// Fallback to default-docker for unconfigured scope
-	sigs, err = store.GetSignatures(ctx, "unconfigured.example.com/repo", dgst)
-	if err != nil {
-		t.Fatalf("GetSignatures() fallback error: %v", err)
-	}
-	if len(sigs) == 0 {
-		t.Fatal("GetSignatures() fallback returned no signatures")
-	}
-	if err := store.PutSignature(ctx, "unconfigured.example.com/repo", dgst, []byte("sig")); err != nil {
-		t.Fatalf("PutSignature() fallback error: %v", err)
+			mu.Lock()
+			puts = nil
+			mu.Unlock()
+			if err := store.PutSignature(ctx, tt.ref, dgst, []byte("sig")); err != nil {
+				t.Fatalf("PutSignature() error: %v", err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(puts) != 1 || puts[0] != tt.wantWrite {
+				t.Errorf("PutSignature() wrote to %q, want [%q]", puts, tt.wantWrite)
+			}
+		})
 	}
 }
 
