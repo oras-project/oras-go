@@ -1205,6 +1205,28 @@ func TestResolveUploadLocation(t *testing.T) {
 		}
 	})
 
+	t.Run("port 443 preserved for mixed case host", func(t *testing.T) {
+		req443URL, err := url.Parse("https://registry.example.com:443/v2/test/blobs/uploads/")
+		if err != nil {
+			t.Fatalf("url.Parse() error = %v", err)
+		}
+		req443, err := http.NewRequest(http.MethodPost, req443URL.String(), nil)
+		if err != nil {
+			t.Fatalf("http.NewRequest() error = %v", err)
+		}
+		resp := &http.Response{
+			Header:  http.Header{"Location": []string{"https://Registry.Example.com/v2/test/blobs/uploads/session"}},
+			Request: req443,
+		}
+		loc, err := resolveUploadLocation(resp, req443)
+		if err != nil {
+			t.Fatalf("resolveUploadLocation() error = %v", err)
+		}
+		if loc.Host != "Registry.Example.com:443" {
+			t.Errorf("loc.Host = %q, want %q", loc.Host, "Registry.Example.com:443")
+		}
+	})
+
 	t.Run("cross host rejected", func(t *testing.T) {
 		resp := &http.Response{
 			Header:  http.Header{"Location": []string{"https://attacker.com/v2/test/blobs/uploads/session"}},
@@ -1212,6 +1234,42 @@ func TestResolveUploadLocation(t *testing.T) {
 		}
 		if _, err := resolveUploadLocation(resp, req); err == nil || !strings.Contains(err.Error(), "different host") {
 			t.Errorf("expected different host error, got %v", err)
+		}
+	})
+
+	t.Run("mixed case location host accepted", func(t *testing.T) {
+		resp := &http.Response{
+			Header:  http.Header{"Location": []string{"https://Registry.Example.com/v2/test/blobs/uploads/session"}},
+			Request: req,
+		}
+		loc, err := resolveUploadLocation(resp, req)
+		if err != nil {
+			t.Fatalf("resolveUploadLocation() error = %v", err)
+		}
+		if loc.Host != "Registry.Example.com" {
+			t.Errorf("loc.Host = %q, want %q", loc.Host, "Registry.Example.com")
+		}
+	})
+
+	t.Run("mixed case request host accepted", func(t *testing.T) {
+		reqMixedURL, err := url.Parse("https://Registry.Example.com/v2/test/blobs/uploads/")
+		if err != nil {
+			t.Fatalf("url.Parse() error = %v", err)
+		}
+		reqMixed, err := http.NewRequest(http.MethodPost, reqMixedURL.String(), nil)
+		if err != nil {
+			t.Fatalf("http.NewRequest() error = %v", err)
+		}
+		resp := &http.Response{
+			Header:  http.Header{"Location": []string{"https://registry.example.com/v2/test/blobs/uploads/session"}},
+			Request: reqMixed,
+		}
+		loc, err := resolveUploadLocation(resp, reqMixed)
+		if err != nil {
+			t.Fatalf("resolveUploadLocation() error = %v", err)
+		}
+		if loc.Host != "registry.example.com" {
+			t.Errorf("loc.Host = %q, want %q", loc.Host, "registry.example.com")
 		}
 	})
 
