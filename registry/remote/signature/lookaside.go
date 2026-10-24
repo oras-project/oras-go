@@ -90,13 +90,16 @@ func NewLookasideStoreFromConfig(cfg *config.RegistriesDConfig, scope string) *L
 
 // SetHTTPClient sets a custom HTTP client for HTTP(S) lookaside operations.
 func (s *LookasideStore) SetHTTPClient(client *http.Client) {
+	if s == nil {
+		return
+	}
 	s.client = client
 }
 
 // GetSignatures returns all signatures for the given image reference and digest.
 // It enumerates signatures by incrementing the index until no more are found.
 func (s *LookasideStore) GetSignatures(ctx context.Context, ref string, dgst digest.Digest) ([][]byte, error) {
-	if s.readURL == "" {
+	if s == nil || s.readURL == "" {
 		return nil, nil
 	}
 
@@ -128,7 +131,7 @@ func (s *LookasideStore) GetSignatures(ctx context.Context, ref string, dgst dig
 // PutSignature stores a signature for the given image reference and digest.
 // It finds the next available index and writes the signature there.
 func (s *LookasideStore) PutSignature(ctx context.Context, ref string, dgst digest.Digest, sig []byte) error {
-	if s.writeURL == "" {
+	if s == nil || s.writeURL == "" {
 		return fmt.Errorf("no write URL configured for lookaside store")
 	}
 

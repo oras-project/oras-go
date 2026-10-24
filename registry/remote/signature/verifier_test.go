@@ -27,6 +27,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
@@ -680,5 +681,104 @@ func TestDefaultSignedByVerifier_Verify_InvalidResolvedDigest(t *testing.T) {
 	_, err := verifier.Verify(context.Background(), req, image)
 	if err == nil {
 		t.Fatal("Verify() should return error for invalid resolved digest")
+	}
+}
+
+func TestDefaultSignedByVerifier_Verify_NilReceiver(t *testing.T) {
+	var v *DefaultSignedByVerifier
+	req := &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+	}
+	image := policy.ImageReference{
+		Transport: "docker",
+		Scope:     "registry.example.com/repo",
+		Reference: "registry.example.com/repo:latest",
+	}
+
+	allowed, err := v.Verify(context.Background(), req, image)
+	if allowed {
+		t.Error("Verify() = true, want false")
+	}
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("Verify() error = %v, want wrapping errdef.ErrUnsupported", err)
+	}
+}
+
+func TestDefaultSignedByVerifier_Verify_NilStore(t *testing.T) {
+	tests := []struct {
+		name     string
+		verifier *DefaultSignedByVerifier
+	}{
+		{
+			name:     "nil interface store",
+			verifier: NewSignedByVerifier(nil),
+		},
+		{
+			name:     "typed nil lookaside store",
+			verifier: NewSignedByVerifier((*LookasideStore)(nil)),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &policy.PRSignedBy{
+				KeyType: "GPGKeys",
+			}
+			image := policy.ImageReference{
+				Transport: "docker",
+				Scope:     "registry.example.com/repo",
+				Reference: "registry.example.com/repo:latest",
+			}
+
+			allowed, err := tt.verifier.Verify(context.Background(), req, image)
+			if allowed {
+				t.Error("Verify() = true, want false")
+			}
+			if !errors.Is(err, errdef.ErrUnsupported) {
+				t.Errorf("Verify() error = %v, want wrapping errdef.ErrUnsupported", err)
+			}
+		})
+	}
+}
+
+func TestTypedNilVerifierRepro(t *testing.T) {
+	entity, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("NewEntity() error: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := entity.Serialize(&buf); err != nil {
+		t.Fatalf("Serialize() error: %v", err)
+	}
+	keyData := base64.StdEncoding.EncodeToString(buf.Bytes())
+	polPath := filepath.Join(t.TempDir(), "policy.json")
+	pol := `{"default":[{"type":"signedBy","keyType":"GPGKeys","keyData":"` + keyData + `"}]}`
+	if err := os.WriteFile(polPath, []byte(pol), 0o600); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+	p, err := policy.LoadPolicy(polPath)
+	if err != nil {
+		t.Fatalf("LoadPolicy() error: %v", err)
+	}
+
+	// registries.d with no lookaside for this scope -> typed nil
+	v := NewSignedByVerifierFromConfig(&config.RegistriesDConfig{}, "registry.example.com/repo")
+	eval, err := policy.NewEvaluator(p, policy.WithSignedByVerifier(v))
+	if err != nil {
+		t.Fatalf("NewEvaluator() error: %v", err)
+	}
+
+	d := digest.FromString("x")
+	allowed, err := eval.IsImageAllowed(context.Background(), policy.ImageReference{
+		Transport: "docker",
+		Scope:     "registry.example.com/repo",
+		Reference: "registry.example.com/repo@" + d.String(),
+		Digest:    d,
+	})
+	if allowed {
+		t.Error("IsImageAllowed() = true, want false")
+	}
+	if !errors.Is(err, errdef.ErrUnsupported) {
+		t.Errorf("IsImageAllowed() error = %v, want wrapping errdef.ErrUnsupported", err)
 	}
 }
