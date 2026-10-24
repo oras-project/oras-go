@@ -16,6 +16,7 @@ limitations under the License.
 package oras_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -145,4 +146,35 @@ func ExamplePackIndex() {
 	// Output:
 	// Index descriptor: {application/vnd.oci.image.index.v1+json sha256:5f11dad4b5288be83933c40991d69334533e797ff2b21458dca2801a4f41130c 529 [] map[org.opencontainers.image.created:2000-01-01T00:00:00Z] [] <nil> application/vnd.example+type}
 	// Index content: {"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","artifactType":"application/vnd.example+type","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:c259a195a48d8029d75449579c81269ca6225cd5b57d36073a7de6458afdfdbd","size":528,"annotations":{"org.opencontainers.image.created":"2000-01-01T00:00:00Z"},"platform":{"architecture":"amd64","os":"linux"},"artifactType":"application/vnd.example+type"}],"annotations":{"org.opencontainers.image.created":"2000-01-01T00:00:00Z"}}
+}
+
+// ExamplePackManifestN demonstrates packing an OCI Image Manifest and tagging
+// it in one call. For a remote repository, the manifest is pushed with a
+// single request per tag.
+func ExamplePackManifestN() {
+	ctx := context.Background()
+	target := memory.New()
+
+	layer := []byte("hello world")
+	layerDesc := content.NewDescriptorFromBytes("application/vnd.example.layer", layer)
+	if err := target.Push(ctx, layerDesc, bytes.NewReader(layer)); err != nil {
+		panic(err)
+	}
+
+	opts := oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{layerDesc},
+	}
+	desc, err := oras.PackManifestN(ctx, target, oras.PackManifestVersion1_1, "application/vnd.example+type", []string{"v1", "latest"}, opts)
+	if err != nil {
+		panic(err)
+	}
+
+	resolved, err := target.Resolve(ctx, "latest")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(resolved.Digest == desc.Digest)
+
+	// Output:
+	// true
 }
