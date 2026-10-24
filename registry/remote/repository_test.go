@@ -46,6 +46,7 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/spec"
 	"github.com/oras-project/oras-go/v3/registry"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/errcode"
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 	"github.com/oras-project/oras-go/v3/registry/remote/retry"
@@ -3922,6 +3923,72 @@ func Test_BlobStore_Push_UploadLocationAuthorization(t *testing.T) {
 				t.Errorf("PUT authorization = %q, want %q", gotAuth, tt.wantAuth)
 			}
 		})
+	}
+}
+
+func Test_BlobStore_Push_CrossHostUploadChallenge(t *testing.T) {
+	blob := []byte("hello world")
+	blobDesc := ocispec.Descriptor{
+		MediaType: "test",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+	const sessionPath = "/v2/test/blobs/uploads/session"
+
+	var mu sync.Mutex
+	var uploadAuth []string
+	uploads := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		uploadAuth = append(uploadAuth, r.Header.Get("Authorization"))
+		mu.Unlock()
+		w.Header().Set("WWW-Authenticate", `Basic realm="uploads"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer uploads.Close()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if username, password, ok := r.BasicAuth(); !ok || username != "user" || password != "pass" {
+			w.Header().Set("WWW-Authenticate", `Basic realm="registry"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/" {
+			w.Header().Set("Location", uploads.URL+sessionPath)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+	}))
+	defer ts.Close()
+
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+	repo, err := NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatalf("NewRepository() error = %v", err)
+	}
+	repo.Registry.PlainHTTP = true
+	repo.Registry.Client = &auth.Client{
+		Client: &http.Client{},
+		CredentialFunc: credentials.StaticCredentialFunc(uri.Host, credentials.Credential{
+			Username: "user",
+			Password: "pass",
+		}),
+	}
+
+	if err := repo.Blobs().Push(context.Background(), blobDesc, bytes.NewReader(blob)); err == nil {
+		t.Fatal("Blobs.Push() error = nil, want an error from the upload host challenge")
+	}
+	if len(uploadAuth) == 0 {
+		t.Fatal("upload host received no requests")
+	}
+	for i, got := range uploadAuth {
+		if got != "" {
+			t.Errorf("upload host request %d authorization = %q, want none", i, got)
+		}
 	}
 }
 

@@ -61,7 +61,8 @@ type chunkedUpload struct {
 	// digester computes the digest of the streamed content.
 	digester digest.Digester
 	// auth is the Authorization header reused across requests in the session.
-	auth   string
+	auth string
+	// origin is the registry URL the session was opened on; auth is reused only on its host.
 	origin *url.URL
 }
 

@@ -1379,6 +1379,7 @@ func (s *blobStore) pushSingleRequest(ctx context.Context, expected ocispec.Desc
 // sameUploadHost reports whether location and reqURL refer to the same host,
 // normalizing implicit default ports (80 for http, 443 for https) so that
 // e.g. "example.com" and "example.com:443" compare equal over HTTPS.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-jxpm-75mh-9fp7
 func sameUploadHost(location, reqURL *url.URL) bool {
 	if !strings.EqualFold(location.Hostname(), reqURL.Hostname()) {
 		return false
@@ -1397,9 +1398,9 @@ func sameUploadHost(location, reqURL *url.URL) bool {
 
 // resolveUploadLocation extracts the next blob-upload Location from resp,
 // resolved against the request URL. It applies the port-443 work-around and
-// rejects https scheme downgrades.
+// rejects https scheme downgrades. Credentials stay on the registry host via
+// the sameUploadHost checks at the call sites.
 // Reference: https://github.com/oras-project/oras-go/issues/177
-// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-jxpm-75mh-9fp7
 func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, error) {
 	location, err := resp.Location()
 	if err != nil {
