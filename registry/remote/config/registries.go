@@ -479,6 +479,11 @@ func extractHost(ref string) string {
 // lowerHost lower-cases the host part of a reference or prefix, leaving the
 // case-sensitive repository, tag and digest untouched.
 func lowerHost(ref string) string {
+	if strings.HasPrefix(ref, "[") {
+		if end := strings.Index(ref, "]"); end != -1 {
+			return strings.ToLower(ref[:end+1]) + ref[end+1:]
+		}
+	}
 	host := extractHost(ref)
 	// extractHost cannot tell a port from a tag in a slash-less reference, so
 	// it hands back "myimage:V1" whole. Fold only up to the ":" so a short-name
