@@ -42,7 +42,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
           check-latest: true
       - name: Build quickstart tutorial
-        run: go build -tags tutorial ./docs/tutorial/quickstart
+        run: go vet -tags tutorial ./docs/tutorial/quickstart
       - name: Run unit tests
         run: make test
       - name: Upload coverage to codecov.io

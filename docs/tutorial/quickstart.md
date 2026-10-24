@@ -236,7 +236,7 @@ tag2
 tag3
 Pushed manifest layer: sha256:4f19474743ecb04b60156ea41b73e06fdf6a5b758e007b788aaa92595dcd3a49
 Pushed and tagged manifest
-Fetched manifest: 558 bytes
+Fetched manifest: 520 bytes
 Fetched layer: sha256:4f19474743ecb04b60156ea41b73e06fdf6a5b758e007b788aaa92595dcd3a49 22 bytes
 Copied the artifact
 ```
