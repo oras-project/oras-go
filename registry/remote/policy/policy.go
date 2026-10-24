@@ -32,6 +32,10 @@ import (
 // file exists at any of the default search locations.
 var ErrNoPolicyFound = errors.New("no policy.json found")
 
+// ErrDenied is returned when access to an image or repository is denied
+// by policy.
+var ErrDenied = errors.New("access denied by policy")
+
 const (
 	// policyConfUserDir is the user-level configuration directory for policy.json
 	policyConfUserDir = ".config/containers"

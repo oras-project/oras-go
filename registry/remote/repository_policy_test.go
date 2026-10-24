@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -69,9 +70,23 @@ func assertPolicyDenied(t *testing.T, err error, operation string) {
 		t.Errorf("%s should fail due to reject policy", operation)
 		return
 	}
-	if !strings.Contains(err.Error(), "access denied") {
-		t.Errorf("%s error should mention access denied, got: %v", operation, err)
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Errorf("%s error should wrap policy.ErrDenied, got: %v", operation, err)
 	}
+}
+
+type failRequirement struct{}
+
+func (f *failRequirement) Type() string    { return "failRequirement" }
+func (f *failRequirement) Validate() error { return nil }
+
+type stubVerifier struct {
+	allow bool
+	err   error
+}
+
+func (s *stubVerifier) Verify(ctx context.Context, req *policy.PRSignedBy, image policy.ImageReference) (bool, error) {
+	return s.allow, s.err
 }
 
 func TestRepository_PolicyEnforcement(t *testing.T) {
@@ -106,8 +121,8 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 		if err == nil {
 			t.Error("checkPolicy() with reject policy should error, got nil")
 		}
-		if !strings.Contains(err.Error(), "access denied") {
-			t.Errorf("error should mention access denied, got: %v", err)
+		if !errors.Is(err, policy.ErrDenied) {
+			t.Errorf("error should wrap policy.ErrDenied, got: %v", err)
 		}
 	})
 
@@ -125,6 +140,119 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 		err = repo.checkPolicy(context.Background(), "")
 		if err != nil {
 			t.Errorf("checkPolicy() with accept policy should not error, got: %v", err)
+		}
+	})
+
+	// Test policy denial on digest reference (checkPolicy line 74)
+	t.Run("reject policy with digest", func(t *testing.T) {
+		pol := &policy.Policy{
+			Default: policy.PolicyRequirements{
+				&policy.PRSignedBy{
+					KeyType: "GPGKeys",
+					KeyPath: "/dummy/key.gpg",
+				},
+			},
+		}
+		verifier := &stubVerifier{allow: false}
+		evaluator, err := policy.NewEvaluator(pol, policy.WithSignedByVerifier(verifier))
+		if err != nil {
+			t.Fatalf("failed to create evaluator: %v", err)
+		}
+		reg.Policy = evaluator
+
+		err = repo.checkPolicy(context.Background(), "test@sha256:1111111111111111111111111111111111111111111111111111111111111111")
+		if err == nil {
+			t.Fatal("checkPolicy() on digest with rejecting verifier should error, got nil")
+		}
+		if !errors.Is(err, policy.ErrDenied) {
+			t.Errorf("error should wrap policy.ErrDenied, got: %v", err)
+		}
+	})
+
+	// Test policy denial on resolved reference (checkPolicyResolved line 115)
+	t.Run("reject policy resolved", func(t *testing.T) {
+		pol := &policy.Policy{
+			Default: policy.PolicyRequirements{
+				&policy.PRSignedBy{
+					KeyType: "GPGKeys",
+					KeyPath: "/dummy/key.gpg",
+				},
+			},
+		}
+		verifier := &stubVerifier{allow: false}
+		evaluator, err := policy.NewEvaluator(pol, policy.WithSignedByVerifier(verifier))
+		if err != nil {
+			t.Fatalf("failed to create evaluator: %v", err)
+		}
+		reg.Policy = evaluator
+
+		desc := ocispec.Descriptor{
+			Digest: digest.Digest("sha256:1111111111111111111111111111111111111111111111111111111111111111"),
+		}
+		err = repo.checkPolicyResolved(context.Background(), "latest", desc)
+		if err == nil {
+			t.Fatal("checkPolicyResolved() with rejecting verifier should error, got nil")
+		}
+		if !errors.Is(err, policy.ErrDenied) {
+			t.Errorf("error should wrap policy.ErrDenied, got: %v", err)
+		}
+	})
+
+	// Test evaluation failure does NOT match policy.ErrDenied
+	t.Run("evaluator failure reference does not match ErrDenied", func(t *testing.T) {
+		pol := &policy.Policy{
+			Default: policy.PolicyRequirements{&failRequirement{}},
+		}
+		evaluator, err := policy.NewEvaluator(pol)
+		if err != nil {
+			t.Fatalf("failed to create evaluator: %v", err)
+		}
+		reg.Policy = evaluator
+
+		err = repo.checkPolicy(context.Background(), "")
+		if err == nil {
+			t.Fatal("checkPolicy() with failing requirement should error, got nil")
+		}
+		if errors.Is(err, policy.ErrDenied) {
+			t.Errorf("evaluator failure error should not match policy.ErrDenied, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "policy check failed") {
+			t.Errorf("error should mention policy check failed, got: %v", err)
+		}
+	})
+
+	t.Run("evaluator failure resolved does not match ErrDenied", func(t *testing.T) {
+		pol := &policy.Policy{
+			Default: policy.PolicyRequirements{
+				&policy.PRSignedBy{
+					KeyType: "GPGKeys",
+					KeyPath: "/dummy/key.gpg",
+				},
+			},
+		}
+		customErr := errors.New("signature verifier failure")
+		verifier := &stubVerifier{err: customErr}
+		evaluator, err := policy.NewEvaluator(pol, policy.WithSignedByVerifier(verifier))
+		if err != nil {
+			t.Fatalf("failed to create evaluator: %v", err)
+		}
+		reg.Policy = evaluator
+
+		desc := ocispec.Descriptor{
+			Digest: digest.Digest("sha256:1111111111111111111111111111111111111111111111111111111111111111"),
+		}
+		err = repo.checkPolicyResolved(context.Background(), "latest", desc)
+		if err == nil {
+			t.Fatal("checkPolicyResolved() with failing verifier should error, got nil")
+		}
+		if errors.Is(err, policy.ErrDenied) {
+			t.Errorf("evaluator failure error should not match policy.ErrDenied, got: %v", err)
+		}
+		if !errors.Is(err, customErr) {
+			t.Errorf("error should wrap custom verifier error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "policy check failed") {
+			t.Errorf("error should mention policy check failed, got: %v", err)
 		}
 	})
 }
