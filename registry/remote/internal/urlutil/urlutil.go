@@ -17,13 +17,15 @@ package urlutil
 
 import (
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 )
 
-// CanonicalHostPort returns the lower-cased host plus explicit-or-default port
-// (80 for http, 443 for https). It uses net.SplitHostPort and net.JoinHostPort
-// to properly handle IPv6 brackets and standard ports.
+// CanonicalHostPort returns the canonical host (canonical IP literal or
+// lower-cased host name) plus explicit-or-default port (80 for http, 443 for
+// https). It uses net.SplitHostPort and net.JoinHostPort to properly handle
+// IPv6 brackets and standard ports.
 func CanonicalHostPort(u *url.URL) string {
 	if u == nil {
 		return ""
@@ -41,7 +43,12 @@ func CanonicalHostPort(u *url.URL) string {
 			port = "80"
 		}
 	}
-	return net.JoinHostPort(strings.ToLower(host), port)
+	if addr, err := netip.ParseAddr(host); err == nil {
+		host = addr.String()
+	} else {
+		host = strings.ToLower(host)
+	}
+	return net.JoinHostPort(host, port)
 }
 
 // SameOrigin reports whether URLs a and b share the same origin, that is,

@@ -122,6 +122,61 @@ func TestCanonicalHostPort(t *testing.T) {
 			raw:  "https://[2001:db8::1]:443",
 			want: "[2001:db8::1]:443",
 		},
+		{
+			name: "ipv6 uncompressed zeroes localhost default port",
+			raw:  "https://[0:0:0:0:0:0:0:1]",
+			want: "[::1]:443",
+		},
+		{
+			name: "ipv6 uncompressed zeroes localhost explicit port 443",
+			raw:  "https://[0:0:0:0:0:0:0:1]:443",
+			want: "[::1]:443",
+		},
+		{
+			name: "ipv6 uncompressed zeroes localhost non-default port",
+			raw:  "https://[0:0:0:0:0:0:0:1]:8080",
+			want: "[::1]:8080",
+		},
+		{
+			name: "ipv6 uppercase hex with port",
+			raw:  "https://[2001:DB8::FF]:443",
+			want: "[2001:db8::ff]:443",
+		},
+		{
+			name: "ipv6 lowercase hex default port",
+			raw:  "https://[2001:db8::ff]",
+			want: "[2001:db8::ff]:443",
+		},
+		{
+			name: "ipv6 leading zeroes in hextets",
+			raw:  "https://[2001:0db8:0000:0000:0000:0000:0000:0001]",
+			want: "[2001:db8::1]:443",
+		},
+		{
+			name: "ipv6 zone preserved without lower-casing",
+			raw:  "https://[fe80::1%25ETH0]:443",
+			want: "[fe80::1%ETH0]:443",
+		},
+		{
+			name: "ipv4 localhost default port",
+			raw:  "http://127.0.0.1",
+			want: "127.0.0.1:80",
+		},
+		{
+			name: "ipv4 localhost explicit port 80",
+			raw:  "http://127.0.0.1:80",
+			want: "127.0.0.1:80",
+		},
+		{
+			name: "ipv4 mapped ipv6 default port",
+			raw:  "https://[::ffff:127.0.0.1]",
+			want: "[::ffff:127.0.0.1]:443",
+		},
+		{
+			name: "ipv4 mapped ipv6 uncompressed explicit port 443",
+			raw:  "https://[0:0:0:0:0:ffff:127.0.0.1]:443",
+			want: "[::ffff:127.0.0.1]:443",
+		},
 
 		// Non-HTTP schemes
 		{
@@ -270,6 +325,60 @@ func TestSameOrigin(t *testing.T) {
 			a:    "https://[2001:db8::1]:8443",
 			b:    "https://[2001:db8::1]:9443",
 			want: false,
+		},
+		{
+			name: "ipv6 equivalent localhost default vs explicit port",
+			a:    "https://[::1]/",
+			b:    "https://[0:0:0:0:0:0:0:1]:443/",
+			want: true,
+		},
+		{
+			name: "ipv6 equivalent localhost non-default port",
+			a:    "https://[::1]:8080/",
+			b:    "https://[0:0:0:0:0:0:0:1]:8080/",
+			want: true,
+		},
+		{
+			name: "ipv6 hex case insensitivity default vs explicit port",
+			a:    "https://[2001:db8::ff]/",
+			b:    "https://[2001:DB8::FF]:443/",
+			want: true,
+		},
+		{
+			name: "ipv6 leading zeroes in hextets equivalent",
+			a:    "https://[2001:0db8:0000:0000:0000:0000:0000:0001]",
+			b:    "https://[2001:db8::1]:443",
+			want: true,
+		},
+		{
+			name: "ipv6 equivalent localhost different port",
+			a:    "https://[::1]:8080/",
+			b:    "https://[0:0:0:0:0:0:0:1]:9090/",
+			want: false,
+		},
+		{
+			name: "ipv6 zone identifier case preserved",
+			a:    "https://[fe80::1%25ETH0]:443",
+			b:    "https://[FE80::1%25ETH0]",
+			want: true,
+		},
+		{
+			name: "ipv6 different zone identifiers",
+			a:    "https://[fe80::1%25eth0]:443",
+			b:    "https://[fe80::1%25eth1]:443",
+			want: false,
+		},
+		{
+			name: "ipv4 localhost default vs explicit port",
+			a:    "http://127.0.0.1",
+			b:    "http://127.0.0.1:80",
+			want: true,
+		},
+		{
+			name: "ipv4 mapped ipv6 equivalent forms",
+			a:    "https://[::ffff:127.0.0.1]",
+			b:    "https://[0:0:0:0:0:ffff:127.0.0.1]:443",
+			want: true,
 		},
 
 		// Non-HTTP schemes
