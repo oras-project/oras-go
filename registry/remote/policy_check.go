@@ -62,7 +62,7 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 		return fmt.Errorf("policy check failed: %w", err)
 	}
 	if !allowed {
-		return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
+		return fmt.Errorf("access denied by policy for %s: %w", imageRef.Reference, policy.ErrDenied)
 	}
 	imageRef.Digest = r.policyDigest(reference)
 	if imageRef.Digest != "" {
@@ -71,7 +71,7 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 			return fmt.Errorf("policy check failed: %w", err)
 		}
 		if !allowed {
-			return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
+			return fmt.Errorf("access denied by policy for %s: %w", imageRef.Reference, policy.ErrDenied)
 		}
 	}
 	return nil
@@ -112,7 +112,7 @@ func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, 
 		return fmt.Errorf("policy check failed: %w", err)
 	}
 	if !allowed {
-		return fmt.Errorf("access denied by policy for %s", imageRef.Reference)
+		return fmt.Errorf("access denied by policy for %s: %w", imageRef.Reference, policy.ErrDenied)
 	}
 	return nil
 }

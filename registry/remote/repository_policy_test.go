@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -69,8 +70,8 @@ func assertPolicyDenied(t *testing.T, err error, operation string) {
 		t.Errorf("%s should fail due to reject policy", operation)
 		return
 	}
-	if !strings.Contains(err.Error(), "access denied") {
-		t.Errorf("%s error should mention access denied, got: %v", operation, err)
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Errorf("%s error should match policy.ErrDenied, got: %v", operation, err)
 	}
 }
 
@@ -106,8 +107,8 @@ func TestRepository_PolicyEnforcement(t *testing.T) {
 		if err == nil {
 			t.Error("checkPolicy() with reject policy should error, got nil")
 		}
-		if !strings.Contains(err.Error(), "access denied") {
-			t.Errorf("error should mention access denied, got: %v", err)
+		if !errors.Is(err, policy.ErrDenied) {
+			t.Errorf("error should match policy.ErrDenied, got: %v", err)
 		}
 	})
 
