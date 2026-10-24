@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -36,6 +37,8 @@ import (
 	"github.com/oras-project/oras-go/v3/content"
 	. "github.com/oras-project/oras-go/v3/registry/internal/doc"
 	"github.com/oras-project/oras-go/v3/registry/remote"
+	"github.com/oras-project/oras-go/v3/registry/remote/config"
+	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 )
 
 const (
@@ -278,6 +281,64 @@ func TestMain(m *testing.M) {
 	http.DefaultTransport = ts.Client().Transport
 
 	os.Exit(m.Run())
+}
+
+func ExampleClientBuilder_NewRepository() {
+	tmpDir, err := os.MkdirTemp("", "client-builder-example")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dockerConfigPath := filepath.Join(tmpDir, "config.json")
+	if err := os.WriteFile(dockerConfigPath, []byte(`{"auths":{}}`), 0644); err != nil {
+		panic(err)
+	}
+	registriesConfigPath := filepath.Join(tmpDir, "registries.conf")
+	registriesConfig := fmt.Sprintf(`[[registry]]
+prefix = %q
+location = %q
+insecure = true
+`, host, host)
+	if err := os.WriteFile(registriesConfigPath, []byte(registriesConfig), 0644); err != nil {
+		panic(err)
+	}
+
+	configs, err := config.LoadConfigsWithOptions(config.LoadConfigsOptions{
+		DockerConfigPath:     dockerConfigPath,
+		ContainersAuthPath:   filepath.Join(tmpDir, "auth.json"),
+		RegistriesConfigPath: registriesConfigPath,
+		PolicyConfigPath:     filepath.Join(tmpDir, "policy.json"),
+		RegistriesDPath:      filepath.Join(tmpDir, "registries.d"),
+		CertsDirPaths:        []string{filepath.Join(tmpDir, "certs.d")},
+	})
+	if err != nil {
+		panic(err)
+	}
+	props, err := configs.RegistryProperties(host + "/" + exampleRepositoryName)
+	if err != nil {
+		panic(err)
+	}
+	store, err := configs.CredentialStore(credentials.StoreOptions{})
+	if err != nil {
+		panic(err)
+	}
+	builder := remote.NewClientBuilder()
+	builder.CredentialStore = store
+	repo, err := builder.NewRepository(props)
+	if err != nil {
+		panic(err)
+	}
+
+	err = repo.Tags(context.Background(), "", func(tags []string) error {
+		fmt.Println(strings.Join(tags, ", "))
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	// Output:
+	// tag1, tag2
 }
 
 // ExampleRepository_Tags gives example snippets for listing tags in a repository.

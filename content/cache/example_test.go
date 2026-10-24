@@ -17,10 +17,47 @@ package cache_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/oras-project/oras-go/v3/content/cache"
 	"github.com/oras-project/oras-go/v3/content/memory"
 )
+
+func ExampleNewFromEnv() {
+	tmpDir, err := os.MkdirTemp("", "cache-example")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	original, wasSet := os.LookupEnv(cache.EnvVarName)
+	defer func() {
+		var err error
+		if wasSet {
+			err = os.Setenv(cache.EnvVarName, original)
+		} else {
+			err = os.Unsetenv(cache.EnvVarName)
+		}
+		if err != nil {
+			panic(err)
+		}
+	}()
+
+	root := filepath.Join(tmpDir, "oras-cache")
+	if err := os.Setenv(cache.EnvVarName, root); err != nil {
+		panic(err)
+	}
+	fmt.Println("Root:", filepath.Base(cache.NewFromEnv().Root))
+
+	if err := os.Unsetenv(cache.EnvVarName); err != nil {
+		panic(err)
+	}
+	fmt.Println("Unset:", cache.NewFromEnv() == nil)
+	// Output:
+	// Root: oras-cache
+	// Unset: true
+}
 
 // ExampleCacheReadOnlyTarget demonstrates how to wrap a ReadOnlyTarget with a cache layer.
 func ExampleCacheReadOnlyTarget() {
