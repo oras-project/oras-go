@@ -277,7 +277,11 @@ func (r Reference) Validate() error {
 
 // ValidateRegistry validates the registry.
 func (r Reference) ValidateRegistry() error {
-	if uri, err := url.ParseRequestURI("dummy://" + r.Registry); err != nil || uri.Host == "" || uri.Host != r.Registry {
+	uri, err := url.ParseRequestURI("dummy://" + r.Registry)
+	if err != nil || uri.Host == "" || uri.Host != r.Registry {
+		return fmt.Errorf("%w: invalid registry %q", errdef.ErrInvalidReference, r.Registry)
+	}
+	if strings.Contains(uri.Hostname(), ":") && !strings.HasPrefix(r.Registry, "[") {
 		return fmt.Errorf("%w: invalid registry %q", errdef.ErrInvalidReference, r.Registry)
 	}
 	return nil
