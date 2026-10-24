@@ -112,6 +112,42 @@ func TestNewReference(t *testing.T) {
 			input:   "docker.io/library/alpine with spaces",
 			wantErr: true,
 		},
+		{
+			name:    "invalid - unbracketed IPv6 registry",
+			input:   "::1/repo:tag",
+			wantErr: true,
+		},
+		{
+			name:    "invalid - unbracketed IPv6 registry with port",
+			input:   "::1:5000/repo:tag",
+			wantErr: true,
+		},
+		{
+			name:    "invalid - unbracketed IPv6 literal registry",
+			input:   "2001:db8::1/repo:tag",
+			wantErr: true,
+		},
+		{
+			name:     "bracketed IPv6 registry",
+			input:    "[::1]/repo:tag",
+			wantReg:  "[::1]",
+			wantRepo: "repo",
+			wantTag:  "tag",
+		},
+		{
+			name:     "bracketed IPv6 registry with port",
+			input:    "[::1]:5000/repo:tag",
+			wantReg:  "[::1]:5000",
+			wantRepo: "repo",
+			wantTag:  "tag",
+		},
+		{
+			name:     "bracketed IPv6 literal registry with port",
+			input:    "[2001:db8::1]:5000/repo:tag",
+			wantReg:  "[2001:db8::1]:5000",
+			wantRepo: "repo",
+			wantTag:  "tag",
+		},
 	}
 
 	for _, tt := range tests {
