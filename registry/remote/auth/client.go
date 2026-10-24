@@ -105,6 +105,9 @@ type Client struct {
 
 	// CredentialFunc specifies the function for resolving the credential for the
 	// given registry resource.
+	// It is called for the host of every challenged request, including blob
+	// upload locations on a host other than the registry, so it must only
+	// return a credential for the hosts that credential belongs to.
 	// EmptyCredential is a valid return value and should not be considered as
 	// an error.
 	// If nil, the credential is always resolved to EmptyCredential.
