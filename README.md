@@ -20,21 +20,21 @@ Gain insights into the fundamental concepts:
 
 ### Quickstart
 
-Follow the step-by-step tutorial to use `oras-go` v2:
+Follow the step-by-step tutorial to use `oras-go` v3:
 
-- [Quickstart: Managing OCI Artifacts with `oras-go` v2](docs/tutorial/quickstart.md)
+- [Quickstart: Managing OCI Artifacts with `oras-go` v3](docs/tutorial/quickstart.md)
 
 ### Examples
 
-Check out sample code for common use cases of `oras-go` v2:
+Check out sample code for common use cases of `oras-go` v3:
 
-- [Artifact copying](https://pkg.go.dev/oras.land/oras-go/v2#pkg-examples)
-- [Registry operations](https://pkg.go.dev/oras.land/oras-go/v2/registry#pkg-examples)
-- [Repository operations](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#pkg-examples)
-- [Authentication](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/auth#pkg-examples)
-- [Credentials management](https://pkg.go.dev/oras.land/oras-go/v2/registry/remote/credentials#pkg-examples)
+- [Artifact copying](https://pkg.go.dev/github.com/oras-project/oras-go/v3#pkg-examples)
+- [Registry operations](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry#pkg-examples)
+- [Repository operations](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote#pkg-examples)
+- [Authentication](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote/auth#pkg-examples)
+- [Credentials management](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote/credentials#pkg-examples)
 
-Find more API examples at [pkg.go.dev](https://pkg.go.dev/oras.land/oras-go/v2).
+Find more API examples at [pkg.go.dev](https://pkg.go.dev/github.com/oras-project/oras-go/v3).
 
 ## Versioning
 

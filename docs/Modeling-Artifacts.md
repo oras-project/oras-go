@@ -1,6 +1,6 @@
 # Modeling Artifacts
 
-In `oras-go` v2, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) stored in [Content-Addressable Storages (CASs)](https://en.wikipedia.org/wiki/Content-addressable_storage).
+In `oras-go` v3, artifacts are modeled as [Directed Acyclic Graphs (DAGs)](https://en.wikipedia.org/wiki/Directed_acyclic_graph) stored in [Content-Addressable Storages (CASs)](https://en.wikipedia.org/wiki/Content-addressable_storage).
 
 In this model, an artifact is represented as a rooted DAG whose root node is an [OCI Manifest](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md). Artifacts may be grouped by an [OCI Index](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-index.md), which is also a rooted DAG.
 
