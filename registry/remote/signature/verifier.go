@@ -20,11 +20,27 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/oras-project/oras-go/v3/errdef"
 	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
+
+// isNilStore reports whether the given SignatureStore is nil or holds a nil pointer.
+func isNilStore(store SignatureStore) bool {
+	if store == nil {
+		return true
+	}
+	val := reflect.ValueOf(store)
+	switch val.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.UnsafePointer, reflect.Interface, reflect.Slice:
+		return val.IsNil()
+	default:
+		return false
+	}
+}
 
 // DefaultSignedByVerifier implements policy.SignedByVerifier by fetching
 // signatures from a SignatureStore, verifying OpenPGP signatures, validating
@@ -36,6 +52,9 @@ type DefaultSignedByVerifier struct {
 // NewSignedByVerifier creates a new DefaultSignedByVerifier with the given
 // signature store.
 func NewSignedByVerifier(store SignatureStore) *DefaultSignedByVerifier {
+	if isNilStore(store) {
+		store = nil
+	}
 	return &DefaultSignedByVerifier{store: store}
 }
 
@@ -58,6 +77,10 @@ func NewSignedByVerifierFromConfig(cfg *config.RegistriesDConfig, scope string) 
 //     validates the digest matches, and applies identity matching.
 //  4. Returns true if at least one valid signature is found.
 func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *policy.PRSignedBy, image policy.ImageReference) (bool, error) {
+	if v == nil || v.store == nil || isNilStore(v.store) {
+		return false, fmt.Errorf("signedBy verification requires a signature store: %w", errdef.ErrUnsupported)
+	}
+
 	// Load keyring.
 	keyring, err := v.loadKeyRing(req)
 	if err != nil {

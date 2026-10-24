@@ -494,3 +494,21 @@ func readBody(r *http.Request) ([]byte, error) {
 	}
 	return data, nil
 }
+
+func TestLookasideStore_NilReceiver(t *testing.T) {
+	var s *LookasideStore
+	s.SetHTTPClient(nil)
+
+	sigs, err := s.GetSignatures(context.Background(), "registry.example.com/repo", digest.FromString("test"))
+	if err != nil {
+		t.Errorf("GetSignatures() error = %v, want nil", err)
+	}
+	if sigs != nil {
+		t.Errorf("GetSignatures() = %v, want nil", sigs)
+	}
+
+	err = s.PutSignature(context.Background(), "registry.example.com/repo", digest.FromString("test"), []byte("sig"))
+	if err == nil {
+		t.Error("PutSignature() error = nil, want error")
+	}
+}
