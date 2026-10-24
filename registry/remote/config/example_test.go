@@ -23,6 +23,44 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/config"
 )
 
+func ExampleLoadConfigsWithOptions() {
+	tmpDir, err := os.MkdirTemp("", "config-example")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dockerConfigPath := filepath.Join(tmpDir, "config.json")
+	if err := os.WriteFile(dockerConfigPath, []byte(`{"auths":{}}`), 0644); err != nil {
+		panic(err)
+	}
+	registriesConfigPath := filepath.Join(tmpDir, "registries.conf")
+	if err := os.WriteFile(registriesConfigPath, []byte(`[[registry]]
+prefix = "registry.example.com"
+location = "registry.example.com"
+`), 0644); err != nil {
+		panic(err)
+	}
+
+	configs, err := config.LoadConfigsWithOptions(config.LoadConfigsOptions{
+		DockerConfigPath:     dockerConfigPath,
+		ContainersAuthPath:   filepath.Join(tmpDir, "auth.json"),
+		RegistriesConfigPath: registriesConfigPath,
+		PolicyConfigPath:     filepath.Join(tmpDir, "policy.json"),
+		RegistriesDPath:      filepath.Join(tmpDir, "registries.d"),
+		CertsDirPaths:        []string{filepath.Join(tmpDir, "certs.d")},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Docker config:", configs.DockerConfig != nil)
+	fmt.Println("Registries config:", configs.RegistriesConfig != nil)
+	// Output:
+	// Docker config: true
+	// Registries config: true
+}
+
 func ExampleRegistriesConfig_RegistryProperties() {
 	// Create a sample registries.conf file.
 	tmpDir, err := os.MkdirTemp("", "registries-example")

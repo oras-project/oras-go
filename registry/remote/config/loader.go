@@ -26,9 +26,10 @@ import (
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
 
-// Configs holds loaded configuration from Docker config.json and
-// system registries.conf. Fields are nil if the corresponding file
-// was not found.
+// Configs holds configuration loaded from Docker config.json, containers
+// auth.json, registries.conf, policy.json, registries.d, and
+// containers-certs.d. Pointer fields are nil if the corresponding file was not
+// found.
 type Configs struct {
 	// DockerConfig is the loaded Docker config.json, or nil if not found.
 	DockerConfig *Config
@@ -88,8 +89,9 @@ type LoadConfigsOptions struct {
 	CertsDirPaths []string
 }
 
-// LoadConfigs loads Docker config.json and system registries.conf from
-// their default locations. Missing files are silently skipped.
+// LoadConfigs loads Docker config.json, containers auth.json, registries.conf,
+// policy.json, registries.d, and containers-certs.d from their default
+// locations. Missing files are silently skipped.
 // Returns an error only if a file exists but cannot be parsed.
 func LoadConfigs() (*Configs, error) {
 	return LoadConfigsWithOptions(LoadConfigsOptions{})

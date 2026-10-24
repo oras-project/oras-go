@@ -662,6 +662,18 @@ func TestMatchesPrefix(t *testing.T) {
 			prefix: "docker.io/nginx:latest",
 			want:   false,
 		},
+		{
+			name:   "ipv6 ref mixed-case",
+			ref:    "[FE80:AB::1]:5000/repo",
+			prefix: "[fe80:ab::1]:5000",
+			want:   true,
+		},
+		{
+			name:   "ipv6 prefix mixed-case",
+			ref:    "[fe80:ab::1]:5000/repo",
+			prefix: "[FE80:AB::1]:5000",
+			want:   true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -712,6 +724,64 @@ func TestExtractHost(t *testing.T) {
 			got := extractHost(tt.ref)
 			if got != tt.want {
 				t.Errorf("extractHost(%q) = %q, want %q", tt.ref, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLowerHost(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  string
+		want string
+	}{
+		{
+			name: "ipv6 host uppercase with port and path",
+			ref:  "[FE80:AB::1]:5000/repo",
+			want: "[fe80:ab::1]:5000/repo",
+		},
+		{
+			name: "ipv6 host uppercase with path without port",
+			ref:  "[FE80:AB::1]/repo",
+			want: "[fe80:ab::1]/repo",
+		},
+		{
+			name: "ipv6 host bare",
+			ref:  "[FE80:AB::1]",
+			want: "[fe80:ab::1]",
+		},
+		{
+			name: "ipv6 host with tag preserved",
+			ref:  "[FE80:AB::1]:5000/repo:Tag",
+			want: "[fe80:ab::1]:5000/repo:Tag",
+		},
+		{
+			name: "standard hostname with port and repo",
+			ref:  "localhost:5000/repo",
+			want: "localhost:5000/repo",
+		},
+		{
+			name: "standard mixed-case hostname with port and repo",
+			ref:  "LocalHost:5000/Repo",
+			want: "localhost:5000/Repo",
+		},
+		{
+			name: "short-name with uppercase tag",
+			ref:  "myimage:V1",
+			want: "myimage:V1",
+		},
+		{
+			name: "uppercase short-name with tag",
+			ref:  "MyImage:V1",
+			want: "myimage:V1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := lowerHost(tt.ref)
+			if got != tt.want {
+				t.Errorf("lowerHost(%q) = %q, want %q", tt.ref, got, tt.want)
 			}
 		})
 	}
