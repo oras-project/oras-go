@@ -62,13 +62,16 @@ var DefaultExtendedCopyGraphOptions ExtendedCopyGraphOptions = ExtendedCopyGraph
 	CopyGraphOptions: DefaultCopyGraphOptions,
 }
 
-// ExtendedCopyGraphOptions contains parameters for [oras.ExtendedCopyGraph].
+// ExtendedCopyGraphOptions contains parameters for [oras.ExtendedCopyGraph]
+// and [oras.ExtendedCopyGraphNodes].
 type ExtendedCopyGraphOptions struct {
 	CopyGraphOptions
 	// Depth limits the maximum depth of the directed acyclic graph (DAG) that
 	// will be extended-copied.
 	// If Depth is no specified, or the specified value is less than or
 	// equal to 0, the depth limit will be considered as infinity.
+	// When several start nodes are given, the depth is measured from the
+	// nearest start node.
 	Depth int
 	// FindPredecessors finds the predecessors of the current node.
 	// It may be called concurrently, so it must be safe for concurrent use.
@@ -119,12 +122,38 @@ func ExtendedCopy(ctx context.Context, src ReadOnlyGraphTarget, srcRef string, d
 // In other words, it copies an artifact along with its referrers or other
 // predecessor manifests referencing it.
 // The node (e.g. a manifest of the artifact) is identified by a descriptor.
+//
+// To extended-copy from several nodes in one call, use
+// [ExtendedCopyGraphNodes].
 func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, dst content.Storage, node ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
+	return extendedCopyGraph(ctx, "ExtendedCopyGraph", src, dst, []ocispec.Descriptor{node}, opts)
+}
+
+// ExtendedCopyGraphNodes copies the directed acyclic graph (DAG) that are
+// reachable from any of the given nodes from the source GraphStorage to the
+// destination Storage. It behaves like [ExtendedCopyGraph] started from
+// several nodes at once: the nodes share one traversal, one concurrency
+// limit, one metadata cache and one content status tracker, so content
+// reachable from more than one node is copied only once.
+//
+// Every start node is at depth 0. If opts.Depth is set, the depth of any other
+// node is measured from the nearest start node.
+// Duplicate start nodes are visited once, and a start node that is also a
+// predecessor of another start node is visited once as well.
+//
+// It returns an error if nodes is empty.
+func ExtendedCopyGraphNodes(ctx context.Context, src content.ReadOnlyGraphStorage, dst content.Storage, nodes []ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
+	return extendedCopyGraph(ctx, "ExtendedCopyGraphNodes", src, dst, nodes, opts)
+}
+
+// extendedCopyGraph implements [ExtendedCopyGraph] and
+// [ExtendedCopyGraphNodes]. op names the public function in errors.
+func extendedCopyGraph(ctx context.Context, op string, src content.ReadOnlyGraphStorage, dst content.Storage, nodes []ocispec.Descriptor, opts ExtendedCopyGraphOptions) error {
 	if src == nil {
-		return newCopyError("ExtendedCopyGraph", CopyErrorOriginSource, ocispec.Descriptor{}, errors.New("nil source target"))
+		return newCopyError(op, CopyErrorOriginSource, ocispec.Descriptor{}, errors.New("nil source target"))
 	}
 	if dst == nil {
-		return newCopyError("ExtendedCopyGraph", CopyErrorOriginDestination, ocispec.Descriptor{}, errors.New("nil destination target"))
+		return newCopyError(op, CopyErrorOriginDestination, ocispec.Descriptor{}, errors.New("nil destination target"))
 	}
 
 	// if Concurrency is not set or invalid, use the default concurrency
@@ -133,7 +162,7 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 	}
 	limiter := semaphore.NewWeighted(int64(opts.Concurrency))
 
-	roots, err := findRoots(ctx, src, node, findRootsOptions{
+	roots, err := findRoots(ctx, op, src, nodes, findRootsOptions{
 		Depth:            opts.Depth,
 		FindPredecessors: opts.FindPredecessors,
 	}, limiter)
@@ -162,10 +191,19 @@ func ExtendedCopyGraph(ctx context.Context, src content.ReadOnlyGraphStorage, ds
 	}, roots...)
 }
 
-// findRoots finds the root nodes reachable from the given node through a
-// breadth-first search. The predecessors of the nodes at the same depth are
-// found concurrently, bounded by limiter.
-func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node ocispec.Descriptor, opts findRootsOptions, limiter *semaphore.Weighted) ([]ocispec.Descriptor, error) {
+// findRoots finds the root nodes reachable from the given start nodes through
+// a single breadth-first search. The predecessors of the nodes at the same
+// depth are found concurrently, bounded by limiter.
+//
+// All start nodes are at depth 0, duplicates are collapsed, and a start node
+// that is reachable from another start node is still visited only once.
+// It returns an error if nodes is empty.
+func findRoots(ctx context.Context, op string, storage content.ReadOnlyGraphStorage, nodes []ocispec.Descriptor, opts findRootsOptions, limiter *semaphore.Weighted) ([]ocispec.Descriptor, error) {
+	if len(nodes) == 0 {
+		return nil, newCopyError(op, CopyErrorOriginSource, ocispec.Descriptor{}, errors.New("at least one start node is required"))
+
+	}
+
 	visited := set.New[descriptor.Descriptor]()
 	rootMap := make(map[descriptor.Descriptor]ocispec.Descriptor)
 	addRoot := func(key descriptor.Descriptor, val ocispec.Descriptor) {
@@ -182,10 +220,18 @@ func findRoots(ctx context.Context, storage content.ReadOnlyGraphStorage, node o
 	}
 
 	// Visit nodes level by level so a shared predecessor is processed at its
-	// shortest distance from the initial node.
-	level := []ocispec.Descriptor{node}
+	// shortest distance from the nearest start node. Seeding visited with
+	// every start node keeps duplicates out of the first level and keeps a
+	// start node that is a predecessor of another from being queued twice.
+	level := make([]ocispec.Descriptor, 0, len(nodes))
 	var next []ocispec.Descriptor
-	visited.Add(descriptor.FromOCI(node))
+	for _, node := range nodes {
+		if key := descriptor.FromOCI(node); !visited.Contains(key) {
+			visited.Add(key)
+			level = append(level, node)
+		}
+	}
+
 	for depth := 0; len(level) > 0; depth++ {
 		// stop finding predecessors if the target depth is reached
 		if opts.Depth > 0 && depth == opts.Depth {

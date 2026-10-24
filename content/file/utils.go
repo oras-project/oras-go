@@ -170,11 +170,12 @@ func extractTarGzip(dirPath, dirName, gzPath, checksumKey, checksum string, buf 
 // `prefix` parameter and is trimmed.
 func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, preservePermissions bool) error {
 	tr := tar.NewReader(r)
+	var dirModes []dirMode
 	for {
 		header, err := tr.Next()
 		if err != nil {
 			if err == io.EOF {
-				return nil
+				return restoreDirModes(dirPath, dirModes)
 			}
 			return err
 		}
@@ -197,10 +198,13 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		}
 
 		// Create content
+		var existed bool // the path was there before this directory entry
 		switch header.Typeflag {
 		case tar.TypeReg:
 			err = writeFile(filePath, tr, header.FileInfo().Mode(), buf)
 		case tar.TypeDir:
+			_, statErr := os.Lstat(filePath)
+			existed = statErr == nil
 			err = makeDir(filePath, header.FileInfo().Mode())
 		case tar.TypeLink:
 			// NOTE: ORAS does not generate hard links when creating tarballs.
@@ -240,14 +244,34 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		}
 
 		// Never restore metadata through a symlink (GHSA-jh75-xv39-vhvx).
-		if fi, err := os.Lstat(filePath); err != nil {
+		fi, err := os.Lstat(filePath)
+		if err != nil {
 			return err
-		} else if fi.Mode()&os.ModeSymlink != 0 {
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
 			continue
 		}
 
 		// Change access time and modification time if possible (error ignored)
 		_ = os.Chtimes(filePath, header.AccessTime, header.ModTime)
+
+		// The entries below a directory that its owner cannot read, write or
+		// search would fail to extract. Give the owner access now and set the
+		// mode after the last entry. A directory that was already there keeps
+		// its mode unless permissions are preserved.
+		if header.Typeflag == tar.TypeDir && (preservePermissions || !existed) {
+			mode := fi.Mode()
+			if preservePermissions {
+				mode = os.FileMode(header.Mode)
+			}
+			if mode&0700 != 0700 {
+				if err := os.Chmod(filePath, fi.Mode()|0700); err != nil {
+					return err
+				}
+				dirModes = append(dirModes, dirMode{path: filePath, mode: mode})
+				continue
+			}
+		}
 
 		// Restore full mode bits
 		if preservePermissions && (header.Typeflag == tar.TypeReg || header.Typeflag == tar.TypeDir) {
@@ -256,6 +280,37 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 			}
 		}
 	}
+}
+
+// dirMode is the mode to set on a directory once all entries are extracted.
+type dirMode struct {
+	path string
+	mode os.FileMode
+}
+
+// restoreDirModes sets the modes of dirs, the last recorded directory first so
+// that a directory is set after the directories inside it. A path that is no
+// longer a directory is skipped, so a symlink is never followed.
+func restoreDirModes(baseAbs string, dirs []dirMode) error {
+	for i := len(dirs) - 1; i >= 0; i-- {
+		if err := checkSymlinkEscape(baseAbs, dirs[i].path); err != nil {
+			return err
+		}
+		fi, err := os.Lstat(dirs[i].path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if !fi.IsDir() {
+			continue
+		}
+		if err := os.Chmod(dirs[i].path, dirs[i].mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // extractHardLink creates a hard link at filePath to the file named by
