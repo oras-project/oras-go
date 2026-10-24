@@ -28,9 +28,13 @@ import (
 	"strings"
 )
 
-// ErrNoPolicyFound is returned by GetDefaultPolicyPath when no policy.json
-// file exists at any of the default search locations.
-var ErrNoPolicyFound = errors.New("no policy.json found")
+var (
+	// ErrDenied is returned when a repository operation is denied by policy.
+	ErrDenied = errors.New("access denied by policy")
+	// ErrNoPolicyFound is returned by GetDefaultPolicyPath when no policy.json
+	// file exists at any of the default search locations.
+	ErrNoPolicyFound = errors.New("no policy.json found")
+)
 
 const (
 	// policyConfUserDir is the user-level configuration directory for policy.json
