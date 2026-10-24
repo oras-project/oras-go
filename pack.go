@@ -194,7 +194,10 @@ func PackManifest(ctx context.Context, pusher content.Pusher, packManifestVersio
 // packed manifest already exists in target, it is still tagged with
 // references. Only the manifest is tagged; config and layers are pushed as in
 // [PackManifest]. If tagging with a reference fails, the returned error names
-// that reference.
+// that reference, and some other references may already have been applied.
+//
+// Duplicate references are applied only once. Digest-form references are passed
+// to target unchanged; validation follows target's Tag or PushReference behavior.
 //
 // If succeeded, returns a descriptor of the packed manifest.
 func PackManifestN(ctx context.Context, target Target, packManifestVersion PackManifestVersion, artifactType string, references []string, opts PackManifestOptions) (ocispec.Descriptor, error) {
@@ -634,5 +637,14 @@ type taggingPusher struct {
 }
 
 func withTags(target Target, references []string) *taggingPusher {
-	return &taggingPusher{Target: target, target: target, references: references}
+	seen := make(map[string]struct{}, len(references))
+	unique := make([]string, 0, len(references))
+	for _, ref := range references {
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		unique = append(unique, ref)
+	}
+	return &taggingPusher{Target: target, target: target, references: unique}
 }

@@ -156,7 +156,7 @@ func TestPackManifestN_Repository(t *testing.T) {
 		mu.Lock()
 		puts = nil
 		mu.Unlock()
-		if _, err := oras.PackManifestN(ctx, repo, oras.PackManifestVersion1_1, "application/vnd.test", []string{"v1", "latest"}, opts); err != nil {
+		if _, err := oras.PackManifestN(ctx, repo, oras.PackManifestVersion1_1, "application/vnd.test", []string{"v1", "latest", "v1"}, opts); err != nil {
 			t.Fatalf("PackManifestN() error = %v", err)
 		}
 		mu.Lock()
@@ -172,7 +172,7 @@ func TestPackManifestN_Repository(t *testing.T) {
 		mu.Lock()
 		puts = nil
 		mu.Unlock()
-		if _, err := oras.PackIndexN(ctx, repo, "application/vnd.test", []string{"idx"}, oras.PackIndexOptions{
+		if _, err := oras.PackIndexN(ctx, repo, "application/vnd.test", []string{"idx", "idx"}, oras.PackIndexOptions{
 			IndexAnnotations: map[string]string{ocispec.AnnotationCreated: "2000-01-01T00:00:00Z"},
 		}); err != nil {
 			t.Fatalf("PackIndexN() error = %v", err)
