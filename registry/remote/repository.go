@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -1401,7 +1402,7 @@ func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, er
 	// the hostname of the Location header in the response is set to
 	// registry.wabbit-networks.io instead of registry.wabbit-networks.io:443.
 	if req.URL.Port() == "443" && urlutil.SameHostname(location, req.URL) && location.Port() == "" {
-		location.Host = location.Hostname() + ":443"
+		location.Host = net.JoinHostPort(location.Hostname(), "443")
 	}
 	if req.URL.Scheme == "https" && location.Scheme != "https" {
 		return nil, fmt.Errorf("blob upload Location %q downgrades scheme from https", location.Host)

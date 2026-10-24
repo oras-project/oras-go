@@ -1320,6 +1320,59 @@ func TestResolveUploadLocation(t *testing.T) {
 		}
 	})
 
+	t.Run("IPv6 upload locations", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			request  string
+			location string
+			want     string
+		}{
+			{
+				name:     "port 443 restored",
+				request:  "https://[::1]:443/v2/test/blobs/uploads/",
+				location: "https://[::1]/v2/test/blobs/uploads/x",
+				want:     "https://[::1]:443/v2/test/blobs/uploads/x",
+			},
+			{
+				name:     "zone preserved",
+				request:  "https://[fe80::1%25eth0]:443/v2/test/blobs/uploads/",
+				location: "https://[fe80::1%25eth0]/v2/test/blobs/uploads/x",
+				want:     "https://[fe80::1%25eth0]:443/v2/test/blobs/uploads/x",
+			},
+			{
+				name:     "explicit location port preserved",
+				request:  "https://[::1]:443/v2/test/blobs/uploads/",
+				location: "https://[::1]:5000/v2/test/blobs/uploads/x",
+				want:     "https://[::1]:5000/v2/test/blobs/uploads/x",
+			},
+			{
+				name:     "custom request port does not restore 443",
+				request:  "https://[::1]:5000/v2/test/blobs/uploads/",
+				location: "https://[::1]/v2/test/blobs/uploads/x",
+				want:     "https://[::1]/v2/test/blobs/uploads/x",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				req, err := http.NewRequest(http.MethodPost, tt.request, nil)
+				if err != nil {
+					t.Fatalf("http.NewRequest() error = %v", err)
+				}
+				resp := &http.Response{
+					Header:  http.Header{"Location": []string{tt.location}},
+					Request: req,
+				}
+				loc, err := resolveUploadLocation(resp, req)
+				if err != nil {
+					t.Fatalf("resolveUploadLocation() error = %v", err)
+				}
+				if loc.String() != tt.want {
+					t.Errorf("loc = %q, want %q", loc.String(), tt.want)
+				}
+			})
+		}
+	})
+
 	t.Run("port 443 preserved for mixed case host", func(t *testing.T) {
 		req443URL, err := url.Parse("https://registry.example.com:443/v2/test/blobs/uploads/")
 		if err != nil {
