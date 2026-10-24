@@ -36,6 +36,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -955,6 +956,76 @@ func TestClientBuilder_NewRegistry_WithPolicyEvaluator(t *testing.T) {
 	}
 }
 
+func TestClientBuilder_Logger_logsEachRetryAttempt(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if n < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":"unavailable"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	var logs bytes.Buffer
+	builder := NewClientBuilder()
+	builder.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	builder.RetryPolicy = func() retry.Policy {
+		return &retry.GenericPolicy{
+			Retryable: retry.DefaultPredicate,
+			Backoff:   retry.DefaultBackoff,
+			MinWait:   time.Millisecond,
+			MaxWait:   time.Millisecond,
+			MaxRetry:  5,
+		}
+	}
+
+	props := &properties.Registry{
+		Reference: properties.Reference{
+			Registry:   strings.TrimPrefix(strings.TrimPrefix(srv.URL, "https://"), "http://"),
+			Repository: "test/repo",
+		},
+		Transport: properties.Transport{PlainHTTP: true},
+	}
+
+	client, err := builder.Build(props)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	resp, err := client.Client.Get(srv.URL + "/v2/")
+	if err != nil {
+		t.Fatalf("GET() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if string(body) != `{"status":"ok"}` {
+		t.Errorf("body = %q, want %q", body, `{"status":"ok"}`)
+	}
+	if hits.Load() != 3 {
+		t.Errorf("server hits = %d, want 3", hits.Load())
+	}
+
+	logsStr := logs.String()
+	if strings.Count(logsStr, `status="503 Service Unavailable"`) != 2 {
+		t.Errorf("logged 503 responses = %d, want 2; logs:\n%s", strings.Count(logsStr, `status="503 Service Unavailable"`), logsStr)
+	}
+	if strings.Count(logsStr, `status="200 OK"`) != 1 {
+		t.Errorf("logged 200 responses = %d, want 1; logs:\n%s", strings.Count(logsStr, `status="200 OK"`), logsStr)
+	}
+	if strings.Count(logsStr, "msg=Response") != 3 {
+		t.Errorf("logged responses = %d, want 3; logs:\n%s", strings.Count(logsStr, "msg=Response"), logsStr)
+	}
+}
+
 func TestClientBuilder_LoggerRouting(t *testing.T) {
 	props := &properties.Registry{
 		Reference: properties.Reference{Registry: "registry.example.com"},
@@ -1026,8 +1097,12 @@ func TestClientBuilder_LoggerRouting(t *testing.T) {
 			t.Fatalf("ClientBuilder.NewRegistry() error = %v", err)
 		}
 		transport := clientTransport(t, reg)
-		if _, ok := transport.(*LoggingTransport); !ok {
-			t.Fatalf("client transport is %T, want *LoggingTransport", transport)
+		retryTransport, ok := transport.(*retry.Transport)
+		if !ok {
+			t.Fatalf("client transport is %T, want *retry.Transport", transport)
+		}
+		if _, ok := retryTransport.Base.(*LoggingTransport); !ok {
+			t.Fatalf("retry base is %T, want *LoggingTransport", retryTransport.Base)
 		}
 		reg.HandleWarning(warning)
 		doRequest(t, transport)
