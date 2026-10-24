@@ -17,6 +17,9 @@ package oras_test
 
 import (
 	"context"
+	_ "crypto/sha512"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,6 +28,7 @@ import (
 	"sync"
 	"testing"
 
+	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/oras-project/oras-go/v3"
 	"github.com/oras-project/oras-go/v3/content"
@@ -149,10 +153,14 @@ func TestPackManifestN_Repository(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("one request per tag and no push by digest", func(t *testing.T) {
+		mu.Lock()
 		puts = nil
+		mu.Unlock()
 		if _, err := oras.PackManifestN(ctx, repo, oras.PackManifestVersion1_1, "application/vnd.test", []string{"v1", "latest"}, opts); err != nil {
 			t.Fatalf("PackManifestN() error = %v", err)
 		}
+		mu.Lock()
+		defer mu.Unlock()
 		slices.Sort(puts)
 		want := []string{"/v2/test/manifests/latest", "/v2/test/manifests/v1"}
 		if !slices.Equal(puts, want) {
@@ -161,12 +169,16 @@ func TestPackManifestN_Repository(t *testing.T) {
 	})
 
 	t.Run("index", func(t *testing.T) {
+		mu.Lock()
 		puts = nil
+		mu.Unlock()
 		if _, err := oras.PackIndexN(ctx, repo, "application/vnd.test", []string{"idx"}, oras.PackIndexOptions{
 			IndexAnnotations: map[string]string{ocispec.AnnotationCreated: "2000-01-01T00:00:00Z"},
 		}); err != nil {
 			t.Fatalf("PackIndexN() error = %v", err)
 		}
+		mu.Lock()
+		defer mu.Unlock()
 		if want := []string{"/v2/test/manifests/idx"}; !slices.Equal(puts, want) {
 			t.Errorf("PUT requests = %v, want %v", puts, want)
 		}
@@ -181,6 +193,115 @@ func TestPackManifestN_Repository(t *testing.T) {
 			t.Errorf("error %q does not name the failed tag", got)
 		}
 	})
+}
+
+func TestPackManifestN_RepositorySubjectFallback(t *testing.T) {
+	subject := content.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, []byte("subject"))
+	referrersPath := "/v2/test/manifests/" + strings.Replace(subject.Digest.String(), ":", "-", 1)
+	var mu sync.Mutex
+	var manifest ocispec.Manifest
+	var index ocispec.Index
+	var manifestBytes []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/v1":
+			var err error
+			manifestBytes, err = io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read manifest: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+				t.Errorf("decode manifest: %v", err)
+			}
+			// Omitting OCI-Subject makes the client maintain the fallback index.
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && r.URL.Path == referrersPath:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodPut && r.URL.Path == referrersPath:
+			if err := json.NewDecoder(r.Body).Decode(&index); err != nil {
+				t.Errorf("decode referrers index: %v", err)
+			}
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	repo, err := remote.NewRepository(strings.TrimPrefix(ts.URL, "http://") + "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.Registry.PlainHTTP = true
+	config := ocispec.DescriptorEmptyJSON
+	desc, err := oras.PackManifestN(context.Background(), repo, oras.PackManifestVersion1_1, "application/vnd.test", []string{"v1"}, oras.PackManifestOptions{
+		Subject:             &subject,
+		ConfigDescriptor:    &config,
+		Layers:              []ocispec.Descriptor{content.NewDescriptorFromBytes("test", []byte("hello"))},
+		ManifestAnnotations: map[string]string{ocispec.AnnotationCreated: "2000-01-01T00:00:00Z"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if manifest.Subject == nil || manifest.Subject.Digest != subject.Digest {
+		t.Errorf("manifest subject = %v, want %v", manifest.Subject, subject)
+	}
+	if digest.FromBytes(manifestBytes) != desc.Digest {
+		t.Error("returned descriptor does not match the pushed manifest")
+	}
+	if len(index.Manifests) != 1 || index.Manifests[0].Digest != desc.Digest || index.Manifests[0].ArtifactType != "application/vnd.test" {
+		t.Errorf("fallback referrers = %v, want the packed manifest", index.Manifests)
+	}
+}
+
+func TestPackManifestN_RepositorySHA512(t *testing.T) {
+	var mu sync.Mutex
+	var pushed []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/v2/test/manifests/v1" {
+			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read manifest: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		pushed = body
+		mu.Unlock()
+		w.Header().Set("Docker-Content-Digest", digest.SHA512.FromBytes(body).String())
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer ts.Close()
+	repo, err := remote.NewRepository(strings.TrimPrefix(ts.URL, "http://") + "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.Registry.PlainHTTP = true
+	config := ocispec.DescriptorEmptyJSON
+	desc, err := oras.PackManifestN(context.Background(), repo, oras.PackManifestVersion1_1, "application/vnd.test", []string{"v1"}, oras.PackManifestOptions{
+		DigestAlgorithm:     digest.SHA512,
+		ConfigDescriptor:    &config,
+		Layers:              []ocispec.Descriptor{content.NewDescriptorFromBytes("test", []byte("hello"))},
+		ManifestAnnotations: map[string]string{ocispec.AnnotationCreated: "2000-01-01T00:00:00Z"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := digest.SHA512.FromBytes(pushed); desc.Digest != want || desc.Size != int64(len(pushed)) {
+		t.Errorf("descriptor = %v, want digest %v and size %d", desc, want, len(pushed))
+	}
 }
 
 func bytesReader(s string) *strings.Reader { return strings.NewReader(s) }
