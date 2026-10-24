@@ -62,6 +62,8 @@ type chunkedUpload struct {
 	digester digest.Digester
 	// auth is the Authorization header reused across requests in the session.
 	auth string
+	// origin is the registry URL the session was opened on; auth is reused only on its host.
+	origin *url.URL
 }
 
 // pushChunked uploads expected in chunks per the OCI Distribution Spec: it opens
@@ -162,6 +164,7 @@ func (s *blobStore) openUploadSession(ctx context.Context, chunkSize int64) (*ch
 		location: location,
 		chunk:    chunkSize,
 		auth:     authHeader,
+		origin:   req.URL,
 	}, nil
 }
 
@@ -248,14 +251,15 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 // the remaining requests. rebuild must return an equivalent request carrying no
 // Authorization header (the body is re-supplied from the caller's buffer).
 func (s *blobStore) sendChunkRequest(up *chunkedUpload, req *http.Request, rebuild func() (*http.Request, error)) (*http.Response, error) {
-	if up.auth != "" {
+	reuseAuth := up.auth != "" && sameUploadHost(req.URL, up.origin)
+	if reuseAuth {
 		req.Header.Set("Authorization", up.auth)
 	}
 	resp, err := s.repo.do(req)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusUnauthorized && up.auth != "" {
+	if resp.StatusCode == http.StatusUnauthorized && reuseAuth {
 		// The cached token was rejected; drop it and let the auth client
 		// re-authenticate on a fresh request.
 		resp.Body.Close()
@@ -270,7 +274,7 @@ func (s *blobStore) sendChunkRequest(up *chunkedUpload, req *http.Request, rebui
 		}
 	}
 	// Carry the (possibly refreshed) Authorization header forward.
-	if resp.Request != nil {
+	if resp.Request != nil && sameUploadHost(resp.Request.URL, up.origin) {
 		if auth := resp.Request.Header.Get("Authorization"); auth != "" {
 			up.auth = auth
 		}

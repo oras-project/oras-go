@@ -407,33 +407,51 @@ func TestRepository_Push_SingleRequest_SessionFallback(t *testing.T) {
 func TestRepository_Push_SingleRequest_SessionFallbackCrossHost(t *testing.T) {
 	blob, desc := singlePostTestBlob()
 	var mu sync.Mutex
-	attackerHit := false
-	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var uploaded []byte
+	var uploadAuth []string
+	uploads := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("failed to read upload body: %v", err)
+		}
 		mu.Lock()
-		attackerHit = true
+		uploaded = body
+		uploadAuth = append(uploadAuth, r.Header.Get("Authorization"))
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
 	}))
-	defer attacker.Close()
+	defer uploads.Close()
 
 	reg := &singlePostRegistry{
 		t:                t,
 		singlePOSTStatus: http.StatusAccepted,
-		location:         attacker.URL + "/v2/test/blobs/uploads/evil",
+		location:         uploads.URL + "/v2/test/blobs/uploads/session",
+		username:         "user",
+		password:         "pass",
 	}
 	srv := httptest.NewServer(reg)
 	defer srv.Close()
 	repo := newSinglePostTestRepo(t, srv, desc.Size)
+	uri, _ := url.Parse(srv.URL)
+	repo.Registry.Client = &auth.Client{
+		Client: &http.Client{},
+		CredentialFunc: credentials.StaticCredentialFunc(uri.Host, credentials.Credential{
+			Username: "user",
+			Password: "pass",
+		}),
+	}
 
-	err := repo.Push(context.Background(), desc, bytes.NewReader(blob))
-	if err == nil || !strings.Contains(err.Error(), "different host") {
-		t.Errorf("Push() error = %v, want a cross-host Location error", err)
+	if err := repo.Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+		t.Fatalf("Push() error = %v", err)
 	}
-	if attackerHit {
-		t.Error("Push() sent the blob to the cross-host Location")
-	}
-	if want := []string{"POST?digest"}; !slices.Equal(reg.requests, want) {
+	if want := []string{"POST?digest", "POST?digest"}; !slices.Equal(reg.requests, want) {
 		t.Errorf("requests = %v, want %v", reg.requests, want)
+	}
+	if !bytes.Equal(uploaded, blob) {
+		t.Errorf("uploaded = %q, want %q", uploaded, blob)
+	}
+	if want := []string{""}; !slices.Equal(uploadAuth, want) {
+		t.Errorf("upload host authorization = %q, want %q", uploadAuth, want)
 	}
 }
 

@@ -1379,6 +1379,7 @@ func (s *blobStore) pushSingleRequest(ctx context.Context, expected ocispec.Desc
 // sameUploadHost reports whether location and reqURL refer to the same host,
 // normalizing implicit default ports (80 for http, 443 for https) so that
 // e.g. "example.com" and "example.com:443" compare equal over HTTPS.
+// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-jxpm-75mh-9fp7
 func sameUploadHost(location, reqURL *url.URL) bool {
 	if !strings.EqualFold(location.Hostname(), reqURL.Hostname()) {
 		return false
@@ -1397,10 +1398,9 @@ func sameUploadHost(location, reqURL *url.URL) bool {
 
 // resolveUploadLocation extracts the next blob-upload Location from resp,
 // resolved against the request URL. It applies the port-443 work-around and
-// rejects cross-host redirects and https scheme downgrades that could forward
-// credentials to an attacker-controlled endpoint.
+// rejects https scheme downgrades. Credentials stay on the registry host via
+// the sameUploadHost checks at the call sites.
 // Reference: https://github.com/oras-project/oras-go/issues/177
-// Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-jxpm-75mh-9fp7
 func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, error) {
 	location, err := resp.Location()
 	if err != nil {
@@ -1413,11 +1413,6 @@ func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, er
 	// registry.wabbit-networks.io instead of registry.wabbit-networks.io:443.
 	if req.URL.Port() == "443" && strings.EqualFold(location.Hostname(), req.URL.Hostname()) && location.Port() == "" {
 		location.Host = location.Hostname() + ":443"
-	}
-	// Validate the Location stays on the same host to prevent credentials from
-	// being forwarded to an attacker-controlled endpoint.
-	if !sameUploadHost(location, req.URL) {
-		return nil, fmt.Errorf("blob upload Location %q is on a different host than the registry %q", location.Host, req.URL.Host)
 	}
 	if req.URL.Scheme == "https" && location.Scheme != "https" {
 		return nil, fmt.Errorf("blob upload Location %q downgrades scheme from https", location.Host)
@@ -1491,7 +1486,7 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 	req.URL.RawQuery = q.Encode()
 
 	// reuse credential from previous POST request
-	if auth := resp.Request.Header.Get("Authorization"); auth != "" {
+	if auth := resp.Request.Header.Get("Authorization"); auth != "" && sameUploadHost(location, resp.Request.URL) {
 		req.Header.Set("Authorization", auth)
 	}
 	resp, err = s.repo.do(req)

@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -891,6 +892,120 @@ func TestRepository_Push_ChunkedCarriesAuthorization(t *testing.T) {
 	}
 }
 
+func TestRepository_Push_ChunkedCrossHostLocation(t *testing.T) {
+	uploads := &chunkedUploadRegistry{t: t}
+	uploadSrv := httptest.NewServer(uploads.handler())
+	defer uploadSrv.Close()
+	reg := &chunkedUploadRegistry{t: t, patchLocationOverride: uploadSrv.URL + "/v2/test/blobs/uploads/session"}
+	srv := httptest.NewServer(reg.handler())
+	defer srv.Close()
+
+	blob := []byte("hello")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	repo := newChunkedTestRepo(t, srv, 2)
+	repo.Registry.Client = &auth.Client{
+		Client: &http.Client{
+			Transport: chunkedRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.Method == http.MethodPost {
+					req.Header.Set("Authorization", "Bearer session-token")
+				}
+				return http.DefaultTransport.RoundTrip(req)
+			}),
+		},
+	}
+
+	if err := repo.Blobs().Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+
+	if got := append(reg.uploaded, uploads.uploaded...); !bytes.Equal(got, blob) {
+		t.Errorf("uploaded = %q, want %q", got, blob)
+	}
+	if uploads.digestQuery != desc.Digest.String() {
+		t.Errorf("digest query = %q, want %q", uploads.digestQuery, desc.Digest)
+	}
+	regSeq := reg.methodSequence()
+	for i, authHeader := range reg.authHeaders() {
+		if authHeader != "Bearer session-token" {
+			t.Errorf("registry request %d (%s) authorization = %q, want %q", i, regSeq[i], authHeader, "Bearer session-token")
+		}
+	}
+	uploadSeq := uploads.methodSequence()
+	if len(uploadSeq) == 0 {
+		t.Fatal("upload host received no requests")
+	}
+	for i, authHeader := range uploads.authHeaders() {
+		if authHeader != "" {
+			t.Errorf("upload host request %d (%s) authorization = %q, want none", i, uploadSeq[i], authHeader)
+		}
+	}
+}
+
+func TestRepository_Push_ChunkedUploadHostAuthorizationNotReused(t *testing.T) {
+	uploads := &chunkedUploadRegistry{t: t}
+	uploadSrv := httptest.NewServer(uploads.handler())
+	defer uploadSrv.Close()
+	reg := &chunkedUploadRegistry{t: t, patchLocationOverride: uploadSrv.URL + "/v2/test/blobs/uploads/session"}
+	srv := httptest.NewServer(reg.handler())
+	defer srv.Close()
+	uploads.patchLocationOverride = srv.URL + "/v2/test/blobs/uploads/session"
+
+	uploadURL, err := url.Parse(uploadSrv.URL)
+	if err != nil {
+		t.Fatalf("invalid test http server: %v", err)
+	}
+
+	blob := []byte("hello!")
+	desc := ocispec.Descriptor{
+		MediaType: "application/octet-stream",
+		Digest:    digest.FromBytes(blob),
+		Size:      int64(len(blob)),
+	}
+
+	repo := newChunkedTestRepo(t, srv, 2)
+	repo.Registry.Client = &auth.Client{
+		Client: &http.Client{
+			Transport: chunkedRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				switch {
+				case req.Method == http.MethodPost:
+					req.Header.Set("Authorization", "Bearer registry-token")
+				case req.URL.Host == uploadURL.Host && req.Header.Get("Authorization") == "":
+					req.Header.Set("Authorization", "Bearer upload-token")
+				}
+				return http.DefaultTransport.RoundTrip(req)
+			}),
+		},
+	}
+
+	if err := repo.Blobs().Push(context.Background(), desc, bytes.NewReader(blob)); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+
+	regSeq := reg.methodSequence()
+	if want := []string{http.MethodPost, http.MethodPatch, http.MethodPatch}; !slices.Equal(regSeq, want) {
+		t.Fatalf("registry methods = %v, want %v", regSeq, want)
+	}
+	for i, authHeader := range reg.authHeaders() {
+		if authHeader != "Bearer registry-token" {
+			t.Errorf("registry request %d (%s) authorization = %q, want %q", i, regSeq[i], authHeader, "Bearer registry-token")
+		}
+	}
+	uploadSeq := uploads.methodSequence()
+	if want := []string{http.MethodPatch, http.MethodPut}; !slices.Equal(uploadSeq, want) {
+		t.Fatalf("upload host methods = %v, want %v", uploadSeq, want)
+	}
+	for i, authHeader := range uploads.authHeaders() {
+		if authHeader != "Bearer upload-token" {
+			t.Errorf("upload host request %d (%s) authorization = %q, want %q", i, uploadSeq[i], authHeader, "Bearer upload-token")
+		}
+	}
+}
+
 func TestRepository_Push_ChunkedPATCHTransportErrorCancelsSession(t *testing.T) {
 	reg := &chunkedUploadRegistry{t: t}
 	srv := httptest.NewServer(reg.handler())
@@ -1227,13 +1342,17 @@ func TestResolveUploadLocation(t *testing.T) {
 		}
 	})
 
-	t.Run("cross host rejected", func(t *testing.T) {
+	t.Run("cross host allowed", func(t *testing.T) {
 		resp := &http.Response{
-			Header:  http.Header{"Location": []string{"https://attacker.com/v2/test/blobs/uploads/session"}},
+			Header:  http.Header{"Location": []string{"https://uploads.example.com/v2/test/blobs/uploads/session"}},
 			Request: req,
 		}
-		if _, err := resolveUploadLocation(resp, req); err == nil || !strings.Contains(err.Error(), "different host") {
-			t.Errorf("expected different host error, got %v", err)
+		loc, err := resolveUploadLocation(resp, req)
+		if err != nil {
+			t.Fatalf("resolveUploadLocation() error = %v", err)
+		}
+		if loc.String() != "https://uploads.example.com/v2/test/blobs/uploads/session" {
+			t.Errorf("loc = %q, want %q", loc.String(), "https://uploads.example.com/v2/test/blobs/uploads/session")
 		}
 	})
 
@@ -1368,7 +1487,7 @@ func TestRepository_Push_ChunkedPUTTransportError(t *testing.T) {
 }
 
 func TestRepository_Push_ChunkedInvalidPATCHLocation(t *testing.T) {
-	reg := &chunkedUploadRegistry{t: t, patchLocationOverride: "http://other-host.example.com/session"}
+	reg := &chunkedUploadRegistry{t: t, patchLocationOverride: "http://[::1"}
 	srv := httptest.NewServer(reg.handler())
 	defer srv.Close()
 
