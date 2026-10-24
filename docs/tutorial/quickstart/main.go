@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// The tutorial build tag keeps this program out of the library build and
+// coverage. Remove this line if you copy the file into your own module.
 //go:build tutorial
 
 package main
