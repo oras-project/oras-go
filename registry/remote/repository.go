@@ -1397,8 +1397,7 @@ func sameUploadHost(location, reqURL *url.URL) bool {
 
 // resolveUploadLocation extracts the next blob-upload Location from resp,
 // resolved against the request URL. It applies the port-443 work-around and
-// rejects cross-host redirects and https scheme downgrades that could forward
-// credentials to an attacker-controlled endpoint.
+// rejects https scheme downgrades.
 // Reference: https://github.com/oras-project/oras-go/issues/177
 // Reference: https://github.com/oras-project/oras-go/security/advisories/GHSA-jxpm-75mh-9fp7
 func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, error) {
@@ -1413,11 +1412,6 @@ func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, er
 	// registry.wabbit-networks.io instead of registry.wabbit-networks.io:443.
 	if req.URL.Port() == "443" && strings.EqualFold(location.Hostname(), req.URL.Hostname()) && location.Port() == "" {
 		location.Host = location.Hostname() + ":443"
-	}
-	// Validate the Location stays on the same host to prevent credentials from
-	// being forwarded to an attacker-controlled endpoint.
-	if !sameUploadHost(location, req.URL) {
-		return nil, fmt.Errorf("blob upload Location %q is on a different host than the registry %q", location.Host, req.URL.Host)
 	}
 	if req.URL.Scheme == "https" && location.Scheme != "https" {
 		return nil, fmt.Errorf("blob upload Location %q downgrades scheme from https", location.Host)
@@ -1491,7 +1485,7 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 	req.URL.RawQuery = q.Encode()
 
 	// reuse credential from previous POST request
-	if auth := resp.Request.Header.Get("Authorization"); auth != "" {
+	if auth := resp.Request.Header.Get("Authorization"); auth != "" && sameUploadHost(location, resp.Request.URL) {
 		req.Header.Set("Authorization", auth)
 	}
 	resp, err = s.repo.do(req)

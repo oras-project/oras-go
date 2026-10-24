@@ -3830,55 +3830,98 @@ func Test_BlobStore_Push(t *testing.T) {
 	}
 }
 
-func Test_BlobStore_Push_CrossHostRedirect(t *testing.T) {
+func Test_BlobStore_Push_UploadLocationAuthorization(t *testing.T) {
 	blob := []byte("hello world")
 	blobDesc := ocispec.Descriptor{
 		MediaType: "test",
 		Digest:    digest.FromBytes(blob),
 		Size:      int64(len(blob)),
 	}
+	const token = "Bearer registry-token"
+	const sessionPath = "/v2/test/blobs/uploads/session"
 
-	// attacker server: records whether it receives an Authorization header
-	credentialLeaked := false
-	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "" {
-			credentialLeaked = true
-		}
-		w.WriteHeader(http.StatusCreated)
-	}))
-	defer attacker.Close()
-
-	// malicious registry: returns a cross-host Location on POST
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/" {
-			w.Header().Set("Location", attacker.URL+"/v2/test/blobs/uploads/evil-uuid")
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		w.WriteHeader(http.StatusForbidden)
-		t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-	}))
-	defer ts.Close()
-
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
+	tests := []struct {
+		name      string
+		crossHost bool
+		wantAuth  string
+	}{
+		{name: "same host", crossHost: false, wantAuth: token},
+		{name: "cross host", crossHost: true, wantAuth: ""},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotBlob []byte
+			var gotAuth string
+			var putCount int
+			upload := func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPut || r.URL.Path != sessionPath {
+					w.WriteHeader(http.StatusForbidden)
+					t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+					return
+				}
+				if got := r.URL.Query().Get("digest"); got != blobDesc.Digest.String() {
+					t.Errorf("digest = %q, want %q", got, blobDesc.Digest)
+				}
+				buf := bytes.NewBuffer(nil)
+				if _, err := buf.ReadFrom(r.Body); err != nil {
+					t.Errorf("failed to read PUT body: %v", err)
+				}
+				putCount++
+				gotBlob = buf.Bytes()
+				gotAuth = r.Header.Get("Authorization")
+				w.Header().Set("Docker-Content-Digest", blobDesc.Digest.String())
+				w.WriteHeader(http.StatusCreated)
+			}
+			uploadServer := httptest.NewServer(http.HandlerFunc(upload))
+			defer uploadServer.Close()
 
-	repo, err := NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.Registry.PlainHTTP = true
-	store := repo.Blobs()
-	ctx := context.Background()
+			location := sessionPath
+			if tt.crossHost {
+				location = uploadServer.URL + sessionPath
+			}
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost && r.URL.Path == "/v2/test/blobs/uploads/" {
+					w.Header().Set("Location", location)
+					w.WriteHeader(http.StatusAccepted)
+					return
+				}
+				upload(w, r)
+			}))
+			defer ts.Close()
 
-	err = store.Push(ctx, blobDesc, bytes.NewReader(blob))
-	if err == nil {
-		t.Error("Blobs.Push() expected error on cross-host Location, got nil")
-	}
-	if credentialLeaked {
-		t.Error("Blobs.Push() forwarded Authorization header to attacker-controlled host")
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+			repo, err := NewRepository(uri.Host + "/test")
+			if err != nil {
+				t.Fatalf("NewRepository() error = %v", err)
+			}
+			repo.Registry.PlainHTTP = true
+			repo.Registry.Client = &auth.Client{
+				Client: &http.Client{
+					Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+						if req.Method == http.MethodPost {
+							req.Header.Set("Authorization", token)
+						}
+						return http.DefaultTransport.RoundTrip(req)
+					}),
+				},
+			}
+
+			if err := repo.Blobs().Push(context.Background(), blobDesc, bytes.NewReader(blob)); err != nil {
+				t.Fatalf("Blobs.Push() error = %v", err)
+			}
+			if putCount != 1 {
+				t.Fatalf("PUT count = %d, want 1", putCount)
+			}
+			if !bytes.Equal(gotBlob, blob) {
+				t.Errorf("uploaded blob = %q, want %q", gotBlob, blob)
+			}
+			if gotAuth != tt.wantAuth {
+				t.Errorf("PUT authorization = %q, want %q", gotAuth, tt.wantAuth)
+			}
+		})
 	}
 }
 
