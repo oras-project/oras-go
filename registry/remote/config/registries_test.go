@@ -505,6 +505,7 @@ func TestRegistriesConfig_RewriteReference(t *testing.T) {
 			{Prefix: "docker.io/library", Location: "library-mirror.example.com"},
 			{Prefix: "quay.io", Location: ""}, // No location, should not rewrite
 			{Prefix: "*.internal.example.com", Location: "internal-mirror.example.com"},
+			{Prefix: "example.com/team/app", Location: "mirror.example.com/team/app"},
 		},
 	}
 
@@ -542,6 +543,11 @@ func TestRegistriesConfig_RewriteReference(t *testing.T) {
 			name: "rewrite mixed-case host",
 			ref:  "Docker.IO/library/alpine:Latest",
 			want: "library-mirror.example.com/alpine:Latest",
+		},
+		{
+			name: "rewrite digest under a repository prefix",
+			ref:  "example.com/team/app@sha256:abc123",
+			want: "mirror.example.com/team/app@sha256:abc123",
 		},
 	}
 
@@ -655,6 +661,18 @@ func TestMatchesPrefix(t *testing.T) {
 			ref:    "Sub.Example.COM/image",
 			prefix: "*.example.com",
 			want:   true,
+		},
+		{
+			name:   "digest under a repository prefix",
+			ref:    "example.com/team/app@sha256:abc123",
+			prefix: "example.com/team/app",
+			want:   true,
+		},
+		{
+			name:   "digest under a longer repository name",
+			ref:    "example.com/team/application@sha256:abc123",
+			prefix: "example.com/team/app",
+			want:   false,
 		},
 		{
 			name:   "tag case is significant",

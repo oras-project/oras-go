@@ -432,7 +432,7 @@ func matchesPrefix(ref, prefix string) bool {
 		return strings.HasSuffix(refHost, suffix)
 	}
 
-	// Exact prefix match or ref starts with prefix followed by "/" or ":"
+	// Exact prefix match or ref starts with prefix followed by "/", ":" or "@"
 	if ref == prefix {
 		return true
 	}
@@ -443,7 +443,7 @@ func matchesPrefix(ref, prefix string) bool {
 		return true
 	}
 	// Check if prefix matches the registry host
-	if strings.HasPrefix(ref, prefix) && (len(ref) == len(prefix) || ref[len(prefix)] == '/' || ref[len(prefix)] == ':') {
+	if strings.HasPrefix(ref, prefix) && (len(ref) == len(prefix) || ref[len(prefix)] == '/' || ref[len(prefix)] == ':' || ref[len(prefix)] == '@') {
 		return true
 	}
 
