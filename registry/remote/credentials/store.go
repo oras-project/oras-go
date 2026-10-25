@@ -238,8 +238,16 @@ func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred Cred
 }
 
 // Delete removes credentials from the store for the given server address.
+//
+// When the address is served by a credential helper, Delete also removes the
+// plain-text entry for it from the config file, as the Docker CLI does. A
+// credential saved before the helper was configured would otherwise stay in
+// the file.
 func (ds *DynamicStore) Delete(ctx context.Context, serverAddress string) error {
-	return ds.getStore(serverAddress).Delete(ctx, serverAddress)
+	if err := ds.getStore(serverAddress).Delete(ctx, serverAddress); err != nil {
+		return err
+	}
+	return ds.config.DeleteAuthConfig(serverAddress)
 }
 
 // IsAuthConfigured returns whether there is authentication configured in the

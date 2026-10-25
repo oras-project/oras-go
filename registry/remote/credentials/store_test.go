@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configtest"
@@ -598,6 +599,122 @@ func Test_DynamicStore_fileStore_AllowPlainTextPut(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotCfg, wantCfg) {
 		t.Errorf("Decoded config = %v, want %v", gotCfg, wantCfg)
+	}
+}
+
+func Test_DynamicStore_Delete_nativeStore(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake credential helper is a shell script")
+	}
+	const (
+		serverAddr = "test.example.com"
+		otherAddr  = "other.example.com"
+		auth       = "dXNlcjpwYXNz"
+		erase      = "#!/bin/sh\ncat >/dev/null\n"
+		eraseFails = "#!/bin/sh\ncat >/dev/null\necho 'erase failed'\nexit 1\n"
+	)
+	tests := []struct {
+		name          string
+		helper        string
+		cfg           configtest.Config
+		wantErr       bool
+		wantCfg       configtest.Config
+		wantUnchanged bool
+	}{
+		{
+			name:   "credsStore removes the plain-text entry",
+			helper: erase,
+			cfg: configtest.Config{
+				AuthConfigs: map[string]configtest.AuthConfig{
+					serverAddr: {Auth: auth},
+					otherAddr:  {Auth: auth},
+				},
+				CredentialsStore: "teststore",
+				SomeConfigField:  123,
+			},
+			wantCfg: configtest.Config{
+				AuthConfigs:      map[string]configtest.AuthConfig{otherAddr: {Auth: auth}},
+				CredentialsStore: "teststore",
+				SomeConfigField:  123,
+			},
+		},
+		{
+			name:   "credHelpers removes the plain-text entry",
+			helper: erase,
+			cfg: configtest.Config{
+				AuthConfigs:       map[string]configtest.AuthConfig{serverAddr: {Auth: auth}},
+				CredentialHelpers: map[string]string{serverAddr: "teststore"},
+			},
+			wantCfg: configtest.Config{
+				AuthConfigs:       map[string]configtest.AuthConfig{},
+				CredentialHelpers: map[string]string{serverAddr: "teststore"},
+			},
+		},
+		{
+			name:   "no plain-text entry leaves the file as is",
+			helper: erase,
+			cfg: configtest.Config{
+				AuthConfigs:      map[string]configtest.AuthConfig{otherAddr: {Auth: auth}},
+				CredentialsStore: "teststore",
+			},
+			wantUnchanged: true,
+		},
+		{
+			name:   "failed helper keeps the plain-text entry",
+			helper: eraseFails,
+			cfg: configtest.Config{
+				AuthConfigs:      map[string]configtest.AuthConfig{serverAddr: {Auth: auth}},
+				CredentialsStore: "teststore",
+			},
+			wantErr:       true,
+			wantUnchanged: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			helperPath := filepath.Join(binDir, "docker-credential-teststore")
+			if err := os.WriteFile(helperPath, []byte(tt.helper), 0700); err != nil {
+				t.Fatalf("failed to write credential helper: %v", err)
+			}
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			configPath := filepath.Join(t.TempDir(), "config.json")
+			jsonStr, err := json.Marshal(tt.cfg)
+			if err != nil {
+				t.Fatalf("failed to marshal config: %v", err)
+			}
+			if err := os.WriteFile(configPath, jsonStr, 0666); err != nil {
+				t.Fatalf("failed to write config file: %v", err)
+			}
+			ds, err := NewStore(configPath, StoreOptions{})
+			if err != nil {
+				t.Fatal("NewStore() error =", err)
+			}
+
+			err = ds.Delete(context.Background(), serverAddr)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DynamicStore.Delete() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			gotBytes, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatalf("failed to read config file: %v", err)
+			}
+			if tt.wantUnchanged {
+				if !bytes.Equal(gotBytes, jsonStr) {
+					t.Errorf("config file = %s, want it unchanged: %s", gotBytes, jsonStr)
+				}
+				return
+			}
+			var gotCfg configtest.Config
+			if err := json.Unmarshal(gotBytes, &gotCfg); err != nil {
+				t.Fatalf("failed to decode config file: %v", err)
+			}
+			if !reflect.DeepEqual(gotCfg, tt.wantCfg) {
+				t.Errorf("Decoded config = %v, want %v", gotCfg, tt.wantCfg)
+			}
+		})
 	}
 }
 
