@@ -641,6 +641,49 @@ func TestConfig_PutAuthConfig_symlinkedConfig(t *testing.T) {
 	}
 }
 
+func TestConfig_PutAuthConfig_nullConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte("null"), 0600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatal("Load() error =", err)
+	}
+
+	server := "test.example.com"
+	authCfg := AuthConfig{
+		Auth: "dXNlcm5hbWU6cGFzc3dvcmQ=",
+	}
+	if err := cfg.PutAuthConfig(server, authCfg); err != nil {
+		t.Fatalf("Config.PutAuthConfig() error = %v", err)
+	}
+
+	// verify config file
+	configFile, err := os.Open(configPath)
+	if err != nil {
+		t.Fatalf("failed to open config file: %v", err)
+	}
+	defer configFile.Close()
+
+	var testCfg configtest.Config
+	if err := json.NewDecoder(configFile).Decode(&testCfg); err != nil {
+		t.Fatalf("failed to decode config file: %v", err)
+	}
+	want := configtest.Config{
+		AuthConfigs: map[string]configtest.AuthConfig{
+			server: {
+				Auth: "dXNlcm5hbWU6cGFzc3dvcmQ=",
+			},
+		},
+	}
+	if !reflect.DeepEqual(testCfg, want) {
+		t.Errorf("Decoded config = %v, want %v", testCfg, want)
+	}
+}
+
 func TestConfig_PutAuthConfig_addNew(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
