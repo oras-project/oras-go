@@ -18,6 +18,7 @@ package remote
 import (
 	"errors"
 	"fmt"
+	"mime"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -93,6 +94,13 @@ func buildReferrersTag(desc ocispec.Descriptor) (string, error) {
 	alg := desc.Digest.Algorithm().String()
 	encoded := desc.Digest.Encoded()
 	return alg + "-" + encoded, nil
+}
+
+// isImageIndexContentType checks if the Content-Type header value is an OCI
+// image index. The letter case and the media type parameters are ignored.
+func isImageIndexContentType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	return err == nil && mediaType == ocispec.MediaTypeImageIndex
 }
 
 // isReferrersFilterApplied checks if requsted is in the applied filter list.

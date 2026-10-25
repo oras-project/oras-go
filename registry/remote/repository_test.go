@@ -2347,6 +2347,86 @@ func TestRepository_Referrers_TagSchemaFallback_ContentType(t *testing.T) {
 	}
 }
 
+func TestRepository_Referrers_ContentType(t *testing.T) {
+	manifest := []byte(`{"layers":[]}`)
+	manifestDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageManifest,
+		Digest:    digest.FromBytes(manifest),
+		Size:      int64(len(manifest)),
+	}
+	referrers := []ocispec.Descriptor{{
+		MediaType:    ocispec.MediaTypeImageManifest,
+		Size:         1,
+		Digest:       digest.FromString("1"),
+		ArtifactType: "application/vnd.test",
+	}}
+	tests := []struct {
+		name        string
+		contentType string
+		isIndex     bool
+	}{
+		{"parameter", ocispec.MediaTypeImageIndex + "; charset=utf-8", true},
+		{"upper case", "Application/Vnd.Oci.Image.Index.V1+Json", true},
+		{"malformed parameter", ocispec.MediaTypeImageIndex + "; charset", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				referrersTag := strings.Replace(manifestDesc.Digest.String(), ":", "-", 1)
+				switch r.URL.Path {
+				case "/v2/test/referrers/" + manifestDesc.Digest.String():
+					result := ocispec.Index{
+						Versioned: specs.Versioned{
+							SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+						},
+						MediaType: ocispec.MediaTypeImageIndex,
+						Manifests: referrers,
+					}
+					w.Header().Set("Content-Type", tt.contentType)
+					if err := json.NewEncoder(w).Encode(result); err != nil {
+						t.Errorf("failed to write response: %v", err)
+					}
+				case "/v2/test/manifests/" + referrersTag:
+					w.WriteHeader(http.StatusNotFound)
+				default:
+					t.Errorf("unexpected access: %s %q", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
+			}
+
+			// a response that is not an image index falls back to the tag schema,
+			// which is not found, should be no error
+			repo, err := NewRepository(uri.Host + "/test")
+			if err != nil {
+				t.Fatalf("NewRepository() error = %v", err)
+			}
+			repo.Registry.PlainHTTP = true
+			var got []ocispec.Descriptor
+			if err := repo.Referrers(context.Background(), manifestDesc, "", func(page []ocispec.Descriptor) error {
+				got = append(got, page...)
+				return nil
+			}); err != nil {
+				t.Errorf("Repository.Referrers() error = %v", err)
+			}
+			wantReferrers, wantState := referrers, properties.ReferrersAPISupported
+			if !tt.isIndex {
+				wantReferrers, wantState = nil, properties.ReferrersAPIUnsupported
+			}
+			if !reflect.DeepEqual(got, wantReferrers) {
+				t.Errorf("Repository.Referrers() = %v, want %v", got, wantReferrers)
+			}
+			if state := repo.loadReferrersState(); state != wantState {
+				t.Errorf("Repository.loadReferrersState() = %v, want %v", state, wantState)
+			}
+		})
+	}
+}
+
 func TestRepository_Referrers_TagSchemaFallback_ValidateIndex(t *testing.T) {
 	referrers := []ocispec.Descriptor{{
 		MediaType: ocispec.MediaTypeImageManifest,
@@ -8883,6 +8963,38 @@ func TestRepository_pingReferrers(t *testing.T) {
 		}
 		if count != 1 {
 			t.Errorf("count(Repository.pingReferrers()) = %v, want %v", count, 1)
+		}
+	})
+
+	t.Run("referrers available content type with a parameter", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/v2/test/referrers/"+zeroDigest:
+				w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex+"; charset=utf-8")
+				w.WriteHeader(http.StatusOK)
+			default:
+				t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer ts.Close()
+		uri, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatalf("invalid test http server: %v", err)
+		}
+
+		repo, err := NewRepository(uri.Host + "/test")
+		if err != nil {
+			t.Fatalf("NewRepository() error = %v", err)
+		}
+		repo.Registry.PlainHTTP = true
+
+		got, err := repo.pingReferrers(context.Background())
+		if err != nil {
+			t.Errorf("Repository.pingReferrers() error = %v, wantErr %v", err, nil)
+		}
+		if got != true {
+			t.Errorf("Repository.pingReferrers() = %v, want %v", got, true)
 		}
 	})
 }

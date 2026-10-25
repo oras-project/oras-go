@@ -935,7 +935,7 @@ func (r *Repository) referrersPageByAPI(ctx context.Context, artifactType string
 	}
 
 	// also check the content type
-	if ct := resp.Header.Get("Content-Type"); ct != ocispec.MediaTypeImageIndex {
+	if ct := resp.Header.Get("Content-Type"); !isImageIndexContentType(ct) {
 		return "", fmt.Errorf("unknown content returned (%s), expecting image index: %w", ct, errdef.ErrUnsupported)
 	}
 
@@ -1060,7 +1060,7 @@ func (r *Repository) pingReferrers(ctx context.Context) (bool, error) {
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		supported := resp.Header.Get("Content-Type") == ocispec.MediaTypeImageIndex
+		supported := isImageIndexContentType(resp.Header.Get("Content-Type"))
 		r.SetReferrersCapability(supported)
 		return supported, nil
 	case http.StatusNotFound:
