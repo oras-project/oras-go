@@ -127,7 +127,8 @@ func NewReference(artifact string) (Reference, error) {
 		if err := ref.ValidateDigest(); err != nil {
 			return Reference{}, err
 		}
-	} else if ref.Tag != "" {
+	}
+	if ref.Tag != "" {
 		if err := ref.ValidateTag(); err != nil {
 			return Reference{}, err
 		}
@@ -267,7 +268,8 @@ func (r Reference) Validate() error {
 		if err := r.ValidateDigest(); err != nil {
 			return err
 		}
-	} else if r.Tag != "" {
+	}
+	if r.Tag != "" {
 		if err := r.ValidateTag(); err != nil {
 			return err
 		}
