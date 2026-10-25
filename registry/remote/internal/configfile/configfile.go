@@ -376,15 +376,16 @@ func (cfg *Config) DeleteAuthConfig(serverAddress string) error {
 	return nil
 }
 
-// GetCredentialHelper returns the credential helper for serverAddress.
-func (cfg *Config) GetCredentialHelper(serverAddress string) string {
+// GetCredentialHelper returns the credential helper for serverAddress, and
+// whether the config has an entry for it. An entry may be empty.
+func (cfg *Config) GetCredentialHelper(serverAddress string) (helper string, found bool) {
 	cfg.rwLock.RLock()
 	defer cfg.rwLock.RUnlock()
 
 	serverAddress = normalizeServerAddress(serverAddress)
 
 	if helper, ok := cfg.credentialHelpers[serverAddress]; ok {
-		return helper
+		return helper, true
 	}
 
 	var matched bool
@@ -402,10 +403,10 @@ func (cfg *Config) GetCredentialHelper(serverAddress string) string {
 	}
 
 	if matched {
-		return matchedHelper
+		return matchedHelper, true
 	}
 
-	return ""
+	return "", false
 }
 
 // SetCredentialHelper sets the credential helper for serverAddress in memory.

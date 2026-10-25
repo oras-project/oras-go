@@ -652,6 +652,20 @@ func Test_DynamicStore_getHelperSuffix(t *testing.T) {
 			wantExact:     true,
 		},
 		{
+			name:          "Empty cred helper configured overrides creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "empty.example.com",
+			want:          "",
+			wantExact:     true,
+		},
+		{
+			name:          "Namespaced address with an empty cred helper for its host overrides creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "empty.example.com/team/app",
+			want:          "",
+			wantExact:     false,
+		},
+		{
 			name:          "Namespaced address uses the cred helper of its host",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "registry1.example.com/team/app",
@@ -854,6 +868,16 @@ func Test_DynamicStore_getStore_fileStore(t *testing.T) {
 			serverAddress: "registry3.example.com",
 		},
 		{
+			name:          "Empty cred helper configured for empty.example.com overrides creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "empty.example.com",
+		},
+		{
+			name:          "Namespaced address with an empty cred helper for its host overrides creds store",
+			configPath:    "testdata/credsStore_config.json",
+			serverAddress: "empty.example.com/team/app",
+		},
+		{
 			name:          "No cred helper configured",
 			configPath:    "testdata/credHelpers_config.json",
 			serverAddress: "whatever.example.com",
@@ -868,14 +892,14 @@ func Test_DynamicStore_getStore_fileStore(t *testing.T) {
 			gotStore := ds.getStore(tt.serverAddress)
 			gotFS1, ok := gotStore.(*FileStore)
 			if !ok {
-				t.Errorf("gotStore is not a file store")
+				t.Fatalf("gotStore is not a file store")
 			}
 
 			// get again, the two file stores should be based on the same config instance
 			gotStore = ds.getStore(tt.serverAddress)
 			gotFS2, ok := gotStore.(*FileStore)
 			if !ok {
-				t.Errorf("gotStore is not a file store")
+				t.Fatalf("gotStore is not a file store")
 			}
 			if gotFS1.config != gotFS2.config {
 				t.Errorf("gotFS1 and gotFS2 are not based on the same config")
