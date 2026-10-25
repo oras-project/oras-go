@@ -71,6 +71,25 @@ func Test_parseChallenge(t *testing.T) {
 			},
 		},
 		{
+			name:       "bearer challenge with parameter names in other letter case",
+			header:     `Bearer Realm="https://auth.example.com/token",Service="registry.example.com",SCOPE="repository:test:pull"`,
+			wantScheme: SchemeBearer,
+			wantParams: map[string]string{
+				"realm":   "https://auth.example.com/token",
+				"service": "registry.example.com",
+				"scope":   "repository:test:pull",
+			},
+		},
+		{
+			name:       "bearer challenge with scheme and parameter names in other letter case keeps the values",
+			header:     `bEaReR rEALM="https://auth.example.com/Token",sERVICE=Registry.Example.com`,
+			wantScheme: SchemeBearer,
+			wantParams: map[string]string{
+				"realm":   "https://auth.example.com/Token",
+				"service": "Registry.Example.com",
+			},
+		},
+		{
 			name:       "bearer challenge with no parameters",
 			header:     "Bearer",
 			wantScheme: SchemeBearer,
