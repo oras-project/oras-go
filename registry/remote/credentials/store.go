@@ -171,6 +171,9 @@ func NewStoreFromConfig(cfg ConfigFile, opts StoreOptions) *DynamicStore {
 //  2. Native credentials store
 //  3. The plain-text config file itself
 //
+// A server-specific "credHelpers" entry that is empty selects the plain-text
+// config file for that server, skipping the native credentials store.
+//
 // References:
 //   - https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 //   - https://docs.docker.com/engine/reference/commandline/cli/#docker-cli-configuration-file-configjson-properties
@@ -269,12 +272,15 @@ func (ds *DynamicStore) ConfigPath() string {
 // "credsStore" and the detected platform default are global stores configured
 // for registry hosts. When queried for a namespaced address, they are probes of
 // a key the store was never configured for, so exact is false.
+//
+// A "credHelpers" entry that is present but empty selects the plain-text config
+// file: the returned suffix is empty and "credsStore" is not consulted.
 func (ds *DynamicStore) getHelperSuffix(serverAddress string) (suffix string, exact bool) {
 	// 1. Look for a server-specific credential helper, then for the helper of
 	// each parent namespace.
 	key := serverAddress
 	for {
-		if helper := ds.config.GetCredentialHelper(key); helper != "" {
+		if helper, found := ds.config.GetCredentialHelper(key); found {
 			return helper, key == serverAddress
 		}
 		i := strings.LastIndex(key, "/")

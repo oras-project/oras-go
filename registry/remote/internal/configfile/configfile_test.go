@@ -1234,32 +1234,41 @@ func TestConfig_GetCredentialHelper(t *testing.T) {
 		name          string
 		serverAddress string
 		want          string
+		wantFound     bool
 	}{
 		{
 			name:          "Get cred helper: registry_helper1",
 			serverAddress: "registry1.example.com",
 			want:          "registry1-helper",
+			wantFound:     true,
 		},
 		{
 			name:          "Get cred helper: registry_helper2",
 			serverAddress: "registry2.example.com",
 			want:          "registry2-helper",
+			wantFound:     true,
 		},
 		{
 			name:          "Empty cred helper configured",
 			serverAddress: "registry3.example.com",
 			want:          "",
+			wantFound:     true,
 		},
 		{
 			name:          "No cred helper configured",
 			serverAddress: "whatever.example.com",
 			want:          "",
+			wantFound:     false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := cfg.GetCredentialHelper(tt.serverAddress); got != tt.want {
+			got, found := cfg.GetCredentialHelper(tt.serverAddress)
+			if got != tt.want {
 				t.Errorf("Config.GetCredentialHelper() = %v, want %v", got, tt.want)
+			}
+			if found != tt.wantFound {
+				t.Errorf("Config.GetCredentialHelper() found = %v, want %v", found, tt.wantFound)
 			}
 		})
 	}
@@ -1270,7 +1279,7 @@ func TestConfig_GetCredentialHelper_caseInsensitive(t *testing.T) {
 
 	cfg.credentialHelpers["LOCALHOST:5020"] = "test-helper"
 
-	got := cfg.GetCredentialHelper("localhost:5020")
+	got, _ := cfg.GetCredentialHelper("localhost:5020")
 	want := "test-helper"
 
 	if got != want {
@@ -1283,11 +1292,22 @@ func TestConfig_GetCredentialHelper_normalizesStoredKey(t *testing.T) {
 
 	cfg.credentialHelpers["https://LOCALHOST:5020/"] = "test-helper"
 
-	got := cfg.GetCredentialHelper("localhost:5020")
+	got, _ := cfg.GetCredentialHelper("localhost:5020")
 	want := "test-helper"
 
 	if got != want {
 		t.Errorf("GetCredentialHelper() = %v, want %v", got, want)
+	}
+}
+
+func TestConfig_GetCredentialHelper_emptyEntryNormalizesStoredKey(t *testing.T) {
+	cfg := NewConfig()
+
+	cfg.credentialHelpers["https://LOCALHOST:5020/"] = ""
+
+	got, found := cfg.GetCredentialHelper("localhost:5020")
+	if got != "" || !found {
+		t.Errorf("GetCredentialHelper() = (%q, %v), want (\"\", true)", got, found)
 	}
 }
 
@@ -1296,11 +1316,11 @@ func TestConfig_GetCredentialHelper_pathCaseSensitive(t *testing.T) {
 
 	cfg.credentialHelpers["registry.example.com/Foo"] = "test-helper"
 
-	if got := cfg.GetCredentialHelper("REGISTRY.EXAMPLE.COM/Foo"); got != "test-helper" {
+	if got, _ := cfg.GetCredentialHelper("REGISTRY.EXAMPLE.COM/Foo"); got != "test-helper" {
 		t.Errorf("GetCredentialHelper() = %v, want %v", got, "test-helper")
 	}
 
-	if got := cfg.GetCredentialHelper("registry.example.com/foo"); got != "" {
+	if got, _ := cfg.GetCredentialHelper("registry.example.com/foo"); got != "" {
 		t.Errorf("GetCredentialHelper() = %v, want empty", got)
 	}
 }
@@ -1774,7 +1794,7 @@ func TestConfig_SetCredentialHelper(t *testing.T) {
 
 	cfg.SetCredentialHelper(serverAddress, helper)
 
-	got := cfg.GetCredentialHelper(serverAddress)
+	got, _ := cfg.GetCredentialHelper(serverAddress)
 	if got != helper {
 		t.Errorf("GetCredentialHelper() = %v, want %v", got, helper)
 	}
@@ -1904,7 +1924,7 @@ func TestConfig_ProgrammaticConfig_NoFileIO(t *testing.T) {
 		}
 	}
 
-	if got := cfg.GetCredentialHelper("gcr.io"); got != "docker-credential-gcr" {
+	if got, _ := cfg.GetCredentialHelper("gcr.io"); got != "docker-credential-gcr" {
 		t.Errorf("GetCredentialHelper(gcr.io) = %v, want docker-credential-gcr", got)
 	}
 

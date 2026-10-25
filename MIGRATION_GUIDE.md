@@ -444,6 +444,9 @@ changes:
 - Remove the `SetCredentialsStore` and `Save` methods from custom
   implementations of `credentials.ConfigFile` (an interface introduced during
   v3 development); both were dropped from the interface.
+- Return a second value from `GetCredentialHelper` in custom implementations
+  of `credentials.ConfigFile`: whether the config has an entry for the server.
+  An entry that exists but is empty selects the config file, not `credsStore`.
 - Remove the `force-basic-auth` key from `registries.conf` and uses of
   `properties.Attributes.ForceBasicAuth`. The option was never consumed. The
   registry's `WWW-Authenticate` challenge selects the authentication scheme;

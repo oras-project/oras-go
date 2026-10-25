@@ -47,8 +47,9 @@ type ConfigFile interface {
 	PutAuthConfig(serverAddress string, authCfg AuthConfig) error
 	// DeleteAuthConfig removes the AuthConfig for the given server address.
 	DeleteAuthConfig(serverAddress string) error
-	// GetCredentialHelper returns the credential helper configured for the server.
-	GetCredentialHelper(serverAddress string) string
+	// GetCredentialHelper returns the credential helper configured for the
+	// server, and whether the config has an entry for it. An entry may be empty.
+	GetCredentialHelper(serverAddress string) (helper string, found bool)
 	// CredentialsStore returns the configured credentials store name.
 	CredentialsStore() string
 	// IsAuthConfigured returns true if any authentication is configured.
