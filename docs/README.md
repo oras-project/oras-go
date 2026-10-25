@@ -1,6 +1,6 @@
 # `oras-go` v3 Documentation
 
-This directory contains the fundamentals and a quickstart tutorial for `oras-go` v3.
+This directory contains the fundamentals and tutorials for `oras-go` v3.
 
 If you are upgrading from v2, see the [v2 to v3 migration guide](../MIGRATION_GUIDE.md).
 
@@ -14,5 +14,9 @@ It is highly recommended to read the following documentation in order:
 ## Quickstart Tutorial
 
 - [Quickstart: Managing OCI Artifacts with `oras-go` v3](./tutorial/quickstart.md)
+
+## Configuration
+
+- [Configuring registry clients](./Configuring-Clients.md)
 
 For more information about the ORAS project, visit the [ORAS website](https://oras.land/).
