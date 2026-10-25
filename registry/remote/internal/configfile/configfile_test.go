@@ -579,6 +579,68 @@ func TestConfig_PutAuthConfig_notExistConfig(t *testing.T) {
 	}
 }
 
+func TestConfig_PutAuthConfig_symlinkedConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	targetPath := filepath.Join(tempDir, "target", "config.json")
+	linkPath := filepath.Join(tempDir, "link", "config.json")
+	for _, path := range []string{targetPath, linkPath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatalf("failed to make directory: %v", err)
+		}
+	}
+	if err := os.WriteFile(targetPath, []byte(`{"auths":{}}`), 0600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+	// the link target is relative to the directory of the link
+	if err := os.Symlink(filepath.Join("..", "target", "config.json"), linkPath); err != nil {
+		t.Skip("symlinks not available:", err)
+	}
+
+	cfg, err := Load(linkPath)
+	if err != nil {
+		t.Fatal("Load() error =", err)
+	}
+
+	server := "test.example.com"
+	authCfg := AuthConfig{
+		Auth: "dXNlcm5hbWU6cGFzc3dvcmQ=",
+	}
+	if err := cfg.PutAuthConfig(server, authCfg); err != nil {
+		t.Fatalf("Config.PutAuthConfig() error = %v", err)
+	}
+
+	// verify the config path is still a symlink
+	fi, err := os.Lstat(linkPath)
+	if err != nil {
+		t.Fatalf("failed to stat config path: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("config path mode = %v, want a symlink", fi.Mode())
+	}
+
+	// verify the symlink target holds the credential
+	targetFile, err := os.Open(targetPath)
+	if err != nil {
+		t.Fatalf("failed to open symlink target: %v", err)
+	}
+	defer targetFile.Close()
+
+	var testCfg configtest.Config
+	if err := json.NewDecoder(targetFile).Decode(&testCfg); err != nil {
+		t.Fatalf("failed to decode symlink target: %v", err)
+	}
+	want := configtest.Config{
+		AuthConfigs: map[string]configtest.AuthConfig{
+			server: {
+				Auth: "dXNlcm5hbWU6cGFzc3dvcmQ=",
+			},
+		},
+	}
+	if !reflect.DeepEqual(testCfg, want) {
+		t.Errorf("Decoded symlink target = %v, want %v", testCfg, want)
+	}
+}
+
 func TestConfig_PutAuthConfig_addNew(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")

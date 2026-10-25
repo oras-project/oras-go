@@ -506,7 +506,13 @@ func (cfg *Config) saveFile() (returnErr error) {
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		return fmt.Errorf("failed to make directory %s: %w", configDir, err)
 	}
-	ingest, err := ioutil.Ingest(configDir, bytes.NewReader(jsonBytes))
+	// write through a symlinked config file instead of replacing the link;
+	// a path that does not resolve is written as is
+	configPath := cfg.path
+	if resolved, err := filepath.EvalSymlinks(configPath); err == nil {
+		configPath = resolved
+	}
+	ingest, err := ioutil.Ingest(filepath.Dir(configPath), bytes.NewReader(jsonBytes))
 	if err != nil {
 		return fmt.Errorf("failed to save config file: %w", err)
 	}
@@ -518,7 +524,7 @@ func (cfg *Config) saveFile() (returnErr error) {
 	}()
 
 	// overwrite the config file
-	if err := os.Rename(ingest, cfg.path); err != nil {
+	if err := os.Rename(ingest, configPath); err != nil {
 		return fmt.Errorf("failed to save config file: %w", err)
 	}
 	return nil
