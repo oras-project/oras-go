@@ -89,6 +89,8 @@ func parseChallenge(header string) (scheme Scheme, params map[string]string) {
 		if key == "" {
 			return
 		}
+		// auth-param names are case-insensitive.
+		key = strings.ToLower(key)
 
 		rest = skipSpace(rest)
 		if rest == "" || rest[0] != '=' {
