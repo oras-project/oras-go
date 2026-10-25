@@ -699,6 +699,10 @@ func (r *Repository) ParseReference(reference string) (properties.Reference, err
 
 		// reference is not a FQDN
 		if index := strings.IndexByte(reference, '@'); index != -1 {
+			if strings.Contains(reference[:index], "/") {
+				// A repository path before `@` is not a bare tag.
+				return properties.Reference{}, err
+			}
 			// `@` implies *digest*, so drop the *tag* (irrespective of what it is).
 			ref.Digest = reference[index+1:]
 			err = ref.ValidateDigest()

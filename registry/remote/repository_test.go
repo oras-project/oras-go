@@ -8345,6 +8345,18 @@ func TestRepository_ParseReference(t *testing.T) {
 			wantErr: errdef.ErrInvalidReference,
 		},
 		{
+			name: "FQDN invalid repository with digest",
+			repoRef: properties.Reference{
+				Registry:   "registry.example.com",
+				Repository: "hello-world",
+			},
+			args: args{
+				reference: "myregistry.example.com/Hello-World@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+			},
+			want:    properties.Reference{},
+			wantErr: errdef.ErrInvalidReference,
+		},
+		{
 			name: "digest posing as a tag",
 			repoRef: properties.Reference{
 				Registry:   "registry.example.com",
