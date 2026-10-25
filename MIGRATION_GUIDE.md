@@ -515,31 +515,22 @@ changes:
 
 ## Major additions in v3
 
+The headline additions are:
+
 - **Unified configuration:** `registry/remote/config.LoadConfigs` loads Docker
   credentials, containers `auth.json`, `registries.conf`, `policy.json`,
-  `registries.d`, and certificate directories. The default path strategy
-  follows `containers/image`; the experimental UAPI strategy is also
-  available.
-- **Configured clients:** `remote.ClientBuilder` constructs clients,
-  registries, and repositories with TLS, retries, credentials, token flow,
-  warnings, logging, policy, and mirror settings.
-- **Registry mirrors:** repositories created from registry properties try
-  applicable mirrors for read operations and fall back to the primary.
-  Writes always go to the primary.
-- **Policy and signatures:** the `registry/remote/policy` package enforces
-  allow/deny policy, and `registry/remote/signature` verifies OpenPGP simple
-  signatures with `registries.d` lookaside storage.
-- **Content caching:** `content/cache.CacheReadOnlyTarget` wraps a read-only
-  target with a content store. `content/cache.NewFromEnv` uses `ORAS_CACHE`.
-- **Hierarchical credential matching:** `credentials.StoreOptions.Hierarchical`
-  enables longest-prefix namespace matching when reading credentials from the
-  plaintext config file, as used by containers `auth.json` (Podman/Buildah).
-- **HTTP diagnostics:** `remote.NewLoggingTransport` adds `slog`-based debug
-  logging with sensitive-header redaction and bounded response bodies.
-- **Tag deletion:** `remote.Repository.Untag` deletes a tag without deleting
-  the referenced manifest.
-- **Copy diagnostics:** `oras.CopyError.Descriptor` identifies the failing
-  content.
+  `registries.d`, and certificate directories.
+- **Configured clients and mirrors:** `remote.ClientBuilder` builds clients,
+  registries, and repositories from that configuration. Reads try applicable
+  mirrors and fall back to the primary.
+- **Policy and signatures:** `registry/remote/policy` enforces allow/deny
+  policy, and `registry/remote/signature` verifies OpenPGP simple signatures.
+- **Content verification and new push modes:** verify content without writing
+  it, and push streams of unknown digest or size, in chunks, or in a single
+  request.
+
+The [v3.0.0 release notes](https://github.com/oras-project/oras-go/releases/tag/v3.0.0)
+hold the complete list.
 
 ### ORAS-specific `registries.conf` keys
 
