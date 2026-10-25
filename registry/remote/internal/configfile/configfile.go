@@ -118,6 +118,11 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to decode config file %s: %w: %v", configPath, ErrInvalidConfigFormat, err)
 	}
 
+	if cfg.content == nil {
+		// a JSON null decodes to a nil map
+		cfg.content = make(map[string]json.RawMessage)
+	}
+
 	if credsStoreBytes, ok := cfg.content[configFieldCredentialsStore]; ok {
 		if err := json.Unmarshal(credsStoreBytes, &cfg.credentialsStore); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal creds store field: %w: %v", ErrInvalidConfigFormat, err)
