@@ -113,6 +113,11 @@ func TestNewReference(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "invalid - tag with digest",
+			input:   "docker.io/library/alpine:bad tag@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			wantErr: true,
+		},
+		{
 			name:    "invalid - unbracketed IPv6 registry",
 			input:   "::1/repo:tag",
 			wantErr: true,
@@ -320,6 +325,16 @@ func TestReference_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid with tag and digest",
+			ref: Reference{
+				Registry:   "docker.io",
+				Repository: "library/alpine",
+				Tag:        "latest",
+				Digest:     "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			},
+			wantErr: false,
+		},
+		{
 			name: "invalid registry",
 			ref: Reference{
 				Registry:   "invalid registry with spaces",
@@ -341,6 +356,16 @@ func TestReference_Validate(t *testing.T) {
 				Registry:   "docker.io",
 				Repository: "repo",
 				Tag:        "invalid tag with spaces",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid tag with digest",
+			ref: Reference{
+				Registry:   "docker.io",
+				Repository: "repo",
+				Tag:        "invalid tag with spaces",
+				Digest:     "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 			},
 			wantErr: true,
 		},
