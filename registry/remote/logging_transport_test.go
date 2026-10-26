@@ -82,7 +82,7 @@ func TestLoggingTransport_RoundTrip_CredentialBodyRedacted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"refresh_token":"secret","token_type":"bearer"}`))
+		_, _ = w.Write([]byte(`{"refresh_token":"rt-abc123","token_type":"bearer"}`))
 	}))
 	defer srv.Close()
 
@@ -96,7 +96,7 @@ func TestLoggingTransport_RoundTrip_CredentialBodyRedacted(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if strings.Contains(logs.String(), "secret") {
+	if strings.Contains(logs.String(), "rt-abc123") {
 		t.Errorf("logs should not contain refresh_token value, got:\n%s", logs.String())
 	}
 	if !strings.Contains(logs.String(), "redacted") {
@@ -288,6 +288,7 @@ func TestContainsCredentialFields(t *testing.T) {
 		{name: "non-credential body", body: `{"status":"ok"}`, want: false},
 		{name: "refresh_token with token_type", body: `{"refresh_token":"x","token_type":"bearer"}`, want: true},
 		{name: "token_type without credential keys", body: `{"token_type":"bearer"}`, want: false},
+		{name: "truncated after key without colon", body: `{"refresh_token"`, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
