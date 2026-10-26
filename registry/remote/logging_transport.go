@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync/atomic"
 )
@@ -189,8 +190,14 @@ func isLoggableContentType(contentType string) bool {
 	return strings.HasSuffix(mediaType, "+json")
 }
 
+// credentialFieldPattern matches JSON object keys that may hold secrets.
+// Longer key names are listed before "token" so alternation is unambiguous.
+var credentialFieldPattern = regexp.MustCompile(
+	`(?i)"(?:access_token|refresh_token|id_token|client_secret|password|secret|token)"\s*:`,
+)
+
 // containsCredentialFields returns true if the body appears to contain
 // authentication tokens that should not be logged.
 func containsCredentialFields(body string) bool {
-	return strings.Contains(body, `"token"`) || strings.Contains(body, `"access_token"`)
+	return credentialFieldPattern.MatchString(body)
 }
