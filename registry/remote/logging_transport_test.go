@@ -78,6 +78,32 @@ func TestLoggingTransport_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestLoggingTransport_RoundTrip_CredentialBodyRedacted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"refresh_token":"rt-abc123","token_type":"bearer"}`))
+	}))
+	defer srv.Close()
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	lt := NewLoggingTransport(http.DefaultTransport, logger)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	resp, err := lt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	if strings.Contains(logs.String(), "rt-abc123") {
+		t.Errorf("logs should not contain refresh_token value, got:\n%s", logs.String())
+	}
+	if !strings.Contains(logs.String(), "redacted") {
+		t.Errorf("logs should mention redacted body, got:\n%s", logs.String())
+	}
+}
+
 func TestLoggingTransport_RoundTrip_Error(t *testing.T) {
 	wantErr := io.ErrUnexpectedEOF
 	inner := roundTripFunc(func(*http.Request) (*http.Response, error) {
@@ -244,13 +270,31 @@ func TestIsLoggableContentType(t *testing.T) {
 }
 
 func TestContainsCredentialFields(t *testing.T) {
-	if !containsCredentialFields(`{"token":"x"}`) {
-		t.Error(`expected true for "token"`)
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "token", body: `{"token":"x"}`, want: true},
+		{name: "access_token", body: `{"access_token":"x"}`, want: true},
+		{name: "refresh_token", body: `{"refresh_token":"x"}`, want: true},
+		{name: "id_token", body: `{"id_token":"x"}`, want: true},
+		{name: "client_secret", body: `{"client_secret":"x"}`, want: true},
+		{name: "password", body: `{"password":"x"}`, want: true},
+		{name: "secret", body: `{"secret":"x"}`, want: true},
+		{name: "mixed case key", body: `{"Refresh_Token" : "x"}`, want: true},
+		{name: "whitespace before colon", body: `{"token"  : "x"}`, want: true},
+		{name: "nested object", body: `{"outer":{"password":"x"}}`, want: true},
+		{name: "non-credential body", body: `{"status":"ok"}`, want: false},
+		{name: "refresh_token with token_type", body: `{"refresh_token":"x","token_type":"bearer"}`, want: true},
+		{name: "token_type without credential keys", body: `{"token_type":"bearer"}`, want: false},
+		{name: "truncated after key without colon", body: `{"refresh_token"`, want: true},
 	}
-	if !containsCredentialFields(`{"access_token":"x"}`) {
-		t.Error(`expected true for "access_token"`)
-	}
-	if containsCredentialFields(`{"status":"ok"}`) {
-		t.Error("expected false for non-credential body")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsCredentialFields(tt.body); got != tt.want {
+				t.Errorf("containsCredentialFields(%q) = %v, want %v", tt.body, got, tt.want)
+			}
+		})
 	}
 }

@@ -189,8 +189,27 @@ func isLoggableContentType(contentType string) bool {
 	return strings.HasSuffix(mediaType, "+json")
 }
 
+// credentialFieldKeys are JSON object keys that may hold secrets. Matching is
+// done on the quoted key, which is enough to exclude near-misses such as
+// "token_type".
+var credentialFieldKeys = []string{
+	`"token"`,
+	`"access_token"`,
+	`"refresh_token"`,
+	`"id_token"`,
+	`"client_secret"`,
+	`"password"`,
+	`"secret"`,
+}
+
 // containsCredentialFields returns true if the body appears to contain
 // authentication tokens that should not be logged.
 func containsCredentialFields(body string) bool {
-	return strings.Contains(body, `"token"`) || strings.Contains(body, `"access_token"`)
+	lower := strings.ToLower(body)
+	for _, key := range credentialFieldKeys {
+		if strings.Contains(lower, key) {
+			return true
+		}
+	}
+	return false
 }
