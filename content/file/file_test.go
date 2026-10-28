@@ -1183,6 +1183,11 @@ func TestStore_File_SameContent_DuplicateName(t *testing.T) {
 	if _, err := s.Add(ctx, name, mediaType, path); !errors.Is(err, ErrDuplicateName) {
 		t.Errorf("Store.Add() = %v, want %v", err, ErrDuplicateName)
 	}
+
+	// test push of the added content
+	if err := s.Push(ctx, gotDesc, bytes.NewReader(content)); !errors.Is(err, errdef.ErrAlreadyExists) {
+		t.Errorf("Store.Push() = %v, want %v", err, errdef.ErrAlreadyExists)
+	}
 }
 
 func TestStore_File_DifferentContent_DuplicateName(t *testing.T) {
@@ -1553,6 +1558,58 @@ func TestStore_File_Push_DuplicateName(t *testing.T) {
 	err = s.Push(ctx, desc_2, bytes.NewBuffer(content_2))
 	if !errors.Is(err, ErrDuplicateName) {
 		t.Errorf("Store.Push() error = %v, want %v", err, ErrDuplicateName)
+	}
+	if errors.Is(err, errdef.ErrAlreadyExists) {
+		t.Errorf("Store.Push() error = %v, want not %v", err, errdef.ErrAlreadyExists)
+	}
+
+	// test push of the same content with the same name
+	err = s.Push(ctx, desc_1, bytes.NewReader(content_1))
+	if !errors.Is(err, ErrDuplicateName) || !errors.Is(err, errdef.ErrAlreadyExists) {
+		t.Errorf("Store.Push() error = %v, want %v and %v", err, ErrDuplicateName, errdef.ErrAlreadyExists)
+	}
+}
+
+func TestCopy_File_SkipExistsCheckBelowSize_SharedFile(t *testing.T) {
+	src := memory.New()
+	ctx := context.Background()
+	pushFile := func(name, content string) ocispec.Descriptor {
+		desc, err := oras.PushBytes(ctx, src, "test", []byte(content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		desc.Annotations = map[string]string{ocispec.AnnotationTitle: name}
+		return desc
+	}
+	shared := pushFile("shared.txt", "shared")
+	other := pushFile("other.txt", "other")
+	for ref, layers := range map[string][]ocispec.Descriptor{
+		"a": {shared},
+		"b": {shared, other},
+	} {
+		if _, err := oras.PackManifestN(ctx, src, oras.PackManifestVersion1_1, "application/vnd.test", []string{ref}, oras.PackManifestOptions{
+			Layers: layers,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	dst, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dst.Close()
+	opts := oras.CopyOptions{}
+	opts.SkipExistsCheckBelowSize = 1024
+	// the second copy pushes shared.txt again, without checking whether it
+	// exists
+	for _, ref := range []string{"a", "b"} {
+		if _, err := oras.Copy(ctx, src, ref, dst, "", opts); err != nil {
+			t.Fatalf("Copy(%s) error = %v", ref, err)
+		}
+	}
+	if exists, err := dst.Exists(ctx, other); err != nil || !exists {
+		t.Errorf("Store.Exists(other.txt) = %v, %v, want true", exists, err)
 	}
 }
 
