@@ -468,9 +468,9 @@ func TestSignedByVerifierFromConfig_MultiScope(t *testing.T) {
 	payloadDefaultBytes, _ := payloadDefault.Marshal()
 	sigDefault, _ := CreateOpenPGPSignature(payloadDefaultBytes, entity)
 
-	sigPath1 := fmt.Sprintf("/scope1/%s@%s=%s/signature-1", scope1, dgst1.Algorithm(), dgst1.Hex())
-	sigPath2 := fmt.Sprintf("/scope2/%s@%s=%s/signature-1", scope2, dgst2.Algorithm(), dgst2.Hex())
-	sigPathDefault := fmt.Sprintf("/default/%s@%s=%s/signature-1", scopeDefault, dgstDefault.Algorithm(), dgstDefault.Hex())
+	sigPath1 := fmt.Sprintf("/scope1/repo@%s=%s/signature-1", dgst1.Algorithm(), dgst1.Hex())
+	sigPath2 := fmt.Sprintf("/scope2/repo@%s=%s/signature-1", dgst2.Algorithm(), dgst2.Hex())
+	sigPathDefault := fmt.Sprintf("/default/repo@%s=%s/signature-1", dgstDefault.Algorithm(), dgstDefault.Hex())
 
 	sigs := map[string][]byte{
 		sigPath1:       sig1,
