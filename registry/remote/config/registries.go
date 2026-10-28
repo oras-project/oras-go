@@ -428,7 +428,8 @@ func matchesPrefix(ref, prefix string) bool {
 	if strings.HasPrefix(prefix, "*.") {
 		suffix := prefix[1:] // Remove the "*", keep the "."
 		// Check if ref ends with the suffix or if the ref's host part matches
-		refHost := extractHost(ref)
+		// A port is not part of the subdomain match.
+		refHost, _, _ := strings.Cut(extractHost(ref), ":")
 		return strings.HasSuffix(refHost, suffix)
 	}
 
