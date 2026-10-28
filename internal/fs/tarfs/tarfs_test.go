@@ -16,11 +16,15 @@ limitations under the License.
 package tarfs
 
 import (
+	"archive/tar"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/errdef"
@@ -420,4 +424,184 @@ func TestTarFs_New_Error(t *testing.T) {
 			t.Error("New() error = nil, wantErr = true")
 		}
 	})
+}
+
+func TestTarFS_Open_PAXSizeOnlyInExtendedHeader(t *testing.T) {
+	const (
+		name = "file"
+		data = "hello"
+	)
+	path := writePAXSizeOnlyTar(t, name, []byte(data))
+
+	tfs, err := New(path)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	fi, err := tfs.Stat(name)
+	if err != nil {
+		t.Fatal("Stat() error =", err)
+	}
+	if got, want := fi.Size(), int64(len(data)); got != want {
+		t.Errorf("Stat().Size() = %v, want %v", got, want)
+	}
+
+	f, err := tfs.Open(name)
+	if err != nil {
+		t.Fatalf("Open(%s) error = %v", name, err)
+	}
+	defer f.Close()
+
+	fi, err = f.Stat()
+	if err != nil {
+		t.Fatal("Open().Stat() error =", err)
+	}
+	if got, want := fi.Size(), int64(len(data)); got != want {
+		t.Errorf("Open().Stat().Size() = %v, want %v", got, want)
+	}
+
+	got, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if !bytes.Equal(got, []byte(data)) {
+		t.Errorf("Open(%s) = %q, want %q", name, got, data)
+	}
+}
+
+func TestTarFS_Open_PAXLongName(t *testing.T) {
+	name := strings.Repeat("a", 120)
+	data := []byte("hello")
+	path := writeTarFile(t, &tar.Header{
+		Name:     name,
+		Mode:     0o644,
+		Size:     int64(len(data)),
+		Typeflag: tar.TypeReg,
+		Format:   tar.FormatPAX,
+	}, data)
+
+	tfs, err := New(path)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	f, err := tfs.Open(name)
+	if err != nil {
+		t.Fatalf("Open(%s) error = %v", name, err)
+	}
+	defer f.Close()
+	got, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Errorf("Open() = %q, want %q", got, data)
+	}
+}
+
+func TestTarFS_Open_GNUFormat(t *testing.T) {
+	const name = "gnu-file"
+	data := []byte("hello")
+	path := writeTarFile(t, &tar.Header{
+		Name:     name,
+		Mode:     0o644,
+		Size:     int64(len(data)),
+		Typeflag: tar.TypeReg,
+		Format:   tar.FormatGNU,
+	}, data)
+
+	tfs, err := New(path)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	f, err := tfs.Open(name)
+	if err != nil {
+		t.Fatalf("Open(%s) error = %v", name, err)
+	}
+	defer f.Close()
+	got, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Errorf("Open() = %q, want %q", got, data)
+	}
+}
+
+// writePAXSizeOnlyTar writes a tar whose regular-file size is present only in a
+// PAX "size" record. The following USTAR header has size 0, matching archives
+// for files larger than 8 GiB-1 without writing that much data.
+func writePAXSizeOnlyTar(t *testing.T, name string, data []byte) string {
+	t.Helper()
+	// Leading integer is the full record length in bytes. "11 size=5\n" is 10
+	// bytes, so a reader would reject it; "10 size=5\n" is the valid encoding.
+	paxRecord := "10 size=5\n"
+	if len(data) != 5 {
+		t.Fatalf("writePAXSizeOnlyTar: data length = %d, want 5 to match PAX record %q", len(data), paxRecord)
+	}
+
+	var buf bytes.Buffer
+	buf.Write(ustarHeader("PaxHeaders.0/"+name, int64(len(paxRecord)), tar.TypeXHeader))
+	buf.Write(padToBlock([]byte(paxRecord)))
+	buf.Write(ustarHeader(name, 0, tar.TypeReg))
+	buf.Write(padToBlock(data))
+	buf.Write(make([]byte, 512*2)) // end-of-archive
+
+	path := filepath.Join(t.TempDir(), "pax-size.tar")
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeTarFile(t *testing.T, hdr *tar.Header, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.tar")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tw := tar.NewWriter(f)
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func ustarHeader(name string, size int64, typeflag byte) []byte {
+	hdr := make([]byte, 512)
+	copy(hdr[0:], name)
+	copy(hdr[100:], []byte("0000644\x00")) // mode
+	copy(hdr[108:], []byte("0000000\x00")) // uid
+	copy(hdr[116:], []byte("0000000\x00")) // gid
+	copy(hdr[124:], []byte(fmt.Sprintf("%011o\x00", size)))
+	copy(hdr[136:], []byte("00000000000\x00")) // mtime
+	hdr[156] = typeflag
+	copy(hdr[257:], []byte("ustar\x00"))
+	copy(hdr[263:], []byte("00"))
+	for i := 148; i < 156; i++ {
+		hdr[i] = ' '
+	}
+	var sum int64
+	for _, c := range hdr {
+		sum += int64(c)
+	}
+	copy(hdr[148:], []byte(fmt.Sprintf("%06o\x00 ", sum)))
+	return hdr
+}
+
+func padToBlock(b []byte) []byte {
+	n := len(b)
+	if n%512 == 0 {
+		return b
+	}
+	return append(b, make([]byte, 512-n%512)...)
 }

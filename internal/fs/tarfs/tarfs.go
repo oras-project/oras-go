@@ -28,9 +28,6 @@ import (
 	"github.com/oras-project/oras-go/v3/errdef"
 )
 
-// blockSize is the size of each block in a tar archive.
-const blockSize int64 = 512
-
 // TarFS represents a file system (an fs.FS) based on a tar archive.
 type TarFS struct {
 	path    string
@@ -67,7 +64,7 @@ func New(path string) (*TarFS, error) {
 // Open should reject attempts to open names that do not satisfy
 // ValidPath(name), returning a *PathError with Err set to
 // ErrInvalid or ErrNotExist.
-func (tfs *TarFS) Open(name string) (file fs.File, openErr error) {
+func (tfs *TarFS) Open(name string) (fs.File, error) {
 	entry, err := tfs.getEntry("open", name)
 	if err != nil {
 		return nil, err
@@ -76,21 +73,8 @@ func (tfs *TarFS) Open(name string) (file fs.File, openErr error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if openErr != nil {
-			tarFile.Close()
-		}
-	}()
-
-	if _, err := tarFile.Seek(entry.pos, io.SeekStart); err != nil {
-		return nil, err
-	}
-	tr := tar.NewReader(tarFile)
-	if _, err := tr.Next(); err != nil {
-		return nil, err
-	}
 	return &entryFile{
-		Reader: tr,
+		Reader: io.NewSectionReader(tarFile, entry.pos, entry.header.Size),
 		Closer: tarFile,
 		header: entry.header,
 	}, nil
@@ -148,7 +132,7 @@ func (tfs *TarFS) indexEntries() error {
 		name := path.Clean(header.Name)
 		tfs.entries[name] = &entry{
 			header: header,
-			pos:    pos - blockSize,
+			pos:    pos,
 		}
 	}
 	return nil
