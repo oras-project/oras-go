@@ -267,6 +267,37 @@ func Test_extractTarDirectory_ReadOnlyDirectory(t *testing.T) {
 	}
 }
 
+// Test_extractTarDirectory_ReadOnlyFileExists checks that a directory can be
+// extracted again over an earlier extraction that left a read-only file, as
+// pulling the same directory twice does.
+func Test_extractTarDirectory_ReadOnlyFileExists(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file modes do not restrict root")
+	}
+	for _, preservePermissions := range []bool{false, true} {
+		t.Run(fmt.Sprintf("preservePermissions=%v", preservePermissions), func(t *testing.T) {
+			dirName := "base"
+			dirPath := filepath.Join(t.TempDir(), dirName)
+			for _, content := range []string{"hello world", "goodbye world"} {
+				tarData := createTar(t, []tarEntry{
+					{name: "base/", mode: os.ModeDir | 0755},
+					{name: "base/test.txt", content: content, mode: 0444},
+				})
+				if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), preservePermissions); err != nil {
+					t.Fatalf("extractTarDirectory() error = %v", err)
+				}
+				got, err := os.ReadFile(filepath.Join(dirPath, "test.txt"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(got) != content {
+					t.Errorf("file content = %s, want %s", got, content)
+				}
+			}
+		})
+	}
+}
+
 // Test_extractTarDirectory_ReadOnlyDirectorySymlink checks that a read-only
 // directory entry replaced by a later symlink entry does not make the final
 // mode change reach the link target, which is outside the extraction root.
