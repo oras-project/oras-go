@@ -2515,6 +2515,13 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64, al
 	if err != nil {
 		return "", fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
 	}
+	// the digest of a truncated body would describe different content
+	var extra [1]byte
+	if n, err := io.ReadFull(resp.Body, extra[:]); n > 0 {
+		return "", fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, errdef.ErrSizeExceedsLimit)
+	} else if err != nil && err != io.EOF {
+		return "", fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
+	}
 	resp.Body = io.NopCloser(bytes.NewReader(content))
 
 	return algorithm.FromBytes(content), nil
