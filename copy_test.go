@@ -45,6 +45,7 @@ import (
 	"github.com/oras-project/oras-go/v3/internal/spec"
 	"github.com/oras-project/oras-go/v3/registry/remote"
 	"github.com/oras-project/oras-go/v3/registry/remote/auth"
+	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
 // storageTracker tracks storage API counts.
@@ -3217,5 +3218,140 @@ func BenchmarkCopyGraph_Shapes(b *testing.B) {
 				}
 			})
 		}
+	}
+}
+
+// recordingVerifier is a policy.SignedByVerifier that would deny every
+// signature check and records the references it is asked to verify, used to
+// prove that signature requirements do not gate write operations.
+type recordingVerifier struct {
+	seen []policy.ImageReference
+}
+
+func (v *recordingVerifier) Verify(ctx context.Context, req *policy.PRSignedBy, image policy.ImageReference) (bool, error) {
+	v.seen = append(v.seen, image)
+	return false, nil
+}
+
+func TestCopy_SignedByPolicyDestination(t *testing.T) {
+	// A signedBy requirement on the destination scope must not block writes:
+	// a manifest cannot be signed before it is stored, because a signature
+	// binds to its digest. Reads on the destination still enforce the policy.
+	src := memory.New()
+
+	// generate test content: config, layer, manifest tagged "app", and a
+	// referrer signature artifact for the manifest
+	var blobs [][]byte
+	var descs []ocispec.Descriptor
+	appendBlob := func(mediaType string, blob []byte) {
+		blobs = append(blobs, blob)
+		descs = append(descs, ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+		})
+	}
+	appendBlob(ocispec.MediaTypeImageConfig, []byte("config")) // Blob 0
+	appendBlob(ocispec.MediaTypeImageLayer, []byte("foo"))     // Blob 1
+	manifestJSON, err := json.Marshal(ocispec.Manifest{
+		Config: descs[0],
+		Layers: []ocispec.Descriptor{descs[1]},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendBlob(ocispec.MediaTypeImageManifest, manifestJSON) // Blob 2
+	subject := descs[2]
+	signatureJSON, err := json.Marshal(ocispec.Manifest{
+		Versioned:   specs.Versioned{SchemaVersion: 2},
+		MediaType:   ocispec.MediaTypeImageManifest,
+		Config:      ocispec.DescriptorEmptyJSON,
+		Layers:      []ocispec.Descriptor{},
+		Subject:     &subject,
+		Annotations: map[string]string{"signature": "awesome-signature"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendBlob(ocispec.MediaTypeImageManifest, signatureJSON) // Blob 3
+	signature := descs[3]
+	appendBlob(ocispec.MediaTypeEmptyJSON, ocispec.DescriptorEmptyJSON.Data) // Blob 4 (referrer config)
+
+	ctx := context.Background()
+	for i := range blobs {
+		if err := src.Push(ctx, descs[i], bytes.NewReader(blobs[i])); err != nil {
+			t.Fatalf("failed to push test content to src: %d: %v", i, err)
+		}
+	}
+	if err := src.Tag(ctx, subject, "app"); err != nil {
+		t.Fatal("fail to tag subject:", err)
+	}
+	if err := src.Tag(ctx, signature, "app-signature"); err != nil {
+		t.Fatal("fail to tag signature:", err)
+	}
+
+	// destination enforcing signedBy on every scope; the verifier would deny
+	// any signature check, which must not be consulted for writes
+	var manifestPuts []string
+	uuid := "4fd53bc9-565d-4527-ab80-3e051ac4880c"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/blobs/uploads/"):
+			w.Header().Set("Location", r.URL.Path+uuid)
+			w.WriteHeader(http.StatusAccepted)
+		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/blobs/uploads/"+uuid):
+			w.Header().Set("Docker-Content-Digest", r.URL.Query().Get("digest"))
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/manifests/"):
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/referrers/"):
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/manifests/"+subject.Digest.Algorithm().String()+"-"+subject.Digest.Encoded()):
+			// no referrers index exists yet for the subject
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/manifests/"):
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("failed to read pushed manifest: %v", err)
+			}
+			manifestPuts = append(manifestPuts, r.URL.Path)
+			w.Header().Set("Docker-Content-Digest", digest.FromBytes(body).String())
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	uri, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst, err := remote.NewRepository(uri.Host + "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst.Registry.PlainHTTP = true
+	verifier := &recordingVerifier{}
+	evaluator, err := policy.NewEvaluator(&policy.Policy{
+		Default: policy.PolicyRequirements{
+			&policy.PRSignedBy{KeyType: "GPGKeys", KeyPath: "/path/to/key.gpg"},
+		},
+	}, policy.WithSignedByVerifier(verifier))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst.Registry.Policy = evaluator
+
+	if _, err := oras.Copy(ctx, src, "app", dst, "", oras.CopyOptions{}); err != nil {
+		t.Fatalf("Copy() error = %v", err)
+	}
+	if _, err := oras.Copy(ctx, src, "app-signature", dst, "", oras.CopyOptions{}); err != nil {
+		t.Fatalf("Copy() error = %v", err)
+	}
+	if len(verifier.seen) != 0 {
+		t.Errorf("signature checks = %d, want none on write operations", len(verifier.seen))
+	}
+	if len(manifestPuts) == 0 {
+		t.Error("no manifests were pushed to the destination")
 	}
 }
