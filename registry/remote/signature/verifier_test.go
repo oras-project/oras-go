@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -141,11 +142,17 @@ func TestDefaultSignedByVerifier_Verify_NoSignatures(t *testing.T) {
 	}
 
 	result, err := verifier.Verify(context.Background(), req, image)
-	if err != nil {
-		t.Fatalf("Verify() error: %v", err)
-	}
 	if result {
 		t.Error("Verify() = true, want false (no signatures)")
+	}
+	// Unsigned content is still a denial, but the error says why, so it is
+	// distinguishable from a reject requirement.
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("Verify() error = %v, want an error wrapping policy.ErrDenied", err)
+	}
+	want := "no signatures found for registry.example.com/repo@" + imgDigest.String()
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("Verify() error = %q, want it to contain %q", err, want)
 	}
 }
 
@@ -186,7 +193,14 @@ func TestDefaultSignedByVerifier_Verify_WrongKey(t *testing.T) {
 	// The signature was present but rejected; Verify reports why so that a
 	// misconfiguration is distinguishable from genuinely unsigned content.
 	if err == nil {
-		t.Error("Verify() error = nil, want a rejection reason")
+		t.Fatal("Verify() error = nil, want a rejection reason")
+	}
+	want := fmt.Sprintf("signed by key %016X, which is not in the trusted keyring", signer.PrimaryKey.KeyId)
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("Verify() error = %q, want it to contain %q", err, want)
+	}
+	if strings.Contains(err.Error(), "message was not signed") {
+		t.Errorf("Verify() error = %q, should not report signed content as unsigned", err)
 	}
 }
 
