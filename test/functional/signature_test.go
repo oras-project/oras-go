@@ -20,6 +20,7 @@ package functional_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -163,8 +164,11 @@ func TestSignature_GPG_UnsignedImageRejected(t *testing.T) {
 		Scope:     scope,
 		Reference: imageRef,
 	})
-	if err != nil {
-		t.Fatalf("IsImageAllowed returned error: %v", err)
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("IsImageAllowed error = %v, want an error wrapping policy.ErrDenied", err)
+	}
+	if want := "no signatures found for " + imageRef; !strings.Contains(err.Error(), want) {
+		t.Errorf("IsImageAllowed error = %v, want it to contain %q", err, want)
 	}
 	if allowed {
 		t.Fatal("expected unsigned image to be rejected, but it was allowed")

@@ -968,9 +968,18 @@ func TestRepository_DefaultSignedByVerifier_Unsigned(t *testing.T) {
 	if !errors.Is(err, policy.ErrDenied) {
 		t.Fatalf("Resolve() error = %v, want an error wrapping policy.ErrDenied", err)
 	}
-	want := "no signatures found for " + repo.Reference().String() + "@" + desc.Digest.String()
-	if !strings.Contains(err.Error(), want) {
-		t.Errorf("Resolve() error = %q, want it to contain %q", err, want)
+	// The denial is reported like any other, naming the reference, and keeps
+	// the reason.
+	for _, want := range []string{
+		"access denied by policy for " + repo.Reference().String() + ":signed",
+		"no signatures found for " + repo.Reference().String() + "@" + desc.Digest.String(),
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Resolve() error = %q, want it to contain %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "policy check failed") {
+		t.Errorf("Resolve() error = %q, want a denial, not an evaluation failure", err)
 	}
 }
 
