@@ -25,6 +25,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -141,11 +142,19 @@ func TestDefaultSignedByVerifier_Verify_NoSignatures(t *testing.T) {
 	}
 
 	result, err := verifier.Verify(context.Background(), req, image)
-	if err != nil {
-		t.Fatalf("Verify() error: %v", err)
-	}
 	if result {
 		t.Error("Verify() = true, want false (no signatures)")
+	}
+	// The denial must say why: the lookaside has no signatures for the
+	// digest, and it must still be recognizable as a policy denial.
+	if err == nil {
+		t.Fatal("Verify() error = nil, want a reason for the denial")
+	}
+	if !strings.Contains(err.Error(), "no signatures found for "+image.Scope+"@"+imgDigest.String()) {
+		t.Errorf("Verify() error = %v, want it to mention the missing signatures", err)
+	}
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Errorf("Verify() error = %v, want it to wrap policy.ErrDenied", err)
 	}
 }
 
@@ -187,6 +196,50 @@ func TestDefaultSignedByVerifier_Verify_WrongKey(t *testing.T) {
 	// misconfiguration is distinguishable from genuinely unsigned content.
 	if err == nil {
 		t.Error("Verify() error = nil, want a rejection reason")
+	}
+}
+
+func TestDefaultSignedByVerifier_Verify_UntrustedKeyReportsKeyID(t *testing.T) {
+	// An image signed with a valid key that is not in the policy's keyring is
+	// denied with the issuer's key ID, not a generic "message was not signed".
+	signer, _ := openpgp.NewEntity("Signer", "", "signer@example.com", nil)
+	verifierKey, _ := openpgp.NewEntity("Verifier", "", "verifier@example.com", nil)
+
+	imgDigest := digest.FromString("test image content")
+	scope := "registry.example.com/repo"
+	imgRef := scope + ":latest@" + imgDigest.String()
+
+	payload := NewSimpleSigningPayload(imgDigest, scope+":latest")
+	payloadBytes, _ := payload.Marshal()
+	signedData, _ := CreateOpenPGPSignature(payloadBytes, signer)
+
+	store := newMockStore()
+	store.addSignature(scope, imgDigest, signedData)
+
+	keyFile := t.TempDir() + "/verifier.gpg"
+	createKeyFile(t, verifierKey, keyFile)
+
+	verifier := NewSignedByVerifier(store)
+	req := &policy.PRSignedBy{
+		KeyType: "GPGKeys",
+		KeyPath: keyFile,
+	}
+	image := policy.ImageReference{
+		Transport: "docker",
+		Scope:     scope,
+		Reference: imgRef,
+	}
+
+	result, err := verifier.Verify(context.Background(), req, image)
+	if result {
+		t.Error("Verify() = true, want false (untrusted key)")
+	}
+	if err == nil {
+		t.Fatal("Verify() error = nil, want the untrusted key to be reported")
+	}
+	want := fmt.Sprintf("signed by key %016X which is not in the trusted keyring", signer.PrimaryKey.KeyId)
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("Verify() error = %v, want it to contain %q", err, want)
 	}
 }
 

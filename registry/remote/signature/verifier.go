@@ -110,7 +110,7 @@ func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *policy.PRSign
 	}
 
 	if len(sigs) == 0 {
-		return false, nil
+		return false, fmt.Errorf("no signatures found for %s@%s: %w", image.Scope, imgDigest, policy.ErrDenied)
 	}
 
 	// Check each signature. A rejection is not fatal on its own — any one of

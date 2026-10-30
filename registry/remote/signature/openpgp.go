@@ -23,6 +23,7 @@ import (
 	"os"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
+	pgperrors "github.com/ProtonMail/go-crypto/openpgp/errors"
 )
 
 // ErrSignatureVerification is returned when an OpenPGP signature cannot be verified.
@@ -104,9 +105,19 @@ func VerifyOpenPGPSignature(signedData []byte, keyring *KeyRing) (*SimpleSigning
 
 	// Check signature verification status.
 	if md.SignatureError != nil {
+		if errors.Is(md.SignatureError, pgperrors.ErrUnknownIssuer) {
+			return nil, fmt.Errorf("%w: signed by key %016X which is not in the trusted keyring", ErrSignatureVerification, md.SignedByKeyId)
+		}
 		return nil, fmt.Errorf("%w: %v", ErrSignatureVerification, md.SignatureError)
 	}
 	if md.SignedBy == nil {
+		if md.IsSigned {
+			// The signature exists and is well formed, but the signer's key
+			// is not in the keyring. Report the issuer so the user can add
+			// it to the keyring, instead of the misleading "message was not
+			// signed".
+			return nil, fmt.Errorf("%w: signed by key %016X which is not in the trusted keyring", ErrSignatureVerification, md.SignedByKeyId)
+		}
 		return nil, fmt.Errorf("%w: message was not signed", ErrSignatureVerification)
 	}
 
