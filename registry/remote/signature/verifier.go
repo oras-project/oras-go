@@ -160,7 +160,9 @@ func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *policy.PRSign
 		rejected = append(rejected, fmt.Errorf("signature %d: signed identity %q does not match %q", i+1, payload.DockerReference(), image.Reference))
 	}
 
-	return false, fmt.Errorf("no valid signature found for %s: %w", image.Reference, errors.Join(rejected...))
+	// Every signature was rejected: this is still a policy denial, so the
+	// error wraps policy.ErrDenied as well as the reasons.
+	return false, fmt.Errorf("no valid signature found for %s: %w: %w", image.Reference, errors.Join(rejected...), policy.ErrDenied)
 }
 
 // loadKeyRing loads an OpenPGP keyring from the PRSignedBy requirement's

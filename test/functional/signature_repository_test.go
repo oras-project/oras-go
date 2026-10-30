@@ -20,6 +20,7 @@ package functional_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -78,6 +79,9 @@ func requireSignatureRejected(t *testing.T, err error, ref string) {
 	want := "no valid signature found for " + ref
 	if !strings.Contains(err.Error(), want) {
 		t.Errorf("error = %v, want it to contain %q", err, want)
+	}
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Errorf("error = %v, want it to wrap policy.ErrDenied", err)
 	}
 }
 

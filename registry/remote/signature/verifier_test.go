@@ -202,6 +202,9 @@ func TestDefaultSignedByVerifier_Verify_WrongKey(t *testing.T) {
 	if strings.Contains(err.Error(), "message was not signed") {
 		t.Errorf("Verify() error = %q, should not report signed content as unsigned", err)
 	}
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Errorf("Verify() error = %v, want it to wrap policy.ErrDenied", err)
+	}
 }
 
 func TestDefaultSignedByVerifier_Verify_DigestMismatch(t *testing.T) {
