@@ -17,6 +17,7 @@ package syncutil
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 )
@@ -60,7 +61,7 @@ func (o *Once) Do(ctx context.Context, f func() (any, error)) (bool, any, error)
 				return false, o.result, o.err
 			}
 			result, err := f()
-			if err == context.Canceled || err == context.DeadlineExceeded {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				o.status <- true
 				return false, nil, err
 			}
