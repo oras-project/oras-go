@@ -335,6 +335,44 @@ func Test_extractTarGzip_Checksum(t *testing.T) {
 	}
 }
 
+func Test_extractTarGzip_ChecksumPaddedRecord(t *testing.T) {
+	// GNU tar and Python's tarfile pad an archive with zero blocks after its
+	// end marker, up to a 10240-byte record.
+	tarData := createTar(t, []tarEntry{
+		{name: "base/", mode: os.ModeDir | 0777},
+		{name: "base/test.txt", content: "hello world", mode: 0666},
+	})
+	const recordSize = 10240
+	tarData = append(tarData, make([]byte, recordSize-len(tarData)%recordSize)...)
+
+	var gzBuf bytes.Buffer
+	gw := gzip.NewWriter(&gzBuf)
+	if _, err := gw.Write(tarData); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gzPath := filepath.Join(t.TempDir(), "base.tar.gz")
+	if err := os.WriteFile(gzPath, gzBuf.Bytes(), 0666); err != nil {
+		t.Fatal(err)
+	}
+
+	dirPath := filepath.Join(t.TempDir(), "base")
+	buf := make([]byte, 32*1024)
+	checksum := digest.FromBytes(tarData).String()
+	if err := extractTarGzip(dirPath, "base", gzPath, AnnotationDigest, checksum, buf, false); err != nil {
+		t.Fatalf("extractTarGzip() error = %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dirPath, "test.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "hello world"; string(got) != want {
+		t.Errorf("extracted content = %q, want %q", got, want)
+	}
+}
+
 func Test_parseTarDigest_UsesAnnotationKey(t *testing.T) {
 	_, err := parseTarDigest(AnnotationDigestLegacy, "not-a-digest")
 	if err == nil {

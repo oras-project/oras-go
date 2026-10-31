@@ -864,6 +864,41 @@ func TestStore_Push_NoName_SizeNotMatch(t *testing.T) {
 	}
 }
 
+func TestStore_Push_ManifestWithTitle(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "README.md")
+	want := []byte("user content")
+	if err := os.WriteFile(path, want, 0600); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+
+	desc, err := oras.PackManifest(ctx, s, oras.PackManifestVersion1_1, "application/vnd.example", oras.PackManifestOptions{
+		ManifestAnnotations: map[string]string{ocispec.AnnotationTitle: "README.md"},
+	})
+	if err != nil {
+		t.Fatal("oras.PackManifest() error =", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("error calling ReadFile(), error =", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("file content = %q, want %q", got, want)
+	}
+
+	if err := s.Tag(ctx, desc, "latest"); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+}
+
 func TestStore_File_NotFound(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
@@ -1182,6 +1217,11 @@ func TestStore_File_SameContent_DuplicateName(t *testing.T) {
 	// test duplicate name
 	if _, err := s.Add(ctx, name, mediaType, path); !errors.Is(err, ErrDuplicateName) {
 		t.Errorf("Store.Add() = %v, want %v", err, ErrDuplicateName)
+	}
+
+	// test push of the added content
+	if err := s.Push(ctx, gotDesc, bytes.NewReader(content)); !errors.Is(err, errdef.ErrAlreadyExists) {
+		t.Errorf("Store.Push() = %v, want %v", err, errdef.ErrAlreadyExists)
 	}
 }
 
@@ -1553,6 +1593,58 @@ func TestStore_File_Push_DuplicateName(t *testing.T) {
 	err = s.Push(ctx, desc_2, bytes.NewBuffer(content_2))
 	if !errors.Is(err, ErrDuplicateName) {
 		t.Errorf("Store.Push() error = %v, want %v", err, ErrDuplicateName)
+	}
+	if errors.Is(err, errdef.ErrAlreadyExists) {
+		t.Errorf("Store.Push() error = %v, want not %v", err, errdef.ErrAlreadyExists)
+	}
+
+	// test push of the same content with the same name
+	err = s.Push(ctx, desc_1, bytes.NewReader(content_1))
+	if !errors.Is(err, ErrDuplicateName) || !errors.Is(err, errdef.ErrAlreadyExists) {
+		t.Errorf("Store.Push() error = %v, want %v and %v", err, ErrDuplicateName, errdef.ErrAlreadyExists)
+	}
+}
+
+func TestCopy_File_SkipExistsCheckBelowSize_SharedFile(t *testing.T) {
+	src := memory.New()
+	ctx := context.Background()
+	pushFile := func(name, content string) ocispec.Descriptor {
+		desc, err := oras.PushBytes(ctx, src, "test", []byte(content))
+		if err != nil {
+			t.Fatal(err)
+		}
+		desc.Annotations = map[string]string{ocispec.AnnotationTitle: name}
+		return desc
+	}
+	shared := pushFile("shared.txt", "shared")
+	other := pushFile("other.txt", "other")
+	for ref, layers := range map[string][]ocispec.Descriptor{
+		"a": {shared},
+		"b": {shared, other},
+	} {
+		if _, err := oras.PackManifestN(ctx, src, oras.PackManifestVersion1_1, "application/vnd.test", []string{ref}, oras.PackManifestOptions{
+			Layers: layers,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	dst, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dst.Close()
+	opts := oras.CopyOptions{}
+	opts.SkipExistsCheckBelowSize = 1024
+	// the second copy pushes shared.txt again, without checking whether it
+	// exists
+	for _, ref := range []string{"a", "b"} {
+		if _, err := oras.Copy(ctx, src, ref, dst, "", opts); err != nil {
+			t.Fatalf("Copy(%s) error = %v", ref, err)
+		}
+	}
+	if exists, err := dst.Exists(ctx, other); err != nil || !exists {
+		t.Errorf("Store.Exists(other.txt) = %v, %v, want true", exists, err)
 	}
 }
 
@@ -2309,6 +2401,9 @@ func TestStore_File_Push_IgnoreNoName(t *testing.T) {
 		MediaType: ocispec.MediaTypeImageManifest,
 		Digest:    digest.FromBytes(manifestJSON),
 		Size:      int64(len(manifestJSON)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "manifest.json",
+		},
 	}
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
@@ -3041,6 +3136,78 @@ func TestCopyGraph_MemoryToFile_FullCopy(t *testing.T) {
 	}
 	if got, want := dstTracker.exists, int64(len(blobs)); got != want {
 		t.Errorf("count(dst.Exists()) = %v, want %v", got, want)
+	}
+}
+
+func TestCopyGraph_MemoryToFile_TitledManifest(t *testing.T) {
+	ctx := context.Background()
+	src := memory.New()
+
+	push := func(mediaType, title string, blob []byte) ocispec.Descriptor {
+		desc := ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+			Annotations: map[string]string{
+				ocispec.AnnotationTitle: title,
+			},
+		}
+		if err := src.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+			t.Fatal("src.Push() error =", err)
+		}
+		return desc
+	}
+
+	config := []byte("config")
+	configDesc := push(ocispec.MediaTypeImageConfig, "config.json", config)
+	layer := []byte("layer")
+	layerDesc := push(ocispec.MediaTypeImageLayer, "layer.tar", layer)
+	manifestJSON, err := json.Marshal(ocispec.Manifest{Config: configDesc, Layers: []ocispec.Descriptor{layerDesc}})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := push(ocispec.MediaTypeImageManifest, "manifest.json", manifestJSON)
+	indexJSON, err := json.Marshal(ocispec.Index{Manifests: []ocispec.Descriptor{manifestDesc}})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	indexDesc := push(ocispec.MediaTypeImageIndex, "index.json", indexJSON)
+
+	dir := t.TempDir()
+	want := []byte("user content")
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), want, 0600); err != nil {
+		t.Fatal("os.WriteFile() error =", err)
+	}
+	dst, err := New(dir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dst.Close()
+
+	if err := oras.CopyGraph(ctx, src, dst, indexDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+	for name, content := range map[string][]byte{
+		"config.json":   config,
+		"layer.tar":     layer,
+		"manifest.json": want,
+	} {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("os.ReadFile(%q) error = %v", name, err)
+		}
+		if !bytes.Equal(got, content) {
+			t.Errorf("os.ReadFile(%q) = %q, want %q", name, got, content)
+		}
+	}
+	for _, desc := range []ocispec.Descriptor{manifestDesc, indexDesc} {
+		exists, err := dst.Exists(ctx, desc)
+		if err != nil {
+			t.Fatal("dst.Exists() error =", err)
+		}
+		if !exists {
+			t.Errorf("dst.Exists(%s) = false, want true", desc.MediaType)
+		}
 	}
 }
 

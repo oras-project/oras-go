@@ -114,6 +114,9 @@ func ExponentialBackoff(backoff time.Duration, factor, jitter float64) Backoff {
 		if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
 			if v := resp.Header.Get(headerRetryAfter); v != "" {
 				if retryAfter, _ := strconv.ParseInt(v, 10, 64); retryAfter > 0 {
+					if retryAfter > int64(math.MaxInt64/time.Second) {
+						return math.MaxInt64
+					}
 					return time.Duration(retryAfter) * time.Second
 				}
 			}
@@ -121,6 +124,10 @@ func ExponentialBackoff(backoff time.Duration, factor, jitter float64) Backoff {
 
 		// do exponential backoff with jitter
 		temp := float64(backoff) * math.Pow(factor, float64(attempt))
+		// saturate instead of overflowing time.Duration on a late attempt
+		if temp*(1+jitter) >= math.MaxInt64 {
+			return math.MaxInt64
+		}
 		interval := time.Duration(temp * (1 - jitter))
 		// skip the random term when the jitter range is zero,
 		// as rand.Int64N panics on a zero range

@@ -18,8 +18,10 @@ package signature
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -93,6 +95,12 @@ func TestVerifyOpenPGPSignature_WrongKey(t *testing.T) {
 	}
 	if !errors.Is(err, ErrSignatureVerification) {
 		t.Errorf("error should wrap ErrSignatureVerification, got: %v", err)
+	}
+	// The message is signed, just not by a trusted key: the error names the
+	// signer's key ID instead of claiming the message was not signed.
+	want := fmt.Sprintf("signed by key %016X, which is not in the trusted keyring", signer.PrimaryKey.KeyId)
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err, want)
 	}
 }
 

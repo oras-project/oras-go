@@ -486,7 +486,13 @@ func (cfg *Config) IsAuthConfigured() bool {
 // saveFile saves Config into the file.
 func (cfg *Config) saveFile() (returnErr error) {
 	// marshal content
-	// credentialHelpers is skipped as it's never set
+	if len(cfg.credentialHelpers) > 0 {
+		credHelpersBytes, err := json.Marshal(cfg.credentialHelpers)
+		if err != nil {
+			return fmt.Errorf("failed to marshal cred helpers: %w", err)
+		}
+		cfg.content[configFieldCredentialHelpers] = credHelpersBytes
+	}
 	if cfg.credentialsStore != "" {
 		credsStoreBytes, err := json.Marshal(cfg.credentialsStore)
 		if err != nil {

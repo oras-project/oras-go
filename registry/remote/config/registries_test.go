@@ -141,6 +141,25 @@ insecure = true
 			wantErr: false,
 		},
 		{
+			name: "registry without prefix uses location",
+			content: `
+[[registry]]
+location = "localhost:5000"
+insecure = true
+`,
+			want: &RegistriesConfig{
+				Registries: []Registry{
+					{
+						Prefix:   "localhost:5000",
+						Location: "localhost:5000",
+						Insecure: true,
+					},
+				},
+				Aliases: map[string]string{},
+			},
+			wantErr: false,
+		},
+		{
 			name: "config with mirror-by-digest-only",
 			content: `
 [[registry]]
@@ -627,8 +646,20 @@ func TestMatchesPrefix(t *testing.T) {
 			want:   true,
 		},
 		{
+			name:   "wildcard host with port",
+			ref:    "sub.example.com:5000/image:tag",
+			prefix: "*.example.com",
+			want:   true,
+		},
+		{
 			name:   "wildcard no match",
 			ref:    "other.domain.com/image",
+			prefix: "*.example.com",
+			want:   false,
+		},
+		{
+			name:   "wildcard no match with port",
+			ref:    "sub.example.com.evil.com:5000/image",
 			prefix: "*.example.com",
 			want:   false,
 		},

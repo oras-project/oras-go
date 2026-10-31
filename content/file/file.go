@@ -148,11 +148,12 @@ type Store struct {
 	graph           *graph.Memory
 }
 
-// nameStatus contains a flag indicating if a name exists,
-// and a RWMutex protecting it.
+// nameStatus contains a flag indicating if a name exists, the digest of its
+// content, and a RWMutex protecting them.
 type nameStatus struct {
 	sync.RWMutex
 	exists bool
+	digest digest.Digest
 }
 
 // New creates a file store with the default options: SHA-256 digests and a
@@ -275,7 +276,7 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 	}
 
 	// if the target has name, check if the name exists.
-	name := target.Annotations[ocispec.AnnotationTitle]
+	name := descriptorName(target)
 	if name != "" && !s.nameExists(name) {
 		return nil, fmt.Errorf("%s: %s: %w", name, target.MediaType, errdef.ErrNotFound)
 	}
@@ -339,7 +340,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 // the fallback storage by default, or will be discarded when
 // Store.IgnoreNoName is true.
 func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	name := expected.Annotations[ocispec.AnnotationTitle]
+	name := descriptorName(expected)
 	if name == "" {
 		if s.IgnoreNoName {
 			return errSkipUnnamed
@@ -353,6 +354,9 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 	defer status.Unlock()
 
 	if status.exists {
+		if status.digest == expected.Digest {
+			return fmt.Errorf("%s: %w: %w", name, ErrDuplicateName, errdef.ErrAlreadyExists)
+		}
 		return fmt.Errorf("%s: %w", name, ErrDuplicateName)
 	}
 
@@ -377,6 +381,7 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 
 	// update the name status as existed
 	status.exists = true
+	status.digest = expected.Digest
 	return nil
 }
 
@@ -389,7 +394,7 @@ func (s *Store) restoreDuplicates(ctx context.Context, fetcher content.Fetcher, 
 		return err
 	}
 	for _, successor := range successors {
-		name := successor.Annotations[ocispec.AnnotationTitle]
+		name := descriptorName(successor)
 		if name == "" || s.nameExists(name) {
 			continue
 		}
@@ -438,7 +443,7 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 	}
 
 	// if the target has name, check if the name exists.
-	name := target.Annotations[ocispec.AnnotationTitle]
+	name := descriptorName(target)
 	if name != "" && !s.nameExists(name) {
 		return false, nil
 	}
@@ -547,6 +552,7 @@ func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.
 
 	// update the name status as existed
 	status.exists = true
+	status.digest = desc.Digest
 	return desc, nil
 }
 
@@ -843,7 +849,7 @@ func (s *Store) resolveWritePath(name string) (string, error) {
 
 // status returns the nameStatus for the given name.
 func (s *Store) status(name string) *nameStatus {
-	v, _ := s.nameToStatus.LoadOrStore(name, &nameStatus{sync.RWMutex{}, false})
+	v, _ := s.nameToStatus.LoadOrStore(name, &nameStatus{})
 	status := v.(*nameStatus)
 	return status
 }
@@ -855,6 +861,13 @@ func (s *Store) nameExists(name string) bool {
 	defer status.RUnlock()
 
 	return status.exists
+}
+
+func descriptorName(desc ocispec.Descriptor) string {
+	if descriptor.IsManifest(desc) {
+		return ""
+	}
+	return desc.Annotations[ocispec.AnnotationTitle]
 }
 
 // tempFile creates a temp file with the file name format "oras_file_randomString",
