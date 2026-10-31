@@ -18,6 +18,7 @@ package syncutil
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strconv"
@@ -159,6 +160,46 @@ func TestOnce_Do_Cancel_Function(t *testing.T) {
 	}
 	if wantResult := "bar"; !reflect.DeepEqual(result, wantResult) {
 		t.Fatalf("Once.Do() result = %v, want %v", result, wantResult)
+	}
+}
+
+func TestOnce_Do_Cancel_Function_Wrapped(t *testing.T) {
+	for name, cause := range map[string]error{
+		"canceled":          context.Canceled,
+		"deadline exceeded": context.DeadlineExceeded,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			once := NewOnce()
+
+			wrapped := fmt.Errorf("Get \"https://example.com/token\": %w", cause)
+			first, result, err := once.Do(ctx, func() (any, error) {
+				return "foo", wrapped
+			})
+			if wantFirst := false; first != wantFirst {
+				t.Fatalf("Once.Do() first = %v, want %v", first, wantFirst)
+			}
+			if !errors.Is(err, cause) {
+				t.Fatalf("Once.Do() error = %v, want %v", err, cause)
+			}
+			if wantResult := any(nil); !reflect.DeepEqual(result, wantResult) {
+				t.Fatalf("Once.Do() result = %v, want %v", result, wantResult)
+			}
+
+			// the cancellation must not be cached: the next call runs f again
+			first, result, err = once.Do(ctx, func() (any, error) {
+				return "bar", io.EOF
+			})
+			if wantFirst := true; first != wantFirst {
+				t.Fatalf("Once.Do() first = %v, want %v", first, wantFirst)
+			}
+			if wantErr := io.EOF; err != wantErr {
+				t.Fatalf("Once.Do() error = %v, wantErr %v", err, wantErr)
+			}
+			if wantResult := "bar"; !reflect.DeepEqual(result, wantResult) {
+				t.Fatalf("Once.Do() result = %v, want %v", result, wantResult)
+			}
+		})
 	}
 }
 
