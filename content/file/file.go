@@ -148,11 +148,12 @@ type Store struct {
 	graph           *graph.Memory
 }
 
-// nameStatus contains a flag indicating if a name exists,
-// and a RWMutex protecting it.
+// nameStatus contains a flag indicating if a name exists, the digest of its
+// content, and a RWMutex protecting them.
 type nameStatus struct {
 	sync.RWMutex
 	exists bool
+	digest digest.Digest
 }
 
 // New creates a file store with the default options: SHA-256 digests and a
@@ -353,6 +354,9 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 	defer status.Unlock()
 
 	if status.exists {
+		if status.digest == expected.Digest {
+			return fmt.Errorf("%s: %w: %w", name, ErrDuplicateName, errdef.ErrAlreadyExists)
+		}
 		return fmt.Errorf("%s: %w", name, ErrDuplicateName)
 	}
 
@@ -377,6 +381,7 @@ func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content i
 
 	// update the name status as existed
 	status.exists = true
+	status.digest = expected.Digest
 	return nil
 }
 
@@ -547,6 +552,7 @@ func (s *Store) Add(ctx context.Context, name, mediaType, path string) (ocispec.
 
 	// update the name status as existed
 	status.exists = true
+	status.digest = desc.Digest
 	return desc, nil
 }
 
@@ -843,7 +849,7 @@ func (s *Store) resolveWritePath(name string) (string, error) {
 
 // status returns the nameStatus for the given name.
 func (s *Store) status(name string) *nameStatus {
-	v, _ := s.nameToStatus.LoadOrStore(name, &nameStatus{sync.RWMutex{}, false})
+	v, _ := s.nameToStatus.LoadOrStore(name, &nameStatus{})
 	status := v.(*nameStatus)
 	return status
 }
