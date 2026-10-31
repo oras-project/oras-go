@@ -413,6 +413,46 @@ func TestManifestPullWithoutDigestHeader(t *testing.T) {
 	}
 }
 
+func TestManifestPullWithoutDigestHeaderOverLimit(t *testing.T) {
+	manifest := []byte(`{"schemaVersion":2,"manifests":[]}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", ocispec.MediaTypeImageIndex)
+		w.Header().Set("Content-Length", strconv.Itoa(len(manifest)))
+		_, _ = w.Write(manifest)
+	}))
+	defer server.Close()
+	repo, err := NewRepository(strings.TrimPrefix(server.URL, "http://") + "/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.Registry.PlainHTTP = true
+	repo.Registry.MaxMetadataBytes = 8
+	for _, reference := range []string{"latest", digest.FromBytes(manifest).String()} {
+		t.Run(reference, func(t *testing.T) {
+			desc, r, err := repo.FetchReference(context.Background(), reference)
+			if r != nil {
+				defer r.Close()
+			}
+			if !errors.Is(err, errdef.ErrSizeExceedsLimit) {
+				t.Fatalf("FetchReference() = %v, %v; want errdef.ErrSizeExceedsLimit", desc, err)
+			}
+			if errors.Is(err, content.ErrMismatchedDigest) {
+				t.Fatal("size limit misreported as corruption")
+			}
+		})
+	}
+	t.Run("read error while checking size limit", func(t *testing.T) {
+		resp := &http.Response{
+			Request: httptest.NewRequest(http.MethodGet, "http://example.com/v2/test/manifests/latest", nil),
+			Body:    io.NopCloser(io.MultiReader(bytes.NewReader(manifest), &badReader{})),
+		}
+		_, err := calculateDigestFromResponse(resp, int64(len(manifest)), digest.SHA256)
+		if err == nil || errors.Is(err, errdef.ErrSizeExceedsLimit) {
+			t.Fatalf("calculateDigestFromResponse() error = %v, want a read error", err)
+		}
+	})
+}
+
 func TestManifestPullChunkedTagChanged(t *testing.T) {
 	manifest := []byte(`{"schemaVersion":2,"manifests":[]}`)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
