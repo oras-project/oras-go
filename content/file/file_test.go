@@ -864,6 +864,41 @@ func TestStore_Push_NoName_SizeNotMatch(t *testing.T) {
 	}
 }
 
+func TestStore_Push_ManifestWithTitle(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "README.md")
+	want := []byte("user content")
+	if err := os.WriteFile(path, want, 0600); err != nil {
+		t.Fatal("error calling WriteFile(), error =", err)
+	}
+
+	s, err := New(tempDir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer s.Close()
+
+	desc, err := oras.PackManifest(ctx, s, oras.PackManifestVersion1_1, "application/vnd.example", oras.PackManifestOptions{
+		ManifestAnnotations: map[string]string{ocispec.AnnotationTitle: "README.md"},
+	})
+	if err != nil {
+		t.Fatal("oras.PackManifest() error =", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal("error calling ReadFile(), error =", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("file content = %q, want %q", got, want)
+	}
+
+	if err := s.Tag(ctx, desc, "latest"); err != nil {
+		t.Fatal("Store.Tag() error =", err)
+	}
+}
+
 func TestStore_File_NotFound(t *testing.T) {
 	content := []byte("hello world")
 	desc := ocispec.Descriptor{
@@ -2366,6 +2401,9 @@ func TestStore_File_Push_IgnoreNoName(t *testing.T) {
 		MediaType: ocispec.MediaTypeImageManifest,
 		Digest:    digest.FromBytes(manifestJSON),
 		Size:      int64(len(manifestJSON)),
+		Annotations: map[string]string{
+			ocispec.AnnotationTitle: "manifest.json",
+		},
 	}
 	tempDir := t.TempDir()
 	s, err := New(tempDir)
@@ -3098,6 +3136,78 @@ func TestCopyGraph_MemoryToFile_FullCopy(t *testing.T) {
 	}
 	if got, want := dstTracker.exists, int64(len(blobs)); got != want {
 		t.Errorf("count(dst.Exists()) = %v, want %v", got, want)
+	}
+}
+
+func TestCopyGraph_MemoryToFile_TitledManifest(t *testing.T) {
+	ctx := context.Background()
+	src := memory.New()
+
+	push := func(mediaType, title string, blob []byte) ocispec.Descriptor {
+		desc := ocispec.Descriptor{
+			MediaType: mediaType,
+			Digest:    digest.FromBytes(blob),
+			Size:      int64(len(blob)),
+			Annotations: map[string]string{
+				ocispec.AnnotationTitle: title,
+			},
+		}
+		if err := src.Push(ctx, desc, bytes.NewReader(blob)); err != nil {
+			t.Fatal("src.Push() error =", err)
+		}
+		return desc
+	}
+
+	config := []byte("config")
+	configDesc := push(ocispec.MediaTypeImageConfig, "config.json", config)
+	layer := []byte("layer")
+	layerDesc := push(ocispec.MediaTypeImageLayer, "layer.tar", layer)
+	manifestJSON, err := json.Marshal(ocispec.Manifest{Config: configDesc, Layers: []ocispec.Descriptor{layerDesc}})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	manifestDesc := push(ocispec.MediaTypeImageManifest, "manifest.json", manifestJSON)
+	indexJSON, err := json.Marshal(ocispec.Index{Manifests: []ocispec.Descriptor{manifestDesc}})
+	if err != nil {
+		t.Fatal("json.Marshal() error =", err)
+	}
+	indexDesc := push(ocispec.MediaTypeImageIndex, "index.json", indexJSON)
+
+	dir := t.TempDir()
+	want := []byte("user content")
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), want, 0600); err != nil {
+		t.Fatal("os.WriteFile() error =", err)
+	}
+	dst, err := New(dir)
+	if err != nil {
+		t.Fatal("Store.New() error =", err)
+	}
+	defer dst.Close()
+
+	if err := oras.CopyGraph(ctx, src, dst, indexDesc, oras.DefaultCopyGraphOptions); err != nil {
+		t.Fatal("oras.CopyGraph() error =", err)
+	}
+	for name, content := range map[string][]byte{
+		"config.json":   config,
+		"layer.tar":     layer,
+		"manifest.json": want,
+	} {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("os.ReadFile(%q) error = %v", name, err)
+		}
+		if !bytes.Equal(got, content) {
+			t.Errorf("os.ReadFile(%q) = %q, want %q", name, got, content)
+		}
+	}
+	for _, desc := range []ocispec.Descriptor{manifestDesc, indexDesc} {
+		exists, err := dst.Exists(ctx, desc)
+		if err != nil {
+			t.Fatal("dst.Exists() error =", err)
+		}
+		if !exists {
+			t.Errorf("dst.Exists(%s) = false, want true", desc.MediaType)
+		}
 	}
 }
 

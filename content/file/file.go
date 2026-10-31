@@ -276,7 +276,7 @@ func (s *Store) Fetch(ctx context.Context, target ocispec.Descriptor) (io.ReadCl
 	}
 
 	// if the target has name, check if the name exists.
-	name := target.Annotations[ocispec.AnnotationTitle]
+	name := descriptorName(target)
 	if name != "" && !s.nameExists(name) {
 		return nil, fmt.Errorf("%s: %s: %w", name, target.MediaType, errdef.ErrNotFound)
 	}
@@ -340,7 +340,7 @@ func (s *Store) Push(ctx context.Context, expected ocispec.Descriptor, content i
 // the fallback storage by default, or will be discarded when
 // Store.IgnoreNoName is true.
 func (s *Store) push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	name := expected.Annotations[ocispec.AnnotationTitle]
+	name := descriptorName(expected)
 	if name == "" {
 		if s.IgnoreNoName {
 			return errSkipUnnamed
@@ -394,7 +394,7 @@ func (s *Store) restoreDuplicates(ctx context.Context, fetcher content.Fetcher, 
 		return err
 	}
 	for _, successor := range successors {
-		name := successor.Annotations[ocispec.AnnotationTitle]
+		name := descriptorName(successor)
 		if name == "" || s.nameExists(name) {
 			continue
 		}
@@ -443,7 +443,7 @@ func (s *Store) Exists(ctx context.Context, target ocispec.Descriptor) (bool, er
 	}
 
 	// if the target has name, check if the name exists.
-	name := target.Annotations[ocispec.AnnotationTitle]
+	name := descriptorName(target)
 	if name != "" && !s.nameExists(name) {
 		return false, nil
 	}
@@ -861,6 +861,13 @@ func (s *Store) nameExists(name string) bool {
 	defer status.RUnlock()
 
 	return status.exists
+}
+
+func descriptorName(desc ocispec.Descriptor) string {
+	if descriptor.IsManifest(desc) {
+		return ""
+	}
+	return desc.Annotations[ocispec.AnnotationTitle]
 }
 
 // tempFile creates a temp file with the file name format "oras_file_randomString",
