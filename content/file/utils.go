@@ -159,8 +159,15 @@ func extractTarGzip(dirPath, dirName, gzPath, checksumKey, checksum string, buf 
 	if err := extractTarDirectory(dirPath, dirName, r, buf, preservePermissions); err != nil {
 		return err
 	}
-	if verifier != nil && !verifier.Verified() {
-		return errors.New("content digest mismatch")
+	if verifier != nil {
+		// the tar reader stops at the end-of-archive marker, so read the
+		// padding that may follow it into the digest as well
+		if _, err := ioutil.CopyWithBuffer(io.Discard, r, buf); err != nil {
+			return err
+		}
+		if !verifier.Verified() {
+			return errors.New("content digest mismatch")
+		}
 	}
 	return nil
 }
