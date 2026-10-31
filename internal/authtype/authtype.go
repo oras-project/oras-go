@@ -20,7 +20,6 @@ package authtype
 import (
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"strings"
 )
 
@@ -74,7 +73,7 @@ func (ac AuthConfig) DecodeAuth() (username string, password string, err error) 
 	decodedStr := string(decoded)
 	username, password, ok := strings.Cut(decodedStr, ":")
 	if !ok {
-		return "", "", fmt.Errorf("auth '%s' does not conform the base64(username:password) format", decodedStr)
+		return "", "", errors.New("auth does not conform the base64(username:password) format")
 	}
 	return username, password, nil
 }

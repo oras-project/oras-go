@@ -8703,99 +8703,100 @@ func Test_generateIndex(t *testing.T) {
 	}
 }
 
-func Test_ManifestStore_Push_ReferrersAPIUnavailable_SHA384Subject(t *testing.T) {
-	// generate test content: the subject is digested with SHA-384, so the
-	// referrers tag is sha384-*. That the generated referrers index is
-	// digested with the subject's algorithm is covered by Test_generateIndex;
-	// this end-to-end test covers pushing the index by tag to a registry
-	// that canonicalizes tag pushes to SHA-256, which must not fail the
-	// push.
-	// Note: a SHA-512 subject is not usable here because its referrers tag
-	// exceeds the reference length limit, hence SHA-384 is the only
-	// non-SHA-256 algorithm covered by this end-to-end test.
-	subject := []byte(`{"layers":[]}`)
-	subjectDesc, err := content.NewDescriptorFromBytesWithAlgorithm(spec.MediaTypeArtifactManifest, subject, digest.SHA384)
-	if err != nil {
-		t.Fatalf("failed to generate subject descriptor: %v", err)
-	}
-	referrersTag := strings.Replace(subjectDesc.Digest.String(), ":", "-", 1)
-	artifact := spec.Artifact{
-		MediaType:    spec.MediaTypeArtifactManifest,
-		Subject:      &subjectDesc,
-		ArtifactType: "application/vnd.test",
-		Annotations:  map[string]string{"foo": "bar"},
-	}
-	artifactJSON, err := json.Marshal(artifact)
-	if err != nil {
-		t.Fatalf("failed to marshal manifest: %v", err)
-	}
-	artifactDesc := content.NewDescriptorFromBytes(artifact.MediaType, artifactJSON)
-	artifactDesc.ArtifactType = artifact.ArtifactType
-	artifactDesc.Annotations = artifact.Annotations
+func Test_ManifestStore_Push_ReferrersAPIUnavailable_NonCanonicalSubject(t *testing.T) {
+	// The subject is digested with SHA-384 or SHA-512, so the referrers tag is
+	// built from the subject's algorithm and the first 64 characters of its
+	// encoded digest. That the generated referrers index is digested with the
+	// subject's algorithm is covered by Test_generateIndex; this end-to-end
+	// test covers pushing the index by tag to a registry that canonicalizes
+	// tag pushes to SHA-256, which must not fail the push.
+	for _, alg := range []digest.Algorithm{digest.SHA384, digest.SHA512} {
+		t.Run(alg.String(), func(t *testing.T) {
+			subject := []byte(`{"layers":[]}`)
+			subjectDesc, err := content.NewDescriptorFromBytesWithAlgorithm(spec.MediaTypeArtifactManifest, subject, alg)
+			if err != nil {
+				t.Fatalf("failed to generate subject descriptor: %v", err)
+			}
+			referrersTag := alg.String() + "-" + subjectDesc.Digest.Encoded()[:64]
+			artifact := spec.Artifact{
+				MediaType:    spec.MediaTypeArtifactManifest,
+				Subject:      &subjectDesc,
+				ArtifactType: "application/vnd.test",
+				Annotations:  map[string]string{"foo": "bar"},
+			}
+			artifactJSON, err := json.Marshal(artifact)
+			if err != nil {
+				t.Fatalf("failed to marshal manifest: %v", err)
+			}
+			artifactDesc := content.NewDescriptorFromBytes(artifact.MediaType, artifactJSON)
+			artifactDesc.ArtifactType = artifact.ArtifactType
+			artifactDesc.Annotations = artifact.Annotations
 
-	// the referrers index the client should generate and push for the
-	// artifact's subject
-	index_1 := ocispec.Index{
-		Versioned: specs.Versioned{
-			SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
-		},
-		MediaType: ocispec.MediaTypeImageIndex,
-		Manifests: []ocispec.Descriptor{
-			artifactDesc,
-		},
-	}
-	indexJSON_1, err := json.Marshal(index_1)
-	if err != nil {
-		t.Fatalf("failed to marshal manifest: %v", err)
-	}
-	var gotReferrerIndex []byte
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+artifactDesc.Digest.String():
-			if contentType := r.Header.Get("Content-Type"); contentType != artifactDesc.MediaType {
-				w.WriteHeader(http.StatusBadRequest)
-				break
+			// the referrers index the client should generate and push for the
+			// artifact's subject
+			index_1 := ocispec.Index{
+				Versioned: specs.Versioned{
+					SchemaVersion: 2, // historical value. does not pertain to OCI or docker version
+				},
+				MediaType: ocispec.MediaTypeImageIndex,
+				Manifests: []ocispec.Descriptor{
+					artifactDesc,
+				},
 			}
-			w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
-			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
-			w.WriteHeader(http.StatusNotFound)
-		case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
-			if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
-				w.WriteHeader(http.StatusBadRequest)
-				break
+			indexJSON_1, err := json.Marshal(index_1)
+			if err != nil {
+				t.Fatalf("failed to marshal manifest: %v", err)
 			}
-			buf := bytes.NewBuffer(nil)
-			if _, err := buf.ReadFrom(r.Body); err != nil {
-				t.Errorf("fail to read: %v", err)
+			var gotReferrerIndex []byte
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+artifactDesc.Digest.String():
+					if contentType := r.Header.Get("Content-Type"); contentType != artifactDesc.MediaType {
+						w.WriteHeader(http.StatusBadRequest)
+						break
+					}
+					w.Header().Set("Docker-Content-Digest", artifactDesc.Digest.String())
+					w.WriteHeader(http.StatusCreated)
+				case r.Method == http.MethodGet && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+					w.WriteHeader(http.StatusNotFound)
+				case r.Method == http.MethodPut && r.URL.Path == "/v2/test/manifests/"+referrersTag:
+					if contentType := r.Header.Get("Content-Type"); contentType != ocispec.MediaTypeImageIndex {
+						w.WriteHeader(http.StatusBadRequest)
+						break
+					}
+					buf := bytes.NewBuffer(nil)
+					if _, err := buf.ReadFrom(r.Body); err != nil {
+						t.Errorf("fail to read: %v", err)
+					}
+					gotReferrerIndex = buf.Bytes()
+					// like a registry that canonicalizes tag pushes, report the
+					// digest of the received content under SHA-256
+					w.Header().Set("Docker-Content-Digest", digest.Canonical.FromBytes(buf.Bytes()).String())
+					w.WriteHeader(http.StatusCreated)
+				default:
+					t.Errorf("unexpected access: %s %s", r.Method, r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer ts.Close()
+			uri, err := url.Parse(ts.URL)
+			if err != nil {
+				t.Fatalf("invalid test http server: %v", err)
 			}
-			gotReferrerIndex = buf.Bytes()
-			// like a registry that canonicalizes tag pushes, report the
-			// digest of the received content under SHA-256
-			w.Header().Set("Docker-Content-Digest", digest.Canonical.FromBytes(buf.Bytes()).String())
-			w.WriteHeader(http.StatusCreated)
-		default:
-			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer ts.Close()
-	uri, err := url.Parse(ts.URL)
-	if err != nil {
-		t.Fatalf("invalid test http server: %v", err)
-	}
 
-	ctx := context.Background()
-	repo, err := NewRepository(uri.Host + "/test")
-	if err != nil {
-		t.Fatalf("NewRepository() error = %v", err)
-	}
-	repo.Registry.PlainHTTP = true
-	if err := repo.Push(ctx, artifactDesc, bytes.NewReader(artifactJSON)); err != nil {
-		t.Fatalf("Manifests.Push() error = %v", err)
-	}
-	if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
-		t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
+			ctx := context.Background()
+			repo, err := NewRepository(uri.Host + "/test")
+			if err != nil {
+				t.Fatalf("NewRepository() error = %v", err)
+			}
+			repo.Registry.PlainHTTP = true
+			if err := repo.Push(ctx, artifactDesc, bytes.NewReader(artifactJSON)); err != nil {
+				t.Fatalf("Manifests.Push() error = %v", err)
+			}
+			if !bytes.Equal(gotReferrerIndex, indexJSON_1) {
+				t.Errorf("got referrers index = %v, want %v", string(gotReferrerIndex), string(indexJSON_1))
+			}
+		})
 	}
 }
 

@@ -79,6 +79,9 @@ func NewSignedByVerifierFromConfig(cfg *config.RegistriesDConfig) *DefaultSigned
 //  3. For each signature: verifies the OpenPGP signature, parses the payload,
 //     validates the digest matches, and applies identity matching.
 //  4. Returns true if at least one valid signature is found.
+//
+// If the store has no signatures for the digest, Verify returns false and an
+// error wrapping policy.ErrDenied that names the scope and digest.
 func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *policy.PRSignedBy, image policy.ImageReference) (bool, error) {
 	if v == nil || v.store == nil || isNilStore(v.store) {
 		return false, fmt.Errorf("signedBy verification requires a signature store: %w", errdef.ErrUnsupported)
@@ -110,7 +113,10 @@ func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *policy.PRSign
 	}
 
 	if len(sigs) == 0 {
-		return false, nil
+		// Report the missing signatures instead of a bare denial, so unsigned
+		// content is distinguishable from a reject requirement. The error
+		// wraps policy.ErrDenied: this is still a policy denial.
+		return false, fmt.Errorf("no signatures found for %s@%s: %w", image.Scope, imgDigest, policy.ErrDenied)
 	}
 
 	// Check each signature. A rejection is not fatal on its own — any one of
@@ -154,7 +160,9 @@ func (v *DefaultSignedByVerifier) Verify(ctx context.Context, req *policy.PRSign
 		rejected = append(rejected, fmt.Errorf("signature %d: signed identity %q does not match %q", i+1, payload.DockerReference(), image.Reference))
 	}
 
-	return false, fmt.Errorf("no valid signature found for %s: %w", image.Reference, errors.Join(rejected...))
+	// Every signature was rejected: this is still a policy denial, so the
+	// error wraps policy.ErrDenied as well as the reasons.
+	return false, fmt.Errorf("no valid signature found for %s: %w: %w", image.Reference, errors.Join(rejected...), policy.ErrDenied)
 }
 
 // loadKeyRing loads an OpenPGP keyring from the PRSignedBy requirement's

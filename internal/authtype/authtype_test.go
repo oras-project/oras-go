@@ -17,6 +17,7 @@ package authtype
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +117,20 @@ func TestAuthConfig_DecodeAuth(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAuthConfig_DecodeAuth_errorHidesSecret(t *testing.T) {
+	// an auth field without a colon most likely holds a bare token, which
+	// must not be echoed into the error
+	secret := "mytoken"
+	ac := AuthConfig{Auth: base64.StdEncoding.EncodeToString([]byte(secret))}
+	_, _, err := ac.DecodeAuth()
+	if err == nil {
+		t.Fatal("DecodeAuth() error = nil, want error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("DecodeAuth() error = %q, want no decoded auth in it", err)
 	}
 }
 
