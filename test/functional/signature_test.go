@@ -20,6 +20,7 @@ package functional_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -163,8 +164,11 @@ func TestSignature_GPG_UnsignedImageRejected(t *testing.T) {
 		Scope:     scope,
 		Reference: imageRef,
 	})
-	if err != nil {
-		t.Fatalf("IsImageAllowed returned error: %v", err)
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("IsImageAllowed error = %v, want an error wrapping policy.ErrDenied", err)
+	}
+	if want := "no signatures found for " + imageRef; !strings.Contains(err.Error(), want) {
+		t.Errorf("IsImageAllowed error = %v, want it to contain %q", err, want)
 	}
 	if allowed {
 		t.Fatal("expected unsigned image to be rejected, but it was allowed")
@@ -224,12 +228,15 @@ func TestSignature_GPG_WrongKeyRejected(t *testing.T) {
 	}
 	// A signature that is present but validates against no configured key is
 	// reported with the reasons it was rejected, so a misconfigured keyring is
-	// distinguishable from genuinely unsigned content -- the latter rejects
-	// with a nil error, as TestSignature_GPG_UnsignedImageRejected asserts.
+	// distinguishable from genuinely unsigned content, which reports "no
+	// signatures found" instead. Both wrap policy.ErrDenied.
 	if err == nil {
 		t.Fatal("expected a rejection reason for a signature that validates against no key, got a nil error")
 	}
 	if !strings.Contains(err.Error(), "no valid signature found") {
 		t.Errorf("IsImageAllowed error = %v, want it to report that no signature validated", err)
+	}
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Errorf("IsImageAllowed error = %v, want it to wrap policy.ErrDenied", err)
 	}
 }

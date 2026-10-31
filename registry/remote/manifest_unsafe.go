@@ -62,7 +62,7 @@ func (s *manifestStore) UnsafePush(ctx context.Context, expected ocispec.Descrip
 		return ocispec.Descriptor{}, err
 	}
 	if expected.Digest != "" {
-		if err := s.repo.checkManifestPolicy(ctx, expected.Digest.String(), expected); err != nil {
+		if err := s.repo.checkWritePolicy(ctx, expected.Digest.String()); err != nil {
 			return ocispec.Descriptor{}, err
 		}
 	} else if err := s.repo.checkPolicy(ctx, ""); err != nil {
@@ -86,7 +86,7 @@ func (s *manifestStore) UnsafePush(ctx context.Context, expected ocispec.Descrip
 		return ocispec.Descriptor{}, err
 	}
 	if expected.Digest == "" {
-		if err := s.repo.checkManifestPolicy(ctx, desc.Digest.String(), desc); err != nil {
+		if err := s.repo.checkWritePolicy(ctx, desc.Digest.String()); err != nil {
 			return ocispec.Descriptor{}, err
 		}
 	}

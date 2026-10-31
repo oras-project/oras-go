@@ -754,15 +754,25 @@ func newSignedByTestServerWithRequests(t *testing.T, verifier policy.SignedByVer
 	requests := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
-		switch r.URL.Path {
-		case "/v2/test/manifests/signed",
-			"/v2/test/manifests/" + indexDesc.Digest.String():
+		switch {
+		case r.URL.Path == "/v2/test/manifests/signed",
+			r.URL.Path == "/v2/test/manifests/"+indexDesc.Digest.String():
 			w.Header().Set("Content-Type", indexDesc.MediaType)
 			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
 			w.Header().Set("Content-Length", strconv.Itoa(int(indexDesc.Size)))
-			if r.Method == http.MethodGet {
+			switch r.Method {
+			case http.MethodGet:
 				w.Write(index)
+			case http.MethodPut:
+				w.Header().Del("Content-Length")
+				w.WriteHeader(http.StatusCreated)
+			case http.MethodDelete:
+				w.Header().Del("Content-Length")
+				w.WriteHeader(http.StatusAccepted)
 			}
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/v2/test/manifests/"):
+			w.Header().Set("Docker-Content-Digest", indexDesc.Digest.String())
+			w.WriteHeader(http.StatusCreated)
 		default:
 			t.Errorf("unexpected access: %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -816,6 +826,33 @@ func TestRepository_ManifestDescriptorOperations_SignedByPolicy_Denied(t *testin
 				return err
 			},
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			verifier := &recordingSignedByVerifier{allow: false}
+			repo, desc, requests := newSignedByTestServerWithRequests(t, verifier)
+
+			err := tt.operation(context.Background(), repo, desc)
+			assertPolicyDenied(t, err, tt.name)
+			if *requests != 0 {
+				t.Errorf("registry requests = %d, want 0", *requests)
+			}
+			if len(verifier.seen) != 1 || verifier.seen[0].Digest != desc.Digest {
+				t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, desc.Digest)
+			}
+		})
+	}
+}
+
+func TestRepository_ManifestDescriptorOperations_SignedByPolicy_AllowedOnWrite(t *testing.T) {
+	// Writes and presence probes must not evaluate signature requirements: a
+	// manifest being pushed cannot be signed yet, because a signature binds
+	// to its digest, which only exists once the manifest is stored.
+	tests := []struct {
+		name      string
+		operation func(context.Context, *Repository, ocispec.Descriptor) error
+	}{
 		{
 			name: "Push",
 			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
@@ -826,6 +863,20 @@ func TestRepository_ManifestDescriptorOperations_SignedByPolicy_Denied(t *testin
 			name: "Manifests().Push",
 			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
 				return repo.Manifests().Push(ctx, desc, strings.NewReader(`{"manifests":[]}`))
+			},
+		},
+		{
+			name: "Exists",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				_, err := repo.Exists(ctx, desc)
+				return err
+			},
+		},
+		{
+			name: "Manifests().Exists",
+			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
+				_, err := repo.Manifests().Exists(ctx, desc)
+				return err
 			},
 		},
 		{
@@ -847,15 +898,13 @@ func TestRepository_ManifestDescriptorOperations_SignedByPolicy_Denied(t *testin
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			verifier := &recordingSignedByVerifier{allow: false}
-			repo, desc, requests := newSignedByTestServerWithRequests(t, verifier)
+			repo, desc, _ := newSignedByTestServerWithRequests(t, verifier)
 
-			err := tt.operation(context.Background(), repo, desc)
-			assertPolicyDenied(t, err, tt.name)
-			if *requests != 0 {
-				t.Errorf("registry requests = %d, want 0", *requests)
+			if err := tt.operation(context.Background(), repo, desc); err != nil {
+				t.Fatalf("%s() error = %v", tt.name, err)
 			}
-			if len(verifier.seen) != 1 || verifier.seen[0].Digest != desc.Digest {
-				t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, desc.Digest)
+			if len(verifier.seen) != 0 {
+				t.Errorf("verifier calls = %v, want none on write operations", verifier.seen)
 			}
 		})
 	}
@@ -936,6 +985,50 @@ func TestRepository_DefaultSignedByVerifier_EndToEnd(t *testing.T) {
 	}
 	if err := rc.Close(); err != nil {
 		t.Errorf("Fetch().Close() error = %v", err)
+	}
+}
+
+func TestRepository_DefaultSignedByVerifier_Unsigned(t *testing.T) {
+	repo, desc := newSignedByTestServer(t, &recordingSignedByVerifier{allow: true})
+
+	signer, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("openpgp.NewEntity() error = %v", err)
+	}
+	var publicKey bytes.Buffer
+	if err := signer.Serialize(&publicKey); err != nil {
+		t.Fatalf("signer.Serialize() error = %v", err)
+	}
+	// An empty lookaside: the content has no signatures.
+	storeURL := "file://" + t.TempDir()
+	store := signature.NewLookasideStore(storeURL, storeURL)
+	pol, err := policy.NewEvaluator(&policy.Policy{
+		Default: policy.PolicyRequirements{&policy.PRSignedBy{
+			KeyType: "GPGKeys",
+			KeyData: base64.StdEncoding.EncodeToString(publicKey.Bytes()),
+		}},
+	}, policy.WithSignedByVerifier(signature.NewSignedByVerifier(store)))
+	if err != nil {
+		t.Fatalf("NewEvaluator() error = %v", err)
+	}
+	repo.Registry.Policy = pol
+
+	_, err = repo.Resolve(context.Background(), "signed")
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("Resolve() error = %v, want an error wrapping policy.ErrDenied", err)
+	}
+	// The denial is reported like any other, naming the reference, and keeps
+	// the reason.
+	for _, want := range []string{
+		"access denied by policy for " + repo.Reference().String() + ":signed",
+		"no signatures found for " + repo.Reference().String() + "@" + desc.Digest.String(),
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Resolve() error = %q, want it to contain %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "policy check failed") {
+		t.Errorf("Resolve() error = %q, want a denial, not an evaluation failure", err)
 	}
 }
 
@@ -1101,13 +1194,6 @@ func TestRepository_SignedByPolicy_ChecksOnce(t *testing.T) {
 				if err == nil {
 					rc.Close()
 				}
-				return err
-			},
-		},
-		{
-			name: "Exists",
-			operation: func(ctx context.Context, repo *Repository, desc ocispec.Descriptor) error {
-				_, err := repo.Exists(ctx, desc)
 				return err
 			},
 		},
@@ -1341,7 +1427,8 @@ func TestRepository_Referrers_SignedByPolicy_TagSchema(t *testing.T) {
 
 func TestRepository_PushReferrer_SignedByPolicy_TagSchema(t *testing.T) {
 	// Without the Referrers API, pushing a referrer also fetches the subject's
-	// existing referrers index to update it; only the pushed manifest is verified.
+	// existing referrers index to update it. Signature requirements do not
+	// apply to writes, so no content is verified.
 	subject := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
 		Digest:    digest.FromString("subject"),
@@ -1465,17 +1552,17 @@ func TestRepository_PushReferrer_SignedByPolicy_TagSchema(t *testing.T) {
 			if got := newIndex.Manifests; len(got) != 2 || got[0].Digest != existing.Digest || got[1].Digest != referrer.Digest {
 				t.Errorf("pushed referrers index manifests = %v, want [%v %v]", got, existing.Digest, referrer.Digest)
 			}
-			if len(verifier.seen) != 1 || verifier.seen[0].Digest != referrer.Digest {
-				t.Errorf("verifier calls = %v, want one for %v", verifier.seen, referrer.Digest)
+			if len(verifier.seen) != 0 {
+				t.Errorf("verifier calls = %v, want none on write operations", verifier.seen)
 			}
 		})
 	}
 }
 
 func TestRepository_TagAndDelete_SignedByPolicy_TagSchema(t *testing.T) {
-	// Tag and Delete fetch the target manifest again after checking it, and
-	// deleting a referrer also fetches its subject's referrers index; only
-	// the target is verified.
+	// Tag and Delete fetch the target manifest again and deleting a referrer
+	// also fetches its subject's referrers index. Signature requirements do
+	// not apply to writes, so no content is verified.
 	subject := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageManifest,
 		Digest:    digest.FromString("subject"),
@@ -1602,8 +1689,8 @@ func TestRepository_TagAndDelete_SignedByPolicy_TagSchema(t *testing.T) {
 			if !slices.Equal(requests, tt.wantRequests) {
 				t.Errorf("registry requests = %v, want %v", requests, tt.wantRequests)
 			}
-			if len(verifier.seen) != 1 || verifier.seen[0].Digest != target.Digest {
-				t.Errorf("verifier calls = %v, want one for %v", verifier.seen, target.Digest)
+			if len(verifier.seen) != 0 {
+				t.Errorf("verifier calls = %v, want none on write operations", verifier.seen)
 			}
 		})
 	}
@@ -1729,35 +1816,33 @@ func TestRepository_ManifestStore_Resolve_SignedByPolicy_Denied(t *testing.T) {
 	assertPolicyDenied(t, err, "Manifests().Resolve()")
 }
 
-func TestRepository_Tag_SignedByPolicy_Denied(t *testing.T) {
-	// The descriptor carries the digest, so signature requirements are
-	// evaluated before any network access.
+func TestRepository_Tag_SignedByPolicy_AllowedOnWrite(t *testing.T) {
+	// Signature requirements do not apply to writes: tagging re-tags an
+	// already stored manifest without consulting the verifier.
 	verifier := &recordingSignedByVerifier{allow: false}
-	repo := newSignedByPolicyRepo(t, verifier)
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-		Size:      1234,
-	}
+	repo, desc, _ := newSignedByTestServerWithRequests(t, verifier)
 
-	err := repo.Tag(context.Background(), desc, "v1.0")
-	assertPolicyDenied(t, err, "Tag()")
-	if len(verifier.seen) != 1 || verifier.seen[0].Digest != desc.Digest {
-		t.Errorf("verifier calls = %v, want one call with digest %q", verifier.seen, desc.Digest)
+	if err := repo.Tag(context.Background(), desc, "v1.0"); err != nil {
+		t.Fatalf("Tag() error = %v", err)
+	}
+	if len(verifier.seen) != 0 {
+		t.Errorf("verifier calls = %v, want none on write operations", verifier.seen)
 	}
 }
 
-func TestRepository_PushReference_SignedByPolicy_Denied(t *testing.T) {
+func TestRepository_PushReference_SignedByPolicy_AllowedOnWrite(t *testing.T) {
+	// Signature requirements do not apply to writes: a pushed manifest cannot
+	// be signed yet, because a signature binds to its digest.
 	verifier := &recordingSignedByVerifier{allow: false}
-	repo := newSignedByPolicyRepo(t, verifier)
-	desc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageManifest,
-		Digest:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-		Size:      1234,
-	}
+	repo, desc, _ := newSignedByTestServerWithRequests(t, verifier)
+	index := []byte(`{"manifests":[]}`)
 
-	err := repo.PushReference(context.Background(), desc, strings.NewReader("test content"), "v1.0")
-	assertPolicyDenied(t, err, "PushReference()")
+	if err := repo.PushReference(context.Background(), desc, bytes.NewReader(index), "v1.0"); err != nil {
+		t.Fatalf("PushReference() error = %v", err)
+	}
+	if len(verifier.seen) != 0 {
+		t.Errorf("verifier calls = %v, want none on write operations", verifier.seen)
+	}
 }
 
 func TestRepository_PolicyScope_TaggedEntryApplies(t *testing.T) {

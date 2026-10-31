@@ -435,7 +435,7 @@ func TestManifestStore_UnsafePush_Policy(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				var steps []manifestUnsafeRequest
-				if mode == "verifier allow" {
+				if mode == "verifier deny" || mode == "verifier allow" {
 					steps = []manifestUnsafeRequest{manifestUnsafeHead(want, http.StatusNotFound), manifestUnsafePut(want, body, http.StatusCreated)}
 				}
 				repo := newManifestUnsafeRepo(t, steps...)
@@ -467,7 +467,10 @@ func TestManifestStore_UnsafePush_Policy(t *testing.T) {
 				}
 				r := &manifestUnsafeReader{r: bytes.NewReader(body)}
 				got, err := repo.manifests().UnsafePush(context.Background(), expected, r)
-				if mode == "verifier allow" {
+				if mode == "verifier deny" || mode == "verifier allow" {
+					// Signature requirements do not apply to writes: the
+					// pushed manifest cannot be signed yet, so the verifier
+					// is not consulted even when it would deny.
 					if err != nil || !reflect.DeepEqual(got, want) {
 						t.Errorf("UnsafePush() = %+v, %v; want %+v, nil", got, err, want)
 					}
@@ -478,11 +481,11 @@ func TestManifestStore_UnsafePush_Policy(t *testing.T) {
 					}
 				}
 				if verifier != nil {
-					if len(verifier.seen) != 1 || verifier.seen[0].Digest != want.Digest {
-						t.Errorf("policy calls = %+v, want one call for %s", verifier.seen, want.Digest)
+					if len(verifier.seen) != 0 {
+						t.Errorf("policy calls = %+v, want none", verifier.seen)
 					}
 				}
-				if mode == "reference deny" || (known && mode != "verifier allow") {
+				if mode == "reference deny" || (known && (mode == "reference deny" || mode == "digest scope deny")) {
 					if r.calls != 0 {
 						t.Errorf("reader calls = %d, want 0", r.calls)
 					}

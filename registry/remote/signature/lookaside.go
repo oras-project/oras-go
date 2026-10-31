@@ -194,13 +194,16 @@ func (s *LookasideStore) PutSignature(ctx context.Context, ref string, dgst dige
 }
 
 // signaturePath computes the signature base path for an image reference and digest.
-// Format: {baseURL}/{ref}@{algo}={hash}
+// Format: {baseURL}/{namespace}@{algo}={hash}
 //
 // ref is the full image scope including the registry host, e.g.
-// "registry.example.com/namespace/repo". That matches the layout
-// containers/image writes, which derives the path from the reference's full
-// name — the host is part of the path, not stripped from it.
+// "registry.example.com/namespace/repo". The host is not part of the path:
+// containers/image builds it from the repository path alone, so
+// "registry.example.com/namespace/repo" is stored under "namespace/repo".
 func signaturePath(baseURL, ref string, dgst digest.Digest) string {
+	if _, repo, ok := strings.Cut(ref, "/"); ok {
+		ref = repo
+	}
 	return fmt.Sprintf("%s/%s@%s=%s", baseURL, ref, dgst.Algorithm(), dgst.Hex())
 }
 

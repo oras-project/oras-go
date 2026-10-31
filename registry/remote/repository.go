@@ -541,7 +541,7 @@ func (r *Repository) Mount(ctx context.Context, desc ocispec.Descriptor, fromRep
 // Exists returns true if the described content exists.
 // If mirrors are configured, they are tried in order before the primary.
 func (r *Repository) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	if err := r.checkDescriptorPolicy(ctx, target); err != nil {
+	if err := r.checkDescriptorWritePolicy(ctx, target); err != nil {
 		return false, err
 	}
 	exists := func(repo *Repository) (bool, error) {
@@ -1717,7 +1717,7 @@ func (s *manifestStore) fetch(ctx context.Context, target ocispec.Descriptor) (r
 
 // Push pushes the content, matching the expected descriptor.
 func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, content io.Reader) error {
-	if err := s.repo.checkManifestPolicy(ctx, expected.Digest.String(), expected); err != nil {
+	if err := s.repo.checkWritePolicy(ctx, expected.Digest.String()); err != nil {
 		return err
 	}
 	return s.pushWithIndexing(ctx, expected, content, expected.Digest.String())
@@ -1725,7 +1725,7 @@ func (s *manifestStore) Push(ctx context.Context, expected ocispec.Descriptor, c
 
 // Exists returns true if the described content exists.
 func (s *manifestStore) Exists(ctx context.Context, target ocispec.Descriptor) (bool, error) {
-	if err := s.repo.checkManifestPolicy(ctx, target.Digest.String(), target); err != nil {
+	if err := s.repo.checkWritePolicy(ctx, target.Digest.String()); err != nil {
 		return false, err
 	}
 	return s.exists(ctx, target)
@@ -1746,7 +1746,7 @@ func (s *manifestStore) exists(ctx context.Context, target ocispec.Descriptor) (
 
 // Delete removes the manifest content identified by the descriptor.
 func (s *manifestStore) Delete(ctx context.Context, target ocispec.Descriptor) error {
-	if err := s.repo.checkManifestPolicy(ctx, target.Digest.String(), target); err != nil {
+	if err := s.repo.checkWritePolicy(ctx, target.Digest.String()); err != nil {
 		return err
 	}
 	return s.deleteWithIndexing(ctx, target)
@@ -1936,7 +1936,7 @@ func (s *manifestStore) fetchReference(ctx context.Context, reference string) (d
 // buffer the manifest up to MaxMetadataBytes (default 4MiB) for that check, so
 // an oversized manifest or index fails with [errdef.ErrSizeExceedsLimit].
 func (s *manifestStore) Tag(ctx context.Context, desc ocispec.Descriptor, reference string) error {
-	if err := s.repo.checkManifestPolicy(ctx, reference, desc); err != nil {
+	if err := s.repo.checkWritePolicy(ctx, reference); err != nil {
 		return err
 	}
 	ref, err := s.repo.ParseReference(reference)
@@ -2003,7 +2003,7 @@ func (s *manifestStore) Untag(ctx context.Context, reference string) error {
 // digest may not be found. A digest reference is strict: the URL names the
 // identity.
 func (s *manifestStore) PushReference(ctx context.Context, expected ocispec.Descriptor, content io.Reader, reference string) error {
-	if err := s.repo.checkManifestPolicy(ctx, reference, expected); err != nil {
+	if err := s.repo.checkWritePolicy(ctx, reference); err != nil {
 		return err
 	}
 	ref, err := s.repo.ParseReference(reference)
@@ -2513,6 +2513,13 @@ func calculateDigestFromResponse(resp *http.Response, maxMetadataBytes int64, al
 	body := limitReader(resp.Body, maxMetadataBytes)
 	content, err := io.ReadAll(body)
 	if err != nil {
+		return "", fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
+	}
+	// the digest of a truncated body would describe different content
+	var extra [1]byte
+	if n, err := io.ReadFull(resp.Body, extra[:]); n > 0 {
+		return "", fmt.Errorf("%s %q: %w", resp.Request.Method, resp.Request.URL, errdef.ErrSizeExceedsLimit)
+	} else if err != nil && err != io.EOF {
 		return "", fmt.Errorf("%s %q: failed to read response body: %w", resp.Request.Method, resp.Request.URL, err)
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(content))

@@ -1806,6 +1806,34 @@ func TestConfig_SetCredentialHelper(t *testing.T) {
 	}
 }
 
+func TestConfig_SetCredentialHelper_Save(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"credHelpers":{"gcr.io":"gcr"}}`), 0600); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	cfg.SetCredentialHelper("registry.example.com", "docker-credential-test")
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := map[string]string{
+		"gcr.io":               "gcr",
+		"registry.example.com": "docker-credential-test",
+	}
+	if got := loaded.CredentialHelpers(); !reflect.DeepEqual(got, want) {
+		t.Errorf("CredentialHelpers() after Save() = %v, want %v", got, want)
+	}
+}
+
 func TestConfig_RemoveAuthConfig_caseVariants(t *testing.T) {
 	cfg := NewConfig()
 
