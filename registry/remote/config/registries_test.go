@@ -646,8 +646,20 @@ func TestMatchesPrefix(t *testing.T) {
 			want:   true,
 		},
 		{
+			name:   "wildcard host with port",
+			ref:    "sub.example.com:5000/image:tag",
+			prefix: "*.example.com",
+			want:   true,
+		},
+		{
 			name:   "wildcard no match",
 			ref:    "other.domain.com/image",
+			prefix: "*.example.com",
+			want:   false,
+		},
+		{
+			name:   "wildcard no match with port",
+			ref:    "sub.example.com.evil.com:5000/image",
 			prefix: "*.example.com",
 			want:   false,
 		},

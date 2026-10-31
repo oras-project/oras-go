@@ -272,6 +272,8 @@ func (p *Policy) GetRequirementsForImage(transport TransportName, scope string) 
 			if idx := strings.Index(scope, "/"); idx != -1 {
 				host = scope[:idx]
 			}
+			// A port is not part of the subdomain match.
+			host, _, _ = strings.Cut(host, ":")
 			if strings.HasSuffix(host, suffix) && len(key) > len(bestWildcard) {
 				bestWildcard = key
 			}
