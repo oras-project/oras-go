@@ -114,6 +114,20 @@ func TestPolicy_GetRequirementsForImage(t *testing.T) {
 			wantType:  TypeInsecureAcceptAnything,
 		},
 		{
+			name: "wildcard subdomain match with port",
+			policy: &Policy{
+				Default: PolicyRequirements{&Reject{}},
+				Transports: map[TransportName]TransportScopes{
+					TransportNameDocker: {
+						"*.example.com": PolicyRequirements{&InsecureAcceptAnything{}},
+					},
+				},
+			},
+			transport: TransportNameDocker,
+			scope:     "sub.example.com:5000/repo",
+			wantType:  TypeInsecureAcceptAnything,
+		},
+		{
 			name: "wildcard does not match non-subdomain",
 			policy: &Policy{
 				Default: PolicyRequirements{&InsecureAcceptAnything{}},

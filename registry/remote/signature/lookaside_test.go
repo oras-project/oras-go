@@ -38,8 +38,9 @@ func TestLookasideStore_FileBackend_GetSignatures(t *testing.T) {
 	ref := "registry.example.com/namespace/repo"
 	dgst := digest.FromString("test content")
 
-	// Write some test signatures.
-	sigDir := filepath.Join(tmpDir, ref+"@"+string(dgst.Algorithm())+"="+dgst.Hex())
+	// Write some test signatures where containers/image stores them: under
+	// the repository path, without the registry host.
+	sigDir := filepath.Join(tmpDir, "namespace", "repo@"+string(dgst.Algorithm())+"="+dgst.Hex())
 	if err := os.MkdirAll(sigDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -270,9 +271,9 @@ func TestNewLookasideStoreFromConfig(t *testing.T) {
 	// Only the read bases hold a signature, each with distinct content, so a
 	// GET resolved against the wrong scope returns the wrong bytes or a 404.
 	readSigs := map[string]string{
-		"/sigs1/registry.example.com/repo" + sigSuffix:       "sig-scope1",
-		"/sigs2/other.example.com/repo" + sigSuffix:          "sig-scope2",
-		"/default/unconfigured.example.com/repo" + sigSuffix: "sig-default",
+		"/sigs1/repo" + sigSuffix:   "sig-scope1",
+		"/sigs2/repo" + sigSuffix:   "sig-scope2",
+		"/default/repo" + sigSuffix: "sig-default",
 	}
 	var mu sync.Mutex
 	var puts []string
@@ -328,19 +329,19 @@ func TestNewLookasideStoreFromConfig(t *testing.T) {
 			name:      "scope 1",
 			ref:       "registry.example.com/repo",
 			wantSig:   "sig-scope1",
-			wantWrite: "/sigs1-staging/registry.example.com/repo" + sigSuffix,
+			wantWrite: "/sigs1-staging/repo" + sigSuffix,
 		},
 		{
 			name:      "scope 2",
 			ref:       "other.example.com/repo",
 			wantSig:   "sig-scope2",
-			wantWrite: "/sigs2-staging/other.example.com/repo" + sigSuffix,
+			wantWrite: "/sigs2-staging/repo" + sigSuffix,
 		},
 		{
 			name:      "default-docker fallback",
 			ref:       "unconfigured.example.com/repo",
 			wantSig:   "sig-default",
-			wantWrite: "/default-staging/unconfigured.example.com/repo" + sigSuffix,
+			wantWrite: "/default-staging/repo" + sigSuffix,
 		},
 	}
 	for _, tt := range tests {
@@ -421,11 +422,22 @@ func TestNewLookasideStoreFromConfig_NilConfig(t *testing.T) {
 }
 
 func TestSignaturePath(t *testing.T) {
+	// The registry host is not part of the path, as in containers/image:
+	// https://github.com/containers/image/blob/main/docs/signature-protocols.md#path-structure
 	dgst := digest.NewDigestFromHex("sha256", "abc123")
-	got := signaturePath("https://sigstore.example.com", "registry.example.com/repo", dgst)
-	want := fmt.Sprintf("https://sigstore.example.com/registry.example.com/repo@sha256=abc123")
-	if got != want {
-		t.Errorf("signaturePath() = %v, want %v", got, want)
+	tests := []struct {
+		ref  string
+		want string
+	}{
+		{"docker.io/library/busybox", "https://example.com/lookaside/library/busybox@sha256=abc123"},
+		{"example.com/ns1/ns2/ns3/repo", "https://example.com/lookaside/ns1/ns2/ns3/repo@sha256=abc123"},
+		{"localhost:5000/repo", "https://example.com/lookaside/repo@sha256=abc123"},
+		{"[::1]:5000/repo", "https://example.com/lookaside/repo@sha256=abc123"},
+	}
+	for _, tt := range tests {
+		if got := signaturePath("https://example.com/lookaside", tt.ref, dgst); got != tt.want {
+			t.Errorf("signaturePath(%q) = %v, want %v", tt.ref, got, tt.want)
+		}
 	}
 }
 

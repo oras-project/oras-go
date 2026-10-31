@@ -108,6 +108,25 @@ func Test_ExponentialBackoff_FullJitter(t *testing.T) {
 	}
 }
 
+func Test_ExponentialBackoff_LateAttempt(t *testing.T) {
+	// a late attempt saturates instead of overflowing time.Duration, so the
+	// backoff never shrinks as the attempt grows, up to past the point where
+	// the exponent is +Inf
+	var prev time.Duration
+	for attempt := range 1100 {
+		var highest time.Duration
+		// iterate so that the bound holds for every jitter outcome
+		for range 100 {
+			b := DefaultBackoff(attempt, nil)
+			if b < prev {
+				t.Fatalf("attempt %d: expected backoff of at least %s, got %s", attempt, prev, b)
+			}
+			highest = max(highest, b)
+		}
+		prev = highest
+	}
+}
+
 func Test_ExponentialBackoff_RetryAfter(t *testing.T) {
 	// ExponentialBackoff keeps returning a 429 Retry-After verbatim
 	resp := &http.Response{
@@ -116,6 +135,12 @@ func Test_ExponentialBackoff_RetryAfter(t *testing.T) {
 	}
 	if b := DefaultBackoff(0, resp); b != 7*time.Second {
 		t.Errorf("expected backoff to be 7s, got %s", b)
+	}
+
+	// a Retry-After past the maximum duration saturates instead of wrapping
+	resp.Header.Set("Retry-After", "9223372037")
+	if b := DefaultBackoff(0, resp); b != math.MaxInt64 {
+		t.Errorf("expected backoff to be %s, got %s", time.Duration(math.MaxInt64), b)
 	}
 
 	// other statuses keep using the exponential backoff
@@ -471,6 +496,19 @@ func Test_GenericPolicy_Retry(t *testing.T) {
 			resp:   &http.Response{StatusCode: http.StatusServiceUnavailable},
 			// attempt 4 would back off for 4s ± 10%, clamped to MaxWait
 			attempt: 4,
+			minWait: 3 * time.Second,
+			maxWait: 3 * time.Second,
+		},
+		{
+			name: "late attempt backoff clamped to MaxWait",
+			policy: func() *GenericPolicy {
+				p := base()
+				p.MaxRetry = 100
+				return p
+			}(),
+			resp: &http.Response{StatusCode: http.StatusServiceUnavailable},
+			// 250ms * 2^40 overflows time.Duration
+			attempt: 40,
 			minWait: 3 * time.Second,
 			maxWait: 3 * time.Second,
 		},
