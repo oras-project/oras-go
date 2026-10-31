@@ -141,6 +141,25 @@ insecure = true
 			wantErr: false,
 		},
 		{
+			name: "registry without prefix uses location",
+			content: `
+[[registry]]
+location = "localhost:5000"
+insecure = true
+`,
+			want: &RegistriesConfig{
+				Registries: []Registry{
+					{
+						Prefix:   "localhost:5000",
+						Location: "localhost:5000",
+						Insecure: true,
+					},
+				},
+				Aliases: map[string]string{},
+			},
+			wantErr: false,
+		},
+		{
 			name: "config with mirror-by-digest-only",
 			content: `
 [[registry]]

@@ -107,6 +107,12 @@ func VerifyOpenPGPSignature(signedData []byte, keyring *KeyRing) (*SimpleSigning
 		return nil, fmt.Errorf("%w: %v", ErrSignatureVerification, md.SignatureError)
 	}
 	if md.SignedBy == nil {
+		if md.IsSigned {
+			// The message carries a signature, but its issuer is not in the
+			// keyring. Report the issuer so a missing or wrong key can be told
+			// apart from unsigned content.
+			return nil, fmt.Errorf("%w: signed by key %s, which is not in the trusted keyring", ErrSignatureVerification, signerKeyID(md))
+		}
 		return nil, fmt.Errorf("%w: message was not signed", ErrSignatureVerification)
 	}
 
@@ -117,6 +123,15 @@ func VerifyOpenPGPSignature(signedData []byte, keyring *KeyRing) (*SimpleSigning
 	}
 
 	return payload, nil
+}
+
+// signerKeyID formats the issuer of a signed message for error messages:
+// the fingerprint for v6 signatures, which carry it, otherwise the key ID.
+func signerKeyID(md *openpgp.MessageDetails) string {
+	if len(md.SignedByFingerprint) > 0 {
+		return fmt.Sprintf("%X", md.SignedByFingerprint)
+	}
+	return fmt.Sprintf("%016X", md.SignedByKeyId)
 }
 
 // CreateOpenPGPSignature creates an OpenPGP signed message containing the

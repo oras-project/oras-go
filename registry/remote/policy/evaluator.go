@@ -17,6 +17,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -138,6 +139,10 @@ func (e *Evaluator) isImageAllowed(ctx context.Context, image ImageReference, fi
 		}
 		allowed, err := e.evaluateRequirement(ctx, req, image)
 		if err != nil {
+			if !allowed && errors.Is(err, ErrDenied) {
+				// The requirement denied the image and gave a reason.
+				return false, fmt.Errorf("%s requirement not satisfied: %w", req.Type(), err)
+			}
 			return false, fmt.Errorf("failed to evaluate requirement %s: %w", req.Type(), err)
 		}
 		if !allowed {
