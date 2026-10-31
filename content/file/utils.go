@@ -493,6 +493,13 @@ func writeFile(path string, r io.Reader, perm os.FileMode, buf []byte) (err erro
 		}
 	}
 	file, err := createNoFollow(path, perm)
+	if errors.Is(err, fs.ErrPermission) {
+		// A read-only file, such as one written by an earlier extraction of
+		// the same directory, cannot be truncated. Replace it, as tar does.
+		if os.Remove(path) == nil {
+			file, err = createNoFollow(path, perm)
+		}
+	}
 	if err != nil {
 		return err
 	}
