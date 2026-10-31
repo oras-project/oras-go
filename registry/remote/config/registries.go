@@ -42,6 +42,7 @@ type RegistriesConfig struct {
 // Registry represents configuration for a specific registry namespace.
 type Registry struct {
 	// Prefix identifies which images match this configuration (e.g., "docker.io", "*.example.com").
+	// LoadRegistriesConfig sets it to Location when the file leaves it empty.
 	Prefix string `toml:"prefix"`
 	// Location is the actual registry location (defaults to Prefix if empty).
 	Location string `toml:"location"`
@@ -111,6 +112,13 @@ func LoadRegistriesConfig(path string) (*RegistriesConfig, error) {
 	// Initialize maps if nil
 	if config.Aliases == nil {
 		config.Aliases = make(map[string]string)
+	}
+
+	// A [[registry]] table without a prefix applies to its location.
+	for i := range config.Registries {
+		if config.Registries[i].Prefix == "" {
+			config.Registries[i].Prefix = config.Registries[i].Location
+		}
 	}
 
 	return &config, nil
@@ -428,7 +436,8 @@ func matchesPrefix(ref, prefix string) bool {
 	if strings.HasPrefix(prefix, "*.") {
 		suffix := prefix[1:] // Remove the "*", keep the "."
 		// Check if ref ends with the suffix or if the ref's host part matches
-		refHost := extractHost(ref)
+		// A port is not part of the subdomain match.
+		refHost, _, _ := strings.Cut(extractHost(ref), ":")
 		return strings.HasSuffix(refHost, suffix)
 	}
 
