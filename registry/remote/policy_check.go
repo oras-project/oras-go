@@ -17,6 +17,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/opencontainers/go-digest"
@@ -59,7 +60,7 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 	imageRef := r.policyImageReference(reference)
 	allowed, err := pol.IsReferenceAllowed(ctx, imageRef)
 	if err != nil {
-		return fmt.Errorf("policy check failed: %w", err)
+		return policyCheckError(imageRef.Reference, err)
 	}
 	if !allowed {
 		return fmt.Errorf("access denied by policy for %s: %w", imageRef.Reference, policy.ErrDenied)
@@ -68,7 +69,7 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 	if imageRef.Digest != "" {
 		allowed, err = pol.IsResolvedImageAllowed(withInPolicyEvaluation(ctx), imageRef)
 		if err != nil {
-			return fmt.Errorf("policy check failed: %w", err)
+			return policyCheckError(imageRef.Reference, err)
 		}
 		if !allowed {
 			return fmt.Errorf("access denied by policy for %s: %w", imageRef.Reference, policy.ErrDenied)
@@ -148,12 +149,24 @@ func (r *Repository) checkPolicyResolved(ctx context.Context, reference string, 
 	// recursively evaluate policy.
 	allowed, err := pol.IsResolvedImageAllowed(withInPolicyEvaluation(ctx), imageRef)
 	if err != nil {
-		return fmt.Errorf("policy check failed: %w", err)
+		return policyCheckError(imageRef.Reference, err)
 	}
 	if !allowed {
 		return fmt.Errorf("access denied by policy for %s: %w", imageRef.Reference, policy.ErrDenied)
 	}
 	return nil
+}
+
+// policyCheckError wraps an error returned by the policy evaluator. A
+// requirement that denied the image and said why (an error wrapping
+// policy.ErrDenied, such as unsigned content) is reported like any other
+// denial of reference, keeping the reason. Anything else is an evaluation
+// failure.
+func policyCheckError(reference string, err error) error {
+	if errors.Is(err, policy.ErrDenied) {
+		return fmt.Errorf("access denied by policy for %s: %w", reference, err)
+	}
+	return fmt.Errorf("policy check failed: %w", err)
 }
 
 // checkManifestPolicy evaluates both policy phases for a known manifest.

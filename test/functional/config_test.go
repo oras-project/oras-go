@@ -19,9 +19,11 @@ package functional_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
@@ -194,15 +196,19 @@ func TestConfig_FullSignaturePipelineFromConfig(t *testing.T) {
 		t.Fatal("expected unconfigured scope to not be allowed")
 	}
 
-	// Assert unsigned image within the configured scope is rejected without error.
+	// Assert unsigned image within the configured scope is denied, with an
+	// error that says it has no signatures.
 	unsignedRef := fullScope + "@" + digest.FromString("unsigned-content").String()
 	allowed, err = evaluator.IsImageAllowed(ctx, policy.ImageReference{
 		Transport: policy.TransportNameDocker,
 		Scope:     fullScope,
 		Reference: unsignedRef,
 	})
-	if err != nil {
-		t.Fatalf("IsImageAllowed (unsigned image in configured scope) returned error: %v", err)
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("IsImageAllowed (unsigned image in configured scope) error = %v, want an error wrapping policy.ErrDenied", err)
+	}
+	if want := "no signatures found for " + unsignedRef; !strings.Contains(err.Error(), want) {
+		t.Errorf("IsImageAllowed (unsigned image in configured scope) error = %v, want it to contain %q", err, want)
 	}
 	if allowed {
 		t.Fatal("expected unsigned image in configured scope to be rejected, but it was allowed")

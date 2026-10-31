@@ -988,6 +988,50 @@ func TestRepository_DefaultSignedByVerifier_EndToEnd(t *testing.T) {
 	}
 }
 
+func TestRepository_DefaultSignedByVerifier_Unsigned(t *testing.T) {
+	repo, desc := newSignedByTestServer(t, &recordingSignedByVerifier{allow: true})
+
+	signer, err := openpgp.NewEntity("Test", "", "test@example.com", nil)
+	if err != nil {
+		t.Fatalf("openpgp.NewEntity() error = %v", err)
+	}
+	var publicKey bytes.Buffer
+	if err := signer.Serialize(&publicKey); err != nil {
+		t.Fatalf("signer.Serialize() error = %v", err)
+	}
+	// An empty lookaside: the content has no signatures.
+	storeURL := "file://" + t.TempDir()
+	store := signature.NewLookasideStore(storeURL, storeURL)
+	pol, err := policy.NewEvaluator(&policy.Policy{
+		Default: policy.PolicyRequirements{&policy.PRSignedBy{
+			KeyType: "GPGKeys",
+			KeyData: base64.StdEncoding.EncodeToString(publicKey.Bytes()),
+		}},
+	}, policy.WithSignedByVerifier(signature.NewSignedByVerifier(store)))
+	if err != nil {
+		t.Fatalf("NewEvaluator() error = %v", err)
+	}
+	repo.Registry.Policy = pol
+
+	_, err = repo.Resolve(context.Background(), "signed")
+	if !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("Resolve() error = %v, want an error wrapping policy.ErrDenied", err)
+	}
+	// The denial is reported like any other, naming the reference, and keeps
+	// the reason.
+	for _, want := range []string{
+		"access denied by policy for " + repo.Reference().String() + ":signed",
+		"no signatures found for " + repo.Reference().String() + "@" + desc.Digest.String(),
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Resolve() error = %q, want it to contain %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "policy check failed") {
+		t.Errorf("Resolve() error = %q, want a denial, not an evaluation failure", err)
+	}
+}
+
 func TestRepository_Resolve_SignedByPolicy_Denied(t *testing.T) {
 	verifier := &recordingSignedByVerifier{allow: false}
 	repo, _ := newSignedByTestServer(t, verifier)
