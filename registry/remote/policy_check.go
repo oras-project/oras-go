@@ -44,9 +44,9 @@ func withInPolicyEvaluation(ctx context.Context) context.Context {
 // Signature requirements (signedBy/sigstoreSigned) are otherwise evaluated
 // by checkPolicyResolved when an operation resolves or supplies a manifest
 // descriptor. Blob operations and operations without a manifest remain
-// reference-level only. Descriptor-based push operations verify the supplied
-// manifest before uploading it, so its signing material must be discoverable
-// by the configured verifier at that point.
+// reference-level only. Operations that write content or metadata to the
+// repository use checkWritePolicy instead, which skips signature
+// requirements.
 func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 	if ctx.Value(inPolicyEvaluationKey{}) != nil {
 		return nil
@@ -76,6 +76,45 @@ func (r *Repository) checkPolicy(ctx context.Context, reference string) error {
 		}
 	}
 	return nil
+}
+
+// checkWritePolicy validates reference-level policy requirements for
+// operations that write content or metadata to the repository (push, tag,
+// delete) and for presence probes of push destinations. Signature
+// requirements (signedBy/sigstoreSigned) are skipped: a signature binds to
+// the digest of the manifest it signs, which cannot exist before the
+// manifest is stored, so enforcing them on writes would refuse every push
+// of new content. Reference-level requirements such as reject still apply,
+// and digest-scoped policy entries still match through the reference.
+func (r *Repository) checkWritePolicy(ctx context.Context, reference string) error {
+	if ctx.Value(inPolicyEvaluationKey{}) != nil {
+		return nil
+	}
+
+	pol := r.policy()
+	if pol == nil {
+		return nil
+	}
+
+	imageRef := r.policyImageReference(reference)
+	allowed, err := pol.IsReferenceAllowed(ctx, imageRef)
+	if err != nil {
+		return fmt.Errorf("policy check failed: %w", err)
+	}
+	if !allowed {
+		return fmt.Errorf("access denied by policy for %s: %w", imageRef.Reference, policy.ErrDenied)
+	}
+	return nil
+}
+
+// checkDescriptorWritePolicy is the write-path counterpart of
+// checkDescriptorPolicy: it evaluates reference-level requirements only,
+// skipping signature requirements. See checkWritePolicy.
+func (r *Repository) checkDescriptorWritePolicy(ctx context.Context, desc ocispec.Descriptor) error {
+	if isManifest(r.manifestMediaTypes(), desc) {
+		return r.checkWritePolicy(ctx, desc.Digest.String())
+	}
+	return r.checkWritePolicy(ctx, "")
 }
 
 // checkPolicyResolved validates the manifest descriptor a reference resolves
