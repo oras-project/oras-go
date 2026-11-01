@@ -245,6 +245,91 @@ func TestLogin_customClientNotMutated(t *testing.T) {
 	}
 }
 
+// TestLogin_customClientCacheDoesNotSkipValidation verifies that Login
+// validates the new credential even when the registry's *auth.Client has a
+// cache that already holds a token for the registry. Without clearing the
+// cache on Login's local client, Ping replays the cached token and a wrong
+// password is accepted and stored.
+func TestLogin_customClientCacheDoesNotSkipValidation(t *testing.T) {
+	const bearerToken = "valid-token"
+	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(testUsername+":"+testPassword))
+	tests := []struct {
+		name    string
+		handler func(serverURL string) http.HandlerFunc
+	}{
+		{
+			name: "basic",
+			handler: func(string) http.HandlerFunc {
+				return func(w http.ResponseWriter, r *http.Request) {
+					if r.Header.Get("Authorization") != basicAuth {
+						w.Header().Set("Www-Authenticate", `Basic realm="Test Server"`)
+						w.WriteHeader(http.StatusUnauthorized)
+					}
+				}
+			},
+		},
+		{
+			name: "bearer",
+			handler: func(serverURL string) http.HandlerFunc {
+				return func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/token" {
+						if r.Header.Get("Authorization") != basicAuth {
+							w.WriteHeader(http.StatusUnauthorized)
+							return
+						}
+						w.Header().Set("Content-Type", "application/json")
+						_ = json.NewEncoder(w).Encode(map[string]string{"token": bearerToken})
+						return
+					}
+					if r.Header.Get("Authorization") != "Bearer "+bearerToken {
+						w.Header().Set("Www-Authenticate", `Bearer realm="`+serverURL+`/token",service="test"`)
+						w.WriteHeader(http.StatusUnauthorized)
+					}
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var serverURL string
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				tt.handler(serverURL)(w, r)
+			}))
+			defer ts.Close()
+			serverURL = ts.URL
+			uri, _ := url.Parse(ts.URL)
+			reg, err := NewRegistry(uri.Host)
+			if err != nil {
+				t.Fatalf("cannot create test registry: %v", err)
+			}
+			reg.PlainHTTP = true
+			cache := auth.NewCache()
+			reg.Client = &auth.Client{
+				Cache:          cache,
+				CredentialFunc: credentials.StaticCredentialFunc(uri.Host, credentials.Credential{Username: testUsername, Password: testPassword}),
+			}
+			// fill the cache with a token for the registry
+			if err := reg.Ping(context.Background()); err != nil {
+				t.Fatalf("Ping() error = %v", err)
+			}
+
+			s := &testStore{}
+			wrong := credentials.Credential{Username: testUsername, Password: "wrong-password"}
+			if err := Login(context.Background(), s, reg, wrong); err == nil {
+				t.Error("Login() with a wrong password succeeded, want a validation error")
+			}
+			if got, ok := s.storage[uri.Host]; ok {
+				t.Errorf("Login() stored an unverified credential: %v", got)
+			}
+
+			// the caller's cache must be left alone
+			if _, err := cache.GetScheme(context.Background(), uri.Host); err != nil {
+				t.Errorf("caller's cache lost its entry: %v", err)
+			}
+		})
+	}
+}
+
 func TestLogin_unsupportedClient(t *testing.T) {
 	var testClient http.Client
 	reg, err := NewRegistry("whatever")

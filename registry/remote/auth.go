@@ -59,12 +59,14 @@ func Login(ctx context.Context, store credentials.Putter, reg *Registry, cred cr
 	var authClient *auth.Client
 	if reg.Client == nil {
 		authClient = auth.DefaultClient.Clone()
-		authClient.Cache = nil // no cache
 	} else if client, ok := reg.Client.(*auth.Client); ok {
 		authClient = client.Clone()
 	} else {
 		return ErrClientTypeUnsupported
 	}
+	// Disable the cache so that a token cached from an earlier authentication
+	// cannot be replayed in place of the credential being validated.
+	authClient.Cache = nil
 	regClone.Client = authClient
 	// update credentials with the client
 	authClient.CredentialFunc = credentials.StaticCredentialFunc(reg.Reference.Registry, cred)
