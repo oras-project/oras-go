@@ -19,6 +19,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
@@ -232,6 +233,9 @@ func TestLoadConfigs_ContainersAuth_InvalidJSON(t *testing.T) {
 }
 
 func TestLoadConfigs_ContainersAuth_DefaultXDGPath(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG_RUNTIME_DIR is only used on Linux")
+	}
 	tmpDir := t.TempDir()
 
 	// Set up XDG_RUNTIME_DIR with an auth.json.
