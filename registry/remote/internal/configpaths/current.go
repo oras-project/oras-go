@@ -41,7 +41,8 @@ type currentResolver struct {
 	// (e.g., ".config/containers").
 	userConfRelDir string
 	// authUsesXDGRuntime indicates whether auth.json primary path should
-	// check $XDG_RUNTIME_DIR (true on Linux/FreeBSD, false on macOS/Windows).
+	// check $XDG_RUNTIME_DIR (true only on Linux, matching containers/image
+	// getPathToAuthWithOS).
 	authUsesXDGRuntime bool
 }
 
