@@ -21,6 +21,6 @@ func newCurrentResolver() *currentResolver {
 	return &currentResolver{
 		systemConfDir:      "/etc",
 		userConfRelDir:     ".config/containers",
-		authUsesXDGRuntime: true,
+		authUsesXDGRuntime: false,
 	}
 }

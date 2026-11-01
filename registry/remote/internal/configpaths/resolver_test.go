@@ -83,8 +83,8 @@ func TestCurrentResolver_AuthPrimaryPath(t *testing.T) {
 }
 
 func TestCurrentResolver_AuthPrimaryPath_XDGRuntime(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("XDG_RUNTIME_DIR not used on Windows")
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG_RUNTIME_DIR is only used on Linux")
 	}
 	tmpDir := t.TempDir()
 	xdgAuthDir := filepath.Join(tmpDir, "containers")
@@ -104,6 +104,53 @@ func TestCurrentResolver_AuthPrimaryPath_XDGRuntime(t *testing.T) {
 	want := filepath.Join(tmpDir, "containers", "auth.json")
 	if path != want {
 		t.Errorf("AuthPrimaryPath() = %q, want %q", path, want)
+	}
+}
+
+func TestCurrentResolver_AuthPrimaryPath_XDGRuntimeFlag(t *testing.T) {
+	xdgDir := t.TempDir()
+	xdgAuthDir := filepath.Join(xdgDir, "containers")
+	if err := os.MkdirAll(xdgAuthDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(xdgAuthDir, "auth.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	homeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", xdgDir)
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+
+	tests := []struct {
+		name               string
+		authUsesXDGRuntime bool
+		want               string
+	}{
+		{
+			name:               "true uses XDG path when auth.json exists",
+			authUsesXDGRuntime: true,
+			want:               filepath.Join(xdgDir, "containers", "auth.json"),
+		},
+		{
+			name:               "false uses home path",
+			authUsesXDGRuntime: false,
+			want:               filepath.Join(homeDir, ".config", "containers", "auth.json"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &currentResolver{
+				userConfRelDir:     ".config/containers",
+				authUsesXDGRuntime: tt.authUsesXDGRuntime,
+			}
+			path, err := r.AuthPrimaryPath()
+			if err != nil {
+				t.Fatalf("AuthPrimaryPath() error: %v", err)
+			}
+			if path != tt.want {
+				t.Errorf("AuthPrimaryPath() = %q, want %q", path, tt.want)
+			}
+		})
 	}
 }
 
