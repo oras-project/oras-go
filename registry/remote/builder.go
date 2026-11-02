@@ -179,7 +179,19 @@ func (b *ClientBuilder) buildTLSConfig(transport properties.Transport) (*tls.Con
 	caPaths = append(caPaths, transport.CACerts...)
 
 	if len(caPaths) > 0 {
-		caCertPool := x509.NewCertPool()
+		// containers-certs.d CAs are trusted in addition to the system roots,
+		// as containers/image and Docker do, so a redirect to a publicly
+		// trusted host still verifies. An explicit CACert replaces them.
+		var caCertPool *x509.CertPool
+		if transport.CACert != "" {
+			caCertPool = x509.NewCertPool()
+		} else {
+			systemPool, err := x509.SystemCertPool()
+			if err != nil {
+				return nil, fmt.Errorf("failed to load system cert pool: %w", err)
+			}
+			caCertPool = systemPool
+		}
 		for _, p := range caPaths {
 			caCert, err := os.ReadFile(p)
 			if err != nil {

@@ -18,10 +18,12 @@ package properties
 // Transport contains transport configuration of a remote registry.
 type Transport struct {
 	// CACert is the path to the CA certificate file for verifying the registry's certificate.
+	// When set, it replaces the system roots.
 	CACert string
 
 	// CACerts is a list of paths to CA certificate files. All certificates are
-	// added to the trust pool. This is used by containers-certs.d discovery.
+	// trusted in addition to the system roots, unless CACert is set. This is
+	// used by containers-certs.d discovery.
 	CACerts []string
 
 	// Cert is the path to the client certificate file for mutual TLS authentication.

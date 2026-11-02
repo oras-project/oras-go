@@ -612,6 +612,74 @@ func TestClientBuilder_Build_WithCACerts(t *testing.T) {
 	}
 }
 
+func TestClientBuilder_buildTLSConfig_RootCAs(t *testing.T) {
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate CA key: %v", err)
+	}
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(20),
+		Subject:               pkix.Name{Organization: []string{"Test CA"}},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	caCertDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("failed to create CA certificate: %v", err)
+	}
+	caCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})
+	caCertPath := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(caCertPath, caCertPEM, 0644); err != nil {
+		t.Fatalf("failed to write CA certificate: %v", err)
+	}
+
+	t.Run("containers-certs.d CAs are added to the system roots", func(t *testing.T) {
+		want, err := x509.SystemCertPool()
+		if err != nil {
+			t.Skipf("no system cert pool: %v", err)
+		}
+		want.AppendCertsFromPEM(caCertPEM)
+
+		cfg, err := NewClientBuilder().buildTLSConfig(properties.Transport{CACerts: []string{caCertPath}})
+		if err != nil {
+			t.Fatalf("buildTLSConfig() error = %v", err)
+		}
+		if !cfg.RootCAs.Equal(want) {
+			t.Error("RootCAs is not the system roots plus the containers-certs.d CA")
+		}
+	})
+
+	t.Run("CACert replaces the system roots", func(t *testing.T) {
+		want := x509.NewCertPool()
+		want.AppendCertsFromPEM(caCertPEM)
+
+		cfg, err := NewClientBuilder().buildTLSConfig(properties.Transport{CACert: caCertPath})
+		if err != nil {
+			t.Fatalf("buildTLSConfig() error = %v", err)
+		}
+		if !cfg.RootCAs.Equal(want) {
+			t.Error("RootCAs is not exactly the CACert")
+		}
+	})
+
+	t.Run("CACert with containers-certs.d CAs replaces the system roots", func(t *testing.T) {
+		want := x509.NewCertPool()
+		want.AppendCertsFromPEM(caCertPEM)
+		want.AppendCertsFromPEM(caCertPEM)
+
+		cfg, err := NewClientBuilder().buildTLSConfig(properties.Transport{CACert: caCertPath, CACerts: []string{caCertPath}})
+		if err != nil {
+			t.Fatalf("buildTLSConfig() error = %v", err)
+		}
+		if !cfg.RootCAs.Equal(want) {
+			t.Error("RootCAs is not exactly the CACert and the containers-certs.d CA")
+		}
+	})
+}
+
 func TestClientBuilder_Build_WithInvalidCACert(t *testing.T) {
 	builder := NewClientBuilder()
 
