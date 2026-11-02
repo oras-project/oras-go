@@ -181,7 +181,10 @@ func TestRemapIdentity_PrefixBoundary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := remapIdentity(tt.prefix, tt.signedPrefix, tt.imageRef, tt.signedRef)
+			got, err := remapIdentity(tt.prefix, tt.signedPrefix, tt.imageRef, tt.signedRef)
+			if err != nil {
+				t.Fatalf("remapIdentity: %v", err)
+			}
 			if got != tt.want {
 				t.Errorf("remapIdentity(%q, %q, %q, %q) = %v, want %v",
 					tt.prefix, tt.signedPrefix, tt.imageRef, tt.signedRef, got, tt.want)

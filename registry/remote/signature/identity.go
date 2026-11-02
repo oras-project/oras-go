@@ -43,7 +43,7 @@ func MatchSignedIdentity(signedIdentity *policy.SignedIdentity, imageRef, signed
 	case policy.IdentityMatchExactRepository:
 		return matchExactRepository(signedIdentity.DockerRepository, signedDockerRef), nil
 	case policy.IdentityMatchRemap:
-		return remapIdentity(signedIdentity.Prefix, signedIdentity.SignedPrefix, imageRef, signedDockerRef), nil
+		return remapIdentity(signedIdentity.Prefix, signedIdentity.SignedPrefix, imageRef, signedDockerRef)
 	default:
 		return false, fmt.Errorf("unknown identity match type: %s", signedIdentity.Type)
 	}
@@ -87,38 +87,21 @@ func matchExactRepository(configuredRepo, signedRef string) bool {
 	return configuredRepo == repositoryOf(signedRef)
 }
 
-// remapIdentity matches by replacing a prefix in the image reference with a
-// signed prefix, then checking for exact match.
+// remapIdentity replaces a prefix in the image reference with a signed prefix,
+// then matches with matchRepoDigestOrExact. An image reference outside the
+// prefix is matched unchanged, as containers-policy.json(5) specifies.
 //
-// The prefix must line up with a reference component boundary. A plain string
-// prefix would make "registry.io/team" match "registry.io/team-evil/app:v1"
-// and remap it into the signer's namespace, letting whoever controls that
-// adjacent repository produce a signature that satisfies the policy.
-func remapIdentity(prefix, signedPrefix, imageRef, signedRef string) bool {
-	if !hasReferencePrefix(imageRef, prefix) {
-		return false
+// The prefix must be the image's repository or a path prefix of it. A plain
+// string prefix would make "registry.io/team" match
+// "registry.io/team-evil/app:v1" and remap it into the signer's namespace,
+// letting whoever controls that adjacent repository produce a signature that
+// satisfies the policy. Likewise a host prefix matches only that exact
+// host[:port], not the same host with a port.
+func remapIdentity(prefix, signedPrefix, imageRef, signedRef string) (bool, error) {
+	if repo := repositoryOf(imageRef); repo == prefix || strings.HasPrefix(repo, prefix+"/") {
+		imageRef = signedPrefix + imageRef[len(prefix):]
 	}
-	// Remap: replace prefix in the image reference with signedPrefix.
-	remapped := signedPrefix + imageRef[len(prefix):]
-	return remapped == signedRef
-}
-
-// hasReferencePrefix reports whether ref starts with prefix at a component
-// boundary: the prefix must either match ref entirely or be followed by a
-// separator ("/", ":" or "@").
-func hasReferencePrefix(ref, prefix string) bool {
-	if prefix == "" || !strings.HasPrefix(ref, prefix) {
-		return false
-	}
-	if len(ref) == len(prefix) {
-		return true
-	}
-	switch ref[len(prefix)] {
-	case '/', ':', '@':
-		return true
-	default:
-		return false
-	}
+	return matchRepoDigestOrExact(imageRef, signedRef)
 }
 
 // repositoryOf extracts the repository part from a reference.
