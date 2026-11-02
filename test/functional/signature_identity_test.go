@@ -193,8 +193,8 @@ func TestSignatureIdentity_ExactRepository(t *testing.T) {
 }
 
 // TestSignatureIdentity_RemapIdentity verifies that remapIdentity rewrites the
-// pulled reference's prefix into the signer's namespace before an exact
-// comparison, and that the prefix only matches at a path boundary.
+// pulled reference's prefix into the signer's namespace before matching with
+// matchRepoDigestOrExact, and that the prefix only matches at a path boundary.
 func TestSignatureIdentity_RemapIdentity(t *testing.T) {
 	ctx := context.Background()
 	const signedPrefix = "upstream.example.com/team"
@@ -208,6 +208,18 @@ func TestSignatureIdentity_RemapIdentity(t *testing.T) {
 		repo := newIdentityRepository(t, f.repoName, f.store, f.keyPath, identity)
 		if _, err := repo.Resolve(ctx, "v1"); err != nil {
 			t.Fatalf("Resolve(v1) error = %v, want the remapped reference to be allowed", err)
+		}
+	})
+
+	t.Run("remapped digest reference allowed", func(t *testing.T) {
+		// A digest pull only needs the signature to name the same
+		// repository after remapping; signers sign tags.
+		f := newIdentityFixture(t, ctx, "v1")
+		identity := &policy.SignedIdentity{Type: policy.IdentityMatchRemap, Prefix: f.scope, SignedPrefix: signedPrefix + "/app"}
+		signImageAs(t, ctx, f.store, f.scope, f.desc, signedPrefix+"/app:v1", f.entity)
+		repo := newIdentityRepository(t, f.repoName, f.store, f.keyPath, identity)
+		if _, err := repo.Resolve(ctx, f.desc.Digest.String()); err != nil {
+			t.Fatalf("Resolve(digest) error = %v, want the remapped digest reference to be allowed", err)
 		}
 	})
 
