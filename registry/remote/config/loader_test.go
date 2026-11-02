@@ -17,6 +17,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -63,6 +64,7 @@ location = "registry-1.docker.io"
 
 func TestLoadConfigs_OnlyDockerConfig(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateLoadEnv(t, tmpDir)
 
 	dockerConfig := `{"auths":{}}`
 	dockerPath := filepath.Join(tmpDir, "config.json")
@@ -87,6 +89,7 @@ func TestLoadConfigs_OnlyDockerConfig(t *testing.T) {
 
 func TestLoadConfigs_OnlyRegistriesConfig(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateLoadEnv(t, tmpDir)
 
 	regConf := `
 [[registry]]
@@ -114,6 +117,7 @@ prefix = "docker.io"
 
 func TestLoadConfigs_NeitherPresent(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateLoadEnv(t, tmpDir)
 
 	configs, err := LoadConfigsWithOptions(LoadConfigsOptions{
 		DockerConfigPath:     filepath.Join(tmpDir, "nonexistent.json"),
@@ -189,6 +193,12 @@ func TestLoadConfigs_ContainersAuth_ExplicitPath(t *testing.T) {
 	if configs.ContainersAuthConfig == nil {
 		t.Fatal("ContainersAuthConfig should not be nil")
 	}
+	if len(configs.ContainersAuthConfigs) != 1 {
+		t.Fatalf("ContainersAuthConfigs length = %d, want 1", len(configs.ContainersAuthConfigs))
+	}
+	if configs.ContainersAuthConfigs[0] != configs.ContainersAuthConfig {
+		t.Error("ContainersAuthConfig should be ContainersAuthConfigs[0]")
+	}
 
 	// Verify hierarchical matching works.
 	got, err := configs.ContainersAuthConfig.GetAuthConfigHierarchical("registry.example.com/namespace/repo")
@@ -212,6 +222,9 @@ func TestLoadConfigs_ContainersAuth_MissingPath(t *testing.T) {
 	}
 	if configs.ContainersAuthConfig != nil {
 		t.Error("ContainersAuthConfig should be nil when file does not exist")
+	}
+	if len(configs.ContainersAuthConfigs) != 0 {
+		t.Errorf("ContainersAuthConfigs = %v, want empty", configs.ContainersAuthConfigs)
 	}
 }
 
@@ -252,6 +265,8 @@ func TestLoadConfigs_ContainersAuth_DefaultXDGPath(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", xdgDir)
 	t.Setenv("DOCKER_CONFIG", tmpDir)
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	// Override system paths to avoid reading real system config.
 	origSysPath := systemRegistriesConfPath
@@ -296,6 +311,8 @@ func TestLoadConfigs_ContainersAuth_FallbackToHomeConfig(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "")
 	t.Setenv("DOCKER_CONFIG", tmpDir)
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	// Override system paths.
 	origSysPath := systemRegistriesConfPath
@@ -329,6 +346,9 @@ func TestLoadConfigs_DefaultPaths(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("DOCKER_CONFIG", tmpDir)
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_RUNTIME_DIR", "")
 
 	// Override system paths to avoid reading real system config.
 	origSysPath := systemRegistriesConfPath
@@ -447,6 +467,13 @@ func TestConfigs_CredentialStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := containersCfg.SetAuthConfig("reg.example.com", AuthConfig{Auth: "YXV0aGpzb246cGFzcw=="}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dockerCfg.SetAuthConfig("reg.example.com", AuthConfig{Auth: "ZG9ja2VyOnBhc3M="}); err != nil {
+		t.Fatal(err)
+	}
+
 	configs := &Configs{
 		DockerConfig:         dockerCfg,
 		ContainersAuthConfig: containersCfg,
@@ -459,7 +486,6 @@ func TestConfigs_CredentialStore(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Docker config credential should be found.
 	cred, err := store.Get(ctx, "docker.io")
 	if err != nil {
 		t.Fatalf("Get(docker.io) error: %v", err)
@@ -468,13 +494,20 @@ func TestConfigs_CredentialStore(t *testing.T) {
 		t.Errorf("Get(docker.io) = %v, want docker:pass", cred)
 	}
 
-	// Containers auth credential should be found (fallback).
 	cred, err = store.Get(ctx, "quay.io")
 	if err != nil {
 		t.Fatalf("Get(quay.io) error: %v", err)
 	}
 	if cred.Username != "quay" || cred.Password != "pass" {
 		t.Errorf("Get(quay.io) = %v, want quay:pass", cred)
+	}
+
+	cred, err = store.Get(ctx, "reg.example.com")
+	if err != nil {
+		t.Fatalf("Get(reg.example.com) error: %v", err)
+	}
+	if cred.Username != "authjson" || cred.Password != "pass" {
+		t.Errorf("Get(reg.example.com) = %v, want authjson:pass (auth.json before Docker)", cred)
 	}
 
 	// Unknown registry should return empty credential.
@@ -534,6 +567,7 @@ func TestConfigs_PolicyEvaluator_NilPolicy(t *testing.T) {
 
 func TestLoadConfigsWithOptions_PolicyConfigPath(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateLoadEnv(t, tmpDir)
 
 	policyJSON := `{
   "default": [{"type": "insecureAcceptAnything"}]
@@ -564,6 +598,7 @@ func TestLoadConfigsWithOptions_PolicyConfigPath(t *testing.T) {
 
 func TestLoadConfigsWithOptions_CertsDirPathsOverride(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateLoadEnv(t, tmpDir)
 
 	certsDirs := []string{filepath.Join(tmpDir, "certs.d"), filepath.Join(tmpDir, "certs2.d")}
 
@@ -732,5 +767,227 @@ func TestConfigs_CredentialStore_DockerNotHierarchical(t *testing.T) {
 	}
 	if cred != credentials.EmptyCredential {
 		t.Errorf("Get(registry.example.com/namespace/repo) = %v, want empty (no prefix matching for Docker config)", cred)
+	}
+}
+
+func isolateLoadEnv(t *testing.T, tmpDir string) {
+	t.Helper()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
+	t.Setenv("DOCKER_CONFIG", filepath.Join(tmpDir, "docker"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "xdgconfig"))
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	origSys, origDir := systemRegistriesConfPath, systemRegistriesConfDirPath
+	systemRegistriesConfPath = filepath.Join(tmpDir, "registries.conf")
+	systemRegistriesConfDirPath = filepath.Join(tmpDir, "registries.conf.d")
+	t.Cleanup(func() {
+		systemRegistriesConfPath, systemRegistriesConfDirPath = origSys, origDir
+	})
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeAuthJSON(t *testing.T, dir, host, auth string) string {
+	t.Helper()
+	path := filepath.Join(dir, "auth.json")
+	writeFile(t, path, fmt.Sprintf(`{"auths":{%q:{"auth":%q}}}`, host, auth))
+	return path
+}
+
+func fileAuth(t *testing.T, path, host string) string {
+	t.Helper()
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := cfg.GetAuthConfig(host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got.Auth
+}
+
+func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
+	const primaryB64, xdgB64, overrideB64, dockerB64 = "cHJpbWFyeTpwYXNz", "eGRnOnBhc3M=", "b3ZlcnJpZGU6cGFzcw==", "ZG9ja2VyOnBhc3M="
+	putOpts := credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true}
+	tests := []struct {
+		name, dockerJSON string
+		files            [][3]string // dir, host, auth
+		opts             func(tmp, override string) LoadConfigsOptions
+		wantErr          bool
+		wantN            int
+		wantUser         map[string]string
+		noUser           []string
+		put              bool
+	}{
+		{
+			name:     "primary and XDG config, same registry: primary wins",
+			files:    [][3]string{{".config/containers", "reg.example.com", primaryB64}, {"xdgconfig/containers", "reg.example.com", xdgB64}},
+			wantN:    2,
+			wantUser: map[string]string{"reg.example.com": "primary"},
+		},
+		{
+			name:  "primary and XDG config, different registries",
+			files: [][3]string{{".config/containers", "primary.example.com", primaryB64}, {"xdgconfig/containers", "xdg.example.com", xdgB64}},
+			wantN: 2,
+			wantUser: map[string]string{
+				"primary.example.com": "primary",
+				"xdg.example.com":     "xdg",
+			},
+		},
+		{
+			name:     "primary missing, XDG config used",
+			files:    [][3]string{{"xdgconfig/containers", "xdg.example.com", xdgB64}},
+			wantN:    1,
+			wantUser: map[string]string{"xdg.example.com": "xdg"},
+		},
+		{
+			name:       "DOCKER_CONFIG is not containers auth; put does not create auth.json",
+			dockerJSON: `{"auths":{"docker.example.com":{"auth":"` + dockerB64 + `"}}}`,
+			wantN:      0,
+			wantUser:   map[string]string{"docker.example.com": "docker"},
+			put:        true,
+		},
+		{
+			name:  "ContainersAuthPath ignores fallbacks",
+			files: [][3]string{{"xdgconfig/containers", "fallback.example.com", xdgB64}, {"override", "override.example.com", overrideB64}},
+			opts: func(tmp, override string) LoadConfigsOptions {
+				return LoadConfigsOptions{DockerConfigPath: filepath.Join(tmp, "none.json"), ContainersAuthPath: override}
+			},
+			wantN:    1,
+			wantUser: map[string]string{"override.example.com": "override"},
+			noUser:   []string{"fallback.example.com"},
+		},
+		{
+			name:       "DockerConfigPath override does not load default docker as containers",
+			dockerJSON: `{"auths":{"docker.example.com":{"auth":"` + dockerB64 + `"}}}`,
+			opts: func(tmp, override string) LoadConfigsOptions {
+				p := filepath.Join(tmp, "override-docker.json")
+				writeFile(t, p, `{"auths":{}}`)
+				return LoadConfigsOptions{DockerConfigPath: p}
+			},
+			wantN: 0,
+		},
+		{
+			name:    "invalid JSON in fallback is an error",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			isolateLoadEnv(t, tmp)
+			var override string
+			for _, f := range tt.files {
+				p := writeAuthJSON(t, filepath.Join(tmp, f[0]), f[1], f[2])
+				if f[0] == "override" {
+					override = p
+				}
+			}
+			if tt.dockerJSON != "" {
+				writeFile(t, filepath.Join(tmp, "docker", "config.json"), tt.dockerJSON)
+			}
+			if tt.wantErr {
+				writeFile(t, filepath.Join(tmp, "xdgconfig", "containers", "auth.json"), "not json{{{")
+			}
+			opts := LoadConfigsOptions{}
+			if tt.opts != nil {
+				opts = tt.opts(tmp, override)
+			}
+			configs, err := LoadConfigsWithOptions(opts)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(configs.ContainersAuthConfigs) != tt.wantN {
+				t.Fatalf("ContainersAuthConfigs length = %d, want %d", len(configs.ContainersAuthConfigs), tt.wantN)
+			}
+			if (tt.wantN == 0) != (configs.ContainersAuthConfig == nil) {
+				t.Fatal("ContainersAuthConfig / ContainersAuthConfigs mismatch")
+			}
+			if tt.wantN > 0 && configs.ContainersAuthConfig != configs.ContainersAuthConfigs[0] {
+				t.Fatal("ContainersAuthConfig should be ContainersAuthConfigs[0]")
+			}
+			store, err := configs.CredentialStore(putOpts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for host, user := range tt.wantUser {
+				cred, err := store.Get(context.Background(), host)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if cred.Username != user {
+					t.Errorf("Get(%s) user = %q, want %q", host, cred.Username, user)
+				}
+			}
+			for _, host := range tt.noUser {
+				cred, err := store.Get(context.Background(), host)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if cred.Username != "" {
+					t.Errorf("Get(%s) user = %q, want empty", host, cred.Username)
+				}
+			}
+			if !tt.put {
+				return
+			}
+			if err := store.Put(context.Background(), "put.example.com", credentials.Credential{Username: "user", Password: "pass"}); err != nil {
+				t.Fatal(err)
+			}
+			if fileAuth(t, filepath.Join(tmp, "docker", "config.json"), "put.example.com") == "" {
+				t.Error("Put should write Docker when it is the only store")
+			}
+			for _, rel := range []string{filepath.Join(".config", "containers", "auth.json"), filepath.Join("xdgconfig", "containers", "auth.json")} {
+				if _, err := os.Stat(filepath.Join(tmp, rel)); err == nil {
+					t.Errorf("Put created %s", rel)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigs_CredentialStore_PutAuthJSON(t *testing.T) {
+	tmp := t.TempDir()
+	authPath, dockerPath := filepath.Join(tmp, "auth.json"), filepath.Join(tmp, "docker.json")
+	writeFile(t, authPath, `{"auths":{}}`)
+	writeFile(t, dockerPath, `{"auths":{}}`)
+	authCfg, err := Load(authPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerCfg, err := Load(dockerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := (&Configs{
+		DockerConfig: dockerCfg, ContainersAuthConfig: authCfg, ContainersAuthConfigs: []*Config{authCfg},
+	}).CredentialStore(credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(context.Background(), "reg.example.com", credentials.Credential{Username: "user", Password: "pass"}); err != nil {
+		t.Fatal(err)
+	}
+	if fileAuth(t, authPath, "reg.example.com") == "" {
+		t.Error("Put should write to existing auth.json")
+	}
+	if fileAuth(t, dockerPath, "reg.example.com") != "" {
+		t.Error("Put should not write Docker when auth.json exists")
 	}
 }

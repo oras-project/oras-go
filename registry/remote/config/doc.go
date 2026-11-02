@@ -16,10 +16,12 @@ limitations under the License.
 // Package config loads container client configuration and converts it into
 // registry client settings.
 //
-// [LoadConfigs] reads Docker config.json, containers auth.json,
+// [LoadConfigs] reads Docker config.json, containers auth.json files,
 // registries.conf, policy.json, registries.d, and containers-certs.d from
 // their default locations. Missing files are skipped; an error is returned
-// only when a file exists but cannot be parsed. [LoadConfigsWithOptions] can
+// only when a file exists but cannot be parsed. Containers auth.json files
+// are searched in order (primary, then fallbacks); the first file with a
+// match wins and files are not merged. [LoadConfigsWithOptions] can
 // override individual paths.
 //
 // The default [StrategyContainersImage] follows containers/image path

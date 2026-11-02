@@ -206,6 +206,74 @@ func TestCurrentResolver_DockerConfigPath_EnvOverride(t *testing.T) {
 	}
 }
 
+func TestCurrentResolver_AuthFallbackPaths(t *testing.T) {
+	homeDir := t.TempDir()
+	xdgDir := t.TempDir()
+	dockerDir := t.TempDir()
+	homeAuth := filepath.Join(homeDir, ".config", "containers", "auth.json")
+	xdgAuth := filepath.Join(xdgDir, "containers", "auth.json")
+	homeDocker := filepath.Join(homeDir, ".docker", "config.json")
+	envDocker := filepath.Join(dockerDir, "config.json")
+
+	tests := []struct {
+		name          string
+		xdgConfigHome string
+		dockerConfig  string
+		want          []string
+	}{
+		{
+			name:          "XDG_CONFIG_HOME and DOCKER_CONFIG set",
+			xdgConfigHome: xdgDir,
+			dockerConfig:  dockerDir,
+			want:          []string{xdgAuth, envDocker},
+		},
+		{
+			name: "XDG_CONFIG_HOME and DOCKER_CONFIG unset",
+			want: []string{homeAuth, homeDocker},
+		},
+		{
+			name:          "empty XDG_CONFIG_HOME treated as unset",
+			xdgConfigHome: "",
+			want:          []string{homeAuth, homeDocker},
+		},
+		{
+			name:          "XDG_CONFIG_HOME set, DOCKER_CONFIG unset",
+			xdgConfigHome: xdgDir,
+			want:          []string{xdgAuth, homeDocker},
+		},
+		{
+			name:         "XDG_CONFIG_HOME unset, DOCKER_CONFIG set",
+			dockerConfig: dockerDir,
+			want:         []string{homeAuth, envDocker},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", homeDir)
+			t.Setenv("USERPROFILE", homeDir)
+			t.Setenv("XDG_CONFIG_HOME", tt.xdgConfigHome)
+			t.Setenv("DOCKER_CONFIG", tt.dockerConfig)
+
+			r := &currentResolver{userConfRelDir: ".config/containers"}
+			got := r.AuthFallbackPaths()
+			if len(got) != len(tt.want) {
+				t.Fatalf("AuthFallbackPaths() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("AuthFallbackPaths()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+			for _, p := range got {
+				if strings.HasSuffix(p, ".dockercfg") {
+					t.Errorf("AuthFallbackPaths() unexpectedly includes .dockercfg: %q", p)
+				}
+			}
+		})
+	}
+}
+
 func TestUAPIResolver_MainConfigPaths(t *testing.T) {
 	t.Setenv("HOME", "/tmp/fakehome")
 	t.Setenv("XDG_CONFIG_HOME", "")

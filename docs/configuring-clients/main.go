@@ -40,7 +40,7 @@ func main() {
 	}
 
 	builder := remote.NewClientBuilder()
-	if configs.DockerConfig != nil || configs.ContainersAuthConfig != nil {
+	if configs.DockerConfig != nil || len(configs.ContainersAuthConfigs) > 0 {
 		store, err := configs.CredentialStore(credentials.StoreOptions{})
 		if err != nil {
 			log.Fatal(err)
