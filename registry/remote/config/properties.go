@@ -18,6 +18,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/properties"
 )
@@ -45,9 +46,15 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 	var origReg *Registry
 	var sourceRef string
 	if regConf != nil {
-		// Step 1: Resolve aliases.
-		if resolved, ok := regConf.ResolveAlias(ref); ok {
-			ref = resolved
+		// Step 1: Resolve aliases. A tag or digest is not part of a short
+		// name's alias; it is kept and appended to the resolved reference.
+		name, suffix := ref, ""
+		slash := strings.LastIndex(ref, "/")
+		if i := strings.IndexAny(ref[slash+1:], ":@"); i != -1 {
+			name, suffix = ref[:slash+1+i], ref[slash+1+i:]
+		}
+		if resolved, ok := regConf.ResolveAlias(name); ok {
+			ref = resolved + suffix
 		}
 
 		// Step 2: Check if the registry is blocked.

@@ -350,6 +350,7 @@ func TestRegistriesConfig_ResolveAlias(t *testing.T) {
 			"nginx":        "docker.io/library/nginx",
 			"myapp":        "quay.io/myorg/myapp",
 			"complex/name": "registry.example.com/path/to/image",
+			"erased":       "",
 		},
 	}
 
@@ -359,6 +360,12 @@ func TestRegistriesConfig_ResolveAlias(t *testing.T) {
 		want      string
 		wantOk    bool
 	}{
+		{
+			name:      "empty value erases the alias",
+			shortName: "erased",
+			want:      "",
+			wantOk:    false,
+		},
 		{
 			name:      "existing alias",
 			shortName: "alpine",
@@ -409,6 +416,16 @@ func TestRegistriesConfig_ResolveAlias_NilConfig(t *testing.T) {
 	_, ok = config.ResolveAlias("alpine")
 	if ok {
 		t.Error("ResolveAlias() with nil aliases should return false")
+	}
+}
+
+func TestRegistriesConfig_ResolveAlias_ErasedByDropIn(t *testing.T) {
+	base := &RegistriesConfig{Aliases: map[string]string{"myapp": "docker.io/library/myapp"}}
+	dropIn := &RegistriesConfig{Aliases: map[string]string{"myapp": ""}}
+
+	merged := mergeRegistriesConfig(base, dropIn)
+	if got, ok := merged.ResolveAlias("myapp"); ok {
+		t.Errorf("ResolveAlias(%q) = %q, true; want the alias erased by the drop-in", "myapp", got)
 	}
 }
 
