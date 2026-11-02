@@ -503,13 +503,15 @@ func lowerHost(ref string) string {
 }
 
 // ResolveAlias resolves a short name to a fully qualified reference.
+// An alias with an empty value is erased, as a drop-in uses it to reset an
+// alias set by an earlier file, and does not resolve.
 func (rc *RegistriesConfig) ResolveAlias(shortName string) (string, bool) {
 	if rc == nil || rc.Aliases == nil {
 		return "", false
 	}
 
 	resolved, ok := rc.Aliases[shortName]
-	return resolved, ok
+	return resolved, ok && resolved != ""
 }
 
 // IsBlocked returns true if the given reference is blocked.
