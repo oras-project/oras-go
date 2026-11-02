@@ -360,8 +360,9 @@ func mergeRegistriesConfig(base, dropIn *RegistriesConfig) *RegistriesConfig {
 		result.Aliases[k] = v
 	}
 
-	// Override with drop-in values
-	if len(dropIn.UnqualifiedSearchRegistries) > 0 {
+	// Override with drop-in values. The TOML decoder leaves an omitted array
+	// nil but decodes an empty one, so a drop-in can clear the list with [].
+	if dropIn.UnqualifiedSearchRegistries != nil {
 		result.UnqualifiedSearchRegistries = dropIn.UnqualifiedSearchRegistries
 	}
 	if dropIn.ShortNameMode != "" {
