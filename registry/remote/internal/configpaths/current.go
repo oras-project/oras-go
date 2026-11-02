@@ -88,18 +88,17 @@ func (r *currentResolver) AuthPrimaryPath() (string, error) {
 	return filepath.Join(home, r.userConfRelDir, containersAuthFile), nil
 }
 
-// AuthFallbackPaths returns read-only auth.json fallbacks: the XDG/user
-// containers auth.json, then the Docker config.json path from
-// dockerConfigPath. Callers should skip a path that matches AuthPrimaryPath.
+// AuthFallbackPaths returns the read-only containers auth.json fallback:
+// $XDG_CONFIG_HOME/containers/auth.json if set, otherwise
+// $HOME/<userConfRelDir>/auth.json. Docker config.json is not included;
+// callers load it via DockerConfigPath. Callers should skip a path that
+// matches AuthPrimaryPath.
 func (r *currentResolver) AuthFallbackPaths() []string {
 	var paths []string
 	if xdgConfigHome := os.Getenv(xdgConfigHomeEnv); xdgConfigHome != "" {
 		paths = append(paths, filepath.Join(xdgConfigHome, containersConfigDir, containersAuthFile))
 	} else if home, err := os.UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, r.userConfRelDir, containersAuthFile))
-	}
-	if dockerPath, err := dockerConfigPath(); err == nil {
-		paths = append(paths, dockerPath)
 	}
 	return paths
 }

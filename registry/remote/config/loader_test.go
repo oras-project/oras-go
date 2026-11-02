@@ -676,6 +676,22 @@ func TestLoadConfigsWithOptions_RegistriesConfig_UAPI_Strategy(t *testing.T) {
 	}
 }
 
+func TestLoadConfigs_UAPI_DockerConfigNotInContainersAuth(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateLoadEnv(t, tmpDir)
+	writeFile(t, filepath.Join(tmpDir, ".docker", "config.json"), `{"auths":{"docker.example.com":{"auth":"ZG9ja2VyOnBhc3M="}}}`)
+
+	configs, err := LoadConfigsWithOptions(LoadConfigsOptions{
+		Strategy: StrategyUAPI,
+	})
+	if err != nil {
+		t.Fatalf("LoadConfigsWithOptions(UAPI) error: %v", err)
+	}
+	if configs.ContainersAuthConfig != nil || len(configs.ContainersAuthConfigs) != 0 {
+		t.Fatal("~/.docker/config.json must not appear in ContainersAuthConfigs with StrategyUAPI")
+	}
+}
+
 func TestLoadConfigsWithOptions_InvalidPolicyConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 

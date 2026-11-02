@@ -212,8 +212,6 @@ func TestCurrentResolver_AuthFallbackPaths(t *testing.T) {
 	dockerDir := t.TempDir()
 	homeAuth := filepath.Join(homeDir, ".config", "containers", "auth.json")
 	xdgAuth := filepath.Join(xdgDir, "containers", "auth.json")
-	homeDocker := filepath.Join(homeDir, ".docker", "config.json")
-	envDocker := filepath.Join(dockerDir, "config.json")
 
 	tests := []struct {
 		name          string
@@ -222,29 +220,24 @@ func TestCurrentResolver_AuthFallbackPaths(t *testing.T) {
 		want          []string
 	}{
 		{
-			name:          "XDG_CONFIG_HOME and DOCKER_CONFIG set",
+			name:          "XDG_CONFIG_HOME set",
 			xdgConfigHome: xdgDir,
-			dockerConfig:  dockerDir,
-			want:          []string{xdgAuth, envDocker},
+			want:          []string{xdgAuth},
 		},
 		{
-			name: "XDG_CONFIG_HOME and DOCKER_CONFIG unset",
-			want: []string{homeAuth, homeDocker},
+			name: "XDG_CONFIG_HOME unset",
+			want: []string{homeAuth},
 		},
 		{
 			name:          "empty XDG_CONFIG_HOME treated as unset",
 			xdgConfigHome: "",
-			want:          []string{homeAuth, homeDocker},
+			want:          []string{homeAuth},
 		},
 		{
-			name:          "XDG_CONFIG_HOME set, DOCKER_CONFIG unset",
+			name:          "DOCKER_CONFIG set is not returned",
 			xdgConfigHome: xdgDir,
-			want:          []string{xdgAuth, homeDocker},
-		},
-		{
-			name:         "XDG_CONFIG_HOME unset, DOCKER_CONFIG set",
-			dockerConfig: dockerDir,
-			want:         []string{homeAuth, envDocker},
+			dockerConfig:  dockerDir,
+			want:          []string{xdgAuth},
 		},
 	}
 
@@ -266,8 +259,8 @@ func TestCurrentResolver_AuthFallbackPaths(t *testing.T) {
 				}
 			}
 			for _, p := range got {
-				if strings.HasSuffix(p, ".dockercfg") {
-					t.Errorf("AuthFallbackPaths() unexpectedly includes .dockercfg: %q", p)
+				if strings.HasSuffix(p, filepath.Join(".docker", "config.json")) || strings.HasSuffix(p, ".dockercfg") {
+					t.Errorf("AuthFallbackPaths() unexpectedly includes Docker path %q", p)
 				}
 			}
 		})
@@ -382,28 +375,14 @@ func TestUAPIResolver_UserDir_NilFunc(t *testing.T) {
 func TestUAPIResolver_AuthFallbackPaths(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 	r := NewResolver(UAPI)
 	paths := r.AuthFallbackPaths()
-	if len(paths) < 2 {
-		t.Fatalf("AuthFallbackPaths() returned %d paths, want at least 2", len(paths))
-	}
-	// Should include Docker fallback paths.
-	foundDocker := false
-	foundDockerCfg := false
 	for _, p := range paths {
-		if strings.HasSuffix(p, filepath.Join(".docker", "config.json")) {
-			foundDocker = true
+		if strings.Contains(p, ".docker") || strings.HasSuffix(p, ".dockercfg") {
+			t.Errorf("AuthFallbackPaths() includes Docker path %q", p)
 		}
-		if strings.HasSuffix(p, ".dockercfg") {
-			foundDockerCfg = true
-		}
-	}
-	if !foundDocker {
-		t.Error("AuthFallbackPaths() should include .docker/config.json")
-	}
-	if !foundDockerCfg {
-		t.Error("AuthFallbackPaths() should include .dockercfg")
 	}
 }
 
