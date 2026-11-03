@@ -22,6 +22,7 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -244,7 +245,7 @@ func (ds *DynamicStore) Put(ctx context.Context, serverAddress string, cred Cred
 // credential saved before the helper was configured would otherwise stay in
 // the file.
 func (ds *DynamicStore) Delete(ctx context.Context, serverAddress string) error {
-	if err := ds.getStore(serverAddress).Delete(ctx, serverAddress); err != nil {
+	if err := ds.getStore(serverAddress).Delete(ctx, serverAddress); err != nil && !errors.Is(err, ErrCredentialsNotFound) {
 		return err
 	}
 	return ds.config.DeleteAuthConfig(serverAddress)

@@ -10,6 +10,10 @@ The default [`StrategyContainersImage`](https://pkg.go.dev/github.com/oras-proje
 
 Use [`config.LoadConfigsWithOptions`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote/config#LoadConfigsWithOptions) to select a strategy or override individual paths. Unspecified paths still use the selected strategy's defaults.
 
+## Credentials
+
+Containers `auth.json` files are checked before Docker `config.json`. Put writes the first loaded store (the platform native keychain if that `auth.json` has no credentials configured). Delete removes the credential from every loaded store.
+
 ## Build a repository
 
 Building a configured repository has four steps:

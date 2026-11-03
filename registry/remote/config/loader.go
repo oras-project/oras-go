@@ -279,7 +279,12 @@ func (c *Configs) PolicyEvaluator(opts ...policy.EvaluatorOption) (*policy.Evalu
 // auth.json files and Docker config. Each containers auth.json is a
 // hierarchical store, in search order, and is checked before Docker config.
 // Get uses the first store with a match. Put writes the first store. Delete
-// removes from all stores. Missing auth.json files are not created.
+// removes from all stores. Missing auth.json files are not created. An
+// auth.json with no credentials configured uses the platform's default
+// native store, as [credentials.NewStoreFromConfig] does.
+//
+// A helper that fails erase, or reports not-found in a non-standard way,
+// makes Delete return that error after the other stores are still cleared.
 //
 // Returns an error if neither a containers auth.json nor DockerConfig is loaded.
 func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.Store, error) {
@@ -329,13 +334,13 @@ func (s *credentialStore) Put(ctx context.Context, serverAddress string, cred cr
 }
 
 func (s *credentialStore) Delete(ctx context.Context, serverAddress string) error {
-	var firstErr error
+	var errs []error
 	for _, store := range s.stores {
-		if err := store.Delete(ctx, serverAddress); err != nil && !isCredentialNotFound(err) && firstErr == nil {
-			firstErr = err
+		if err := store.Delete(ctx, serverAddress); err != nil && !errors.Is(err, credentials.ErrCredentialsNotFound) {
+			errs = append(errs, err)
 		}
 	}
-	return firstErr
+	return errors.Join(errs...)
 }
 
 // MatchesNamespace reports whether Get performs most-specific-first namespace
@@ -344,14 +349,6 @@ func (s *credentialStore) Delete(ctx context.Context, serverAddress string) erro
 func (s *credentialStore) MatchesNamespace(serverAddress string) bool {
 	matcher, ok := s.inner.(credentials.NamespaceMatcher)
 	return ok && matcher.MatchesNamespace(serverAddress)
-}
-
-func isCredentialNotFound(err error) bool {
-	if errors.Is(err, os.ErrNotExist) {
-		return true
-	}
-	// Matches native_store.go's errCredentialsNotFoundMessage, same as nativeStore.Get.
-	return err.Error() == "credentials not found in native keychain"
 }
 
 // loadExistingAuthConfigs Stat+Loads each candidate that exists. Paths are

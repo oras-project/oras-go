@@ -17,6 +17,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1014,6 +1015,130 @@ func TestConfigs_CredentialStore_DeleteAllStores(t *testing.T) {
 	if fileAuth(t, dockerPath, host) != "" {
 		t.Error("Delete should remove the host from Docker config.json")
 	}
+}
+
+func TestConfigs_CredentialStore_DeletePartialFailure(t *testing.T) {
+	errFirst := errors.New("erase failed")
+	errSecond := errors.New("docker erase failed")
+	tests := []struct {
+		name      string
+		firstErr  error
+		secondErr error
+		wantIs    []error
+	}{
+		{
+			name:     "first fails, second succeeds",
+			firstErr: errFirst,
+			wantIs:   []error{errFirst},
+		},
+		{
+			name:      "both fail",
+			firstErr:  errFirst,
+			secondErr: errSecond,
+			wantIs:    []error{errFirst, errSecond},
+		},
+		{
+			name:      "first not-found, second real error",
+			firstErr:  credentials.ErrCredentialsNotFound,
+			secondErr: errSecond,
+			wantIs:    []error{errSecond},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secondDeleted := false
+			store := &credentialStore{
+				stores: []credentials.Store{
+					&stubCredentialStore{deleteErr: tt.firstErr},
+					&stubCredentialStore{deleteErr: tt.secondErr, deleted: &secondDeleted},
+				},
+			}
+			err := store.Delete(context.Background(), "reg.example.com")
+			if !secondDeleted {
+				t.Error("Delete should still visit the second store")
+			}
+			for _, want := range tt.wantIs {
+				if !errors.Is(err, want) {
+					t.Errorf("Delete() error = %v, want errors.Is %v", err, want)
+				}
+			}
+			if tt.secondErr == nil && errors.Is(err, errSecond) {
+				t.Errorf("Delete() error = %v, should not include second error", err)
+			}
+			if errors.Is(tt.firstErr, credentials.ErrCredentialsNotFound) && errors.Is(err, credentials.ErrCredentialsNotFound) {
+				t.Errorf("Delete() error = %v, should not include ErrCredentialsNotFound", err)
+			}
+		})
+	}
+}
+
+func TestConfigs_CredentialStore_PutTwoAuthJSON(t *testing.T) {
+	tmp := t.TempDir()
+	firstPath, secondPath := filepath.Join(tmp, "first.json"), filepath.Join(tmp, "second.json")
+	writeFile(t, firstPath, `{"auths":{}}`)
+	writeFile(t, secondPath, `{"auths":{}}`)
+	firstCfg, err := Load(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCfg, err := Load(secondPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := (&Configs{
+		ContainersAuthConfig:  firstCfg,
+		ContainersAuthConfigs: []*Config{firstCfg, secondCfg},
+	}).CredentialStore(credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(context.Background(), "reg.example.com", credentials.Credential{Username: "user", Password: "pass"}); err != nil {
+		t.Fatal(err)
+	}
+	if fileAuth(t, firstPath, "reg.example.com") == "" {
+		t.Error("Put should write the first auth.json")
+	}
+	if fileAuth(t, secondPath, "reg.example.com") != "" {
+		t.Error("Put should not write the second auth.json")
+	}
+}
+
+func Test_credentialStore_MatchesNamespace(t *testing.T) {
+	inner := credentials.NewStoreWithFallbacks(&stubCredentialStore{match: true}, &stubCredentialStore{match: true})
+	store := &credentialStore{inner: inner}
+	if !store.MatchesNamespace("reg.example.com/ns") {
+		t.Error("MatchesNamespace should delegate to inner")
+	}
+	inner = credentials.NewStoreWithFallbacks(&stubCredentialStore{match: true}, &stubCredentialStore{})
+	store = &credentialStore{inner: inner}
+	if store.MatchesNamespace("reg.example.com/ns") {
+		t.Error("MatchesNamespace should be false when inner is false")
+	}
+}
+
+type stubCredentialStore struct {
+	deleteErr error
+	deleted   *bool
+	match     bool
+}
+
+func (s *stubCredentialStore) Get(context.Context, string) (credentials.Credential, error) {
+	return credentials.EmptyCredential, nil
+}
+
+func (s *stubCredentialStore) Put(context.Context, string, credentials.Credential) error {
+	return nil
+}
+
+func (s *stubCredentialStore) Delete(context.Context, string) error {
+	if s.deleted != nil {
+		*s.deleted = true
+	}
+	return s.deleteErr
+}
+
+func (s *stubCredentialStore) MatchesNamespace(string) bool {
+	return s.match
 }
 
 func TestConfigs_CredentialStore_PutAuthJSON(t *testing.T) {
