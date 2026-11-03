@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
@@ -350,6 +351,7 @@ func TestRegistriesConfig_ResolveAlias(t *testing.T) {
 			"nginx":        "docker.io/library/nginx",
 			"myapp":        "quay.io/myorg/myapp",
 			"complex/name": "registry.example.com/path/to/image",
+			"erased":       "",
 		},
 	}
 
@@ -359,6 +361,12 @@ func TestRegistriesConfig_ResolveAlias(t *testing.T) {
 		want      string
 		wantOk    bool
 	}{
+		{
+			name:      "empty value erases the alias",
+			shortName: "erased",
+			want:      "",
+			wantOk:    false,
+		},
 		{
 			name:      "existing alias",
 			shortName: "alpine",
@@ -409,6 +417,16 @@ func TestRegistriesConfig_ResolveAlias_NilConfig(t *testing.T) {
 	_, ok = config.ResolveAlias("alpine")
 	if ok {
 		t.Error("ResolveAlias() with nil aliases should return false")
+	}
+}
+
+func TestRegistriesConfig_ResolveAlias_ErasedByDropIn(t *testing.T) {
+	base := &RegistriesConfig{Aliases: map[string]string{"myapp": "docker.io/library/myapp"}}
+	dropIn := &RegistriesConfig{Aliases: map[string]string{"myapp": ""}}
+
+	merged := mergeRegistriesConfig(base, dropIn)
+	if got, ok := merged.ResolveAlias("myapp"); ok {
+		t.Errorf("ResolveAlias(%q) = %q, true; want the alias erased by the drop-in", "myapp", got)
 	}
 }
 
@@ -1495,6 +1513,66 @@ func TestMergeRegistriesConfig_EmptyDropIn(t *testing.T) {
 	}
 	if result.Aliases["alpine"] != "docker.io/library/alpine" {
 		t.Errorf("Aliases[alpine] = %q, want %q", result.Aliases["alpine"], "docker.io/library/alpine")
+	}
+}
+
+func TestLoadDropInConfigs_UnqualifiedSearchRegistries(t *testing.T) {
+	tests := []struct {
+		name   string
+		dropIn string
+		want   []string
+	}{
+		{
+			name:   "omitted keeps the base list",
+			dropIn: `short-name-mode = "permissive"`,
+			want:   []string{"docker.io", "quay.io"},
+		},
+		{
+			name:   "empty list clears the base list",
+			dropIn: `unqualified-search-registries = []`,
+			want:   []string{},
+		},
+		{
+			name:   "list replaces the base list",
+			dropIn: `unqualified-search-registries = ["registry.example.com"]`,
+			want:   []string{"registry.example.com"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			basePath := filepath.Join(tmpDir, "registries.conf")
+			if err := os.WriteFile(basePath, []byte(`unqualified-search-registries = ["docker.io", "quay.io"]`), 0644); err != nil {
+				t.Fatal(err)
+			}
+			confDir := filepath.Join(tmpDir, "registries.conf.d")
+			if err := os.MkdirAll(confDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(confDir, "10-search.conf"), []byte(tt.dropIn), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			base, err := LoadRegistriesConfig(basePath)
+			if err != nil {
+				t.Fatalf("LoadRegistriesConfig() error = %v", err)
+			}
+			config, err := loadDropInConfigs(base, confDir)
+			if err != nil {
+				t.Fatalf("loadDropInConfigs() error = %v", err)
+			}
+			if !slices.Equal(config.UnqualifiedSearchRegistries, tt.want) {
+				t.Errorf("UnqualifiedSearchRegistries = %q, want %q", config.UnqualifiedSearchRegistries, tt.want)
+			}
+			results, err := config.SearchRegistryProperties("library/alpine:latest")
+			if err != nil {
+				t.Fatalf("SearchRegistryProperties() error = %v", err)
+			}
+			if len(results) != len(tt.want) {
+				t.Errorf("SearchRegistryProperties() returned %d registries, want %d", len(results), len(tt.want))
+			}
+		})
 	}
 }
 

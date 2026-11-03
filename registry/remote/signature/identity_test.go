@@ -248,6 +248,30 @@ func TestMatchSignedIdentity_Remap(t *testing.T) {
 			signedDockerRef: "registry.example.com/repo:latest",
 			want:            false,
 		},
+		{
+			name:            "No prefix match, unchanged reference signed",
+			imageRef:        "other.example.com/repo:latest",
+			signedDockerRef: "other.example.com/repo:latest",
+			want:            true,
+		},
+		{
+			name:            "Remapped digest reference, signed by tag",
+			imageRef:        "mirror.example.com/repo@sha256:9834876dcfb05cb167a5c24953eba58c4ac89b1adf57f28f2f9d09af107ee8f0",
+			signedDockerRef: "registry.example.com/repo:v1",
+			want:            true,
+		},
+		{
+			name:            "Remapped digest reference, other repository signed",
+			imageRef:        "mirror.example.com/repo@sha256:9834876dcfb05cb167a5c24953eba58c4ac89b1adf57f28f2f9d09af107ee8f0",
+			signedDockerRef: "registry.example.com/other:v1",
+			want:            false,
+		},
+		{
+			name:            "Prefix host with a port is another host",
+			imageRef:        "mirror.example.com:5000/repo:latest",
+			signedDockerRef: "registry.example.com:5000/repo:latest",
+			want:            false,
+		},
 	}
 
 	for _, tt := range tests {

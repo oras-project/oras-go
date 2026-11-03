@@ -115,6 +115,86 @@ func TestRegistriesConfig_RegistryProperties(t *testing.T) {
 	}
 }
 
+func TestNewRegistryProperties_AliasWithTagOrDigest(t *testing.T) {
+	const dgst = "sha256:9834876dcfb05cb167a5c24953eba58c4ac89b1adf57f28f2f9d09af107ee8f0"
+	config := &RegistriesConfig{
+		Registries: []Registry{
+			{Prefix: "docker.io", Location: "registry-1.docker.io"},
+		},
+		Aliases: map[string]string{
+			"myapp":    "docker.io/library/myapp",
+			"team/app": "quay.io/team/app",
+		},
+	}
+
+	tests := []struct {
+		name         string
+		ref          string
+		wantRegistry string
+		wantRepo     string
+		wantTag      string
+		wantDigest   string
+	}{
+		{
+			name:         "tag",
+			ref:          "myapp:v1",
+			wantRegistry: "registry-1.docker.io",
+			wantRepo:     "library/myapp",
+			wantTag:      "v1",
+		},
+		{
+			name:         "digest",
+			ref:          "myapp@" + dgst,
+			wantRegistry: "registry-1.docker.io",
+			wantRepo:     "library/myapp",
+			wantDigest:   dgst,
+		},
+		{
+			name:         "tag and digest",
+			ref:          "myapp:v1@" + dgst,
+			wantRegistry: "registry-1.docker.io",
+			wantRepo:     "library/myapp",
+			wantTag:      "v1",
+			wantDigest:   dgst,
+		},
+		{
+			name:         "alias with slash and tag",
+			ref:          "team/app:v2",
+			wantRegistry: "quay.io",
+			wantRepo:     "team/app",
+			wantTag:      "v2",
+		},
+		{
+			name:         "qualified reference ending in an alias name",
+			ref:          "localhost:5000/myapp:v1",
+			wantRegistry: "localhost:5000",
+			wantRepo:     "myapp",
+			wantTag:      "v1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			props, err := NewRegistryProperties(tt.ref, config)
+			if err != nil {
+				t.Fatalf("NewRegistryProperties(%q) unexpected error: %v", tt.ref, err)
+			}
+			if props.Reference.Registry != tt.wantRegistry {
+				t.Errorf("Reference.Registry = %q, want %q", props.Reference.Registry, tt.wantRegistry)
+			}
+			if props.Reference.Repository != tt.wantRepo {
+				t.Errorf("Reference.Repository = %q, want %q", props.Reference.Repository, tt.wantRepo)
+			}
+			if props.Reference.Tag != tt.wantTag {
+				t.Errorf("Reference.Tag = %q, want %q", props.Reference.Tag, tt.wantTag)
+			}
+			if props.Reference.Digest != tt.wantDigest {
+				t.Errorf("Reference.Digest = %q, want %q", props.Reference.Digest, tt.wantDigest)
+			}
+		})
+	}
+}
+
 func TestNewRegistryProperties_NilConfig(t *testing.T) {
 	props, err := NewRegistryProperties("ghcr.io/user/repo:v1", nil)
 	if err != nil {
