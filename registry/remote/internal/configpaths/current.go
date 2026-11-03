@@ -88,7 +88,7 @@ func (r *currentResolver) AuthPrimaryPath() (string, error) {
 	return filepath.Join(home, r.userConfRelDir, containersAuthFile), nil
 }
 
-// AuthFallbackPaths returns the read-only containers auth.json fallback:
+// AuthFallbackPaths returns the containers auth.json fallback:
 // $XDG_CONFIG_HOME/containers/auth.json if set, otherwise
 // $HOME/<userConfRelDir>/auth.json. Docker config.json is not included;
 // callers load it via DockerConfigPath. Callers should skip a path that
@@ -137,12 +137,6 @@ func (r *currentResolver) PolicyPaths() []string {
 }
 
 func (r *currentResolver) DockerConfigPath() (string, error) {
-	return dockerConfigPath()
-}
-
-// dockerConfigPath returns $DOCKER_CONFIG/config.json if $DOCKER_CONFIG is set
-// and non-empty, otherwise $HOME/.docker/config.json.
-func dockerConfigPath() (string, error) {
 	configDir := os.Getenv(dockerConfigDirEnv)
 	if configDir == "" {
 		home, err := os.UserHomeDir()

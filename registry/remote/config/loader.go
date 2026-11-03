@@ -16,6 +16,7 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -40,6 +41,7 @@ type Configs struct {
 	// pointer as ContainersAuthConfigs[0] when that slice is non-empty.
 	// The auth.json format is identical to Docker config.json but uses
 	// hierarchical namespace matching via GetAuthConfigHierarchical().
+	// CredentialStore ignores it when ContainersAuthConfigs is non-empty.
 	ContainersAuthConfig *Config
 
 	// ContainersAuthConfigs is every loaded containers auth.json, in search
@@ -276,8 +278,8 @@ func (c *Configs) PolicyEvaluator(opts ...policy.EvaluatorOption) (*policy.Evalu
 // CredentialStore creates a [credentials.Store] from loaded containers
 // auth.json files and Docker config. Each containers auth.json is a
 // hierarchical store, in search order, and is checked before Docker config.
-// Get uses the first store with a match. Put and Delete use the first
-// existing store; missing auth.json files are not created.
+// Get uses the first store with a match. Put writes the first store. Delete
+// removes from all stores. Missing auth.json files are not created.
 //
 // Returns an error if neither a containers auth.json nor DockerConfig is loaded.
 func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.Store, error) {
@@ -302,7 +304,54 @@ func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.St
 	if len(stores) == 1 {
 		return stores[0], nil
 	}
-	return credentials.NewStoreWithFallbacks(stores[0], stores[1:]...), nil
+	inner := credentials.NewStoreWithFallbacks(stores[0], stores[1:]...)
+	return &credentialStore{inner: inner, stores: stores}, nil
+}
+
+// credentialStore wraps a fallback store so Get and Put keep first-store
+// semantics while Delete removes the credential from every store.
+type credentialStore struct {
+	inner  credentials.Store
+	stores []credentials.Store
+}
+
+var (
+	_ credentials.Store            = (*credentialStore)(nil)
+	_ credentials.NamespaceMatcher = (*credentialStore)(nil)
+)
+
+func (s *credentialStore) Get(ctx context.Context, serverAddress string) (credentials.Credential, error) {
+	return s.inner.Get(ctx, serverAddress)
+}
+
+func (s *credentialStore) Put(ctx context.Context, serverAddress string, cred credentials.Credential) error {
+	return s.inner.Put(ctx, serverAddress, cred)
+}
+
+func (s *credentialStore) Delete(ctx context.Context, serverAddress string) error {
+	var firstErr error
+	for _, store := range s.stores {
+		if err := store.Delete(ctx, serverAddress); err != nil && !isCredentialNotFound(err) && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// MatchesNamespace reports whether Get performs most-specific-first namespace
+// matching for serverAddress. It delegates to the inner fallback store so
+// [NewCredentialFunc] keeps the same type-assertion behavior.
+func (s *credentialStore) MatchesNamespace(serverAddress string) bool {
+	matcher, ok := s.inner.(credentials.NamespaceMatcher)
+	return ok && matcher.MatchesNamespace(serverAddress)
+}
+
+func isCredentialNotFound(err error) bool {
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	// Matches native_store.go's errCredentialsNotFoundMessage, same as nativeStore.Get.
+	return err.Error() == "credentials not found in native keychain"
 }
 
 // loadExistingAuthConfigs Stat+Loads each candidate that exists. Paths are

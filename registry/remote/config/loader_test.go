@@ -978,6 +978,44 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 	}
 }
 
+func TestConfigs_CredentialStore_DeleteAllStores(t *testing.T) {
+	tmp := t.TempDir()
+	authPath, dockerPath := filepath.Join(tmp, "auth.json"), filepath.Join(tmp, "docker.json")
+	const host, auth = "reg.example.com", "dXNlcjpwYXNz"
+	writeFile(t, authPath, fmt.Sprintf(`{"auths":{%q:{"auth":%q}}}`, host, auth))
+	writeFile(t, dockerPath, fmt.Sprintf(`{"auths":{%q:{"auth":%q}}}`, host, auth))
+	authCfg, err := Load(authPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerCfg, err := Load(dockerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := (&Configs{
+		DockerConfig: dockerCfg, ContainersAuthConfig: authCfg, ContainersAuthConfigs: []*Config{authCfg},
+	}).CredentialStore(credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Delete(context.Background(), host); err != nil {
+		t.Fatalf("Delete(%s) error: %v", host, err)
+	}
+	cred, err := store.Get(context.Background(), host)
+	if err != nil {
+		t.Fatalf("Get(%s) error: %v", host, err)
+	}
+	if cred != credentials.EmptyCredential {
+		t.Errorf("Get(%s) = %v, want empty after Delete", host, cred)
+	}
+	if fileAuth(t, authPath, host) != "" {
+		t.Error("Delete should remove the host from auth.json")
+	}
+	if fileAuth(t, dockerPath, host) != "" {
+		t.Error("Delete should remove the host from Docker config.json")
+	}
+}
+
 func TestConfigs_CredentialStore_PutAuthJSON(t *testing.T) {
 	tmp := t.TempDir()
 	authPath, dockerPath := filepath.Join(tmp, "auth.json"), filepath.Join(tmp, "docker.json")

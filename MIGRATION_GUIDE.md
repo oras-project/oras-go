@@ -525,8 +525,8 @@ The headline additions are:
   `registries.d`, and certificate directories.
   With the default `StrategyContainersImage`, containers `auth.json` files
   are checked before Docker `config.json`. `Configs.CredentialStore` uses that
-  order for lookup. Put and Delete write to the first existing `auth.json`
-  instead of the Docker config.
+  order for lookup. Put writes to the first existing `auth.json` instead of
+  the Docker config. Delete removes the credential from every loaded store.
 - **Configured clients and mirrors:** `remote.ClientBuilder` builds clients,
   registries, and repositories from that configuration. Reads try applicable
   mirrors and fall back to the primary.
