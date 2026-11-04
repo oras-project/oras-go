@@ -33,10 +33,3 @@ updates:
     schedule:
       interval: "daily"
     target-branch: "v2"
-
-  # update go dependencies for v1 branch
-  - package-ecosystem: "gomod"
-    directory: "/"
-    schedule:
-      interval: "daily"
-    target-branch: "v1"
