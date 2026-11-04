@@ -17,6 +17,7 @@ package httputil
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -381,13 +382,8 @@ func Test_readSeekCloser_Read_ContentRange(t *testing.T) {
 		{name: "no Content-Range", body: content[4:], want: content[4:]},
 		{name: "range at another offset", contentRange: "bytes 0-5/10", body: content[:6], wantErr: true},
 		{name: "complete length differs", contentRange: "bytes 4-9/11", body: content[4:], wantErr: true},
-		{name: "range past the content", contentRange: "bytes 4-12/10", body: content[4:], wantErr: true},
-		{name: "end before start", contentRange: "bytes 9-4/10", body: content[4:], wantErr: true},
-		{name: "missing complete length", contentRange: "bytes 4-9", body: content[4:], wantErr: true},
-		{name: "other unit", contentRange: "items 4-9/10", body: content[4:], wantErr: true},
-		{name: "unsatisfied range form", contentRange: "bytes */10", body: content[4:], wantErr: true},
-		{name: "start not a number", contentRange: "bytes x-9/10", body: content[4:], wantErr: true},
-		{name: "complete length not a number", contentRange: "bytes 4-9/ten", body: content[4:], wantErr: true},
+		{name: "range shorter than requested", contentRange: "bytes 4-6/10", body: content[4:7], wantErr: true},
+		{name: "malformed Content-Range", contentRange: "items 4-9/10", body: content[4:], wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -434,5 +430,79 @@ func Test_readSeekCloser_Read_ContentRange(t *testing.T) {
 				t.Errorf("io.ReadAll() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func Test_checkContentRange(t *testing.T) {
+	tests := []struct {
+		name         string
+		contentRange string
+		offset       int64
+		wantErr      bool
+	}{
+		{name: "matching range", contentRange: "bytes 4-9/10", offset: 4},
+		{name: "matching range from the start", contentRange: "bytes 0-9/10", offset: 0},
+		{name: "unknown complete length", contentRange: "bytes 4-9/*", offset: 4},
+		{name: "no Content-Range", offset: 4},
+		{name: "missing unit", contentRange: "4-9/10", offset: 4, wantErr: true},
+		{name: "other unit", contentRange: "items 4-9/10", offset: 4, wantErr: true},
+		{name: "missing complete length", contentRange: "bytes 4-9", offset: 4, wantErr: true},
+		{name: "missing end", contentRange: "bytes 4/10", offset: 4, wantErr: true},
+		{name: "unsatisfied range form", contentRange: "bytes */10", offset: 4, wantErr: true},
+		{name: "start not a number", contentRange: "bytes x-9/10", offset: 0, wantErr: true},
+		{name: "end not a number", contentRange: "bytes 0-x/10", offset: 0, wantErr: true},
+		{name: "end before start", contentRange: "bytes 4-3/10", offset: 4, wantErr: true},
+		{name: "range at another offset", contentRange: "bytes 0-5/10", offset: 4, wantErr: true},
+		{name: "range shorter than requested", contentRange: "bytes 4-6/10", offset: 4, wantErr: true},
+		{name: "range past the content", contentRange: "bytes 4-12/10", offset: 4, wantErr: true},
+		{name: "complete length differs", contentRange: "bytes 4-9/11", offset: 4, wantErr: true},
+		{name: "complete length not a number", contentRange: "bytes 4-9/ten", offset: 4, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkContentRange(tt.contentRange, tt.offset, 10)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("checkContentRange(%q, %d, 10) error = %v, wantErr %v", tt.contentRange, tt.offset, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func Test_readSeekCloser_Read_ShortBody(t *testing.T) {
+	content := []byte("abcdefghij")
+	path := "/testpath"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("Range") == "" {
+			w.WriteHeader(http.StatusOK)
+			w.Write(content)
+			return
+		}
+		// A 206 without Content-Range whose body stops early.
+		w.WriteHeader(http.StatusPartialContent)
+		w.Write(content[4:7])
+	}))
+	defer ts.Close()
+
+	client := ts.Client()
+	resp, err := client.Get(ts.URL + path)
+	if err != nil {
+		t.Fatalf("failed to do request: %v", err)
+	}
+	rsc := NewReadSeekCloser(client, resp.Request, resp.Body, int64(len(content)))
+	defer rsc.Close()
+
+	if _, err := rsc.Seek(4, io.SeekStart); err != nil {
+		t.Fatalf("readSeekCloser.Seek() error = %v", err)
+	}
+	got, err := io.ReadAll(rsc)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("io.ReadAll() error = %v, want %v", err, io.ErrUnexpectedEOF)
+	}
+	if want := content[4:7]; !bytes.Equal(got, want) {
+		t.Errorf("io.ReadAll() = %q, want %q", got, want)
 	}
 }
