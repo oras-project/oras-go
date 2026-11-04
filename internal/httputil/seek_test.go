@@ -386,6 +386,8 @@ func Test_readSeekCloser_Read_ContentRange(t *testing.T) {
 		{name: "missing complete length", contentRange: "bytes 4-9", body: content[4:], wantErr: true},
 		{name: "other unit", contentRange: "items 4-9/10", body: content[4:], wantErr: true},
 		{name: "unsatisfied range form", contentRange: "bytes */10", body: content[4:], wantErr: true},
+		{name: "start not a number", contentRange: "bytes x-9/10", body: content[4:], wantErr: true},
+		{name: "complete length not a number", contentRange: "bytes 4-9/ten", body: content[4:], wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
