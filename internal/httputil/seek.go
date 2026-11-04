@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 // Client is an interface for a HTTP client.
@@ -72,6 +74,10 @@ func (rsc *readSeekCloser) Read(p []byte) (n int, err error) {
 			resp.Body.Close()
 			return 0, fmt.Errorf("read: %s %q: unexpected status code %d", resp.Request.Method, resp.Request.URL, resp.StatusCode)
 		}
+		if err := checkContentRange(resp.Header.Get("Content-Range"), rsc.offset, rsc.size); err != nil {
+			resp.Body.Close()
+			return 0, fmt.Errorf("read: %s %q: %w", resp.Request.Method, resp.Request.URL, err)
+		}
 
 		rsc.rc.Close()
 		rsc.rc = resp.Body
@@ -82,6 +88,54 @@ func (rsc *readSeekCloser) Read(p []byte) (n int, err error) {
 	rsc.offset += int64(n)
 	rsc.rcOffset += int64(n)
 	return n, err
+}
+
+// checkContentRange checks the Content-Range of a 206 response to a request
+// for bytes from offset to the end of content of the given size. The range
+// must start at offset and end within the content, and a declared complete
+// length must equal size. A response without Content-Range is accepted as
+// before, since not every server sends one.
+func checkContentRange(contentRange string, offset, size int64) error {
+	if contentRange == "" {
+		return nil
+	}
+	invalid := fmt.Errorf("invalid response Content-Range %q", contentRange)
+	rng, ok := strings.CutPrefix(contentRange, "bytes ")
+	if !ok {
+		return invalid
+	}
+	span, completeLength, ok := strings.Cut(rng, "/")
+	if !ok {
+		return invalid
+	}
+	first, last, ok := strings.Cut(span, "-")
+	if !ok {
+		return invalid
+	}
+	start, err := strconv.ParseInt(first, 10, 64)
+	if err != nil || start < 0 {
+		return invalid
+	}
+	end, err := strconv.ParseInt(last, 10, 64)
+	if err != nil || end < start {
+		return invalid
+	}
+	if start != offset {
+		return fmt.Errorf("response Content-Range %q does not start at the requested offset %d", contentRange, offset)
+	}
+	if end >= size {
+		return fmt.Errorf("response Content-Range %q ends past the content size %d", contentRange, size)
+	}
+	if completeLength != "*" {
+		total, err := strconv.ParseInt(completeLength, 10, 64)
+		if err != nil {
+			return invalid
+		}
+		if total != size {
+			return fmt.Errorf("response Content-Range %q does not match the content size %d", contentRange, size)
+		}
+	}
+	return nil
 }
 
 // Seek sets the offset for the next Read without sending any request, so

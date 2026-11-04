@@ -365,3 +365,72 @@ func Test_readSeekCloser_Read_RangeError(t *testing.T) {
 		}
 	}
 }
+
+func Test_readSeekCloser_Read_ContentRange(t *testing.T) {
+	content := []byte("abcdefghij")
+	path := "/testpath"
+	tests := []struct {
+		name         string
+		contentRange string
+		body         []byte
+		want         []byte
+		wantErr      bool
+	}{
+		{name: "matching range", contentRange: "bytes 4-9/10", body: content[4:], want: content[4:]},
+		{name: "unknown complete length", contentRange: "bytes 4-9/*", body: content[4:], want: content[4:]},
+		{name: "no Content-Range", body: content[4:], want: content[4:]},
+		{name: "range at another offset", contentRange: "bytes 0-5/10", body: content[:6], wantErr: true},
+		{name: "complete length differs", contentRange: "bytes 4-9/11", body: content[4:], wantErr: true},
+		{name: "range past the content", contentRange: "bytes 4-12/10", body: content[4:], wantErr: true},
+		{name: "end before start", contentRange: "bytes 9-4/10", body: content[4:], wantErr: true},
+		{name: "missing complete length", contentRange: "bytes 4-9", body: content[4:], wantErr: true},
+		{name: "other unit", contentRange: "items 4-9/10", body: content[4:], wantErr: true},
+		{name: "unsatisfied range form", contentRange: "bytes */10", body: content[4:], wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != path {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				if r.Header.Get("Range") == "" {
+					w.WriteHeader(http.StatusOK)
+					w.Write(content)
+					return
+				}
+				if tt.contentRange != "" {
+					w.Header().Set("Content-Range", tt.contentRange)
+				}
+				w.WriteHeader(http.StatusPartialContent)
+				w.Write(tt.body)
+			}))
+			defer ts.Close()
+
+			client := ts.Client()
+			resp, err := client.Get(ts.URL + path)
+			if err != nil {
+				t.Fatalf("failed to do request: %v", err)
+			}
+			rsc := NewReadSeekCloser(client, resp.Request, resp.Body, int64(len(content)))
+			defer rsc.Close()
+
+			if _, err := rsc.Seek(4, io.SeekStart); err != nil {
+				t.Fatalf("readSeekCloser.Seek() error = %v", err)
+			}
+			got, err := io.ReadAll(rsc)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("io.ReadAll() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if len(got) != 0 {
+					t.Errorf("io.ReadAll() = %q, want no content from a mismatched range", got)
+				}
+				return
+			}
+			if !bytes.Equal(got, tt.want) {
+				t.Errorf("io.ReadAll() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
