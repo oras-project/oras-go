@@ -63,14 +63,12 @@ The [`v2`](https://github.com/oras-project/oras-go/tree/v2) branch contains the 
 
 New features and bug fixes from `main` will be backported to `v2` if applicable.
 
-### v1 (maintenance)
+### v1 (end-of-life)
 
-[![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=v1)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Av1)
-[![codecov](https://codecov.io/gh/oras-project/oras-go/branch/v1/graph/badge.svg)](https://codecov.io/gh/oras-project/oras-go)
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go)](https://goreportcard.com/report/oras.land/oras-go)
 [![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go.svg)](https://pkg.go.dev/oras.land/oras-go)
 
-The [`v1`](https://github.com/oras-project/oras-go/tree/v1) branch is in maintenance mode and receives only dependency updates and security fixes. No new features are planned.
+The [`v1`](https://github.com/oras-project/oras-go/tree/v1) branch has reached end-of-life and is no longer maintained.
 
 ## Community
 
