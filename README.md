@@ -48,13 +48,12 @@ This project follows [Semantic Versioning](https://semver.org/) (`MAJOR`.`MINOR`
 
 ## Previous Major Versions
 
-### v1 (maintenance)
+### v1 (end-of-life)
 
-[![Build Status](https://github.com/oras-project/oras-go/actions/workflows/build.yml/badge.svg?event=push&branch=v1)](https://github.com/oras-project/oras-go/actions/workflows/build.yml?query=workflow%3Abuild+event%3Apush+branch%3Av1)
 [![Go Report Card](https://goreportcard.com/badge/oras.land/oras-go)](https://goreportcard.com/report/oras.land/oras-go)
 [![Go Reference](https://pkg.go.dev/badge/oras.land/oras-go.svg)](https://pkg.go.dev/oras.land/oras-go)
 
-The [`v1`](https://github.com/oras-project/oras-go/tree/v1) branch is maintained for dependency updates and security fixes only. All feature development happens in the [`main`](https://github.com/oras-project/oras-go/tree/main) branch.
+The [`v1`](https://github.com/oras-project/oras-go/tree/v1) branch has reached end-of-life and is no longer maintained.
 
 To migrate from `v1` to `v2`, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
 
