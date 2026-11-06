@@ -4545,6 +4545,40 @@ func Test_removeFiles_ContinuesAfterRemoveError(t *testing.T) {
 	}
 }
 
+func Test_validateReference(t *testing.T) {
+	digestTag := "sha256:" + strings.Repeat("0", 64)
+	tests := []struct {
+		ref     string
+		wantErr error
+	}{
+		{ref: "latest"},
+		{ref: "localhost:5000/hello:v1"},
+		{ref: "MyRepo:v1"},
+		{ref: "1.0.0+build"},
+		{ref: "a--b"},
+		{ref: digestTag},
+		{ref: "", wantErr: errdef.ErrMissingReference},
+		{ref: "EVIL TAG", wantErr: errdef.ErrInvalidReference},
+		{ref: "foo!bar", wantErr: errdef.ErrInvalidReference},
+		{ref: "-foo", wantErr: errdef.ErrInvalidReference},
+		{ref: "foo-", wantErr: errdef.ErrInvalidReference},
+		{ref: "foo//bar", wantErr: errdef.ErrInvalidReference},
+		{ref: "foo/", wantErr: errdef.ErrInvalidReference},
+	}
+	for _, tt := range tests {
+		err := validateReference(tt.ref)
+		if tt.wantErr == nil {
+			if err != nil {
+				t.Errorf("validateReference(%q) error = %v, want nil", tt.ref, err)
+			}
+			continue
+		}
+		if !errors.Is(err, tt.wantErr) {
+			t.Errorf("validateReference(%q) error = %v, want %v", tt.ref, err, tt.wantErr)
+		}
+	}
+}
+
 func Test_isTempFileOf(t *testing.T) {
 	base := ocispec.ImageIndexFile
 	tests := []struct {

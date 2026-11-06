@@ -28,6 +28,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"time"
 
@@ -1033,12 +1034,21 @@ func isContextDone(ctx context.Context) error {
 	}
 }
 
+// refNameRegexp matches org.opencontainers.image.ref.name in image-spec v1.1.1.
+//
+//	ref       ::= component ("/" component)*
+//	component ::= alphanum (separator alphanum)*
+//	alphanum  ::= [A-Za-z0-9]+
+//	separator ::= [-._:@+] | "--"
+var refNameRegexp = regexp.MustCompile(`^[A-Za-z0-9]+(?:(?:--|[-._:@+])[A-Za-z0-9]+)*(?:/[A-Za-z0-9]+(?:(?:--|[-._:@+])[A-Za-z0-9]+)*)*$`)
+
 // validateReference validates ref.
 func validateReference(ref string) error {
 	if ref == "" {
 		return errdef.ErrMissingReference
 	}
-
-	// TODO: may enforce more strict validation if needed.
+	if !refNameRegexp.MatchString(ref) {
+		return fmt.Errorf("%w: %q", errdef.ErrInvalidReference, ref)
+	}
 	return nil
 }
