@@ -1034,13 +1034,11 @@ func isContextDone(ctx context.Context) error {
 	}
 }
 
-// refNameRegexp matches org.opencontainers.image.ref.name in image-spec v1.1.1.
-//
-//	ref       ::= component ("/" component)*
-//	component ::= alphanum (separator alphanum)*
-//	alphanum  ::= [A-Za-z0-9]+
-//	separator ::= [-._:@+] | "--"
-var refNameRegexp = regexp.MustCompile(`^[A-Za-z0-9]+(?:(?:--|[-._:@+])[A-Za-z0-9]+)*(?:/[A-Za-z0-9]+(?:(?:--|[-._:@+])[A-Za-z0-9]+)*)*$`)
+// refNameRegexp is the org.opencontainers.image.ref.name character set from
+// image-spec v1.1.1: alphanum A-Za-z0-9 and separators -._:@/+.
+// It does not enforce the full ref.name grammar, so registry-valid tags such as
+// "_foo" and "foo-" remain accepted.
+var refNameRegexp = regexp.MustCompile(`^[A-Za-z0-9._:@/+-]+$`)
 
 // validateReference validates ref.
 func validateReference(ref string) error {

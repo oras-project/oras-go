@@ -4557,13 +4557,16 @@ func Test_validateReference(t *testing.T) {
 		{ref: "1.0.0+build"},
 		{ref: "a--b"},
 		{ref: digestTag},
+		{ref: "_foo"},
+		{ref: "foo-"},
+		{ref: "-foo"},
+		{ref: "foo//bar"},
+		{ref: "foo/"},
 		{ref: "", wantErr: errdef.ErrMissingReference},
 		{ref: "EVIL TAG", wantErr: errdef.ErrInvalidReference},
 		{ref: "foo!bar", wantErr: errdef.ErrInvalidReference},
-		{ref: "-foo", wantErr: errdef.ErrInvalidReference},
-		{ref: "foo-", wantErr: errdef.ErrInvalidReference},
-		{ref: "foo//bar", wantErr: errdef.ErrInvalidReference},
-		{ref: "foo/", wantErr: errdef.ErrInvalidReference},
+		{ref: "foo\n", wantErr: errdef.ErrInvalidReference},
+		{ref: "foo\t", wantErr: errdef.ErrInvalidReference},
 	}
 	for _, tt := range tests {
 		err := validateReference(tt.ref)
