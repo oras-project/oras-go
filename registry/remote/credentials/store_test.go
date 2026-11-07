@@ -607,11 +607,12 @@ func Test_DynamicStore_Delete_nativeStore(t *testing.T) {
 		t.Skip("the fake credential helper is a shell script")
 	}
 	const (
-		serverAddr = "test.example.com"
-		otherAddr  = "other.example.com"
-		auth       = "dXNlcjpwYXNz"
-		erase      = "#!/bin/sh\ncat >/dev/null\n"
-		eraseFails = "#!/bin/sh\ncat >/dev/null\necho 'erase failed'\nexit 1\n"
+		serverAddr    = "test.example.com"
+		otherAddr     = "other.example.com"
+		auth          = "dXNlcjpwYXNz"
+		erase         = "#!/bin/sh\ncat >/dev/null\n"
+		eraseFails    = "#!/bin/sh\ncat >/dev/null\necho 'erase failed'\nexit 1\n"
+		eraseNotFound = "#!/bin/sh\ncat >/dev/null\necho 'credentials not found in native keychain'\nexit 1\n"
 	)
 	tests := []struct {
 		name          string
@@ -668,6 +669,18 @@ func Test_DynamicStore_Delete_nativeStore(t *testing.T) {
 			},
 			wantErr:       true,
 			wantUnchanged: true,
+		},
+		{
+			name:   "native miss still clears plaintext auth",
+			helper: eraseNotFound,
+			cfg: configtest.Config{
+				AuthConfigs:      map[string]configtest.AuthConfig{serverAddr: {Auth: auth}},
+				CredentialsStore: "teststore",
+			},
+			wantCfg: configtest.Config{
+				AuthConfigs:      map[string]configtest.AuthConfig{},
+				CredentialsStore: "teststore",
+			},
 		},
 	}
 	for _, tt := range tests {

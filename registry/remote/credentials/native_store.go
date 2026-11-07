@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"strings"
 
@@ -30,6 +31,10 @@ const (
 	emptyUsername                 = "<token>"
 	errCredentialsNotFoundMessage = "credentials not found in native keychain"
 )
+
+// ErrCredentialsNotFound is returned when a native credential helper reports
+// no credential for the server address.
+var ErrCredentialsNotFound = errors.New(errCredentialsNotFoundMessage)
 
 // dockerCredentials mimics how docker credential helper binaries store
 // credential information.
@@ -82,8 +87,8 @@ func NewDefaultNativeStore() (Store, bool) {
 func (ns *nativeStore) Get(ctx context.Context, serverAddress string) (Credential, error) {
 	var cred Credential
 	out, err := ns.exec.Execute(ctx, strings.NewReader(serverAddress), "get")
-	if err != nil {
-		if err.Error() == errCredentialsNotFoundMessage {
+	if err = mapHelperError(err); err != nil {
+		if errors.Is(err, ErrCredentialsNotFound) {
 			// do not return an error if the credentials are not in the keychain.
 			return EmptyCredential, nil
 		}
@@ -125,6 +130,13 @@ func (ns *nativeStore) Put(ctx context.Context, serverAddress string, cred Crede
 // Delete removes credentials from the store for the given server.
 func (ns *nativeStore) Delete(ctx context.Context, serverAddress string) error {
 	_, err := ns.exec.Execute(ctx, strings.NewReader(serverAddress), "erase")
+	return mapHelperError(err)
+}
+
+func mapHelperError(err error) error {
+	if err != nil && err.Error() == errCredentialsNotFoundMessage {
+		return ErrCredentialsNotFound
+	}
 	return err
 }
 

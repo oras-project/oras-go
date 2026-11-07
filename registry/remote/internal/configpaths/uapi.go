@@ -125,17 +125,10 @@ func (r *uapiResolver) AuthPrimaryPath() (string, error) {
 }
 
 func (r *uapiResolver) AuthFallbackPaths() []string {
-	var paths []string
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return paths
-	}
-	// Docker fallbacks
-	paths = append(paths,
-		filepath.Join(home, dockerConfigFileDir, dockerConfigFileName),
-		filepath.Join(home, ".dockercfg"),
-	)
-	return paths
+	// The UAPI primary path is already the user containers auth.json
+	// ($XDG_CONFIG_HOME/containers/auth.json). There is no additional
+	// containers-auth fallback; Docker config.json is loaded separately.
+	return nil
 }
 
 func (r *uapiResolver) CertsDirPaths() []string {

@@ -16,11 +16,15 @@ limitations under the License.
 // Package config loads container client configuration and converts it into
 // registry client settings.
 //
-// [LoadConfigs] reads Docker config.json, containers auth.json,
+// [LoadConfigs] reads Docker config.json, containers auth.json files,
 // registries.conf, policy.json, registries.d, and containers-certs.d from
 // their default locations. Missing files are skipped; an error is returned
-// only when a file exists but cannot be parsed. [LoadConfigsWithOptions] can
-// override individual paths.
+// only when a file exists but cannot be parsed. By default Docker config.json
+// is the primary credential store and only the primary containers auth.json
+// is loaded as a fallback. [LoadConfigsOptions.PreferContainersAuth] also
+// loads auth.json fallbacks and checks them before Docker config; the first
+// file with a match wins and files are not merged. That order may become the
+// default in v4. [LoadConfigsWithOptions] can override individual paths.
 //
 // The default [StrategyContainersImage] follows containers/image path
 // resolution and merge semantics. [StrategyUAPI] uses the experimental Podman
