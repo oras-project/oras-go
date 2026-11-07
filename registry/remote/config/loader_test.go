@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 )
 
 func TestLoadConfigs_BothPresent(t *testing.T) {
@@ -1048,6 +1049,49 @@ func TestLoadConfigs_Default_DockerFirst(t *testing.T) {
 	}
 	if fileAuth(t, filepath.Join(tmp, ".config", "containers", "auth.json"), host) == "" {
 		t.Error("default Delete should not clear auth.json")
+	}
+}
+
+func TestLoadConfigs_DockerConfigPathAliasesPrimary_FlagOff(t *testing.T) {
+	tmp := t.TempDir()
+	isolateLoadEnv(t, tmp)
+	primary, err := configpaths.NewResolver(configpaths.ContainersImage).AuthPrimaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const nsAuth = "bmFtZXNwYWNlOnBhc3M=" // namespace:pass
+	writeFile(t, primary, fmt.Sprintf(`{"auths":{"reg.example.com/ns":{"auth":%q}}}`, nsAuth))
+
+	configs, err := LoadConfigsWithOptions(LoadConfigsOptions{DockerConfigPath: primary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configs.DockerConfig == nil {
+		t.Fatal("DockerConfig should load the aliased primary file")
+	}
+	if configs.ContainersAuthConfig == nil || len(configs.ContainersAuthConfigs) != 1 {
+		t.Fatalf("ContainersAuthConfig = %v, len(ContainersAuthConfigs) = %d, want primary loaded", configs.ContainersAuthConfig, len(configs.ContainersAuthConfigs))
+	}
+	if configs.ContainersAuthConfig != configs.ContainersAuthConfigs[0] {
+		t.Fatal("ContainersAuthConfig should be ContainersAuthConfigs[0]")
+	}
+
+	store, err := configs.CredentialStore(credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.(*credentialStore); ok {
+		t.Fatal("flag off must not return credentialStore wrapper")
+	}
+	if _, ok := store.(*credentials.DynamicStore); ok {
+		t.Fatal("flag off with Docker and auth.json must use NewStoreWithFallbacks, not a single DynamicStore")
+	}
+	cred, err := store.Get(context.Background(), "reg.example.com/ns/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.Username != "namespace" || cred.Password != "pass" {
+		t.Fatalf("Get(reg.example.com/ns/repo) = %v, want namespace:pass", cred)
 	}
 }
 

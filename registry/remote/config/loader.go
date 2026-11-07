@@ -148,10 +148,12 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 
 	// Load containers auth.json files.
 	var authCandidates []string
+	var authPrimary string
 	if opts.ContainersAuthPath != "" {
 		authCandidates = []string{opts.ContainersAuthPath}
 	} else {
 		if authPath, err := resolver.AuthPrimaryPath(); err == nil {
+			authPrimary = authPath
 			authCandidates = append(authCandidates, authPath)
 		}
 		if opts.PreferContainersAuth {
@@ -160,8 +162,14 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 	}
 	var skipDocker []string
 	if opts.ContainersAuthPath == "" {
-		skipDocker = append(skipDocker, dockerPath)
-		if p, err := resolver.DockerConfigPath(); err == nil {
+		primary := ""
+		if authPrimary != "" {
+			primary = filepath.Clean(authPrimary)
+		}
+		if dockerPath != "" && (primary == "" || filepath.Clean(dockerPath) != primary) {
+			skipDocker = append(skipDocker, dockerPath)
+		}
+		if p, err := resolver.DockerConfigPath(); err == nil && p != "" && (primary == "" || filepath.Clean(p) != primary) {
 			skipDocker = append(skipDocker, p)
 		}
 	}
