@@ -16,9 +16,11 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
@@ -34,11 +36,18 @@ type Configs struct {
 	// DockerConfig is the loaded Docker config.json, or nil if not found.
 	DockerConfig *Config
 
-	// ContainersAuthConfig is the loaded containers auth.json
-	// (Podman/Buildah format), or nil if not found.
+	// ContainersAuthConfig is the first loaded containers auth.json
+	// (Podman/Buildah format), or nil if none were found. It is the same
+	// pointer as ContainersAuthConfigs[0] when that slice is non-empty.
 	// The auth.json format is identical to Docker config.json but uses
 	// hierarchical namespace matching via GetAuthConfigHierarchical().
+	// CredentialStore ignores it when ContainersAuthConfigs is non-empty.
 	ContainersAuthConfig *Config
+
+	// ContainersAuthConfigs is every loaded containers auth.json, in search
+	// order (primary then fallbacks). Credential lookup uses the first file
+	// that has a match. Nil or empty if none were found.
+	ContainersAuthConfigs []*Config
 
 	// RegistriesConfig is the loaded registries.conf, or nil if not found.
 	RegistriesConfig *RegistriesConfig
@@ -53,6 +62,13 @@ type Configs struct {
 	// CertsDirPaths is the resolved list of base directories for
 	// containers-certs.d certificate discovery.
 	CertsDirPaths []string
+
+	// PreferContainersAuth checks containers auth.json files before Docker
+	// config.json and writes new credentials to the first auth.json, matching
+	// containers/image (podman, buildah, skopeo). By default Docker config is
+	// checked and written first, and auth.json files are read-only fallbacks.
+	// Copied from [LoadConfigsOptions] by [LoadConfigsWithOptions].
+	PreferContainersAuth bool
 }
 
 // LoadConfigsOptions configures LoadConfigs behavior.
@@ -68,8 +84,17 @@ type LoadConfigsOptions struct {
 	// or $HOME/.docker/config.json).
 	DockerConfigPath string
 
+	// PreferContainersAuth checks containers auth.json files before Docker
+	// config.json and writes new credentials to the first auth.json, matching
+	// containers/image (podman, buildah, skopeo). By default Docker config is
+	// checked and written first, and auth.json files are read-only fallbacks.
+	// Additional auth.json fallback paths are loaded only when this is true.
+	PreferContainersAuth bool
+
 	// ContainersAuthPath overrides the containers auth.json path.
-	// When empty, the default paths are searched based on the Strategy.
+	// When set, only that file is loaded (no fallbacks). When empty, the
+	// strategy's primary path is used; fallbacks are searched only when
+	// PreferContainersAuth is also set.
 	ContainersAuthPath string
 
 	// RegistriesConfigPath overrides the registries.conf path.
@@ -101,7 +126,7 @@ func LoadConfigs() (*Configs, error) {
 // Missing files are silently skipped.
 // Returns an error only if a file exists but cannot be parsed.
 func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
-	result := &Configs{}
+	result := &Configs{PreferContainersAuth: opts.PreferContainersAuth}
 	resolver := configpaths.NewResolver(configpaths.Strategy(opts.Strategy))
 
 	// Load Docker config.
@@ -121,26 +146,40 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 		result.DockerConfig = cfg
 	}
 
-	// Load containers auth.json.
+	// Load containers auth.json files.
+	var authCandidates []string
+	var authPrimary string
 	if opts.ContainersAuthPath != "" {
-		if _, err := os.Stat(opts.ContainersAuthPath); err == nil {
-			cfg, err := Load(opts.ContainersAuthPath)
-			if err != nil {
-				return nil, err
-			}
-			result.ContainersAuthConfig = cfg
-		}
+		authCandidates = []string{opts.ContainersAuthPath}
 	} else {
-		authPath, err := resolver.AuthPrimaryPath()
-		if err == nil {
-			if _, err := os.Stat(authPath); err == nil {
-				cfg, err := Load(authPath)
-				if err != nil {
-					return nil, err
-				}
-				result.ContainersAuthConfig = cfg
-			}
+		if authPath, err := resolver.AuthPrimaryPath(); err == nil {
+			authPrimary = authPath
+			authCandidates = append(authCandidates, authPath)
 		}
+		if opts.PreferContainersAuth {
+			authCandidates = append(authCandidates, resolver.AuthFallbackPaths()...)
+		}
+	}
+	var skipDocker []string
+	if opts.ContainersAuthPath == "" {
+		primary := ""
+		if authPrimary != "" {
+			primary = filepath.Clean(authPrimary)
+		}
+		if dockerPath != "" && (primary == "" || filepath.Clean(dockerPath) != primary) {
+			skipDocker = append(skipDocker, dockerPath)
+		}
+		if p, err := resolver.DockerConfigPath(); err == nil && p != "" && (primary == "" || filepath.Clean(p) != primary) {
+			skipDocker = append(skipDocker, p)
+		}
+	}
+	authCfgs, err := loadExistingAuthConfigs(authCandidates, skipDocker)
+	if err != nil {
+		return nil, err
+	}
+	if len(authCfgs) > 0 {
+		result.ContainersAuthConfigs = authCfgs
+		result.ContainersAuthConfig = authCfgs[0]
 	}
 
 	// Load registries.conf.
@@ -261,23 +300,47 @@ func (c *Configs) PolicyEvaluator(opts ...policy.EvaluatorOption) (*policy.Evalu
 	return policy.NewEvaluator(c.PolicyConfig, opts...)
 }
 
-// CredentialStore creates a [credentials.Store] combining Docker config and
-// containers auth.json credentials. The Docker config store is used as the
-// primary store, with the containers auth store as a fallback.
+// CredentialStore creates a [credentials.Store] from loaded Docker config and
+// containers auth.json files. Missing auth.json files are not created.
 //
-// Returns an error if neither DockerConfig nor ContainersAuthConfig is loaded.
+// By default Docker config is the primary store and each containers auth.json
+// is a hierarchical fallback. Get searches in that order. Put and Delete use
+// the primary store only. The returned value is the single store, or
+// [credentials.NewStoreWithFallbacks] when both Docker and auth.json are
+// loaded.
+//
+// When [Configs.PreferContainersAuth] is set, containers auth.json files are
+// checked first, in search order, then Docker config. Get uses the first store
+// with a match. Put writes the first store. Delete removes from all stores. An
+// auth.json with no credentials configured uses the platform's default native
+// store, as [credentials.NewStoreFromConfig] does. A helper that fails erase,
+// or reports not-found in a non-standard way, makes Delete return that error
+// after the other stores are still cleared.
+//
+// Returns an error if neither a containers auth.json nor DockerConfig is loaded.
 func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.Store, error) {
-	var stores []credentials.Store
-
-	if c.DockerConfig != nil {
-		stores = append(stores, credentials.NewStoreFromConfig(c.DockerConfig, opts))
+	authCfgs := c.ContainersAuthConfigs
+	if len(authCfgs) == 0 && c.ContainersAuthConfig != nil {
+		authCfgs = []*Config{c.ContainersAuthConfig}
 	}
-	if c.ContainersAuthConfig != nil {
-		// containers-auth.json supports hierarchical namespace matching, so
-		// look up credentials by longest-prefix instead of exact hostname.
-		authOpts := opts
-		authOpts.Hierarchical = true
-		stores = append(stores, credentials.NewStoreFromConfig(c.ContainersAuthConfig, authOpts))
+	authOpts := opts
+	authOpts.Hierarchical = true
+	var authStores []credentials.Store
+	for _, cfg := range authCfgs {
+		authStores = append(authStores, credentials.NewStoreFromConfig(cfg, authOpts))
+	}
+
+	var stores []credentials.Store
+	if c.PreferContainersAuth {
+		stores = append(stores, authStores...)
+		if c.DockerConfig != nil {
+			stores = append(stores, credentials.NewStoreFromConfig(c.DockerConfig, opts))
+		}
+	} else {
+		if c.DockerConfig != nil {
+			stores = append(stores, credentials.NewStoreFromConfig(c.DockerConfig, opts))
+		}
+		stores = append(stores, authStores...)
 	}
 
 	if len(stores) == 0 {
@@ -286,5 +349,86 @@ func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.St
 	if len(stores) == 1 {
 		return stores[0], nil
 	}
-	return credentials.NewStoreWithFallbacks(stores[0], stores[1:]...), nil
+	inner := credentials.NewStoreWithFallbacks(stores[0], stores[1:]...)
+	if !c.PreferContainersAuth {
+		return inner, nil
+	}
+	return &credentialStore{inner: inner, stores: stores}, nil
+}
+
+// credentialStore wraps a fallback store so Get and Put keep first-store
+// semantics while Delete removes the credential from every store.
+type credentialStore struct {
+	inner  credentials.Store
+	stores []credentials.Store
+}
+
+var (
+	_ credentials.Store            = (*credentialStore)(nil)
+	_ credentials.NamespaceMatcher = (*credentialStore)(nil)
+)
+
+func (s *credentialStore) Get(ctx context.Context, serverAddress string) (credentials.Credential, error) {
+	return s.inner.Get(ctx, serverAddress)
+}
+
+func (s *credentialStore) Put(ctx context.Context, serverAddress string, cred credentials.Credential) error {
+	return s.inner.Put(ctx, serverAddress, cred)
+}
+
+func (s *credentialStore) Delete(ctx context.Context, serverAddress string) error {
+	var errs []error
+	for _, store := range s.stores {
+		if err := store.Delete(ctx, serverAddress); err != nil && !errors.Is(err, credentials.ErrCredentialsNotFound) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// MatchesNamespace reports whether Get performs most-specific-first namespace
+// matching for serverAddress. It delegates to the inner fallback store so
+// [NewCredentialFunc] keeps the same type-assertion behavior.
+func (s *credentialStore) MatchesNamespace(serverAddress string) bool {
+	matcher, ok := s.inner.(credentials.NamespaceMatcher)
+	return ok && matcher.MatchesNamespace(serverAddress)
+}
+
+// loadExistingAuthConfigs Stat+Loads each candidate that exists. Paths are
+// deduped with filepath.Clean. skipDocker paths (the effective Docker config
+// and the resolver default) are compared with filepath.Clean and omitted so
+// Docker credentials stay on DockerConfig. Missing files are skipped; a file
+// that exists but cannot be parsed is an error. Missing paths are never
+// passed to Load.
+func loadExistingAuthConfigs(candidates []string, skipDocker []string) ([]*Config, error) {
+	skip := make(map[string]struct{}, len(skipDocker))
+	for _, p := range skipDocker {
+		if p != "" {
+			skip[filepath.Clean(p)] = struct{}{}
+		}
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	var cfgs []*Config
+	for _, p := range candidates {
+		if p == "" {
+			continue
+		}
+		cleaned := filepath.Clean(p)
+		if _, dup := seen[cleaned]; dup {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		if _, skipDockerPath := skip[cleaned]; skipDockerPath {
+			continue
+		}
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		cfg, err := Load(p)
+		if err != nil {
+			return nil, err
+		}
+		cfgs = append(cfgs, cfg)
+	}
+	return cfgs, nil
 }

@@ -88,21 +88,18 @@ func (r *currentResolver) AuthPrimaryPath() (string, error) {
 	return filepath.Join(home, r.userConfRelDir, containersAuthFile), nil
 }
 
+// AuthFallbackPaths returns the containers auth.json fallback:
+// $XDG_CONFIG_HOME/containers/auth.json if set, otherwise
+// $HOME/<userConfRelDir>/auth.json. Docker config.json is not included;
+// callers load it via DockerConfigPath. Callers should skip a path that
+// matches AuthPrimaryPath.
 func (r *currentResolver) AuthFallbackPaths() []string {
 	var paths []string
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return paths
-	}
-	// $HOME/.config/containers/auth.json (if not already primary)
-	if r.authUsesXDGRuntime {
+	if xdgConfigHome := os.Getenv(xdgConfigHomeEnv); xdgConfigHome != "" {
+		paths = append(paths, filepath.Join(xdgConfigHome, containersConfigDir, containersAuthFile))
+	} else if home, err := os.UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, r.userConfRelDir, containersAuthFile))
 	}
-	// Docker fallbacks
-	paths = append(paths,
-		filepath.Join(home, dockerConfigFileDir, dockerConfigFileName),
-		filepath.Join(home, ".dockercfg"),
-	)
 	return paths
 }
 

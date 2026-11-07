@@ -61,7 +61,7 @@ type PathResolver interface {
 	// AuthPrimaryPath returns the primary read/write path for auth.json.
 	AuthPrimaryPath() (string, error)
 
-	// AuthFallbackPaths returns fallback read-only paths for auth.json.
+	// AuthFallbackPaths returns fallback paths for auth.json.
 	AuthFallbackPaths() []string
 
 	// CertsDirPaths returns base directories for certs.d certificate

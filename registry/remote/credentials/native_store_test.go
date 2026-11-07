@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -40,9 +41,8 @@ const (
 )
 
 var (
-	errCommandExited       = fmt.Errorf("exited with error")
-	errExecute             = fmt.Errorf("Execute failed")
-	errCredentialsNotFound = fmt.Errorf(errCredentialsNotFoundMessage)
+	errCommandExited = fmt.Errorf("exited with error")
+	errExecute       = fmt.Errorf("Execute failed")
 )
 
 // testExecuter implements the Executer interface for testing purpose.
@@ -70,7 +70,7 @@ func (e *testExecuter) Execute(ctx context.Context, input io.Reader, action stri
 		case jsonErrorHost:
 			return []byte("json.Unmarshal failed"), nil
 		case noCredentialsHost:
-			return []byte("credentials not found"), errCredentialsNotFound
+			return []byte(errCredentialsNotFoundMessage), errors.New(errCredentialsNotFoundMessage)
 		case traceHost:
 			traceHook := trace.ContextExecutableTrace(ctx)
 			if traceHook != nil {
@@ -112,6 +112,8 @@ func (e *testExecuter) Execute(ctx context.Context, input io.Reader, action stri
 		switch inS {
 		case basicAuthHost, bearerAuthHost:
 			return nil, nil
+		case noCredentialsHost:
+			return []byte(errCredentialsNotFoundMessage), errors.New(errCredentialsNotFoundMessage)
 		case traceHost:
 			traceHook := trace.ContextExecutableTrace(ctx)
 			if traceHook != nil {
@@ -206,9 +208,17 @@ func TestNativeStore_errorHandling(t *testing.T) {
 		t.Fatalf("should get error from json.Unmarshal")
 	}
 	// Get: Should not return error when credentials are not found
-	_, err = ns.Get(context.Background(), noCredentialsHost)
+	got, err := ns.Get(context.Background(), noCredentialsHost)
 	if err != nil {
-		t.Fatalf("should not get error when no credentials are found")
+		t.Fatalf("Get miss error = %v, want nil", err)
+	}
+	if got != EmptyCredential {
+		t.Fatalf("Get miss = %v, want empty", got)
+	}
+	// Delete: miss is ErrCredentialsNotFound
+	err = ns.Delete(context.Background(), noCredentialsHost)
+	if !errors.Is(err, ErrCredentialsNotFound) {
+		t.Fatalf("Delete miss error = %v, want ErrCredentialsNotFound", err)
 	}
 }
 
