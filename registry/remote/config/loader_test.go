@@ -507,6 +507,19 @@ func TestConfigs_CredentialStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(reg.example.com) error: %v", err)
 	}
+	if cred.Username != "docker" || cred.Password != "pass" {
+		t.Errorf("Get(reg.example.com) = %v, want docker:pass (Docker before auth.json)", cred)
+	}
+
+	configs.PreferContainersAuth = true
+	store, err = configs.CredentialStore(credentials.StoreOptions{})
+	if err != nil {
+		t.Fatalf("CredentialStore(PreferContainersAuth) error: %v", err)
+	}
+	cred, err = store.Get(ctx, "reg.example.com")
+	if err != nil {
+		t.Fatalf("Get(reg.example.com) prefer error: %v", err)
+	}
 	if cred.Username != "authjson" || cred.Password != "pass" {
 		t.Errorf("Get(reg.example.com) = %v, want authjson:pass (auth.json before Docker)", cred)
 	}
@@ -839,6 +852,7 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 		name, dockerJSON string
 		files            [][3]string // dir, host, auth
 		opts             func(tmp, override string) LoadConfigsOptions
+		prefer           bool
 		wantErr          bool
 		wantN            int
 		wantUser         map[string]string
@@ -846,23 +860,26 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 		put              bool
 	}{
 		{
-			name:     "primary and XDG config, same registry: primary wins",
+			name:     "prefer: primary and XDG config, same registry: primary wins",
 			files:    [][3]string{{".config/containers", "reg.example.com", primaryB64}, {"xdgconfig/containers", "reg.example.com", xdgB64}},
+			prefer:   true,
 			wantN:    2,
 			wantUser: map[string]string{"reg.example.com": "primary"},
 		},
 		{
-			name:  "primary and XDG config, different registries",
-			files: [][3]string{{".config/containers", "primary.example.com", primaryB64}, {"xdgconfig/containers", "xdg.example.com", xdgB64}},
-			wantN: 2,
+			name:   "prefer: primary and XDG config, different registries",
+			files:  [][3]string{{".config/containers", "primary.example.com", primaryB64}, {"xdgconfig/containers", "xdg.example.com", xdgB64}},
+			prefer: true,
+			wantN:  2,
 			wantUser: map[string]string{
 				"primary.example.com": "primary",
 				"xdg.example.com":     "xdg",
 			},
 		},
 		{
-			name:     "primary missing, XDG config used",
+			name:     "prefer: primary missing, XDG config used",
 			files:    [][3]string{{"xdgconfig/containers", "xdg.example.com", xdgB64}},
+			prefer:   true,
 			wantN:    1,
 			wantUser: map[string]string{"xdg.example.com": "xdg"},
 		},
@@ -894,7 +911,8 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 			wantN: 0,
 		},
 		{
-			name:    "invalid JSON in fallback is an error",
+			name:    "prefer: invalid JSON in fallback is an error",
+			prefer:  true,
 			wantErr: true,
 		},
 	}
@@ -916,9 +934,10 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 			if tt.wantErr {
 				writeFile(t, filepath.Join(tmp, "xdgconfig", "containers", "auth.json"), "not json{{{")
 			}
-			opts := LoadConfigsOptions{}
+			opts := LoadConfigsOptions{PreferContainersAuth: tt.prefer}
 			if tt.opts != nil {
 				opts = tt.opts(tmp, override)
+				opts.PreferContainersAuth = tt.prefer
 			}
 			configs, err := LoadConfigsWithOptions(opts)
 			if tt.wantErr {
@@ -979,6 +998,248 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 	}
 }
 
+func TestLoadConfigs_Default_DockerFirst(t *testing.T) {
+	tmp := t.TempDir()
+	isolateLoadEnv(t, tmp)
+	const host, dockerB64, authB64, xdgB64 = "reg.example.com", "ZG9ja2VyOnBhc3M=", "YXV0aGpzb246cGFzcw==", "eGRnOnBhc3M="
+	writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, authB64)
+	writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, xdgB64)
+	writeFile(t, filepath.Join(tmp, "docker", "config.json"), fmt.Sprintf(`{"auths":{%q:{"auth":%q}}}`, host, dockerB64))
+
+	configs, err := LoadConfigsWithOptions(LoadConfigsOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configs.PreferContainersAuth {
+		t.Fatal("PreferContainersAuth must default to false")
+	}
+	if len(configs.ContainersAuthConfigs) != 1 {
+		t.Fatalf("ContainersAuthConfigs length = %d, want 1 (primary only)", len(configs.ContainersAuthConfigs))
+	}
+	storeOpts := credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true}
+	store, err := configs.CredentialStore(storeOpts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.(*credentialStore); ok {
+		t.Fatal("default CredentialStore must not return credentialStore wrapper")
+	}
+	cred, err := store.Get(context.Background(), host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.Username != "docker" {
+		t.Fatalf("Get(%s) user = %q, want docker", host, cred.Username)
+	}
+	if err := store.Put(context.Background(), "put.example.com", credentials.Credential{Username: "user", Password: "pass"}); err != nil {
+		t.Fatal(err)
+	}
+	if fileAuth(t, filepath.Join(tmp, "docker", "config.json"), "put.example.com") == "" {
+		t.Error("default Put should write Docker")
+	}
+	if fileAuth(t, filepath.Join(tmp, ".config", "containers", "auth.json"), "put.example.com") != "" {
+		t.Error("default Put should not write auth.json")
+	}
+	if err := store.Delete(context.Background(), host); err != nil {
+		t.Fatal(err)
+	}
+	if fileAuth(t, filepath.Join(tmp, "docker", "config.json"), host) != "" {
+		t.Error("default Delete should clear Docker")
+	}
+	if fileAuth(t, filepath.Join(tmp, ".config", "containers", "auth.json"), host) == "" {
+		t.Error("default Delete should not clear auth.json")
+	}
+}
+
+func TestPreferContainersAuth_LoadAndStore(t *testing.T) {
+	storeOpts := credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true}
+	const host, dockerB64, authB64, xdgB64 = "reg.example.com", "ZG9ja2VyOnBhc3M=", "YXV0aGpzb246cGFzcw==", "eGRnOnBhc3M="
+
+	t.Run("flag off: malformed distinct fallback is ignored", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, authB64)
+		writeFile(t, filepath.Join(tmp, "xdgconfig", "containers", "auth.json"), "not json{{{")
+		writeFile(t, filepath.Join(tmp, "docker", "config.json"), `{"auths":{}}`)
+		if _, err := LoadConfigsWithOptions(LoadConfigsOptions{}); err != nil {
+			t.Fatalf("flag off LoadConfigs error: %v", err)
+		}
+	})
+
+	t.Run("flag on: malformed distinct fallback is an error", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, authB64)
+		writeFile(t, filepath.Join(tmp, "xdgconfig", "containers", "auth.json"), "not json{{{")
+		_, err := LoadConfigsWithOptions(LoadConfigsOptions{PreferContainersAuth: true})
+		if err == nil {
+			t.Fatal("flag on LoadConfigs: expected error for malformed fallback")
+		}
+	})
+
+	t.Run("flag off: missing primary does not load fallback", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, xdgB64)
+		writeFile(t, filepath.Join(tmp, "docker", "config.json"), `{"auths":{}}`)
+		configs, err := LoadConfigsWithOptions(LoadConfigsOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(configs.ContainersAuthConfigs) != 0 {
+			t.Fatalf("ContainersAuthConfigs length = %d, want 0", len(configs.ContainersAuthConfigs))
+		}
+	})
+
+	t.Run("flag on: missing primary loads fallback", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, xdgB64)
+		configs, err := LoadConfigsWithOptions(LoadConfigsOptions{PreferContainersAuth: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(configs.ContainersAuthConfigs) != 1 {
+			t.Fatalf("ContainersAuthConfigs length = %d, want 1", len(configs.ContainersAuthConfigs))
+		}
+		store, err := configs.CredentialStore(storeOpts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cred, err := store.Get(context.Background(), host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cred.Username != "xdg" {
+			t.Errorf("Get user = %q, want xdg", cred.Username)
+		}
+	})
+
+	t.Run("ContainersAuthPath ignores fallbacks with flag on", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), "fallback.example.com", xdgB64)
+		override := writeAuthJSON(t, filepath.Join(tmp, "override"), "override.example.com", "b3ZlcnJpZGU6cGFzcw==")
+		configs, err := LoadConfigsWithOptions(LoadConfigsOptions{
+			PreferContainersAuth: true,
+			ContainersAuthPath:   override,
+			DockerConfigPath:     filepath.Join(tmp, "none.json"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(configs.ContainersAuthConfigs) != 1 {
+			t.Fatalf("ContainersAuthConfigs length = %d, want 1", len(configs.ContainersAuthConfigs))
+		}
+		store, err := configs.CredentialStore(storeOpts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cred, err := store.Get(context.Background(), "override.example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cred.Username != "override" {
+			t.Errorf("Get user = %q, want override", cred.Username)
+		}
+		cred, err = store.Get(context.Background(), "fallback.example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cred.Username != "" {
+			t.Errorf("Get(fallback) user = %q, want empty", cred.Username)
+		}
+	})
+
+	t.Run("empty auth.json Put target", func(t *testing.T) {
+		for _, prefer := range []bool{false, true} {
+			t.Run(fmt.Sprintf("prefer=%v", prefer), func(t *testing.T) {
+				tmp := t.TempDir()
+				authPath, dockerPath := filepath.Join(tmp, "auth.json"), filepath.Join(tmp, "docker.json")
+				writeFile(t, authPath, `{"auths":{}}`)
+				writeFile(t, dockerPath, `{"auths":{}}`)
+				authCfg, err := Load(authPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				dockerCfg, err := Load(dockerPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				store, err := (&Configs{
+					DockerConfig:          dockerCfg,
+					ContainersAuthConfig:  authCfg,
+					ContainersAuthConfigs: []*Config{authCfg},
+					PreferContainersAuth:  prefer,
+				}).CredentialStore(storeOpts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := store.Put(context.Background(), host, credentials.Credential{Username: "user", Password: "pass"}); err != nil {
+					t.Fatal(err)
+				}
+				wroteAuth := fileAuth(t, authPath, host) != ""
+				wroteDocker := fileAuth(t, dockerPath, host) != ""
+				if prefer {
+					if !wroteAuth || wroteDocker {
+						t.Errorf("prefer on: wroteAuth=%v wroteDocker=%v, want auth.json only", wroteAuth, wroteDocker)
+					}
+				} else if wroteAuth || !wroteDocker {
+					t.Errorf("prefer off: wroteAuth=%v wroteDocker=%v, want Docker only", wroteAuth, wroteDocker)
+				}
+			})
+		}
+	})
+
+	t.Run("flag off: NewStoreWithFallbacks construction", func(t *testing.T) {
+		dockerCfg := NewConfig()
+		if err := dockerCfg.SetAuthConfig(host, AuthConfig{Auth: dockerB64}); err != nil {
+			t.Fatal(err)
+		}
+		authCfg := NewConfig()
+		if err := authCfg.SetAuthConfig(host, AuthConfig{Auth: authB64}); err != nil {
+			t.Fatal(err)
+		}
+		store, err := (&Configs{
+			DockerConfig:          dockerCfg,
+			ContainersAuthConfig:  authCfg,
+			ContainersAuthConfigs: []*Config{authCfg},
+		}).CredentialStore(storeOpts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := store.(*credentialStore); ok {
+			t.Fatal("flag off must return NewStoreWithFallbacks, not credentialStore")
+		}
+		if _, ok := store.(*credentials.DynamicStore); ok {
+			t.Fatal("flag off with two stores must not return a single DynamicStore")
+		}
+	})
+
+	t.Run("flag on: credentialStore wrapper", func(t *testing.T) {
+		dockerCfg := NewConfig()
+		if err := dockerCfg.SetAuthConfig(host, AuthConfig{Auth: dockerB64}); err != nil {
+			t.Fatal(err)
+		}
+		authCfg := NewConfig()
+		if err := authCfg.SetAuthConfig(host, AuthConfig{Auth: authB64}); err != nil {
+			t.Fatal(err)
+		}
+		store, err := (&Configs{
+			DockerConfig:          dockerCfg,
+			ContainersAuthConfig:  authCfg,
+			ContainersAuthConfigs: []*Config{authCfg},
+			PreferContainersAuth:  true,
+		}).CredentialStore(storeOpts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := store.(*credentialStore); !ok {
+			t.Fatalf("flag on with two stores type = %T, want *credentialStore", store)
+		}
+	})
+}
+
 func TestConfigs_CredentialStore_DeleteAllStores(t *testing.T) {
 	tmp := t.TempDir()
 	authPath, dockerPath := filepath.Join(tmp, "auth.json"), filepath.Join(tmp, "docker.json")
@@ -995,6 +1256,7 @@ func TestConfigs_CredentialStore_DeleteAllStores(t *testing.T) {
 	}
 	store, err := (&Configs{
 		DockerConfig: dockerCfg, ContainersAuthConfig: authCfg, ContainersAuthConfigs: []*Config{authCfg},
+		PreferContainersAuth: true,
 	}).CredentialStore(credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true})
 	if err != nil {
 		t.Fatal(err)
@@ -1156,6 +1418,7 @@ func TestConfigs_CredentialStore_PutAuthJSON(t *testing.T) {
 	}
 	store, err := (&Configs{
 		DockerConfig: dockerCfg, ContainersAuthConfig: authCfg, ContainersAuthConfigs: []*Config{authCfg},
+		PreferContainersAuth: true,
 	}).CredentialStore(credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true})
 	if err != nil {
 		t.Fatal(err)

@@ -12,14 +12,16 @@ Use [`config.LoadConfigsWithOptions`](https://pkg.go.dev/github.com/oras-project
 
 ## Credentials
 
-Containers `auth.json` files are checked before Docker `config.json`. Put writes the first loaded store (the platform native keychain if that `auth.json` has no credentials configured). Delete removes the credential from every loaded store.
+By default, Docker `config.json` is checked and written first. Containers `auth.json` files are read-only fallbacks, and only the strategy's primary `auth.json` is loaded. Put and Delete use that primary Docker store.
+
+Set [`LoadConfigsOptions.PreferContainersAuth`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote/config#LoadConfigsOptions) to load additional `auth.json` fallbacks (including `$XDG_CONFIG_HOME/containers/auth.json`) and to match containers/image: `auth.json` files are checked before Docker `config.json`, Put writes the first loaded store (the platform native keychain if that `auth.json` has no credentials configured), and Delete removes the credential from every loaded store. This may become the default in v4.
 
 ## Build a repository
 
 Building a configured repository has four steps:
 
 1. Call [`Configs.RegistryProperties`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote/config#Configs.RegistryProperties) with the image reference. It applies `registries.conf` rewriting and mirror settings, then adds TLS settings from `containers-certs.d`.
-2. Call [`Configs.CredentialStore`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote/config#Configs.CredentialStore) and assign the result to [`ClientBuilder.CredentialStore`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote#ClientBuilder). It returns an error when neither Docker config nor containers `auth.json` was loaded. Containers `auth.json` files are checked first, in search order, with longest-prefix namespace matching. Docker config is the fallback.
+2. Call [`Configs.CredentialStore`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote/config#Configs.CredentialStore) and assign the result to [`ClientBuilder.CredentialStore`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote#ClientBuilder). It returns an error when neither Docker config nor containers `auth.json` was loaded. By default Docker config is the primary store and containers `auth.json` is a hierarchical fallback. With `PreferContainersAuth`, containers `auth.json` files are checked first, in search order, with longest-prefix namespace matching, and Docker config is the fallback.
 3. If image policy is enabled, call [`Configs.PolicyEvaluator`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote/config#Configs.PolicyEvaluator) and assign the result to [`ClientBuilder.PolicyEvaluator`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote#ClientBuilder).
 4. Call [`ClientBuilder.NewRepository`](https://pkg.go.dev/github.com/oras-project/oras-go/v3/registry/remote#ClientBuilder.NewRepository) with the properties.
 

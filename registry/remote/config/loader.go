@@ -62,6 +62,13 @@ type Configs struct {
 	// CertsDirPaths is the resolved list of base directories for
 	// containers-certs.d certificate discovery.
 	CertsDirPaths []string
+
+	// PreferContainersAuth checks containers auth.json files before Docker
+	// config.json and writes new credentials to the first auth.json, matching
+	// containers/image (podman, buildah, skopeo). By default Docker config is
+	// checked and written first, and auth.json files are read-only fallbacks.
+	// Copied from [LoadConfigsOptions] by [LoadConfigsWithOptions].
+	PreferContainersAuth bool
 }
 
 // LoadConfigsOptions configures LoadConfigs behavior.
@@ -77,9 +84,17 @@ type LoadConfigsOptions struct {
 	// or $HOME/.docker/config.json).
 	DockerConfigPath string
 
+	// PreferContainersAuth checks containers auth.json files before Docker
+	// config.json and writes new credentials to the first auth.json, matching
+	// containers/image (podman, buildah, skopeo). By default Docker config is
+	// checked and written first, and auth.json files are read-only fallbacks.
+	// Additional auth.json fallback paths are loaded only when this is true.
+	PreferContainersAuth bool
+
 	// ContainersAuthPath overrides the containers auth.json path.
 	// When set, only that file is loaded (no fallbacks). When empty, the
-	// strategy's primary path and fallbacks are searched.
+	// strategy's primary path is used; fallbacks are searched only when
+	// PreferContainersAuth is also set.
 	ContainersAuthPath string
 
 	// RegistriesConfigPath overrides the registries.conf path.
@@ -111,7 +126,7 @@ func LoadConfigs() (*Configs, error) {
 // Missing files are silently skipped.
 // Returns an error only if a file exists but cannot be parsed.
 func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
-	result := &Configs{}
+	result := &Configs{PreferContainersAuth: opts.PreferContainersAuth}
 	resolver := configpaths.NewResolver(configpaths.Strategy(opts.Strategy))
 
 	// Load Docker config.
@@ -139,7 +154,9 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 		if authPath, err := resolver.AuthPrimaryPath(); err == nil {
 			authCandidates = append(authCandidates, authPath)
 		}
-		authCandidates = append(authCandidates, resolver.AuthFallbackPaths()...)
+		if opts.PreferContainersAuth {
+			authCandidates = append(authCandidates, resolver.AuthFallbackPaths()...)
+		}
 	}
 	var skipDocker []string
 	if opts.ContainersAuthPath == "" {
@@ -275,32 +292,47 @@ func (c *Configs) PolicyEvaluator(opts ...policy.EvaluatorOption) (*policy.Evalu
 	return policy.NewEvaluator(c.PolicyConfig, opts...)
 }
 
-// CredentialStore creates a [credentials.Store] from loaded containers
-// auth.json files and Docker config. Each containers auth.json is a
-// hierarchical store, in search order, and is checked before Docker config.
-// Get uses the first store with a match. Put writes the first store. Delete
-// removes from all stores. Missing auth.json files are not created. An
-// auth.json with no credentials configured uses the platform's default
-// native store, as [credentials.NewStoreFromConfig] does.
+// CredentialStore creates a [credentials.Store] from loaded Docker config and
+// containers auth.json files. Missing auth.json files are not created.
 //
-// A helper that fails erase, or reports not-found in a non-standard way,
-// makes Delete return that error after the other stores are still cleared.
+// By default Docker config is the primary store and each containers auth.json
+// is a hierarchical fallback. Get searches in that order. Put and Delete use
+// the primary store only. The returned value is the single store, or
+// [credentials.NewStoreWithFallbacks] when both Docker and auth.json are
+// loaded.
+//
+// When [Configs.PreferContainersAuth] is set, containers auth.json files are
+// checked first, in search order, then Docker config. Get uses the first store
+// with a match. Put writes the first store. Delete removes from all stores. An
+// auth.json with no credentials configured uses the platform's default native
+// store, as [credentials.NewStoreFromConfig] does. A helper that fails erase,
+// or reports not-found in a non-standard way, makes Delete return that error
+// after the other stores are still cleared.
 //
 // Returns an error if neither a containers auth.json nor DockerConfig is loaded.
 func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.Store, error) {
-	var stores []credentials.Store
-
 	authCfgs := c.ContainersAuthConfigs
 	if len(authCfgs) == 0 && c.ContainersAuthConfig != nil {
 		authCfgs = []*Config{c.ContainersAuthConfig}
 	}
 	authOpts := opts
 	authOpts.Hierarchical = true
+	var authStores []credentials.Store
 	for _, cfg := range authCfgs {
-		stores = append(stores, credentials.NewStoreFromConfig(cfg, authOpts))
+		authStores = append(authStores, credentials.NewStoreFromConfig(cfg, authOpts))
 	}
-	if c.DockerConfig != nil {
-		stores = append(stores, credentials.NewStoreFromConfig(c.DockerConfig, opts))
+
+	var stores []credentials.Store
+	if c.PreferContainersAuth {
+		stores = append(stores, authStores...)
+		if c.DockerConfig != nil {
+			stores = append(stores, credentials.NewStoreFromConfig(c.DockerConfig, opts))
+		}
+	} else {
+		if c.DockerConfig != nil {
+			stores = append(stores, credentials.NewStoreFromConfig(c.DockerConfig, opts))
+		}
+		stores = append(stores, authStores...)
 	}
 
 	if len(stores) == 0 {
@@ -310,6 +342,9 @@ func (c *Configs) CredentialStore(opts credentials.StoreOptions) (credentials.St
 		return stores[0], nil
 	}
 	inner := credentials.NewStoreWithFallbacks(stores[0], stores[1:]...)
+	if !c.PreferContainersAuth {
+		return inner, nil
+	}
 	return &credentialStore{inner: inner, stores: stores}, nil
 }
 
