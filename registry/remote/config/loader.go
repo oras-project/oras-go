@@ -67,7 +67,8 @@ type Configs struct {
 	// config.json and writes new credentials to the first auth.json, matching
 	// containers/image (podman, buildah, skopeo). By default Docker config is
 	// checked and written first, and auth.json files are read-only fallbacks.
-	// Copied from [LoadConfigsOptions] by [LoadConfigsWithOptions].
+	// Copied from [LoadConfigsOptions] by [LoadConfigsWithOptions]. See
+	// [LoadConfigsOptions.PreferContainersAuth] for the Linux primary path.
 	PreferContainersAuth bool
 }
 
@@ -89,6 +90,12 @@ type LoadConfigsOptions struct {
 	// containers/image (podman, buildah, skopeo). By default Docker config is
 	// checked and written first, and auth.json files are read-only fallbacks.
 	// Additional auth.json fallback paths are loaded only when this is true.
+	// On Linux with [StrategyContainersImage], it also uses the containers/image
+	// primary path: $XDG_RUNTIME_DIR/containers/auth.json when that variable
+	// is set (even if the file is missing; the primary is skipped if the
+	// runtime directory is missing), or /run/containers/<uid>/auth.json when
+	// unset. Non-Linux platforms and [StrategyUAPI] keep their usual primary
+	// path. Missing auth.json files are not created.
 	PreferContainersAuth bool
 
 	// ContainersAuthPath overrides the containers auth.json path.
@@ -126,8 +133,11 @@ func LoadConfigs() (*Configs, error) {
 // Missing files are silently skipped.
 // Returns an error only if a file exists but cannot be parsed.
 func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
+	return loadConfigsWithResolver(opts, configpaths.NewResolver(configpaths.Strategy(opts.Strategy)))
+}
+
+func loadConfigsWithResolver(opts LoadConfigsOptions, resolver configpaths.PathResolver) (*Configs, error) {
 	result := &Configs{PreferContainersAuth: opts.PreferContainersAuth}
-	resolver := configpaths.NewResolver(configpaths.Strategy(opts.Strategy))
 
 	// Load Docker config.
 	dockerPath := opts.DockerConfigPath
@@ -152,7 +162,7 @@ func LoadConfigsWithOptions(opts LoadConfigsOptions) (*Configs, error) {
 	if opts.ContainersAuthPath != "" {
 		authCandidates = []string{opts.ContainersAuthPath}
 	} else {
-		if authPath, err := resolver.AuthPrimaryPath(); err == nil {
+		if authPath, err := resolver.AuthPrimaryPath(opts.PreferContainersAuth); err == nil {
 			authPrimary = authPath
 			authCandidates = append(authCandidates, authPath)
 		}

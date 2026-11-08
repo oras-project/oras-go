@@ -23,8 +23,11 @@ limitations under the License.
 // is the primary credential store and only the primary containers auth.json
 // is loaded as a fallback. [LoadConfigsOptions.PreferContainersAuth] also
 // loads auth.json fallbacks and checks them before Docker config; the first
-// file with a match wins and files are not merged. That order may become the
-// default in v4. [LoadConfigsWithOptions] can override individual paths.
+// file with a match wins and files are not merged. On Linux it uses the
+// containers/image primary auth.json path ($XDG_RUNTIME_DIR or
+// /run/containers/<uid>) and skips that primary without failing when the
+// runtime directory is missing. That order may become the default in v4.
+// [LoadConfigsWithOptions] can override individual paths.
 //
 // The default [StrategyContainersImage] follows containers/image path
 // resolution and merge semantics. [StrategyUAPI] uses the experimental Podman

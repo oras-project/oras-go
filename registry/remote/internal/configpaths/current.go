@@ -16,7 +16,9 @@ limitations under the License.
 package configpaths
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -72,8 +74,11 @@ func (r *currentResolver) MergeStrategy() MergeStrategy {
 	return MergeAll
 }
 
-func (r *currentResolver) AuthPrimaryPath() (string, error) {
+func (r *currentResolver) AuthPrimaryPath(preferContainersAuth bool) (string, error) {
 	if r.authUsesXDGRuntime {
+		if preferContainersAuth {
+			return linuxPreferContainersAuthPath(os.Getenv(xdgRuntimeDirEnv), os.Getuid(), os.Stat)
+		}
 		if xdgRuntime := os.Getenv(xdgRuntimeDirEnv); xdgRuntime != "" {
 			path := filepath.Join(xdgRuntime, containersConfigDir, containersAuthFile)
 			if _, err := os.Stat(path); err == nil {
@@ -86,6 +91,23 @@ func (r *currentResolver) AuthPrimaryPath() (string, error) {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
 	return filepath.Join(home, r.userConfRelDir, containersAuthFile), nil
+}
+
+// linuxPreferContainersAuthPath matches containers/image getPathToAuthWithOS
+// on Linux. dirStat is os.Stat in production.
+func linuxPreferContainersAuthPath(runtimeDir string, uid int, dirStat func(string) (os.FileInfo, error)) (string, error) {
+	if runtimeDir != "" {
+		_, err := dirStat(runtimeDir)
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("%q directory set by $XDG_RUNTIME_DIR does not exist. Either create the directory or unset $XDG_RUNTIME_DIR.: %w", runtimeDir, err)
+		}
+		return filepath.Join(runtimeDir, containersConfigDir, containersAuthFile), nil
+	}
+	return linuxPerUIDAuthPath(uid), nil
+}
+
+func linuxPerUIDAuthPath(uid int) string {
+	return filepath.FromSlash(fmt.Sprintf("/run/containers/%d/auth.json", uid))
 }
 
 // AuthFallbackPaths returns the containers auth.json fallback:

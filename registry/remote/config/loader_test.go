@@ -807,7 +807,12 @@ func isolateLoadEnv(t *testing.T, tmpDir string) {
 	t.Setenv("USERPROFILE", tmpDir)
 	t.Setenv("DOCKER_CONFIG", filepath.Join(tmpDir, "docker"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "xdgconfig"))
-	t.Setenv("XDG_RUNTIME_DIR", "")
+	// A private runtime dir keeps PreferContainersAuth Linux tests off /run.
+	runtimeDir := filepath.Join(tmpDir, "xdg-runtime")
+	if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	origSys, origDir := systemRegistriesConfPath, systemRegistriesConfDirPath
 	systemRegistriesConfPath = filepath.Join(tmpDir, "registries.conf")
 	systemRegistriesConfDirPath = filepath.Join(tmpDir, "registries.conf.d")
@@ -833,6 +838,58 @@ func writeAuthJSON(t *testing.T, dir, host, auth string) string {
 	return path
 }
 
+func isolatedHomeAuth(tmp string) string {
+	return filepath.Join(tmp, ".config", "containers", "auth.json")
+}
+
+func isolatedXDGConfigAuth(tmp string) string {
+	return filepath.Join(tmp, "xdgconfig", "containers", "auth.json")
+}
+
+func isolatedRuntimeAuth(t *testing.T) string {
+	t.Helper()
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if runtimeDir == "" {
+		t.Fatal("isolateLoadEnv must set XDG_RUNTIME_DIR to a private directory")
+	}
+	return filepath.Join(runtimeDir, "containers", "auth.json")
+}
+
+func platformAuthPrimary(t *testing.T, prefer bool) string {
+	t.Helper()
+	path, err := configpaths.NewResolver(configpaths.ContainersImage).AuthPrimaryPath(prefer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writePlatformPrimaryAuth(t *testing.T, prefer bool, host, auth string) string {
+	t.Helper()
+	path := platformAuthPrimary(t, prefer)
+	writeFile(t, path, fmt.Sprintf(`{"auths":{%q:{"auth":%q}}}`, host, auth))
+	return path
+}
+
+func assertPutWroteFallbackNotPrimary(t *testing.T, store credentials.Store, fallbackPath, missingPrimary, homePath string) {
+	t.Helper()
+	const putHost = "put.example.com"
+	if err := store.Put(context.Background(), putHost, credentials.Credential{Username: "user", Password: "pass"}); err != nil {
+		t.Fatal(err)
+	}
+	if fileAuth(t, fallbackPath, putHost) == "" {
+		t.Error("Put should write the first loaded fallback")
+	}
+	if missingPrimary != "" {
+		if _, err := os.Stat(missingPrimary); err == nil {
+			t.Errorf("Put must not create missing primary %q", missingPrimary)
+		}
+	}
+	if homePath != "" && fileAuth(t, homePath, putHost) != "" {
+		t.Error("Put must not write home auth.json when it was not the loaded primary")
+	}
+}
+
 func fileAuth(t *testing.T, path, host string) string {
 	t.Helper()
 	cfg, err := Load(path)
@@ -851,7 +908,7 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 	putOpts := credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true}
 	tests := []struct {
 		name, dockerJSON string
-		files            [][3]string // dir, host, auth
+		files            [][3]string // location ("primary" or dir under tmp), host, auth
 		opts             func(tmp, override string) LoadConfigsOptions
 		prefer           bool
 		wantErr          bool
@@ -862,14 +919,14 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 	}{
 		{
 			name:     "prefer: primary and XDG config, same registry: primary wins",
-			files:    [][3]string{{".config/containers", "reg.example.com", primaryB64}, {"xdgconfig/containers", "reg.example.com", xdgB64}},
+			files:    [][3]string{{"primary", "reg.example.com", primaryB64}, {"xdgconfig/containers", "reg.example.com", xdgB64}},
 			prefer:   true,
 			wantN:    2,
 			wantUser: map[string]string{"reg.example.com": "primary"},
 		},
 		{
 			name:   "prefer: primary and XDG config, different registries",
-			files:  [][3]string{{".config/containers", "primary.example.com", primaryB64}, {"xdgconfig/containers", "xdg.example.com", xdgB64}},
+			files:  [][3]string{{"primary", "primary.example.com", primaryB64}, {"xdgconfig/containers", "xdg.example.com", xdgB64}},
 			prefer: true,
 			wantN:  2,
 			wantUser: map[string]string{
@@ -924,7 +981,12 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 			isolateLoadEnv(t, tmp)
 			var override string
 			for _, f := range tt.files {
-				p := writeAuthJSON(t, filepath.Join(tmp, f[0]), f[1], f[2])
+				var p string
+				if f[0] == "primary" {
+					p = writePlatformPrimaryAuth(t, tt.prefer, f[1], f[2])
+				} else {
+					p = writeAuthJSON(t, filepath.Join(tmp, f[0]), f[1], f[2])
+				}
 				if f[0] == "override" {
 					override = p
 				}
@@ -933,7 +995,8 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 				writeFile(t, filepath.Join(tmp, "docker", "config.json"), tt.dockerJSON)
 			}
 			if tt.wantErr {
-				writeFile(t, filepath.Join(tmp, "xdgconfig", "containers", "auth.json"), "not json{{{")
+				writePlatformPrimaryAuth(t, true, "reg.example.com", primaryB64)
+				writeFile(t, isolatedXDGConfigAuth(tmp), "not json{{{")
 			}
 			opts := LoadConfigsOptions{PreferContainersAuth: tt.prefer}
 			if tt.opts != nil {
@@ -990,9 +1053,9 @@ func TestLoadConfigs_ContainersAuthChain(t *testing.T) {
 			if fileAuth(t, filepath.Join(tmp, "docker", "config.json"), "put.example.com") == "" {
 				t.Error("Put should write Docker when it is the only store")
 			}
-			for _, rel := range []string{filepath.Join(".config", "containers", "auth.json"), filepath.Join("xdgconfig", "containers", "auth.json")} {
-				if _, err := os.Stat(filepath.Join(tmp, rel)); err == nil {
-					t.Errorf("Put created %s", rel)
+			for _, p := range []string{isolatedHomeAuth(tmp), isolatedXDGConfigAuth(tmp), isolatedRuntimeAuth(t)} {
+				if _, err := os.Stat(p); err == nil {
+					t.Errorf("Put created %s", p)
 				}
 			}
 		})
@@ -1003,8 +1066,8 @@ func TestLoadConfigs_Default_DockerFirst(t *testing.T) {
 	tmp := t.TempDir()
 	isolateLoadEnv(t, tmp)
 	const host, dockerB64, authB64, xdgB64 = "reg.example.com", "ZG9ja2VyOnBhc3M=", "YXV0aGpzb246cGFzcw==", "eGRnOnBhc3M="
-	writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, authB64)
-	writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, xdgB64)
+	writeAuthJSON(t, filepath.Dir(isolatedHomeAuth(tmp)), host, authB64)
+	writeAuthJSON(t, filepath.Dir(isolatedXDGConfigAuth(tmp)), host, xdgB64)
 	writeFile(t, filepath.Join(tmp, "docker", "config.json"), fmt.Sprintf(`{"auths":{%q:{"auth":%q}}}`, host, dockerB64))
 
 	configs, err := LoadConfigsWithOptions(LoadConfigsOptions{})
@@ -1055,7 +1118,7 @@ func TestLoadConfigs_Default_DockerFirst(t *testing.T) {
 func TestLoadConfigs_DockerConfigPathAliasesPrimary_FlagOff(t *testing.T) {
 	tmp := t.TempDir()
 	isolateLoadEnv(t, tmp)
-	primary, err := configpaths.NewResolver(configpaths.ContainersImage).AuthPrimaryPath()
+	primary, err := configpaths.NewResolver(configpaths.ContainersImage).AuthPrimaryPath(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1102,8 +1165,8 @@ func TestPreferContainersAuth_LoadAndStore(t *testing.T) {
 	t.Run("flag off: malformed distinct fallback is ignored", func(t *testing.T) {
 		tmp := t.TempDir()
 		isolateLoadEnv(t, tmp)
-		writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, authB64)
-		writeFile(t, filepath.Join(tmp, "xdgconfig", "containers", "auth.json"), "not json{{{")
+		writePlatformPrimaryAuth(t, false, host, authB64)
+		writeFile(t, isolatedXDGConfigAuth(tmp), "not json{{{")
 		writeFile(t, filepath.Join(tmp, "docker", "config.json"), `{"auths":{}}`)
 		if _, err := LoadConfigsWithOptions(LoadConfigsOptions{}); err != nil {
 			t.Fatalf("flag off LoadConfigs error: %v", err)
@@ -1113,8 +1176,8 @@ func TestPreferContainersAuth_LoadAndStore(t *testing.T) {
 	t.Run("flag on: malformed distinct fallback is an error", func(t *testing.T) {
 		tmp := t.TempDir()
 		isolateLoadEnv(t, tmp)
-		writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, authB64)
-		writeFile(t, filepath.Join(tmp, "xdgconfig", "containers", "auth.json"), "not json{{{")
+		writePlatformPrimaryAuth(t, true, host, authB64)
+		writeFile(t, isolatedXDGConfigAuth(tmp), "not json{{{")
 		_, err := LoadConfigsWithOptions(LoadConfigsOptions{PreferContainersAuth: true})
 		if err == nil {
 			t.Fatal("flag on LoadConfigs: expected error for malformed fallback")
@@ -1124,7 +1187,7 @@ func TestPreferContainersAuth_LoadAndStore(t *testing.T) {
 	t.Run("flag off: missing primary does not load fallback", func(t *testing.T) {
 		tmp := t.TempDir()
 		isolateLoadEnv(t, tmp)
-		writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, xdgB64)
+		writeAuthJSON(t, filepath.Dir(isolatedXDGConfigAuth(tmp)), host, xdgB64)
 		writeFile(t, filepath.Join(tmp, "docker", "config.json"), `{"auths":{}}`)
 		configs, err := LoadConfigsWithOptions(LoadConfigsOptions{})
 		if err != nil {
@@ -1138,13 +1201,23 @@ func TestPreferContainersAuth_LoadAndStore(t *testing.T) {
 	t.Run("flag on: missing primary loads fallback", func(t *testing.T) {
 		tmp := t.TempDir()
 		isolateLoadEnv(t, tmp)
-		writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, xdgB64)
+		fallbackPath := writeAuthJSON(t, filepath.Dir(isolatedXDGConfigAuth(tmp)), host, xdgB64)
 		configs, err := LoadConfigsWithOptions(LoadConfigsOptions{PreferContainersAuth: true})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(configs.ContainersAuthConfigs) != 1 {
 			t.Fatalf("ContainersAuthConfigs length = %d, want 1", len(configs.ContainersAuthConfigs))
+		}
+		got := configs.ContainersAuthConfig.Path()
+		if got != fallbackPath {
+			t.Errorf("loaded path = %q, want XDG_CONFIG_HOME fallback %q", got, fallbackPath)
+		}
+		if got == isolatedHomeAuth(tmp) {
+			t.Fatal("must not treat home as primary when the platform primary is missing")
+		}
+		if runtime.GOOS == "linux" && got == isolatedRuntimeAuth(t) {
+			t.Fatal("missing runtime auth.json must not be loaded as primary")
 		}
 		store, err := configs.CredentialStore(storeOpts)
 		if err != nil {
@@ -1162,7 +1235,7 @@ func TestPreferContainersAuth_LoadAndStore(t *testing.T) {
 	t.Run("ContainersAuthPath ignores fallbacks with flag on", func(t *testing.T) {
 		tmp := t.TempDir()
 		isolateLoadEnv(t, tmp)
-		writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), "fallback.example.com", xdgB64)
+		writeAuthJSON(t, filepath.Dir(isolatedXDGConfigAuth(tmp)), "fallback.example.com", xdgB64)
 		override := writeAuthJSON(t, filepath.Join(tmp, "override"), "override.example.com", "b3ZlcnJpZGU6cGFzcw==")
 		configs, err := LoadConfigsWithOptions(LoadConfigsOptions{
 			PreferContainersAuth: true,
@@ -1282,6 +1355,201 @@ func TestPreferContainersAuth_LoadAndStore(t *testing.T) {
 			t.Fatalf("flag on with two stores type = %T, want *credentialStore", store)
 		}
 	})
+}
+
+func TestLoadConfigs_PreferContainersAuth_RuntimePrimary(t *testing.T) {
+	const host, runtimeB64, fallbackB64, homeB64 = "reg.example.com", "cnVudGltZTpwYXNz", "eGRnOnBhc3M=", "aG9tZTpwYXNz"
+
+	t.Run("file present loads runtime primary", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		runtimePath := writeAuthJSON(t, filepath.Join(tmp, "runtime"), host, runtimeB64)
+		fallbackPath := writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, fallbackB64)
+		var gotPrefer bool
+		configs, err := loadConfigsWithResolver(LoadConfigsOptions{PreferContainersAuth: true}, &stubResolver{
+			authPrimary:   runtimePath,
+			authFallbacks: []string{fallbackPath},
+			gotPrefer:     &gotPrefer,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !gotPrefer {
+			t.Fatal("AuthPrimaryPath should receive PreferContainersAuth=true")
+		}
+		if len(configs.ContainersAuthConfigs) != 2 {
+			t.Fatalf("ContainersAuthConfigs length = %d, want 2", len(configs.ContainersAuthConfigs))
+		}
+		if configs.ContainersAuthConfig.Path() != runtimePath {
+			t.Errorf("primary path = %q, want runtime %q", configs.ContainersAuthConfig.Path(), runtimePath)
+		}
+	})
+
+	t.Run("file missing skips runtime and loads XDG_CONFIG_HOME fallback", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		runtimePath := filepath.Join(tmp, "runtime", "containers", "auth.json")
+		homePath := writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, homeB64)
+		fallbackPath := writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, fallbackB64)
+		configs, err := loadConfigsWithResolver(LoadConfigsOptions{PreferContainersAuth: true}, &stubResolver{
+			authPrimary:   runtimePath,
+			authFallbacks: []string{fallbackPath},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(configs.ContainersAuthConfigs) != 1 {
+			t.Fatalf("ContainersAuthConfigs length = %d, want 1", len(configs.ContainersAuthConfigs))
+		}
+		got := configs.ContainersAuthConfig.Path()
+		if got == runtimePath {
+			t.Fatal("missing runtime file must not stay loaded as primary")
+		}
+		if got == homePath {
+			t.Fatal("must not treat home as primary when runtime file is missing")
+		}
+		if got != fallbackPath {
+			t.Errorf("loaded path = %q, want XDG_CONFIG_HOME fallback %q", got, fallbackPath)
+		}
+		store, err := configs.CredentialStore(credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertPutWroteFallbackNotPrimary(t, store, fallbackPath, runtimePath, homePath)
+	})
+
+	t.Run("directory missing skips primary without failing", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		homePath := writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, homeB64)
+		fallbackPath := writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, fallbackB64)
+		configs, err := loadConfigsWithResolver(LoadConfigsOptions{PreferContainersAuth: true}, &stubResolver{
+			authPrimaryErr: errors.New("XDG_RUNTIME_DIR directory does not exist"),
+			authFallbacks:  []string{fallbackPath},
+		})
+		if err != nil {
+			t.Fatalf("LoadConfigs error: %v", err)
+		}
+		if len(configs.ContainersAuthConfigs) != 1 {
+			t.Fatalf("ContainersAuthConfigs length = %d, want 1", len(configs.ContainersAuthConfigs))
+		}
+		got := configs.ContainersAuthConfig.Path()
+		if got == homePath {
+			t.Fatal("must not fall through to home as primary when runtime directory is missing")
+		}
+		if got != fallbackPath {
+			t.Errorf("loaded path = %q, want fallback %q", got, fallbackPath)
+		}
+		store, err := configs.CredentialStore(credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertPutWroteFallbackNotPrimary(t, store, fallbackPath, filepath.Join(tmp, "runtime", "containers", "auth.json"), homePath)
+	})
+
+	t.Run("unset runtime missing per-uid file loads fallback", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		perUID := filepath.Join(tmp, "run-containers", "1000", "auth.json")
+		homePath := writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, homeB64)
+		fallbackPath := writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, fallbackB64)
+		configs, err := loadConfigsWithResolver(LoadConfigsOptions{PreferContainersAuth: true}, &stubResolver{
+			authPrimary:   perUID,
+			authFallbacks: []string{fallbackPath},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := configs.ContainersAuthConfig.Path()
+		if got == perUID {
+			t.Fatal("missing per-uid file must not be loaded")
+		}
+		if got == homePath {
+			t.Fatal("must not treat home as primary when per-uid file is missing")
+		}
+		if got != fallbackPath {
+			t.Errorf("loaded path = %q, want fallback %q", got, fallbackPath)
+		}
+		store, err := configs.CredentialStore(credentials.StoreOptions{AllowPlaintextPut: true, IgnoreDefaultNativeStore: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertPutWroteFallbackNotPrimary(t, store, fallbackPath, perUID, homePath)
+	})
+
+	t.Run("flag off still uses home when runtime file is missing", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		homePath := writeAuthJSON(t, filepath.Join(tmp, ".config", "containers"), host, homeB64)
+		writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), host, fallbackB64)
+		var gotPrefer bool
+		configs, err := loadConfigsWithResolver(LoadConfigsOptions{}, &stubResolver{
+			authPrimary:   homePath,
+			authFallbacks: []string{filepath.Join(tmp, "xdgconfig", "containers", "auth.json")},
+			gotPrefer:     &gotPrefer,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotPrefer {
+			t.Fatal("AuthPrimaryPath should receive PreferContainersAuth=false")
+		}
+		if len(configs.ContainersAuthConfigs) != 1 {
+			t.Fatalf("ContainersAuthConfigs length = %d, want 1 (no fallbacks)", len(configs.ContainersAuthConfigs))
+		}
+		if configs.ContainersAuthConfig.Path() != homePath {
+			t.Errorf("path = %q, want home %q", configs.ContainersAuthConfig.Path(), homePath)
+		}
+	})
+
+	t.Run("explicit ContainersAuthPath ignores resolver primary", func(t *testing.T) {
+		tmp := t.TempDir()
+		isolateLoadEnv(t, tmp)
+		override := writeAuthJSON(t, filepath.Join(tmp, "override"), "override.example.com", "b3ZlcnJpZGU6cGFzcw==")
+		runtimePath := writeAuthJSON(t, filepath.Join(tmp, "runtime"), host, runtimeB64)
+		called := false
+		configs, err := loadConfigsWithResolver(LoadConfigsOptions{
+			PreferContainersAuth: true,
+			ContainersAuthPath:   override,
+			DockerConfigPath:     filepath.Join(tmp, "none.json"),
+		}, &stubResolver{
+			authPrimary: runtimePath,
+			gotPrefer:   &called,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if called {
+			t.Fatal("AuthPrimaryPath must not be called when ContainersAuthPath is set")
+		}
+		if len(configs.ContainersAuthConfigs) != 1 || configs.ContainersAuthConfig.Path() != override {
+			t.Fatalf("loaded %v, want override %q", configs.ContainersAuthConfig, override)
+		}
+	})
+}
+
+func TestLoadConfigs_UAPI_PreferDoesNotUseRuntimePrimary(t *testing.T) {
+	tmp := t.TempDir()
+	isolateLoadEnv(t, tmp)
+	runtimeAuth := writeAuthJSON(t, filepath.Dir(isolatedRuntimeAuth(t)), "runtime.example.com", "cnVudGltZTpwYXNz")
+	uapiAuth := writeAuthJSON(t, filepath.Join(tmp, "xdgconfig", "containers"), "uapi.example.com", "dWFwaTpwYXNz")
+	configs, err := LoadConfigsWithOptions(LoadConfigsOptions{
+		Strategy:             StrategyUAPI,
+		PreferContainersAuth: true,
+		DockerConfigPath:     filepath.Join(tmp, "none.json"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configs.ContainersAuthConfig == nil {
+		t.Fatal("expected UAPI user auth.json")
+	}
+	if configs.ContainersAuthConfig.Path() == runtimeAuth {
+		t.Fatal("UAPI must not select $XDG_RUNTIME_DIR/containers/auth.json")
+	}
+	if configs.ContainersAuthConfig.Path() != uapiAuth {
+		t.Errorf("path = %q, want UAPI user path %q", configs.ContainersAuthConfig.Path(), uapiAuth)
+	}
 }
 
 func TestConfigs_CredentialStore_DeleteAllStores(t *testing.T) {

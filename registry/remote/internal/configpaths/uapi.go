@@ -117,7 +117,7 @@ func (r *uapiResolver) MergeStrategy() MergeStrategy {
 	return FirstFoundWins
 }
 
-func (r *uapiResolver) AuthPrimaryPath() (string, error) {
+func (r *uapiResolver) AuthPrimaryPath(_ bool) (string, error) {
 	if dir := r.userDir(); dir != "" {
 		return filepath.Join(dir, containersAuthFile), nil
 	}

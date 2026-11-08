@@ -16,6 +16,8 @@ limitations under the License.
 package configpaths
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -73,7 +75,7 @@ func TestCurrentResolver_DropInDirs(t *testing.T) {
 func TestCurrentResolver_AuthPrimaryPath(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "")
 	r := NewResolver(ContainersImage)
-	path, err := r.AuthPrimaryPath()
+	path, err := r.AuthPrimaryPath(false)
 	if err != nil {
 		t.Fatalf("AuthPrimaryPath() error: %v", err)
 	}
@@ -97,7 +99,7 @@ func TestCurrentResolver_AuthPrimaryPath_XDGRuntime(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", tmpDir)
 
 	r := NewResolver(ContainersImage)
-	path, err := r.AuthPrimaryPath()
+	path, err := r.AuthPrimaryPath(false)
 	if err != nil {
 		t.Fatalf("AuthPrimaryPath() error: %v", err)
 	}
@@ -143,7 +145,7 @@ func TestCurrentResolver_AuthPrimaryPath_XDGRuntimeFlag(t *testing.T) {
 				userConfRelDir:     ".config/containers",
 				authUsesXDGRuntime: tt.authUsesXDGRuntime,
 			}
-			path, err := r.AuthPrimaryPath()
+			path, err := r.AuthPrimaryPath(false)
 			if err != nil {
 				t.Fatalf("AuthPrimaryPath() error: %v", err)
 			}
@@ -151,6 +153,188 @@ func TestCurrentResolver_AuthPrimaryPath_XDGRuntimeFlag(t *testing.T) {
 				t.Errorf("AuthPrimaryPath() = %q, want %q", path, tt.want)
 			}
 		})
+	}
+}
+
+func TestLinuxPerUIDAuthPath(t *testing.T) {
+	got := linuxPerUIDAuthPath(1000)
+	want := filepath.FromSlash("/run/containers/1000/auth.json")
+	if got != want {
+		t.Errorf("linuxPerUIDAuthPath(1000) = %q, want %q", got, want)
+	}
+}
+
+func TestLinuxPreferContainersAuthPath(t *testing.T) {
+	runtimeDir := filepath.Join(t.TempDir(), "runtime")
+	wantFile := filepath.Join(runtimeDir, "containers", "auth.json")
+
+	t.Run("runtime dir exists returns auth path without requiring file", func(t *testing.T) {
+		path, err := linuxPreferContainersAuthPath(runtimeDir, 1000, func(string) (os.FileInfo, error) {
+			return nil, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if path != wantFile {
+			t.Errorf("path = %q, want %q", path, wantFile)
+		}
+	})
+	t.Run("runtime dir missing is an error not home", func(t *testing.T) {
+		path, err := linuxPreferContainersAuthPath(runtimeDir, 1000, func(string) (os.FileInfo, error) {
+			return nil, fs.ErrNotExist
+		})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("err = %v, want fs.ErrNotExist", err)
+		}
+		if path != "" {
+			t.Errorf("path = %q, want empty", path)
+		}
+	})
+	t.Run("other stat error still returns auth path", func(t *testing.T) {
+		path, err := linuxPreferContainersAuthPath(runtimeDir, 1000, func(string) (os.FileInfo, error) {
+			return nil, errors.New("permission denied")
+		})
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+		if path != wantFile {
+			t.Errorf("path = %q, want %q", path, wantFile)
+		}
+	})
+	t.Run("unset runtime uses per-uid path", func(t *testing.T) {
+		path, err := linuxPreferContainersAuthPath("", 42, func(string) (os.FileInfo, error) {
+			t.Fatal("dirStat should not run when runtime dir is unset")
+			return nil, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := linuxPerUIDAuthPath(42)
+		if path != want {
+			t.Errorf("path = %q, want %q", path, want)
+		}
+	})
+}
+
+func TestCurrentResolver_AuthPrimaryPath_PreferContainersAuth(t *testing.T) {
+	homeDir := t.TempDir()
+	homeAuth := filepath.Join(homeDir, ".config", "containers", "auth.json")
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+
+	t.Run("flag off file missing uses home", func(t *testing.T) {
+		xdg := t.TempDir()
+		t.Setenv("XDG_RUNTIME_DIR", xdg)
+		r := &currentResolver{userConfRelDir: ".config/containers", authUsesXDGRuntime: true}
+		path, err := r.AuthPrimaryPath(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if path != homeAuth {
+			t.Errorf("path = %q, want home %q", path, homeAuth)
+		}
+	})
+	t.Run("flag on file missing still uses runtime path", func(t *testing.T) {
+		xdg := t.TempDir()
+		t.Setenv("XDG_RUNTIME_DIR", xdg)
+		r := &currentResolver{userConfRelDir: ".config/containers", authUsesXDGRuntime: true}
+		path, err := r.AuthPrimaryPath(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := filepath.Join(xdg, "containers", "auth.json")
+		if path != want {
+			t.Errorf("path = %q, want %q", path, want)
+		}
+		if path == homeAuth {
+			t.Fatal("must not return home as primary when runtime file is missing")
+		}
+		if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("test setup: runtime auth.json should be missing, stat err = %v", err)
+		}
+	})
+	t.Run("flag on file present uses runtime path", func(t *testing.T) {
+		xdg := t.TempDir()
+		want := filepath.Join(xdg, "containers", "auth.json")
+		if err := os.MkdirAll(filepath.Dir(want), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(want, []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("XDG_RUNTIME_DIR", xdg)
+		r := &currentResolver{userConfRelDir: ".config/containers", authUsesXDGRuntime: true}
+		path, err := r.AuthPrimaryPath(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if path != want {
+			t.Errorf("path = %q, want %q", path, want)
+		}
+	})
+	t.Run("flag on runtime directory missing", func(t *testing.T) {
+		missing := filepath.Join(t.TempDir(), "no-such-runtime")
+		t.Setenv("XDG_RUNTIME_DIR", missing)
+		r := &currentResolver{userConfRelDir: ".config/containers", authUsesXDGRuntime: true}
+		path, err := r.AuthPrimaryPath(true)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("err = %v, want fs.ErrNotExist", err)
+		}
+		if path != "" {
+			t.Errorf("path = %q, want empty (not home %q)", path, homeAuth)
+		}
+	})
+	t.Run("flag on unset uses per-uid path", func(t *testing.T) {
+		t.Setenv("XDG_RUNTIME_DIR", "")
+		r := &currentResolver{userConfRelDir: ".config/containers", authUsesXDGRuntime: true}
+		path, err := r.AuthPrimaryPath(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := linuxPerUIDAuthPath(os.Getuid())
+		if path != want {
+			t.Errorf("path = %q, want %q", path, want)
+		}
+		if path == homeAuth {
+			t.Fatal("must not return home as primary when XDG_RUNTIME_DIR is unset")
+		}
+	})
+	t.Run("non-linux ignores prefer and XDG", func(t *testing.T) {
+		xdg := t.TempDir()
+		t.Setenv("XDG_RUNTIME_DIR", xdg)
+		r := &currentResolver{userConfRelDir: ".config/containers", authUsesXDGRuntime: false}
+		for _, prefer := range []bool{false, true} {
+			path, err := r.AuthPrimaryPath(prefer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if path != homeAuth {
+				t.Errorf("prefer=%v path = %q, want home %q", prefer, path, homeAuth)
+			}
+		}
+	})
+}
+
+func TestUAPIResolver_AuthPrimaryPath_IgnoresPrefer(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	r := NewResolver(UAPI)
+	want := filepath.Join(tmpDir, "containers", "auth.json")
+	for _, prefer := range []bool{false, true} {
+		path, err := r.AuthPrimaryPath(prefer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if path != want {
+			t.Errorf("prefer=%v path = %q, want %q", prefer, path, want)
+		}
 	}
 }
 
@@ -342,7 +526,7 @@ func TestUAPIResolver_AuthPrimaryPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 	r := NewResolver(UAPI)
-	path, err := r.AuthPrimaryPath()
+	path, err := r.AuthPrimaryPath(false)
 	if err != nil {
 		t.Fatalf("AuthPrimaryPath() error: %v", err)
 	}
@@ -356,7 +540,7 @@ func TestUAPIResolver_AuthPrimaryPath_NoUserDir(t *testing.T) {
 	r := &uapiResolver{
 		userConfDir: nil,
 	}
-	_, err := r.AuthPrimaryPath()
+	_, err := r.AuthPrimaryPath(true)
 	if err == nil {
 		t.Error("AuthPrimaryPath() expected error when userConfDir is nil")
 	}

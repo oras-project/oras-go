@@ -58,8 +58,16 @@ type PathResolver interface {
 	// MergeStrategy returns how main config files should be combined.
 	MergeStrategy() MergeStrategy
 
-	// AuthPrimaryPath returns the primary read/write path for auth.json.
-	AuthPrimaryPath() (string, error)
+	// AuthPrimaryPath returns the primary path for auth.json.
+	// When preferContainersAuth is false, Linux uses
+	// $XDG_RUNTIME_DIR/containers/auth.json only if that file exists,
+	// otherwise the user config path. When preferContainersAuth is true
+	// on Linux, the path matches containers/image getPathToAuthWithOS:
+	// $XDG_RUNTIME_DIR/containers/auth.json if the variable is set (even
+	// if the file is missing; an error if the runtime directory is
+	// missing), or /run/containers/<uid>/auth.json if unset. Non-Linux
+	// and UAPI resolvers ignore preferContainersAuth.
+	AuthPrimaryPath(preferContainersAuth bool) (string, error)
 
 	// AuthFallbackPaths returns fallback paths for auth.json.
 	AuthFallbackPaths() []string
