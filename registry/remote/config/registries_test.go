@@ -1801,20 +1801,30 @@ func TestLoadSystemRegistriesConfig_InvalidSystemConfig(t *testing.T) {
 // stubResolver is a test-only PathResolver that returns fixed paths,
 // avoiding any dependency on the real OS environment.
 type stubResolver struct {
-	mainPaths  []string
-	dropInDirs []string
-	strategy   configpaths.MergeStrategy
+	mainPaths      []string
+	dropInDirs     []string
+	strategy       configpaths.MergeStrategy
+	authPrimary    string
+	authPrimaryErr error
+	authFallbacks  []string
+	dockerPath     string
+	gotPrefer      *bool
 }
 
 func (r *stubResolver) MainConfigPaths(_ string) []string        { return r.mainPaths }
 func (r *stubResolver) DropInDirs(_ string) []string             { return r.dropInDirs }
 func (r *stubResolver) MergeStrategy() configpaths.MergeStrategy { return r.strategy }
-func (r *stubResolver) AuthPrimaryPath() (string, error)         { return "", nil }
-func (r *stubResolver) AuthFallbackPaths() []string              { return nil }
-func (r *stubResolver) CertsDirPaths() []string                  { return nil }
-func (r *stubResolver) RegistriesDDirs() []string                { return nil }
-func (r *stubResolver) PolicyPaths() []string                    { return nil }
-func (r *stubResolver) DockerConfigPath() (string, error)        { return "", nil }
+func (r *stubResolver) AuthPrimaryPath(prefer bool) (string, error) {
+	if r.gotPrefer != nil {
+		*r.gotPrefer = prefer
+	}
+	return r.authPrimary, r.authPrimaryErr
+}
+func (r *stubResolver) AuthFallbackPaths() []string       { return r.authFallbacks }
+func (r *stubResolver) CertsDirPaths() []string           { return nil }
+func (r *stubResolver) RegistriesDDirs() []string         { return nil }
+func (r *stubResolver) PolicyPaths() []string             { return nil }
+func (r *stubResolver) DockerConfigPath() (string, error) { return r.dockerPath, nil }
 
 func TestLoadRegistriesConfigFromResolver_FirstFoundWins_ErrorInMainConfig(t *testing.T) {
 	tmpDir := t.TempDir()
