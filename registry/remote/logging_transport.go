@@ -56,33 +56,27 @@ var requestCounter atomic.Uint64
 //	    },
 //	}
 type LoggingTransport struct {
+	// SensitiveHeaders lists additional header names whose values are scrubbed
+	// from the log, in addition to Authorization, Cookie, Proxy-Authorization
+	// and Set-Cookie. Names are matched case-insensitively. It must not be
+	// modified after the transport is first used.
+	SensitiveHeaders []string
+
 	inner  http.RoundTripper
 	logger *slog.Logger
-
-	// extraSensitiveHeaders are scrubbed in addition to sensitiveHeaders.
-	extraSensitiveHeaders []string
 }
 
 // NewLoggingTransport wraps inner with request/response debug logging.
 // If logger is nil, slog.Default() is used. If inner is nil,
 // http.DefaultTransport is used.
-//
-// The values of Authorization, Cookie, Proxy-Authorization and Set-Cookie are
-// always scrubbed from the logged headers. sensitiveHeaders lists additional
-// header names to scrub, for example custom authentication headers. Names are
-// matched case-insensitively.
-func NewLoggingTransport(inner http.RoundTripper, logger *slog.Logger, sensitiveHeaders ...string) *LoggingTransport {
+func NewLoggingTransport(inner http.RoundTripper, logger *slog.Logger) *LoggingTransport {
 	if inner == nil {
 		inner = http.DefaultTransport
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &LoggingTransport{
-		inner:                 inner,
-		logger:                logger,
-		extraSensitiveHeaders: slices.Clone(sensitiveHeaders),
-	}
+	return &LoggingTransport{inner: inner, logger: logger}
 }
 
 // RoundTrip implements http.RoundTripper, logging the request and response.
@@ -101,7 +95,7 @@ func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	t.logger.Debug(req.Method,
 		"id", id,
 		"url", loggedURL.Redacted(),
-		"header", formatHeaders(req.Header, t.extraSensitiveHeaders),
+		"header", formatHeaders(req.Header, t.SensitiveHeaders),
 	)
 
 	resp, err := t.inner.RoundTrip(req)
@@ -116,7 +110,7 @@ func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	t.logger.Debug("Response",
 		"id", id,
 		"status", resp.Status,
-		"header", formatHeaders(resp.Header, t.extraSensitiveHeaders),
+		"header", formatHeaders(resp.Header, t.SensitiveHeaders),
 		"body", formatResponseBody(resp),
 	)
 	return resp, nil

@@ -243,7 +243,9 @@ func (b *ClientBuilder) buildTransport(tlsConfig *tls.Config) http.RoundTripper 
 
 	// Place logging inside retry's Base so each attempt is logged.
 	if b.Logger != nil {
-		base = NewLoggingTransport(base, b.Logger, b.SensitiveHeaders...)
+		lt := NewLoggingTransport(base, b.Logger)
+		lt.SensitiveHeaders = slices.Clone(b.SensitiveHeaders)
+		base = lt
 	}
 
 	return &retry.Transport{

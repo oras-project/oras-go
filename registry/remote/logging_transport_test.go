@@ -90,7 +90,8 @@ func TestLoggingTransport_RoundTrip_AdditionalSensitiveHeaders(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	// The names are matched case-insensitively.
-	lt := NewLoggingTransport(http.DefaultTransport, logger, "x-api-key", "X-RESPONSE-SECRET")
+	lt := NewLoggingTransport(http.DefaultTransport, logger)
+	lt.SensitiveHeaders = []string{"x-api-key", "X-RESPONSE-SECRET"}
 	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
 	req.Header.Set("X-Api-Key", "api-key-secret")
 	req.Header.Set("Authorization", "Bearer auth-secret")
@@ -109,15 +110,6 @@ func TestLoggingTransport_RoundTrip_AdditionalSensitiveHeaders(t *testing.T) {
 	}
 	if !strings.Contains(out, "trace-visible") {
 		t.Errorf("logs should keep the value of a header that is not sensitive:\n%s", out)
-	}
-}
-
-func TestNewLoggingTransport_CopiesSensitiveHeaders(t *testing.T) {
-	names := []string{"X-Api-Key"}
-	lt := NewLoggingTransport(nil, nil, names...)
-	names[0] = "X-Other"
-	if got := lt.extraSensitiveHeaders; len(got) != 1 || got[0] != "X-Api-Key" {
-		t.Errorf("extraSensitiveHeaders = %v, want [X-Api-Key]", got)
 	}
 }
 

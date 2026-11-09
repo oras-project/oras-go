@@ -1140,6 +1140,25 @@ func TestClientBuilder_SensitiveHeaders(t *testing.T) {
 	}
 }
 
+func TestClientBuilder_SensitiveHeaders_copied(t *testing.T) {
+	builder := NewClientBuilder()
+	builder.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	builder.SensitiveHeaders = []string{"X-Api-Key"}
+
+	rt, ok := builder.buildTransport(nil).(*retry.Transport)
+	if !ok {
+		t.Fatalf("buildTransport() did not return a *retry.Transport")
+	}
+	lt, ok := rt.Base.(*LoggingTransport)
+	if !ok {
+		t.Fatalf("retry base transport is %T, want *LoggingTransport", rt.Base)
+	}
+	builder.SensitiveHeaders[0] = "X-Other"
+	if got := lt.SensitiveHeaders; len(got) != 1 || got[0] != "X-Api-Key" {
+		t.Errorf("SensitiveHeaders = %v, want [X-Api-Key]", got)
+	}
+}
+
 func TestClientBuilder_LoggerRouting(t *testing.T) {
 	props := &properties.Registry{
 		Reference: properties.Reference{Registry: "registry.example.com"},
