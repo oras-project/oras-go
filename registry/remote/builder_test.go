@@ -1094,6 +1094,71 @@ func TestClientBuilder_Logger_logsEachRetryAttempt(t *testing.T) {
 	}
 }
 
+func TestClientBuilder_SensitiveHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	var logs bytes.Buffer
+	builder := NewClientBuilder()
+	builder.Logger = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	builder.SensitiveHeaders = []string{"X-Api-Key"}
+
+	props := &properties.Registry{
+		Reference: properties.Reference{
+			Registry:   strings.TrimPrefix(strings.TrimPrefix(srv.URL, "https://"), "http://"),
+			Repository: "test/repo",
+		},
+		Transport: properties.Transport{PlainHTTP: true},
+	}
+	client, err := builder.Build(props)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/v2/", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	req.Header.Set("X-Api-Key", "api-key-secret")
+	req.Header.Set("X-Trace-Id", "trace-visible")
+	resp, err := client.Client.Do(req)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	out := logs.String()
+	if strings.Contains(out, "api-key-secret") {
+		t.Errorf("logs contain the value of a configured sensitive header:\n%s", out)
+	}
+	if !strings.Contains(out, "trace-visible") {
+		t.Errorf("logs should keep the value of a header that is not sensitive:\n%s", out)
+	}
+}
+
+func TestClientBuilder_SensitiveHeaders_copied(t *testing.T) {
+	builder := NewClientBuilder()
+	builder.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	builder.SensitiveHeaders = []string{"X-Api-Key"}
+
+	rt, ok := builder.buildTransport(nil).(*retry.Transport)
+	if !ok {
+		t.Fatalf("buildTransport() did not return a *retry.Transport")
+	}
+	lt, ok := rt.Base.(*LoggingTransport)
+	if !ok {
+		t.Fatalf("retry base transport is %T, want *LoggingTransport", rt.Base)
+	}
+	builder.SensitiveHeaders[0] = "X-Other"
+	if got := lt.SensitiveHeaders; len(got) != 1 || got[0] != "X-Api-Key" {
+		t.Errorf("SensitiveHeaders = %v, want [X-Api-Key]", got)
+	}
+}
+
 func TestClientBuilder_LoggerRouting(t *testing.T) {
 	props := &properties.Registry{
 		Reference: properties.Reference{Registry: "registry.example.com"},

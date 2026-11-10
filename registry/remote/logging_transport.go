@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 )
@@ -55,6 +56,12 @@ var requestCounter atomic.Uint64
 //	    },
 //	}
 type LoggingTransport struct {
+	// SensitiveHeaders lists additional header names whose values are scrubbed
+	// from the log, in addition to Authorization, Cookie, Proxy-Authorization
+	// and Set-Cookie. Names are matched case-insensitively. It must not be
+	// modified after the transport is first used.
+	SensitiveHeaders []string
+
 	inner  http.RoundTripper
 	logger *slog.Logger
 }
@@ -88,7 +95,7 @@ func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	t.logger.Debug(req.Method,
 		"id", id,
 		"url", loggedURL.Redacted(),
-		"header", formatHeaders(req.Header),
+		"header", formatHeaders(req.Header, t.SensitiveHeaders),
 	)
 
 	resp, err := t.inner.RoundTrip(req)
@@ -103,30 +110,34 @@ func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	t.logger.Debug("Response",
 		"id", id,
 		"status", resp.Status,
-		"header", formatHeaders(resp.Header),
+		"header", formatHeaders(resp.Header, t.SensitiveHeaders),
 		"body", formatResponseBody(resp),
 	)
 	return resp, nil
 }
 
 // formatHeaders returns a human-readable representation of the headers with
-// sensitive values replaced by "*****".
-func formatHeaders(header http.Header) string {
+// the values of sensitiveHeaders and of extra replaced by "*****".
+func formatHeaders(header http.Header, extra []string) string {
 	if len(header) == 0 {
 		return "   Empty header"
 	}
 	var parts []string
 	for k, v := range header {
 		val := strings.Join(v, ", ")
-		for _, sensitive := range sensitiveHeaders {
-			if strings.EqualFold(k, sensitive) {
-				val = "*****"
-				break
-			}
+		if isSensitiveHeader(k, extra) {
+			val = "*****"
 		}
 		parts = append(parts, fmt.Sprintf("   %q: %q", k, val))
 	}
 	return strings.Join(parts, "\n")
+}
+
+// isSensitiveHeader reports whether the value of the named header must be
+// scrubbed, either because it is in sensitiveHeaders or in extra.
+func isSensitiveHeader(name string, extra []string) bool {
+	matches := func(h string) bool { return strings.EqualFold(name, h) }
+	return slices.ContainsFunc(sensitiveHeaders, matches) || slices.ContainsFunc(extra, matches)
 }
 
 // formatResponseBody reads up to loggingPayloadSizeLimit bytes from the
