@@ -78,6 +78,59 @@ func TestLoggingTransport_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestLoggingTransport_RoundTrip_AdditionalSensitiveHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Response-Secret", "response-secret")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	// The names are matched case-insensitively.
+	lt := NewLoggingTransport(http.DefaultTransport, logger)
+	lt.SensitiveHeaders = []string{"x-api-key", "X-RESPONSE-SECRET"}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL, nil)
+	req.Header.Set("X-Api-Key", "api-key-secret")
+	req.Header.Set("Authorization", "Bearer auth-secret")
+	req.Header.Set("X-Trace-Id", "trace-visible")
+	resp, err := lt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip() error = %v", err)
+	}
+	defer resp.Body.Close()
+
+	out := logs.String()
+	for _, secret := range []string{"api-key-secret", "response-secret", "auth-secret"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("logs contain sensitive value %q:\n%s", secret, out)
+		}
+	}
+	if !strings.Contains(out, "trace-visible") {
+		t.Errorf("logs should keep the value of a header that is not sensitive:\n%s", out)
+	}
+}
+
+func TestFormatHeaders_ExtraScrubbing(t *testing.T) {
+	h := http.Header{
+		"Authorization": {"Bearer secret"},
+		"X-Api-Key":     {"api-key-secret"},
+		"Content-Type":  {"application/json"},
+	}
+	out := formatHeaders(h, []string{"x-api-key"})
+	if strings.Contains(out, "api-key-secret") {
+		t.Error("X-Api-Key value should be scrubbed")
+	}
+	if strings.Contains(out, "Bearer secret") {
+		t.Error("Authorization value should still be scrubbed")
+	}
+	if !strings.Contains(out, "application/json") {
+		t.Error("Content-Type value should be present")
+	}
+}
+
 func TestLoggingTransport_RoundTrip_CredentialBodyRedacted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -170,7 +223,7 @@ func TestFormatHeaders_Scrubbing(t *testing.T) {
 		"Content-Type":  {"application/json"},
 		"Set-Cookie":    {"session=abc"},
 	}
-	out := formatHeaders(h)
+	out := formatHeaders(h, nil)
 	if strings.Contains(out, "secret") {
 		t.Error("Authorization value should be scrubbed")
 	}
@@ -183,7 +236,7 @@ func TestFormatHeaders_Scrubbing(t *testing.T) {
 }
 
 func TestFormatHeaders_Empty(t *testing.T) {
-	out := formatHeaders(http.Header{})
+	out := formatHeaders(http.Header{}, nil)
 	if !strings.Contains(out, "Empty") {
 		t.Errorf("expected empty header message, got %q", out)
 	}

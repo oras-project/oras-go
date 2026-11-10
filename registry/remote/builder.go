@@ -81,6 +81,13 @@ type ClientBuilder struct {
 	// to log to the default handler.
 	Logger *slog.Logger
 
+	// SensitiveHeaders lists additional HTTP header names whose values are
+	// scrubbed from the debug log, for example custom authentication headers.
+	// Authorization, Cookie, Proxy-Authorization and Set-Cookie are always
+	// scrubbed. Names are matched case-insensitively. It only has an effect
+	// when Logger is non-nil.
+	SensitiveHeaders []string
+
 	// WarningLogger logs registry warnings at slog.LevelWarn, deduplicated per
 	// registry. If nil, Logger is used for backward compatibility. If both are
 	// nil, warnings are not logged.
@@ -236,7 +243,9 @@ func (b *ClientBuilder) buildTransport(tlsConfig *tls.Config) http.RoundTripper 
 
 	// Place logging inside retry's Base so each attempt is logged.
 	if b.Logger != nil {
-		base = NewLoggingTransport(base, b.Logger)
+		lt := NewLoggingTransport(base, b.Logger)
+		lt.SensitiveHeaders = slices.Clone(b.SensitiveHeaders)
+		base = lt
 	}
 
 	return &retry.Transport{
