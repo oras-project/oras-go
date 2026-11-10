@@ -15,9 +15,15 @@ version: 2
 
 updates:
   - package-ecosystem: "gomod"
-    directory: "/"
+    directories:
+      - "/"
+      - "/test/functional"
     schedule:
       interval: "daily"
+    groups:
+      go-modules:
+        patterns:
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
