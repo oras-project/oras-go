@@ -18,6 +18,7 @@ limitations under the License.
 package file
 
 import (
+	"archive/tar"
 	"bytes"
 	"errors"
 	"fmt"
@@ -375,5 +376,76 @@ func Test_restoreDirModes(t *testing.T) {
 	}
 	if got := fi.Mode().Perm(); got != 0700 {
 		t.Errorf("mode of directory outside the extraction root changed to %v, want %v", got, os.FileMode(0700))
+	}
+}
+
+// Test_extractTarDirectory_PreservePermissions_SpecialBits checks the setuid
+// and sticky bits of a tar entry. A tar header mode holds POSIX mode bits,
+// where setuid is 0o4000, while that bit means nothing in an os.FileMode and
+// os.ModeSetuid is 1<<23, so a plain cast between the two both drops bits that
+// are set and sets bits that are not. Setgid goes through the same conversion
+// but is left out here, because Darwin clears it when the caller is not a
+// member of the file's group and the temporary directory's group often is not.
+func Test_extractTarDirectory_PreservePermissions_SpecialBits(t *testing.T) {
+	entries := []struct {
+		name     string
+		tarMode  int64
+		isDir    bool
+		wantMode os.FileMode
+	}{
+		// restored by the chmod that follows the switch
+		{name: "setuid.txt", tarMode: 0o4755, wantMode: os.ModeSetuid | 0755},
+		{name: "sticky-dir", tarMode: 0o1777, isDir: true, wantMode: os.ModeDir | os.ModeSticky | 0777},
+		// a directory its owner cannot write is deferred to restoreDirModes
+		{name: "setuid-dir", tarMode: 0o4555, isDir: true, wantMode: os.ModeDir | os.ModeSetuid | 0555},
+		// 0o4000000 is os.ModeSticky in the os.FileMode layout and means
+		// nothing as a POSIX mode, so it must not make the file sticky
+		{name: "gomode.txt", tarMode: int64(os.ModeSticky) | 0o644, wantMode: 0644},
+	}
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{Name: "base/", Typeflag: tar.TypeDir, Mode: 0o755}); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		hdr := &tar.Header{Name: "base/" + e.name, Mode: e.tarMode, Typeflag: tar.TypeReg}
+		if e.isDir {
+			hdr.Name += "/"
+			hdr.Typeflag = tar.TypeDir
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tempDir := t.TempDir()
+	t.Cleanup(func() {
+		// let t.TempDir remove the directories left without a write bit
+		_ = filepath.WalkDir(tempDir, func(path string, d fs.DirEntry, err error) error {
+			if d != nil && d.IsDir() {
+				_ = os.Chmod(path, 0777)
+			}
+			return nil
+		})
+	})
+	dirName := "base"
+	dirPath := filepath.Join(tempDir, dirName)
+	if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(buf.Bytes()), make([]byte, 1024), true); err != nil {
+		t.Fatalf("extractTarDirectory() error = %v", err)
+	}
+
+	for _, e := range entries {
+		path := filepath.Join(dirPath, e.name)
+		fi, err := os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode(); got != e.wantMode {
+			t.Errorf("%s mode = %v (%#o), want %v (%#o)", e.name, got, got, e.wantMode, e.wantMode)
+		}
 	}
 }

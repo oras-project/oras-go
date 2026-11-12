@@ -269,7 +269,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		if header.Typeflag == tar.TypeDir && (preservePermissions || !existed) {
 			mode := fi.Mode()
 			if preservePermissions {
-				mode = os.FileMode(header.Mode)
+				mode = header.FileInfo().Mode()
 			}
 			if mode&0700 != 0700 {
 				if err := os.Chmod(filePath, fi.Mode()|0700); err != nil {
@@ -280,9 +280,11 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 			}
 		}
 
-		// Restore full mode bits
+		// Restore full mode bits. header.Mode holds POSIX mode bits, so it is
+		// converted through header.FileInfo().Mode() rather than cast, the same
+		// way the entry was created above.
 		if preservePermissions && (header.Typeflag == tar.TypeReg || header.Typeflag == tar.TypeDir) {
-			if err := os.Chmod(filePath, os.FileMode(header.Mode)); err != nil {
+			if err := os.Chmod(filePath, header.FileInfo().Mode()); err != nil {
 				return err
 			}
 		}
