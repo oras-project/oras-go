@@ -173,16 +173,21 @@ func (s *LookasideStore) PutSignature(ctx context.Context, ref string, dgst dige
 
 	basePath := signaturePath(writeURL, ref, dgst)
 
-	// Find the next available index.
+	// Find the next available index. GetSignatures stops enumerating at the
+	// first empty signature, so an empty slot is free here too: writing past
+	// one would store a signature that can never be read back.
 	index := 1
 	for ; index <= maxSignatures; index++ {
 		sigURL := fmt.Sprintf("%s/signature-%d", basePath, index)
-		_, err := s.fetch(ctx, sigURL)
+		data, err := s.fetch(ctx, sigURL)
 		if err != nil {
 			if isNotFound(err) {
 				break
 			}
 			return fmt.Errorf("failed to probe signature index %d: %w", index, err)
+		}
+		if len(data) == 0 {
+			break
 		}
 	}
 	if index > maxSignatures {
