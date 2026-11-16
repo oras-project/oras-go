@@ -470,7 +470,10 @@ func TestLookasideStore_GetSignatures_EmptySignatureFile(t *testing.T) {
 	ref := "registry.example.com/namespace/repo"
 	dgst := digest.FromString("test content")
 
-	sigDir := filepath.Join(tmpDir, ref+"@"+string(dgst.Algorithm())+"="+dgst.Hex())
+	// signaturePath drops the registry host, so the signature lives under the
+	// repository path alone. Writing it under the full reference put it where
+	// the store never looks, and the test passed whatever the file held.
+	sigDir := filepath.Join(tmpDir, "namespace", "repo@"+string(dgst.Algorithm())+"="+dgst.Hex())
 	if err := os.MkdirAll(sigDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -648,5 +651,41 @@ func TestLookasideStore_NilReceiver(t *testing.T) {
 	err = s.PutSignature(context.Background(), "registry.example.com/repo", digest.FromString("test"), []byte("sig"))
 	if err == nil {
 		t.Error("PutSignature() error = nil, want error")
+	}
+}
+
+func TestLookasideStore_PutSignature_EmptySignatureRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	ref := "registry.example.com/namespace/repo"
+	dgst := digest.FromString("test content")
+
+	sigDir := filepath.Join(tmpDir, "namespace", "repo@"+string(dgst.Algorithm())+"="+dgst.Hex())
+	if err := os.MkdirAll(sigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// An interrupted write, or a store that answers 200 with an empty body,
+	// leaves a signature slot that GetSignatures treats as the end of the list.
+	if err := os.WriteFile(filepath.Join(sigDir, "signature-1"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewLookasideStore("file://"+tmpDir, "file://"+tmpDir)
+	ctx := context.Background()
+
+	sig := []byte("signature-data")
+	if err := store.PutSignature(ctx, ref, dgst, sig); err != nil {
+		t.Fatalf("PutSignature() error: %v", err)
+	}
+
+	sigs, err := store.GetSignatures(ctx, ref, dgst)
+	if err != nil {
+		t.Fatalf("GetSignatures() error: %v", err)
+	}
+	if len(sigs) != 1 {
+		t.Fatalf("GetSignatures() returned %d signatures, want 1", len(sigs))
+	}
+	if !bytes.Equal(sigs[0], sig) {
+		t.Errorf("GetSignatures() returned %q, want %q", sigs[0], sig)
 	}
 }
