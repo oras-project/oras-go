@@ -21,11 +21,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/oras-project/oras-go/v3/registry/remote"
 	"github.com/oras-project/oras-go/v3/registry/remote/config"
-	"github.com/oras-project/oras-go/v3/registry/remote/credentials"
-	"github.com/oras-project/oras-go/v3/registry/remote/policy"
-	"github.com/oras-project/oras-go/v3/registry/remote/signature"
 )
 
 func main() {
@@ -39,21 +35,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	builder := remote.NewClientBuilder()
-	if configs.DockerConfig != nil || len(configs.ContainersAuthConfigs) > 0 {
-		store, err := configs.CredentialStore(credentials.StoreOptions{})
-		if err != nil {
-			log.Fatal(err)
-		}
-		builder.CredentialStore = store
-	}
-	if configs.PolicyConfig != nil {
-		verifier := signature.NewSignedByVerifierFromConfig(configs.RegistriesDConfig)
-		evaluator, err := configs.PolicyEvaluator(policy.WithSignedByVerifier(verifier))
-		if err != nil {
-			log.Fatal(err)
-		}
-		builder.PolicyEvaluator = evaluator
+	builder, err := configs.ClientBuilder(config.ClientBuilderOptions{})
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	repository, err := builder.NewRepository(props)
