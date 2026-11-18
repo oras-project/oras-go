@@ -18,10 +18,13 @@ package policy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 )
 
 func TestPolicy_GetRequirementsForImage(t *testing.T) {
@@ -449,6 +452,19 @@ func TestGetDefaultPolicyPath(t *testing.T) {
 
 	if path != userPath && path != systemPath {
 		t.Errorf("GetDefaultPolicyPath() = %v, want %v or %v", path, userPath, systemPath)
+	}
+}
+
+func TestGetDefaultPolicyPath_NoHOME(t *testing.T) {
+	t.Setenv("HOME", "")
+	if _, err := os.UserHomeDir(); err == nil {
+		t.Skip("os.UserHomeDir does not read $HOME on this platform")
+	}
+	if _, err := configpaths.UserHomeDir(); err != nil {
+		t.Skip("no account home for the current uid")
+	}
+	if _, err := GetDefaultPolicyPath(); err != nil && !errors.Is(err, ErrNoPolicyFound) {
+		t.Errorf("GetDefaultPolicyPath() error = %v, want nil or %v", err, ErrNoPolicyFound)
 	}
 }
 

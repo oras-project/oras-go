@@ -175,15 +175,7 @@ func (r *uapiResolver) PolicyPaths() []string {
 }
 
 func (r *uapiResolver) DockerConfigPath() (string, error) {
-	configDir := os.Getenv(dockerConfigDirEnv)
-	if configDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get user home directory: %w", err)
-		}
-		configDir = filepath.Join(home, dockerConfigFileDir)
-	}
-	return filepath.Join(configDir, dockerConfigFileName), nil
+	return DockerConfigPath()
 }
 
 // defaultXDGConfigHome returns $XDG_CONFIG_HOME/containers if set,
@@ -192,7 +184,7 @@ func defaultXDGConfigHome() string {
 	if xdg := os.Getenv(xdgConfigHomeEnv); xdg != "" {
 		return filepath.Join(xdg, containersConfigDir)
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := UserHomeDir(); err == nil {
 		return filepath.Join(home, ".config", containersConfigDir)
 	}
 	return ""
