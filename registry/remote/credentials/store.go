@@ -23,24 +23,16 @@ package credentials
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/oras-project/oras-go/v3/registry/remote/internal/configfile"
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 )
 
 // ConfigFile is the interface for a Docker configuration file that provides
 // credential storage capabilities. It is implemented by [config.Config] from
 // the config package.
 type ConfigFile = configfile.ConfigFile
-
-const (
-	dockerConfigDirEnv   = "DOCKER_CONFIG"
-	dockerConfigFileDir  = ".docker"
-	dockerConfigFileName = "config.json"
-)
 
 // Getter retrieves credentials.
 type Getter interface {
@@ -357,17 +349,7 @@ func (s inheritedHelperStore) Get(ctx context.Context, serverAddress string) (Cr
 
 // getDockerConfigPath returns the path to the default docker config file.
 func getDockerConfigPath() (string, error) {
-	// first try the environment variable
-	configDir := os.Getenv(dockerConfigDirEnv)
-	if configDir == "" {
-		// then try home directory
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get user home directory: %w", err)
-		}
-		configDir = filepath.Join(homeDir, dockerConfigFileDir)
-	}
-	return filepath.Join(configDir, dockerConfigFileName), nil
+	return configpaths.DockerConfigPath()
 }
 
 // storeWithFallbacks is a store that has multiple fallback stores.

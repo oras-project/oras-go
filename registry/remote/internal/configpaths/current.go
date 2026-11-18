@@ -24,10 +24,6 @@ import (
 )
 
 const (
-	dockerConfigDirEnv   = "DOCKER_CONFIG"
-	dockerConfigFileDir  = ".docker"
-	dockerConfigFileName = "config.json"
-
 	containersAuthFile  = "auth.json"
 	containersConfigDir = "containers"
 	xdgRuntimeDirEnv    = "XDG_RUNTIME_DIR"
@@ -159,13 +155,5 @@ func (r *currentResolver) PolicyPaths() []string {
 }
 
 func (r *currentResolver) DockerConfigPath() (string, error) {
-	configDir := os.Getenv(dockerConfigDirEnv)
-	if configDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get user home directory: %w", err)
-		}
-		configDir = filepath.Join(home, dockerConfigFileDir)
-	}
-	return filepath.Join(configDir, dockerConfigFileName), nil
+	return DockerConfigPath()
 }
