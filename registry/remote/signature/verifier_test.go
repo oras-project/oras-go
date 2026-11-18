@@ -32,7 +32,6 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/errdef"
-	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
@@ -364,8 +363,8 @@ func TestParseImageDigest(t *testing.T) {
 }
 
 func TestNewSignedByVerifierFromConfig(t *testing.T) {
-	cfg := &config.RegistriesDConfig{
-		Docker: map[string]config.RegistriesDDockerConfig{
+	cfg := &RegistriesDConfig{
+		Docker: map[string]RegistriesDDockerConfig{
 			"registry.example.com": {
 				Lookaside: "https://sigstore.example.com/sigs",
 			},
@@ -382,8 +381,8 @@ func TestNewSignedByVerifierFromConfig(t *testing.T) {
 }
 
 func TestNewSignedByVerifierFromConfig_NoMatch(t *testing.T) {
-	cfg := &config.RegistriesDConfig{
-		Docker: map[string]config.RegistriesDDockerConfig{},
+	cfg := &RegistriesDConfig{
+		Docker: map[string]RegistriesDDockerConfig{},
 	}
 
 	verifier := NewSignedByVerifierFromConfig(cfg)
@@ -504,8 +503,8 @@ func TestSignedByVerifierFromConfig_MultiScope(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cfg := &config.RegistriesDConfig{
-		Docker: map[string]config.RegistriesDDockerConfig{
+	cfg := &RegistriesDConfig{
+		Docker: map[string]RegistriesDDockerConfig{
 			"registry1.example.com": {
 				Lookaside: ts.URL + "/scope1",
 			},
@@ -513,7 +512,7 @@ func TestSignedByVerifierFromConfig_MultiScope(t *testing.T) {
 				Lookaside: ts.URL + "/scope2",
 			},
 		},
-		DefaultDocker: &config.RegistriesDDockerConfig{
+		DefaultDocker: &RegistriesDDockerConfig{
 			Lookaside: ts.URL + "/default",
 		},
 	}
@@ -569,8 +568,8 @@ func TestSignedByVerifierFromConfig_MultiScope(t *testing.T) {
 	}
 
 	// When default-docker is not set, unconfigured scope returns errdef.ErrUnsupported
-	cfgNoDefault := &config.RegistriesDConfig{
-		Docker: map[string]config.RegistriesDDockerConfig{
+	cfgNoDefault := &RegistriesDConfig{
+		Docker: map[string]RegistriesDDockerConfig{
 			"registry1.example.com": {
 				Lookaside: ts.URL + "/scope1",
 			},
@@ -986,7 +985,7 @@ func TestTypedNilVerifierRepro(t *testing.T) {
 	}
 
 	// registries.d with no lookaside for this scope -> verifier fails closed
-	v := NewSignedByVerifierFromConfig(&config.RegistriesDConfig{})
+	v := NewSignedByVerifierFromConfig(&RegistriesDConfig{})
 	eval, err := policy.NewEvaluator(p, policy.WithSignedByVerifier(v))
 	if err != nil {
 		t.Fatalf("NewEvaluator() error: %v", err)

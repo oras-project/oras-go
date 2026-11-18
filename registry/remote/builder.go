@@ -104,6 +104,9 @@ func NewClientBuilder() *ClientBuilder {
 }
 
 // Build creates an auth.Client for the given registry properties.
+//
+// The client does not enforce PolicyEvaluator. Use [ClientBuilder.NewRepository]
+// or [ClientBuilder.NewRegistry] to apply the policy.
 func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) {
 	if props == nil {
 		return nil, fmt.Errorf("registry properties cannot be nil")

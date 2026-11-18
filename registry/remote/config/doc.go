@@ -34,7 +34,7 @@ limitations under the License.
 // 6 UAPI path resolution strategy.
 //
 // The resulting [Configs] bridges file configuration to remote clients.
-// [Configs.RegistryProperties], [Configs.CredentialStore], and
-// [Configs.PolicyEvaluator] provide the registry properties, credential store,
-// and policy evaluator used to configure remote.ClientBuilder.
+// [Configs.ClientBuilder] returns a remote.ClientBuilder with the loaded
+// credentials and policy, and [Configs.RegistryProperties] returns the
+// properties to pass to its NewRepository method.
 package config
