@@ -19,7 +19,14 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
+)
+
+const (
+	dockerConfigDirEnv   = "DOCKER_CONFIG"
+	dockerConfigFileDir  = ".docker"
+	dockerConfigFileName = "config.json"
 )
 
 // UserHomeDir returns [os.UserHomeDir], or else the home directory of the
@@ -44,4 +51,18 @@ func userHomeDir(osHome func() (string, error), uid int) (string, error) {
 		return "", err
 	}
 	return u.HomeDir, nil
+}
+
+// DockerConfigPath returns $DOCKER_CONFIG/config.json, or
+// ~/.docker/config.json when $DOCKER_CONFIG is unset.
+func DockerConfigPath() (string, error) {
+	configDir := os.Getenv(dockerConfigDirEnv)
+	if configDir == "" {
+		home, err := UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get user home directory: %w", err)
+		}
+		configDir = filepath.Join(home, dockerConfigFileDir)
+	}
+	return filepath.Join(configDir, dockerConfigFileName), nil
 }

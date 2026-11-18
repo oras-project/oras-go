@@ -101,3 +101,12 @@ func TestResolver_NoHOME(t *testing.T) {
 		})
 	}
 }
+
+func TestDockerConfigPath_NoHOME(t *testing.T) {
+	home := unsetHome(t)
+	t.Setenv("DOCKER_CONFIG", "")
+	got, err := DockerConfigPath()
+	if want := filepath.Join(home, ".docker", "config.json"); err != nil || got != want {
+		t.Errorf("DockerConfigPath() = %q, %v, want %q", got, err, want)
+	}
+}
