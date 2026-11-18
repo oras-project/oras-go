@@ -24,7 +24,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/errdef"
-	"github.com/oras-project/oras-go/v3/registry/remote/config"
 	"github.com/oras-project/oras-go/v3/registry/remote/policy"
 )
 
@@ -68,7 +67,7 @@ func NewSignedByVerifier(store SignatureStore) *DefaultSignedByVerifier {
 // from a mirror.
 //
 // NewSignedByVerifierFromConfig never returns nil.
-func NewSignedByVerifierFromConfig(cfg *config.RegistriesDConfig) *DefaultSignedByVerifier {
+func NewSignedByVerifierFromConfig(cfg *RegistriesDConfig) *DefaultSignedByVerifier {
 	return NewSignedByVerifier(NewLookasideStoreFromConfig(cfg))
 }
 

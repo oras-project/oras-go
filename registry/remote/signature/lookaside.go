@@ -30,7 +30,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/errdef"
-	"github.com/oras-project/oras-go/v3/registry/remote/config"
 )
 
 // LookasideStore implements SignatureStore using a lookaside storage backend.
@@ -43,7 +42,7 @@ import (
 //   - file:// — filesystem read/write
 //   - http(s):// — HTTP GET (read), PUT (write)
 type LookasideStore struct {
-	cfg      *config.RegistriesDConfig
+	cfg      *RegistriesDConfig
 	readURL  string
 	writeURL string
 	client   *http.Client
@@ -88,9 +87,9 @@ func NewLookasideStore(readURL, writeURL string) *LookasideStore {
 // Signatures are looked up by the primary repository scope.
 //
 // NewLookasideStoreFromConfig never returns nil.
-func NewLookasideStoreFromConfig(cfg *config.RegistriesDConfig) *LookasideStore {
+func NewLookasideStoreFromConfig(cfg *RegistriesDConfig) *LookasideStore {
 	if cfg == nil {
-		cfg = &config.RegistriesDConfig{}
+		cfg = &RegistriesDConfig{}
 	}
 	return &LookasideStore{
 		cfg:    cfg,

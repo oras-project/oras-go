@@ -29,7 +29,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"github.com/oras-project/oras-go/v3/errdef"
-	"github.com/oras-project/oras-go/v3/registry/remote/config"
 )
 
 func TestLookasideStore_FileBackend_GetSignatures(t *testing.T) {
@@ -296,8 +295,8 @@ func TestNewLookasideStoreFromConfig(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cfg := &config.RegistriesDConfig{
-		Docker: map[string]config.RegistriesDDockerConfig{
+	cfg := &RegistriesDConfig{
+		Docker: map[string]RegistriesDDockerConfig{
 			"registry.example.com": {
 				Lookaside:        ts.URL + "/sigs1",
 				LookasideStaging: ts.URL + "/sigs1-staging",
@@ -307,7 +306,7 @@ func TestNewLookasideStoreFromConfig(t *testing.T) {
 				LookasideStaging: ts.URL + "/sigs2-staging",
 			},
 		},
-		DefaultDocker: &config.RegistriesDDockerConfig{
+		DefaultDocker: &RegistriesDDockerConfig{
 			Lookaside:        ts.URL + "/default",
 			LookasideStaging: ts.URL + "/default-staging",
 		},
@@ -370,8 +369,8 @@ func TestNewLookasideStoreFromConfig(t *testing.T) {
 }
 
 func TestNewLookasideStoreFromConfig_NoMatch(t *testing.T) {
-	cfg := &config.RegistriesDConfig{
-		Docker: map[string]config.RegistriesDDockerConfig{},
+	cfg := &RegistriesDConfig{
+		Docker: map[string]RegistriesDDockerConfig{},
 	}
 
 	store := NewLookasideStoreFromConfig(cfg)
