@@ -18,9 +18,7 @@ package configpaths
 import (
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
-	"strconv"
 )
 
 const (
@@ -29,30 +27,12 @@ const (
 	dockerConfigFileName = "config.json"
 )
 
-// userHomeDir returns osHome(), or else the home directory of uid's account,
-// as the Docker CLI and containers/image do. [user.LookupId], unlike
-// [user.Current], neither caches nor reads $HOME.
-func userHomeDir(osHome func() (string, error), uid int) (string, error) {
-	home, err := osHome()
-	if err == nil || uid < 0 {
-		return home, err
-	}
-	u, uerr := user.LookupId(strconv.Itoa(uid))
-	switch {
-	case uerr != nil:
-		return "", fmt.Errorf("%w (account lookup: %v)", err, uerr)
-	case u.HomeDir == "":
-		return "", err
-	}
-	return u.HomeDir, nil
-}
-
 // DockerConfigPath returns $DOCKER_CONFIG/config.json, or
 // ~/.docker/config.json when $DOCKER_CONFIG is unset.
 func DockerConfigPath() (string, error) {
 	configDir := os.Getenv(dockerConfigDirEnv)
 	if configDir == "" {
-		home, err := userHomeDir(os.UserHomeDir, os.Getuid())
+		home, err := UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("failed to get user home directory: %w", err)
 		}

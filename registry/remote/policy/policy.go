@@ -26,6 +26,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/oras-project/oras-go/v3/registry/remote/internal/configpaths"
 )
 
 var (
@@ -118,7 +120,7 @@ func (p *Policy) SetTransportScope(transport TransportName, scope string, reqs .
 // path is Linux-specific. Use [LoadPolicy] with an explicit path
 // for cross-platform usage.
 func GetDefaultPolicyPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := configpaths.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}

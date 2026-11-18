@@ -184,7 +184,7 @@ func defaultXDGConfigHome() string {
 	if xdg := os.Getenv(xdgConfigHomeEnv); xdg != "" {
 		return filepath.Join(xdg, containersConfigDir)
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := UserHomeDir(); err == nil {
 		return filepath.Join(home, ".config", containersConfigDir)
 	}
 	return ""

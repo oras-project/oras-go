@@ -149,7 +149,7 @@ func LoadSystemRegistriesConfig() (*RegistriesConfig, error) {
 	}
 
 	// 3. Load and merge user config.
-	if homeDir, err := os.UserHomeDir(); err == nil {
+	if homeDir, err := configpaths.UserHomeDir(); err == nil {
 		userConfigPath := filepath.Join(homeDir, ".config", "containers", "registries.conf")
 		if cfg, err := LoadRegistriesConfig(userConfigPath); err == nil {
 			if config == nil {

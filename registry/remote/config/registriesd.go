@@ -158,7 +158,7 @@ func LoadSystemRegistriesDConfig() (*RegistriesDConfig, error) {
 	}
 
 	// 2. Load user configs.
-	if homeDir, err := os.UserHomeDir(); err == nil {
+	if homeDir, err := configpaths.UserHomeDir(); err == nil {
 		userPath := filepath.Join(homeDir, ".config", "containers", "registries.d")
 		config, err = loadRegistriesDDir(config, userPath)
 		if err != nil {

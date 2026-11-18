@@ -49,7 +49,7 @@ func (r *currentResolver) MainConfigPaths(name string) []string {
 	if r.systemConfDir != "" {
 		paths = append(paths, filepath.Join(r.systemConfDir, containersConfigDir, name+".conf"))
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, r.userConfRelDir, name+".conf"))
 	}
 	return paths
@@ -60,7 +60,7 @@ func (r *currentResolver) DropInDirs(name string) []string {
 	if r.systemConfDir != "" {
 		dirs = append(dirs, filepath.Join(r.systemConfDir, containersConfigDir, name+".conf.d"))
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := UserHomeDir(); err == nil {
 		dirs = append(dirs, filepath.Join(home, r.userConfRelDir, name+".conf.d"))
 	}
 	return dirs
@@ -82,7 +82,7 @@ func (r *currentResolver) AuthPrimaryPath(preferContainersAuth bool) (string, er
 			}
 		}
 	}
-	home, err := os.UserHomeDir()
+	home, err := UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
@@ -115,7 +115,7 @@ func (r *currentResolver) AuthFallbackPaths() []string {
 	var paths []string
 	if xdgConfigHome := os.Getenv(xdgConfigHomeEnv); xdgConfigHome != "" {
 		paths = append(paths, filepath.Join(xdgConfigHome, containersConfigDir, containersAuthFile))
-	} else if home, err := os.UserHomeDir(); err == nil {
+	} else if home, err := UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, r.userConfRelDir, containersAuthFile))
 	}
 	return paths
@@ -126,7 +126,7 @@ func (r *currentResolver) CertsDirPaths() []string {
 	if r.systemConfDir != "" {
 		paths = append(paths, filepath.Join(r.systemConfDir, containersConfigDir, "certs.d"))
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, r.userConfRelDir, "certs.d"))
 	}
 	return paths
@@ -137,7 +137,7 @@ func (r *currentResolver) RegistriesDDirs() []string {
 	if r.systemConfDir != "" {
 		dirs = append(dirs, filepath.Join(r.systemConfDir, containersConfigDir, "registries.d"))
 	}
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := UserHomeDir(); err == nil {
 		dirs = append(dirs, filepath.Join(home, r.userConfRelDir, "registries.d"))
 	}
 	return dirs
@@ -145,7 +145,7 @@ func (r *currentResolver) RegistriesDDirs() []string {
 
 func (r *currentResolver) PolicyPaths() []string {
 	var paths []string
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, r.userConfRelDir, "policy.json"))
 	}
 	if r.systemConfDir != "" {
