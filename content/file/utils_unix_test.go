@@ -19,6 +19,7 @@ package file
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -136,8 +137,11 @@ func Test_extractTarDirectory_DirOverSymlink(t *testing.T) {
 		{name: "base/d", linkname: "a/up/../outside", mode: os.ModeSymlink | 0777},
 		{name: "base/d/", mode: os.ModeDir | 0777},
 	})
-	if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), true); err != nil {
-		t.Fatalf("extractTarDirectory() error = %v", err)
+	// the symlink resolves outside the extraction root, so it is refused and
+	// removed before the directory entry is reached
+	err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), true)
+	if !errors.Is(err, ErrPathTraversalDisallowed) {
+		t.Fatalf("extractTarDirectory() error = %v, want %v", err, ErrPathTraversalDisallowed)
 	}
 
 	fi, err := os.Stat(outsideDir)
@@ -151,15 +155,7 @@ func Test_extractTarDirectory_DirOverSymlink(t *testing.T) {
 		t.Errorf("mtime of directory outside the extraction root changed to %v, want %v", got, outsideTime)
 	}
 
-	// the directory entry replaces the symlink with a real directory
-	fi, err = os.Lstat(filepath.Join(dirPath, "d"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !fi.IsDir() {
-		t.Fatalf("%q mode = %v, want a directory", "base/d", fi.Mode())
-	}
-	if got := fi.Mode().Perm(); got != 0777 {
-		t.Errorf("%q mode = %v, want %v", "base/d", got, os.FileMode(0777))
+	if _, err := os.Lstat(filepath.Join(dirPath, "d")); !os.IsNotExist(err) {
+		t.Errorf("Lstat(%q) error = %v, want the refused symlink removed", "base/d", err)
 	}
 }

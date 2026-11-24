@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -669,6 +670,24 @@ func assertPlantedSymlink(t *testing.T, path, want string) {
 	}
 }
 
+// plantRefusedSymlink pushes layer, which plants the escaping symlink
+// escapePath, and checks that the push is refused. It then plants the symlink
+// directly, as an extraction by a release without that check would have left
+// it, so that the defences against writing through it can
+// be tested.
+func plantRefusedSymlink(t *testing.T, s *Store, layerDesc ocispec.Descriptor, layer []byte, escapePath, target string) {
+	t.Helper()
+	if err := s.Push(context.Background(), layerDesc, bytes.NewReader(layer)); !errors.Is(err, ErrPathTraversalDisallowed) {
+		t.Fatalf("Store.Push(layer) error = %v, want %v", err, ErrPathTraversalDisallowed)
+	}
+	if _, err := os.Lstat(escapePath); !os.IsNotExist(err) {
+		t.Fatalf("Lstat(%s) error = %v, want the refused symlink removed", escapePath, err)
+	}
+	if err := os.Symlink(target, escapePath); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Pushing a named blob whose title is a symlink planted by an earlier unpacked
 // layer must not write through that symlink. (GHSA-2hhj-vj64-hx3j)
 func TestStore_File_PushThroughPlantedSymlink(t *testing.T) {
@@ -692,10 +711,8 @@ func TestStore_File_PushThroughPlantedSymlink(t *testing.T) {
 
 	// push 1: the unpack layer plants out/escape -> outsidePath
 	layer, layerDesc := plantEscapeSymlinkLayer(t, workDir, "out", outsidePath)
-	if err := s.Push(ctx, layerDesc, bytes.NewReader(layer)); err != nil {
-		t.Fatal("Store.Push(layer) error =", err)
-	}
 	escapePath := filepath.Join(workDir, "out", "escape")
+	plantRefusedSymlink(t, s, layerDesc, layer, escapePath, outsidePath)
 	assertPlantedSymlink(t, escapePath, outsidePath)
 
 	// push 2: a plain blob titled with the planted symlink path
@@ -751,10 +768,8 @@ func TestStore_Dir_PushThroughPlantedSymlink(t *testing.T) {
 
 	// push 1: the unpack layer plants out/escape -> outsideDir
 	layer, layerDesc := plantEscapeSymlinkLayer(t, workDir, "out", outsideDir)
-	if err := s.Push(ctx, layerDesc, bytes.NewReader(layer)); err != nil {
-		t.Fatal("Store.Push(layer) error =", err)
-	}
 	escapePath := filepath.Join(workDir, "out", "escape")
+	plantRefusedSymlink(t, s, layerDesc, layer, escapePath, outsideDir)
 	assertPlantedSymlink(t, escapePath, outsideDir)
 
 	// push 2: an unpack layer titled with the planted symlink path
