@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -120,6 +121,7 @@ func (b *ClientBuilder) Build(props *properties.Registry) (*auth.Client, error) 
 
 	// Build transport with TLS
 	transport := b.buildTransport(tlsConfig)
+	transport = b.scopeToRegistryOrigin(props, tlsConfig, transport)
 
 	// Build HTTP client with retry
 	httpClient := b.buildHTTPClient(transport)
@@ -254,6 +256,37 @@ func (b *ClientBuilder) buildTransport(tlsConfig *tls.Config) http.RoundTripper 
 	return &retry.Transport{
 		Base:   base,
 		Policy: b.RetryPolicy,
+	}
+}
+
+// scopeToRegistryOrigin keeps the registry's client certificate and custom
+// headers (properties.Transport.HeaderFlags) on the registry's own origin.
+// Without it, a redirect to another host, such as a blob storage backend,
+// would receive both.
+func (b *ClientBuilder) scopeToRegistryOrigin(props *properties.Registry, tlsConfig *tls.Config, registryTransport http.RoundTripper) http.RoundTripper {
+	hasCertificate := tlsConfig != nil && len(tlsConfig.Certificates) != 0
+	if !hasCertificate && len(props.Transport.HeaderFlags) == 0 {
+		return registryTransport
+	}
+	otherTransport := registryTransport
+	if hasCertificate {
+		withoutCertificate := tlsConfig.Clone()
+		withoutCertificate.Certificates = nil
+		otherTransport = b.buildTransport(withoutCertificate)
+	}
+	sensitiveHeaders := make([]string, 0, len(props.Transport.HeaderFlags))
+	for name := range props.Transport.HeaderFlags {
+		sensitiveHeaders = append(sensitiveHeaders, name)
+	}
+	scheme := "https"
+	if props.Transport.PlainHTTP {
+		scheme = "http"
+	}
+	return &originScopedTransport{
+		origin:           &url.URL{Scheme: scheme, Host: props.Reference.Host()},
+		registry:         registryTransport,
+		other:            otherTransport,
+		sensitiveHeaders: sensitiveHeaders,
 	}
 }
 
