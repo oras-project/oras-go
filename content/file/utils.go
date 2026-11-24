@@ -115,9 +115,12 @@ func tarDirectory(ctx context.Context, root, prefix string, w io.Writer, modTime
 	})
 }
 
-// extractTarGzip decompresses the gzip
-// and extracts tar file to a directory specified by the `dir` parameter.
-func extractTarGzip(dirPath, dirName, gzPath, checksumKey, checksum string, buf []byte, preservePermissions bool) (err error) {
+// extractTarGzipIn decompresses the gzip and extracts the tar file to the
+// directory dirRel inside root. dirPath is the absolute path of that
+// directory. Every file system operation goes through root, so no entry can
+// be created, modified or followed outside of it, even when a symlink is
+// planted concurrently, for example by another layer.
+func extractTarGzipIn(root *os.Root, dirRel, dirPath, dirName, gzPath, checksumKey, checksum string, buf []byte, preservePermissions bool) (err error) {
 	// A non-empty checksum that cannot be parsed must not silently disable
 	// the verification of the tar stream.
 	var expectedDigest digest.Digest
@@ -156,7 +159,7 @@ func extractTarGzip(dirPath, dirName, gzPath, checksumKey, checksum string, buf 
 		verifier = expectedDigest.Verifier()
 		r = io.TeeReader(r, verifier)
 	}
-	if err := extractTarDirectory(dirPath, dirName, r, buf, preservePermissions); err != nil {
+	if err := extractTarDirectoryIn(root, dirRel, dirPath, dirName, r, buf, preservePermissions); err != nil {
 		return err
 	}
 	if verifier != nil {
@@ -172,17 +175,25 @@ func extractTarGzip(dirPath, dirName, gzPath, checksumKey, checksum string, buf 
 	return nil
 }
 
-// extractTarDirectory extracts tar file to a directory specified by the `dir`
-// parameter. The file name prefix is ensured to be the string specified by the
-// `prefix` parameter and is trimmed.
-func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, preservePermissions bool) error {
+// extractTarDirectoryIn extracts the tar stream r to the directory dirRel
+// inside root. dirPath is the absolute path of that directory and dirName its
+// name in the archive.
+//
+// The lexical checks on entry names and link targets below are policy: they
+// keep each entry, and each symlink as written, inside the extraction
+// directory. They cannot guarantee containment on their own, because the
+// kernel resolves ".." after a symlink differently from a lexical join, and
+// because the tree can change between a check and its use. Containment is
+// enforced by root, which resolves every path component by component and
+// refuses to leave the directory it was opened on.
+func extractTarDirectoryIn(root *os.Root, dirRel, dirPath, dirName string, r io.Reader, buf []byte, preservePermissions bool) error {
 	tr := tar.NewReader(r)
 	var dirModes []dirMode
 	for {
 		header, err := tr.Next()
 		if err != nil {
 			if err == io.EOF {
-				return restoreDirModes(dirPath, dirModes)
+				return restoreDirModes(root, dirPath, dirModes)
 			}
 			return err
 		}
@@ -193,7 +204,14 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		if err != nil {
 			return err
 		}
+		// Only a directory entry may name the extraction directory itself.
+		// Any other entry would replace it, and the entries that follow would
+		// be written wherever the replacement resolves.
+		if filepath.Clean(filePathRel) == "." && header.Typeflag != tar.TypeDir {
+			return fmt.Errorf("entry %q replaces the extraction directory %q: %w", filename, dirName, ErrPathTraversalDisallowed)
+		}
 		filePath := filepath.Join(dirPath, filePathRel)
+		name := filepath.Join(dirRel, filePathRel) // the path inside root
 
 		// resolveRelToBase only performs lexical and per-component Lstat checks,
 		// which a chain of previously-extracted symlinks can bypass. Re-verify
@@ -208,34 +226,24 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		var existed bool // the path was there before this directory entry
 		switch header.Typeflag {
 		case tar.TypeReg:
-			err = writeFile(filePath, tr, header.FileInfo().Mode(), buf)
+			err = writeFileIn(root, name, tr, header.FileInfo().Mode(), buf)
 		case tar.TypeDir:
-			_, statErr := os.Lstat(filePath)
+			_, statErr := root.Lstat(name)
 			existed = statErr == nil
-			err = makeDir(filePath, header.FileInfo().Mode())
+			err = makeDirIn(root, name, header.FileInfo().Mode())
 		case tar.TypeLink:
 			// NOTE: ORAS does not generate hard links when creating tarballs.
 			// If a hard link is found in the tarball, it will be extracted.
 			// If the target link already exists, os.Link will throw an error.
 			// This is a known limitation and will not be addressed.
-			err = extractHardLink(dirPath, dirName, filePath, header.Linkname)
+			err = extractHardLink(root, dirRel, dirPath, dirName, name, header.Linkname)
 		case tar.TypeSymlink:
 			var target string
 			target, err = ensureLinkPath(dirPath, dirName, filePath, header.Linkname)
 			if err != nil {
 				return err
 			}
-			if err = os.Symlink(target, filePath); err != nil {
-				if !errors.Is(err, fs.ErrExist) {
-					return err
-				}
-				// link already exists, remove the old one and try again
-				if err := os.Remove(filePath); err != nil {
-					return err
-				}
-				err = os.Symlink(target, filePath)
-			}
-			if err != nil {
+			if err := makeSymlinkIn(root, name, target, dirPath, filePath); err != nil {
 				return err
 			}
 			// os.Chtimes and os.Chmod follow symlinks, so restoring the
@@ -251,7 +259,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		}
 
 		// Never restore metadata through a symlink (GHSA-jh75-xv39-vhvx).
-		fi, err := os.Lstat(filePath)
+		fi, err := root.Lstat(name)
 		if err != nil {
 			return err
 		}
@@ -260,7 +268,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		}
 
 		// Change access time and modification time if possible (error ignored)
-		_ = os.Chtimes(filePath, header.AccessTime, header.ModTime)
+		_ = root.Chtimes(name, header.AccessTime, header.ModTime)
 
 		// The entries below a directory that its owner cannot read, write or
 		// search would fail to extract. Give the owner access now and set the
@@ -272,10 +280,10 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 				mode = header.FileInfo().Mode()
 			}
 			if mode&0700 != 0700 {
-				if err := os.Chmod(filePath, fi.Mode()|0700); err != nil {
+				if err := root.Chmod(name, fi.Mode()|0700); err != nil {
 					return err
 				}
-				dirModes = append(dirModes, dirMode{path: filePath, mode: mode})
+				dirModes = append(dirModes, dirMode{path: name, mode: mode})
 				continue
 			}
 		}
@@ -284,7 +292,7 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 		// converted through header.FileInfo().Mode() rather than cast, the same
 		// way the entry was created above.
 		if preservePermissions && (header.Typeflag == tar.TypeReg || header.Typeflag == tar.TypeDir) {
-			if err := os.Chmod(filePath, header.FileInfo().Mode()); err != nil {
+			if err := root.Chmod(name, header.FileInfo().Mode()); err != nil {
 				return err
 			}
 		}
@@ -293,19 +301,19 @@ func extractTarDirectory(dirPath, dirName string, r io.Reader, buf []byte, prese
 
 // dirMode is the mode to set on a directory once all entries are extracted.
 type dirMode struct {
-	path string
+	path string // the path inside the root
 	mode os.FileMode
 }
 
 // restoreDirModes sets the modes of dirs, the last recorded directory first so
 // that a directory is set after the directories inside it. A path that is no
 // longer a directory is skipped, so a symlink is never followed.
-func restoreDirModes(baseAbs string, dirs []dirMode) error {
+func restoreDirModes(root *os.Root, dirPath string, dirs []dirMode) error {
 	for i := len(dirs) - 1; i >= 0; i-- {
-		if err := checkSymlinkEscape(baseAbs, dirs[i].path); err != nil {
+		if err := checkSymlinkEscape(dirPath, filepath.Join(root.Name(), dirs[i].path)); err != nil {
 			return err
 		}
-		fi, err := os.Lstat(dirs[i].path)
+		fi, err := root.Lstat(dirs[i].path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
@@ -315,36 +323,36 @@ func restoreDirModes(baseAbs string, dirs []dirMode) error {
 		if !fi.IsDir() {
 			continue
 		}
-		if err := os.Chmod(dirs[i].path, dirs[i].mode); err != nil {
+		if err := root.Chmod(dirs[i].path, dirs[i].mode); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// extractHardLink creates a hard link at filePath to the file named by
-// linkname. Unlike a symlink target, a tar hard link target is a path from the
-// archive root, the same convention as entry names, so it is resolved against
-// dirPath and not against the directory of the link.
-func extractHardLink(dirPath, dirName, filePath, linkname string) error {
+// extractHardLink creates a hard link at name, a path inside root, to the file
+// named by linkname. Unlike a symlink target, a tar hard link target is a path
+// from the archive root, the same convention as entry names, so it is resolved
+// against dirPath and not against the directory of the link.
+func extractHardLink(root *os.Root, dirRel, dirPath, dirName, name, linkname string) error {
 	rel, err := resolveRelToBase(dirPath, dirName, linkname)
 	if err != nil {
 		return err
 	}
-	target := filepath.Join(dirPath, rel)
-	if err := checkSymlinkEscape(dirPath, target); err != nil {
+	if err := checkSymlinkEscape(dirPath, filepath.Join(dirPath, rel)); err != nil {
 		return err
 	}
+	target := filepath.Join(dirRel, rel)
 	// link(2) may follow a symlink target on some platforms, and the checks
 	// above only inspect the ancestors of target, so refuse a symlink target.
-	info, err := os.Lstat(target)
+	info, err := root.Lstat(target)
 	if err != nil {
 		return fmt.Errorf("hard link %q: %w", linkname, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("hard link target %q is a symbolic link", linkname)
 	}
-	return os.Link(target, filePath)
+	return root.Link(target, name)
 }
 
 // resolveRelToBase ensures the target path is in the base path,
@@ -465,41 +473,130 @@ func realPathForWrite(path string) (string, error) {
 	}
 }
 
-// makeDir creates the directory specified by the `path` parameter.
-func makeDir(path string, perm os.FileMode) error {
-	// os.MkdirAll follows a terminal symlink and returns nil if it resolves to
+// makeDirIn creates the directory name inside root.
+func makeDirIn(root *os.Root, name string, perm os.FileMode) error {
+	// MkdirAll follows a terminal symlink and returns nil if it resolves to
 	// an existing directory, so a directory entry whose path was already
 	// created as a symlink by an earlier archive entry would silently reuse
-	// that link, and the metadata restored afterwards would be applied to a
-	// directory possibly outside the extraction root (GHSA-jh75-xv39-vhvx).
-	// Remove any such symlink first so a real directory is created at path,
-	// as writeFile does for regular files.
-	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(path); err != nil {
-			return err
-		}
+	// that link, and the metadata restored afterwards would be applied to the
+	// directory it points to (GHSA-jh75-xv39-vhvx). Remove any such symlink
+	// first so a real directory is created at name, as writeFileIn does for
+	// regular files.
+	if err := removeSymlinkIn(root, name); err != nil {
+		return err
 	}
-	return os.MkdirAll(path, perm)
+	// root.MkdirAll accepts permission bits only, not the os.ModeDir of a tar
+	// header. The special bits are set afterwards when permissions are
+	// preserved.
+	return root.MkdirAll(name, perm.Perm())
 }
 
-// writeFile writes content to the file specified by the `path` parameter.
-func writeFile(path string, r io.Reader, perm os.FileMode, buf []byte) (err error) {
-	// os.OpenFile follows a terminal symlink, so a regular-file entry whose
-	// path was already created as a symlink by an earlier archive entry would
-	// be written through that link, landing outside the extraction root
-	// (GHSA-m37j-52j7-pjw7). Remove any such symlink first so the content is
-	// written to a regular file at path itself.
-	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		if err := os.Remove(path); err != nil {
+// makeSymlinkIn creates the symlink name inside root, pointing to target. An
+// existing file or symlink at name is replaced, as tar does. An existing
+// directory is not: replacing a directory with a link would redirect whatever
+// is extracted into it later, for example the entries of another layer
+// unpacked below it.
+//
+// link is the absolute path of name, and the symlink must resolve inside
+// dirPath, the directory the lexical check on target bounds it to.
+func makeSymlinkIn(root *os.Root, name, target, dirPath, link string) error {
+	err := root.Symlink(target, name)
+	if errors.Is(err, fs.ErrExist) {
+		fi, statErr := root.Lstat(name)
+		if statErr != nil {
+			return statErr
+		}
+		if fi.IsDir() {
+			return fmt.Errorf("symlink %q would replace a directory: %w", name, ErrPathTraversalDisallowed)
+		}
+		// link already exists, remove the old one and try again
+		if err := root.Remove(name); err != nil {
 			return err
 		}
+		err = root.Symlink(target, name)
 	}
-	file, err := createNoFollow(path, perm)
+	if err != nil {
+		return err
+	}
+	// The target was checked lexically, but the kernel resolves ".." after a
+	// symlink from where that symlink points, so a target that is inside the
+	// extraction directory as text can resolve outside of it. root refuses to
+	// follow such a link, so writes through it already fail; remove it as
+	// well, so that it is not left for whoever reads the extracted files.
+	if err := checkLinkEscape(dirPath, link); err != nil {
+		_ = root.Remove(name)
+		return fmt.Errorf("symlink %q to %q: %w", name, target, err)
+	}
+	return nil
+}
+
+// checkLinkEscape returns ErrPathTraversalDisallowed if the symlink link,
+// resolved the way the kernel resolves it, points outside base. A dangling
+// link is accepted: it is checked when a write goes through it.
+func checkLinkEscape(base, link string) error {
+	realLink, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	realBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(realBase, realLink)
+	if err != nil {
+		return ErrPathTraversalDisallowed
+	}
+	rel = filepath.ToSlash(rel)
+	if strings.HasPrefix(rel, "../") || rel == ".." {
+		return ErrPathTraversalDisallowed
+	}
+	return nil
+}
+
+// removeSymlinkIn removes name inside root if it is a symlink, so that a
+// subsequent write to name does not follow it. It is a no-op if name does not
+// exist or is not a symlink.
+func removeSymlinkIn(root *os.Root, name string) error {
+	fi, err := root.Lstat(name)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	if err := root.Remove(name); err != nil {
+		return fmt.Errorf("failed to remove symlink %s: %w", name, err)
+	}
+	return nil
+}
+
+// writeFileIn writes content to the file name inside root.
+func writeFileIn(root *os.Root, name string, r io.Reader, perm os.FileMode, buf []byte) (err error) {
+	// Opening a file follows a terminal symlink, so a regular-file entry whose
+	// path was already created as a symlink by an earlier archive entry would
+	// be written through that link (GHSA-m37j-52j7-pjw7). Remove any such
+	// symlink first so the content is written to a regular file at name
+	// itself. A link planted after this check is followed, but only inside
+	// root.
+	if err := removeSymlinkIn(root, name); err != nil {
+		return err
+	}
+	const flag = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	// root.OpenFile accepts permission bits only. The special bits are set
+	// afterwards when permissions are preserved.
+	perm = perm.Perm()
+	file, err := root.OpenFile(name, flag, perm)
 	if errors.Is(err, fs.ErrPermission) {
 		// A read-only file, such as one written by an earlier extraction of
 		// the same directory, cannot be truncated. Replace it, as tar does.
-		if os.Remove(path) == nil {
-			file, err = createNoFollow(path, perm)
+		if root.Remove(name) == nil {
+			file, err = root.OpenFile(name, flag, perm)
 		}
 	}
 	if err != nil {

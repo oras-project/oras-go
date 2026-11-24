@@ -141,8 +141,11 @@ func Test_extractTarDirectory_DirOverSymlink(t *testing.T) {
 		{name: "base/d", linkname: "a/up/../outside", mode: os.ModeSymlink | 0777},
 		{name: "base/d/", mode: os.ModeDir | 0777},
 	})
-	if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), true); err != nil {
-		t.Fatalf("extractTarDirectory() error = %v", err)
+	// the symlink resolves outside the extraction root, so it is refused and
+	// removed before the directory entry is reached
+	err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), true)
+	if !errors.Is(err, ErrPathTraversalDisallowed) {
+		t.Fatalf("extractTarDirectory() error = %v, want %v", err, ErrPathTraversalDisallowed)
 	}
 
 	fi, err := os.Stat(outsideDir)
@@ -156,16 +159,8 @@ func Test_extractTarDirectory_DirOverSymlink(t *testing.T) {
 		t.Errorf("mtime of directory outside the extraction root changed to %v, want %v", got, outsideTime)
 	}
 
-	// the directory entry replaces the symlink with a real directory
-	fi, err = os.Lstat(filepath.Join(dirPath, "d"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !fi.IsDir() {
-		t.Fatalf("%q mode = %v, want a directory", "base/d", fi.Mode())
-	}
-	if got := fi.Mode().Perm(); got != 0777 {
-		t.Errorf("%q mode = %v, want %v", "base/d", got, os.FileMode(0777))
+	if _, err := os.Lstat(filepath.Join(dirPath, "d")); !os.IsNotExist(err) {
+		t.Errorf("Lstat(%q) error = %v, want the refused symlink removed", "base/d", err)
 	}
 }
 
@@ -321,8 +316,10 @@ func Test_extractTarDirectory_ReadOnlyDirectorySymlink(t *testing.T) {
 				{name: "base/d/", mode: os.ModeDir | 0555},
 				{name: "base/d", linkname: "a/up/../outside", mode: os.ModeSymlink | 0777},
 			})
-			if err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), preservePermissions); err != nil {
-				t.Fatalf("extractTarDirectory() error = %v", err)
+			// a symlink never replaces a directory
+			err := extractTarDirectory(dirPath, dirName, bytes.NewReader(tarData), make([]byte, 1024), preservePermissions)
+			if !errors.Is(err, ErrPathTraversalDisallowed) {
+				t.Fatalf("extractTarDirectory() error = %v, want %v", err, ErrPathTraversalDisallowed)
 			}
 
 			fi, err := os.Stat(outsideDir)
@@ -352,6 +349,12 @@ func Test_restoreDirModes(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	root, err := os.OpenRoot(tempDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
 	tests := []struct {
 		name    string
 		path    string
@@ -363,7 +366,7 @@ func Test_restoreDirModes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := restoreDirModes(dirPath, []dirMode{{path: filepath.Join(tempDir, tt.path), mode: 0500}})
+			err := restoreDirModes(root, dirPath, []dirMode{{path: tt.path, mode: 0500}})
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("restoreDirModes() error = %v, want %v", err, tt.wantErr)
 			}

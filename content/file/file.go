@@ -661,12 +661,23 @@ func resolveDirAnnotations(annotations map[string]string) (dirAnnotations, error
 // pushDir saves content matching the descriptor to the target directory.
 // checksum, when not empty, is the expected digest of the uncompressed content.
 func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, checksumKey, checksum string, content io.Reader) (err error) {
-	// A symlink at target would make the directory, and everything extracted
-	// into it, resolve outside the working directory. (GHSA-2hhj-vj64-hx3j)
-	if err := removeSymlink(target); err != nil {
+	root, dirRel, err := s.openExtractionRoot(target)
+	if err != nil {
 		return err
 	}
-	if err := ensureDir(target); err != nil {
+	defer func() {
+		closeErr := root.Close()
+		if err == nil {
+			err = closeErr
+		}
+	}()
+
+	// A symlink at target would make the directory, and everything extracted
+	// into it, resolve outside the working directory. (GHSA-2hhj-vj64-hx3j)
+	if err := removeSymlinkIn(root, dirRel); err != nil {
+		return err
+	}
+	if err := root.MkdirAll(dirRel, 0777); err != nil {
 		return fmt.Errorf("failed to ensure directories of the target path: %w", err)
 	}
 
@@ -683,10 +694,43 @@ func (s *Store) pushDir(name, target string, expected ocispec.Descriptor, checks
 
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-	if err := extractTarGzip(target, name, gzPath, checksumKey, checksum, *buf, s.PreservePermissions); err != nil {
+	if err := extractTarGzipIn(root, dirRel, target, name, gzPath, checksumKey, checksum, *buf, s.PreservePermissions); err != nil {
 		return fmt.Errorf("failed to extract tar to %s: %w", target, err)
 	}
 	return nil
+}
+
+// openExtractionRoot opens the directory that bounds the extraction of a
+// directory to target, and returns it with the path of target inside it.
+//
+// The bound is the working directory, not target itself: target is created
+// before the layer is read, and an entry of this or another layer can replace
+// it with a symlink in the meantime. Opening target would follow that link.
+//
+// When path traversal is allowed, target can be outside the working directory
+// and is used as the bound instead.
+func (s *Store) openExtractionRoot(target string) (*os.Root, string, error) {
+	base := s.workingDir
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == ".." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+		if !s.AllowPathTraversalOnWrite {
+			return nil, "", ErrPathTraversalDisallowed
+		}
+		// A symlink at target would be followed by os.OpenRoot.
+		// (GHSA-2hhj-vj64-hx3j)
+		if err := removeSymlink(target); err != nil {
+			return nil, "", err
+		}
+		base, rel = target, "."
+	}
+	if err := ensureDir(base); err != nil {
+		return nil, "", fmt.Errorf("failed to ensure directories of the target path: %w", err)
+	}
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, rel, nil
 }
 
 // returns upper bound for the timestamps in the tarballs generated for the added directories.
