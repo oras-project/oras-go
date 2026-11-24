@@ -63,7 +63,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "$VERSION" "$MERGE_COMMIT"
+          git tag -a "$VERSION" -m "$VERSION" "$MERGE_COMMIT"
           git push origin "$VERSION"
 
       - name: Write release notes from PR body
