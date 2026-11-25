@@ -64,6 +64,11 @@ type chunkedUpload struct {
 	auth string
 	// origin is the registry URL the session was opened on; auth is reused only on its host.
 	origin *url.URL
+	// uploadAuth is the Authorization header reused on uploadHost, a host other
+	// than origin that the session uploads to. It is taken only from requests
+	// to that host, so the registry's credential is never reused there.
+	uploadAuth string
+	uploadHost *url.URL
 }
 
 // pushChunked uploads expected in chunks per the OCI Distribution Spec: it opens
@@ -110,6 +115,10 @@ func (s *blobStore) pushChunked(ctx context.Context, expected ocispec.Descriptor
 	if up.chunk > chunkSize && up.chunk > maxChunkMinLength {
 		s.cancelUpload(ctx, up.location)
 		return fmt.Errorf("%w: advertised minimum chunk size %d exceeds limit %d", errChunkedUploadNotStarted, up.chunk, maxChunkMinLength)
+	}
+
+	if !sameUploadHost(up.location, up.origin) {
+		up.uploadAuth, up.uploadHost = s.uploadHostAuthorization(ctx, up.location), up.location
 	}
 
 	// Bound the read at the declared size so an over-long reader cannot push
@@ -242,28 +251,32 @@ func (s *blobStore) uploadChunks(ctx context.Context, up *chunkedUpload, content
 	}
 }
 
-// sendChunkRequest sends req, reusing the session Authorization header when set.
-// A cached header lets auth.Client.Do skip its challenge round trip, but it also
-// suppresses token refresh (auth/client.go returns early when Authorization is
-// present). Registry tokens routinely expire mid-upload, so on a 401 the header
-// is dropped and the request is rebuilt and retried once, letting the auth
-// client re-authenticate. The refreshed token is captured back into up.auth for
-// the remaining requests. rebuild must return an equivalent request carrying no
+// sendChunkRequest sends req, reusing the session Authorization header cached
+// for its host when set: up.auth on the registry's host, up.uploadAuth on the
+// upload host. A cached header lets auth.Client.Do skip its challenge round
+// trip, but it also suppresses token refresh (auth/client.go returns early when
+// Authorization is present). Registry tokens routinely expire mid-upload, so on
+// a 401 the header is dropped and the request is rebuilt and retried once,
+// letting the auth client re-authenticate. The upload host's header is also
+// dropped on a 403, since a token from its status request may lack the scope
+// for the upload. The refreshed token is captured back for the remaining
+// requests. rebuild must return an equivalent request carrying no
 // Authorization header (the body is re-supplied from the caller's buffer).
 func (s *blobStore) sendChunkRequest(up *chunkedUpload, req *http.Request, rebuild func() (*http.Request, error)) (*http.Response, error) {
-	reuseAuth := up.auth != "" && sameUploadHost(req.URL, up.origin)
+	cached := up.cachedAuth(req.URL)
+	reuseAuth := cached != nil && *cached != ""
 	if reuseAuth {
-		req.Header.Set("Authorization", up.auth)
+		req.Header.Set("Authorization", *cached)
 	}
 	resp, err := s.repo.do(req)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusUnauthorized && reuseAuth {
+	if reuseAuth && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden && cached == &up.uploadAuth) {
 		// The cached token was rejected; drop it and let the auth client
 		// re-authenticate on a fresh request.
 		resp.Body.Close()
-		up.auth = ""
+		*cached = ""
 		retry, rerr := rebuild()
 		if rerr != nil {
 			return nil, rerr
@@ -273,13 +286,31 @@ func (s *blobStore) sendChunkRequest(up *chunkedUpload, req *http.Request, rebui
 			return nil, err
 		}
 	}
-	// Carry the (possibly refreshed) Authorization header forward.
-	if resp.Request != nil && sameUploadHost(resp.Request.URL, up.origin) {
+	// Carry the (possibly refreshed) Authorization header forward for the host
+	// it was sent to, unless the request was redirected to another host.
+	if resp.Request != nil && sameUploadHost(resp.Request.URL, req.URL) {
 		if auth := resp.Request.Header.Get("Authorization"); auth != "" {
-			up.auth = auth
+			if sameUploadHost(req.URL, up.origin) {
+				up.auth = auth
+			} else {
+				up.uploadAuth, up.uploadHost = auth, req.URL
+			}
 		}
 	}
 	return resp, nil
+}
+
+// cachedAuth returns the session's cached Authorization header for a request
+// to u: up.auth on the registry's host, up.uploadAuth on the upload host, or
+// nil on any other host.
+func (up *chunkedUpload) cachedAuth(u *url.URL) *string {
+	switch {
+	case sameUploadHost(u, up.origin):
+		return &up.auth
+	case up.uploadHost != nil && sameUploadHost(u, up.uploadHost):
+		return &up.uploadAuth
+	}
+	return nil
 }
 
 // closeUploadSession issues the final PUT that commits the blob under

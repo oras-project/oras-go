@@ -450,7 +450,8 @@ func TestRepository_Push_SingleRequest_SessionFallbackCrossHost(t *testing.T) {
 	if !bytes.Equal(uploaded, blob) {
 		t.Errorf("uploaded = %q, want %q", uploaded, blob)
 	}
-	if want := []string{""}; !slices.Equal(uploadAuth, want) {
+	// the upload status GET, then the PUT
+	if want := []string{"", ""}; !slices.Equal(uploadAuth, want) {
 		t.Errorf("upload host authorization = %q, want %q", uploadAuth, want)
 	}
 }
