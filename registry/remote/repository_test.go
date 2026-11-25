@@ -3935,6 +3935,14 @@ func Test_BlobStore_Push_UploadLocationAuthorization(t *testing.T) {
 			var gotAuth string
 			var putCount int
 			upload := func(w http.ResponseWriter, r *http.Request) {
+				if tt.crossHost && r.Method == http.MethodGet && r.URL.Path == sessionPath {
+					// the upload status request made before a cross-host upload
+					if got := r.Header.Get("Authorization"); got != "" {
+						t.Errorf("GET authorization = %q, want none", got)
+					}
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
 				if r.Method != http.MethodPut || r.URL.Path != sessionPath {
 					w.WriteHeader(http.StatusForbidden)
 					t.Errorf("unexpected access: %s %s", r.Method, r.URL)

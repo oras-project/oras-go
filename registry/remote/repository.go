@@ -1414,6 +1414,41 @@ func resolveUploadLocation(resp *http.Response, req *http.Request) (*url.URL, er
 	return location, nil
 }
 
+// uploadHostAuthorization returns the Authorization header that the upload
+// host accepted on a bodyless upload status request to location, which is on
+// another host than the registry. Sending it with the upload lets the body go
+// out once: without it the upload host challenges the upload, and a streamed
+// body cannot be sent again. The registry's own credential is not sent; the
+// auth client answers the upload host's challenge for the upload host.
+// It returns "" if the request fails, is redirected to another host, or needs
+// no Authorization, leaving the upload as it was.
+// Reference: https://github.com/opencontainers/distribution-spec/blob/v1.1.1/spec.md#pushing-a-blob-in-chunks
+func (s *blobStore) uploadHostAuthorization(ctx context.Context, location *url.URL) string {
+	// The status request may only be challenged for pull, so ask for the
+	// push the upload needs too. The hint is for the whole upload host, so it
+	// applies whatever repository the auth client reads from the path, which
+	// may also sit under a proxy's path prefix.
+	if _, path, ok := strings.Cut(location.Path, "/v2/"); ok {
+		if i := strings.LastIndex(path, "/blobs/uploads/"); i > 0 {
+			scope := auth.ScopeRepository(path[:i], auth.ActionPull, auth.ActionPush)
+			ctx = auth.AppendScopesForResource(ctx, properties.Resource{Registry: location.Host}, scope)
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location.String(), nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := s.repo.do(req)
+	if err != nil {
+		return ""
+	}
+	resp.Body.Close()
+	if resp.StatusCode/100 != 2 || resp.Request == nil || !sameUploadHost(location, resp.Request.URL) {
+		return ""
+	}
+	return resp.Request.Header.Get("Authorization")
+}
+
 // completePushAfterInitialPost implements step 2 of the push protocol. This can be invoked either by
 // Push or by Mount when the receiving repository does not implement the
 // mount endpoint.
@@ -1480,12 +1515,34 @@ func (s *blobStore) completePushAfterInitialPost(ctx context.Context, req *http.
 	req.URL.RawQuery = q.Encode()
 
 	// reuse credential from previous POST request
-	if auth := resp.Request.Header.Get("Authorization"); auth != "" && sameUploadHost(location, resp.Request.URL) {
-		req.Header.Set("Authorization", auth)
+	var uploadAuth string
+	if sameUploadHost(location, resp.Request.URL) {
+		if auth := resp.Request.Header.Get("Authorization"); auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+	} else if uploadAuth = s.uploadHostAuthorization(ctx, location); uploadAuth != "" {
+		req.Header.Set("Authorization", uploadAuth)
+	}
+	// Clone before sending: the auth client adds its own headers to req.
+	var retry *http.Request
+	if uploadAuth != "" && req.GetBody != nil {
+		retry = req.Clone(ctx)
+		retry.Header.Del("Authorization")
 	}
 	resp, err = s.repo.do(req)
 	if err != nil {
 		return err
+	}
+	if retry != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+		// The upload host rejected the token from its status request. Resend
+		// without it, so that the auth client answers the challenge.
+		resp.Body.Close()
+		if retry.Body, err = req.GetBody(); err != nil {
+			return err
+		}
+		if resp, err = s.repo.do(retry); err != nil {
+			return err
+		}
 	}
 	defer resp.Body.Close()
 
