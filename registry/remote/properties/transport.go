@@ -42,4 +42,9 @@ type Transport struct {
 	// HeaderFlags contains custom HTTP headers to include in requests to the registry.
 	// The key is the header name and the value is the header value.
 	HeaderFlags map[string]string
+
+	// UploadHTTPVersion is the HTTP version used for requests that carry blob
+	// content in a blob upload: "1.1" or "2". Other requests are not affected.
+	// If empty, "1.1" is used.
+	UploadHTTPVersion string
 }

@@ -34,7 +34,8 @@ var ErrRegistryBlocked = errors.New("registry is blocked")
 //  1. Resolves aliases (short names to fully qualified references).
 //  2. Checks if the registry is blocked (returns [ErrRegistryBlocked]).
 //  3. Rewrites the reference using Location rules.
-//  4. Applies transport settings (Insecure) from the matching registry entry.
+//  4. Applies transport settings (Insecure, UploadHTTPVersion) from the
+//     matching registry entry.
 func (rc *RegistriesConfig) RegistryProperties(ref string) (*properties.Registry, error) {
 	return NewRegistryProperties(ref, rc)
 }
@@ -121,6 +122,18 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 		default:
 			return nil, fmt.Errorf("invalid token-flow %q for registry %q: must be %q or %q",
 				origReg.TokenFlow, origReg.Prefix, "oauth2", "distribution")
+		}
+
+		// Rejected like token-flow: a typo must not silently pick a protocol
+		// the operator did not ask for.
+		switch origReg.UploadHTTPVersion {
+		case "", "1.1":
+			props.Transport.UploadHTTPVersion = "1.1"
+		case "2":
+			props.Transport.UploadHTTPVersion = "2"
+		default:
+			return nil, fmt.Errorf("invalid upload-http-version %q for registry %q: must be %q or %q",
+				origReg.UploadHTTPVersion, origReg.Prefix, "1.1", "2")
 		}
 
 		if origReg.BlockedRealmPrefixes != nil {
