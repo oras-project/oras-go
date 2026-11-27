@@ -96,6 +96,42 @@ func Test_requestResource(t *testing.T) {
 			want: properties.Resource{Registry: "localhost:5000", Path: "myspace/app"},
 		},
 		{
+			name: "https default port stripped",
+			url:  "https://example.com:443/v2/myspace/app/manifests/v1",
+			want: properties.Resource{Registry: "example.com", Path: "myspace/app"},
+		},
+		{
+			name: "http default port stripped",
+			url:  "http://reg:80/v2/myspace/app/manifests/v1",
+			want: properties.Resource{Registry: "reg", Path: "myspace/app"},
+		},
+		{
+			name: "non-default https port kept",
+			url:  "https://example.com:5000/v2/myspace/app/manifests/v1",
+			want: properties.Resource{Registry: "example.com:5000", Path: "myspace/app"},
+		},
+		{
+			name: "https port on http request kept",
+			url:  "http://reg:443/v2/myspace/app/manifests/v1",
+			want: properties.Resource{Registry: "reg:443", Path: "myspace/app"},
+		},
+		{
+			name: "docker hub default port stripped before mapping",
+			url:  "https://registry-1.docker.io:443/v2/library/alpine/manifests/latest",
+			want: properties.Resource{Registry: "docker.io", Path: "library/alpine"},
+		},
+		{
+			name: "ipv6 default port stripped",
+			url:  "https://[::1]:443/v2/myspace/app/manifests/v1",
+			want: properties.Resource{Registry: "[::1]", Path: "myspace/app"},
+		},
+		{
+			name: "host header default port stripped",
+			url:  "https://example.com/v2/myspace/app/manifests/v1",
+			host: "example.com:443",
+			want: properties.Resource{Registry: "example.com", Path: "myspace/app"},
+		},
+		{
 			name: "host header wins over url host",
 			url:  "https://example.com/v2/myspace/app/manifests/v1",
 			host: "registry.example.com",
