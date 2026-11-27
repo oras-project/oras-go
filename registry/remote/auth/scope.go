@@ -312,7 +312,7 @@ func scopeHintApplies(hintPath, reqPath string) bool {
 // caller compares equal to one derived from a request by requestResource.
 // Without it every lookup would miss and the hints would silently stop working.
 func canonicalResource(resource properties.Resource) properties.Resource {
-	resource.Registry = canonicalRegistry(resource.Registry)
+	resource.Registry = canonicalRegistry(stripDefaultPort(resource.Registry, "https"))
 	return resource
 }
 
