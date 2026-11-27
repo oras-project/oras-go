@@ -76,6 +76,14 @@ type Registry struct {
 	// empty array blocks nothing. This is an ORAS-specific field and may be
 	// ignored by other tools that parse registries.conf.
 	BlockedRealmPrefixes []string `toml:"blocked-realm-prefixes"`
+	// UploadHTTPVersion selects the HTTP version used for requests that carry
+	// blob content in a blob upload. Valid values: "1.1" and "2". If unset,
+	// "1.1" is used, since HTTP/2 flow control can make uploads to some
+	// registries much slower. Other requests are not affected and may still
+	// use HTTP/2. Any other value is rejected. Mirrors only serve pulls, so it
+	// applies to the primary registry only. This is an ORAS-specific field and
+	// may be ignored by other tools that parse registries.conf.
+	UploadHTTPVersion string `toml:"upload-http-version"`
 }
 
 // Mirror represents a registry mirror configuration.
