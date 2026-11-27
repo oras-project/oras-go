@@ -16,6 +16,7 @@ limitations under the License.
 package auth
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -48,12 +49,38 @@ func requestResource(req *http.Request) properties.Resource {
 	if host == "" && req.URL != nil {
 		host = req.URL.Host
 	}
+	if req.URL != nil {
+		host = stripDefaultPort(host, req.URL.Scheme)
+	}
 	// Store the canonical name; Resource.Host() maps it back for dialing.
 	resource := properties.Resource{Registry: canonicalRegistry(host)}
 	if req.URL != nil {
 		resource.Path = repositoryFromPath(req.URL.Path)
 	}
 	return resource
+}
+
+// stripDefaultPort removes the default port for scheme from host, if
+// present. A non-default port is never removed, and a host without a port
+// is returned unchanged. IPv6 literals keep their brackets.
+func stripDefaultPort(host, scheme string) string {
+	var defaultPort string
+	switch strings.ToLower(scheme) {
+	case "https":
+		defaultPort = "443"
+	case "http":
+		defaultPort = "80"
+	default:
+		return host
+	}
+	hostname, port, err := net.SplitHostPort(host)
+	if err != nil || port != defaultPort {
+		return host
+	}
+	if strings.Contains(hostname, ":") {
+		hostname = "[" + hostname + "]"
+	}
+	return hostname
 }
 
 // canonicalRegistry returns the canonical name of a registry host: lower-cased,
