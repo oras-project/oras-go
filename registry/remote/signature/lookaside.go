@@ -213,9 +213,21 @@ func signaturePath(baseURL, ref string, dgst digest.Digest) string {
 
 // parseURL parses a lookaside URL into its scheme and filesystem or HTTP path.
 func parseURL(rawURL string) (scheme, path string, err error) {
+	// A bare Windows path such as C:\sigstore would otherwise parse with the
+	// scheme "c". filepath.VolumeName is always empty on other systems.
+	if filepath.VolumeName(rawURL) != "" {
+		return "", rawURL, nil
+	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return "", "", fmt.Errorf("invalid URL %s: %w", rawURL, err)
+	}
+	// On Windows, file:///C:/sigstore has the URL path /C:/sigstore, which
+	// os.Open rejects. The local path starts at the drive letter.
+	if parsed.Scheme == "file" {
+		if p := strings.TrimPrefix(parsed.Path, "/"); filepath.VolumeName(p) != "" {
+			return parsed.Scheme, p, nil
+		}
 	}
 	return parsed.Scheme, parsed.Path, nil
 }

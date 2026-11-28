@@ -956,7 +956,7 @@ func TestRepository_DefaultSignedByVerifier_EndToEnd(t *testing.T) {
 	if err := signer.Serialize(&publicKey); err != nil {
 		t.Fatalf("signer.Serialize() error = %v", err)
 	}
-	storeURL := "file://" + t.TempDir()
+	storeURL := t.TempDir()
 	store := signature.NewLookasideStore(storeURL, storeURL)
 	if err := store.PutSignature(context.Background(), repo.Reference().String(), desc.Digest, signedData); err != nil {
 		t.Fatalf("PutSignature() error = %v", err)
@@ -1000,7 +1000,7 @@ func TestRepository_DefaultSignedByVerifier_Unsigned(t *testing.T) {
 		t.Fatalf("signer.Serialize() error = %v", err)
 	}
 	// An empty lookaside: the content has no signatures.
-	storeURL := "file://" + t.TempDir()
+	storeURL := t.TempDir()
 	store := signature.NewLookasideStore(storeURL, storeURL)
 	pol, err := policy.NewEvaluator(&policy.Policy{
 		Default: policy.PolicyRequirements{&policy.PRSignedBy{
