@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestLookasideStore_FileBackend_GetSignatures(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store := NewLookasideStore("file://"+tmpDir, "file://"+tmpDir)
+	store := NewLookasideStore(fileURL(tmpDir), fileURL(tmpDir))
 	ctx := context.Background()
 
 	sigs, err := store.GetSignatures(ctx, ref, dgst)
@@ -73,7 +74,7 @@ func TestLookasideStore_FileBackend_GetSignatures(t *testing.T) {
 func TestLookasideStore_FileBackend_GetSignatures_NotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	store := NewLookasideStore("file://"+tmpDir, "file://"+tmpDir)
+	store := NewLookasideStore(fileURL(tmpDir), fileURL(tmpDir))
 	ctx := context.Background()
 
 	sigs, err := store.GetSignatures(ctx, "nonexistent/repo", digest.FromString("none"))
@@ -88,7 +89,7 @@ func TestLookasideStore_FileBackend_GetSignatures_NotFound(t *testing.T) {
 func TestLookasideStore_FileBackend_PutSignature(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	store := NewLookasideStore("file://"+tmpDir, "file://"+tmpDir)
+	store := NewLookasideStore(fileURL(tmpDir), fileURL(tmpDir))
 	ctx := context.Background()
 
 	ref := "registry.example.com/namespace/repo"
@@ -481,7 +482,7 @@ func TestLookasideStore_GetSignatures_EmptySignatureFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store := NewLookasideStore("file://"+tmpDir, "file://"+tmpDir)
+	store := NewLookasideStore(fileURL(tmpDir), fileURL(tmpDir))
 	sigs, err := store.GetSignatures(context.Background(), ref, dgst)
 	if err != nil {
 		t.Fatalf("GetSignatures() error: %v", err)
@@ -669,7 +670,7 @@ func TestLookasideStore_PutSignature_EmptySignatureRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store := NewLookasideStore("file://"+tmpDir, "file://"+tmpDir)
+	store := NewLookasideStore(fileURL(tmpDir), fileURL(tmpDir))
 	ctx := context.Background()
 
 	sig := []byte("signature-data")
@@ -686,5 +687,58 @@ func TestLookasideStore_PutSignature_EmptySignatureRoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(sigs[0], sig) {
 		t.Errorf("GetSignatures() returned %q, want %q", sigs[0], sig)
+	}
+}
+
+// fileURL returns the file URL for the local directory dir: file:///tmp/dir,
+// or file:///C:/dir on Windows.
+func fileURL(dir string) string {
+	p := filepath.ToSlash(dir)
+	if filepath.VolumeName(dir) != "" {
+		p = "/" + p
+	}
+	return "file://" + p
+}
+
+func TestParseURL_LocalPaths(t *testing.T) {
+	tests := []struct {
+		rawURL     string
+		wantScheme string
+		wantPath   string
+	}{
+		{"file:///var/lib/sigstore", "file", "/var/lib/sigstore"},
+		{"file:///var/lib/my%20sigstore", "file", "/var/lib/my sigstore"},
+		{"/var/lib/sigstore", "", "/var/lib/sigstore"},
+		{"https://example.com/sigstore", "https", "/sigstore"},
+	}
+	if runtime.GOOS == "windows" {
+		tests = append(tests, []struct {
+			rawURL     string
+			wantScheme string
+			wantPath   string
+		}{
+			{"file:///C:/sigstore", "file", "C:/sigstore"},
+			{"file:///c:/my%20sigstore", "file", "c:/my sigstore"},
+			{`C:\sigstore`, "", `C:\sigstore`},
+			{"C:/sigstore", "", "C:/sigstore"},
+			{`\server\share\sigstore`, "", `\server\share\sigstore`},
+		}...)
+	} else {
+		// Only Windows paths start at a drive letter.
+		tests = append(tests, struct {
+			rawURL     string
+			wantScheme string
+			wantPath   string
+		}{"file:///C:/sigstore", "file", "/C:/sigstore"})
+	}
+	for _, tt := range tests {
+		scheme, path, err := parseURL(tt.rawURL)
+		if err != nil {
+			t.Errorf("parseURL(%q) error: %v", tt.rawURL, err)
+			continue
+		}
+		if scheme != tt.wantScheme || path != tt.wantPath {
+			t.Errorf("parseURL(%q) = (%q, %q), want (%q, %q)", tt.rawURL, scheme, path, tt.wantScheme, tt.wantPath)
+		}
 	}
 }
