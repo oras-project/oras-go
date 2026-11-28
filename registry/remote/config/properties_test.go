@@ -85,6 +85,39 @@ func TestRegistriesConfig_RegistryProperties(t *testing.T) {
 			wantRepo:     "image",
 			wantInsecure: true,
 		},
+		{
+			name:         "oci scheme location rewrite",
+			ref:          "oci://docker.io/nginx:latest",
+			wantRegistry: "registry-1.docker.io",
+			wantRepo:     "nginx",
+			wantInsecure: false,
+		},
+		{
+			name:         "http scheme insecure registry",
+			ref:          "http://insecure.example.com/myimage:v1",
+			wantRegistry: "insecure.example.com",
+			wantRepo:     "myimage",
+			wantInsecure: true,
+		},
+		{
+			name:        "oci scheme blocked registry",
+			ref:         "oci://blocked.example.com/image:latest",
+			wantErr:     true,
+			wantBlocked: true,
+		},
+		{
+			name:        "https scheme blocked registry",
+			ref:         "https://blocked.example.com/image:latest",
+			wantErr:     true,
+			wantBlocked: true,
+		},
+		{
+			name:         "https scheme wildcard prefix match",
+			ref:          "https://sub.wildcard.example.com/image:tag",
+			wantRegistry: "sub.wildcard.example.com",
+			wantRepo:     "image",
+			wantInsecure: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -507,5 +540,48 @@ func TestNewRegistryProperties_NoMirrors(t *testing.T) {
 	}
 	if props.Mirrors != nil {
 		t.Errorf("Mirrors = %v, want nil", props.Mirrors)
+	}
+}
+
+func TestNewRegistryProperties_URISchemePreservesSettings(t *testing.T) {
+	config := &RegistriesConfig{
+		Registries: []Registry{
+			{
+				Prefix:               "docker.io",
+				Location:             "registry-1.docker.io",
+				ReferrersAPI:         "unsupported",
+				TokenFlow:            "distribution",
+				BlockedRealmPrefixes: []string{"private"},
+				Mirrors: []Mirror{
+					{Location: "mirror.example.com", PullFromMirror: "all"},
+				},
+			},
+		},
+	}
+
+	for _, scheme := range []string{"oci://", "http://", "https://"} {
+		ref := scheme + "docker.io/library/alpine:latest"
+		props, err := NewRegistryProperties(ref, config)
+		if err != nil {
+			t.Fatalf("NewRegistryProperties(%q) unexpected error: %v", ref, err)
+		}
+		if props.Reference.Registry != "registry-1.docker.io" {
+			t.Errorf("NewRegistryProperties(%q) Registry = %q, want %q", ref, props.Reference.Registry, "registry-1.docker.io")
+		}
+		if props.Source.Registry != "docker.io" || props.Source.Repository != "library/alpine" {
+			t.Errorf("NewRegistryProperties(%q) Source = %+v, want docker.io/library/alpine", ref, props.Source)
+		}
+		if len(props.Mirrors) != 1 || props.Mirrors[0].Location != "mirror.example.com" {
+			t.Errorf("NewRegistryProperties(%q) Mirrors = %+v, want [mirror.example.com]", ref, props.Mirrors)
+		}
+		if props.Attributes.ReferrersAPI != properties.ReferrersAPIUnsupported {
+			t.Errorf("NewRegistryProperties(%q) ReferrersAPI = %v, want unsupported", ref, props.Attributes.ReferrersAPI)
+		}
+		if props.Attributes.TokenFlow != properties.TokenFlowDistribution {
+			t.Errorf("NewRegistryProperties(%q) TokenFlow = %v, want distribution", ref, props.Attributes.TokenFlow)
+		}
+		if len(props.Attributes.BlockedRealmPrefixes) == 0 {
+			t.Errorf("NewRegistryProperties(%q) BlockedRealmPrefixes is empty, want private prefixes", ref)
+		}
 	}
 }

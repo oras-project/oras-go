@@ -439,6 +439,7 @@ func (rc *RegistriesConfig) FindRegistry(ref string) *Registry {
 // The host part is compared case-insensitively on both sides, since the
 // prefix comes from user-authored TOML and the reference from the caller.
 func matchesPrefix(ref, prefix string) bool {
+	ref = trimURIScheme(ref)
 	ref, prefix = lowerHost(ref), lowerHost(prefix)
 
 	// Handle wildcard prefix
@@ -491,6 +492,15 @@ func extractHost(ref string) string {
 		return ref[:idx]
 	}
 
+	return ref
+}
+
+// trimURIScheme strips the URI schemes accepted by [properties.NewReference]
+// so registries.conf rules match the same reference that parsing produces.
+func trimURIScheme(ref string) string {
+	ref = strings.TrimPrefix(ref, "oci://")
+	ref = strings.TrimPrefix(ref, "http://")
+	ref = strings.TrimPrefix(ref, "https://")
 	return ref
 }
 
@@ -563,7 +573,7 @@ func (rc *RegistriesConfig) RewriteReference(ref string) string {
 	}
 
 	// Replace prefix with location
-	if lref, lprefix := lowerHost(ref), lowerHost(prefix); strings.HasPrefix(lref, lprefix) {
+	if lref, lprefix := lowerHost(trimURIScheme(ref)), lowerHost(prefix); strings.HasPrefix(lref, lprefix) {
 		return location + lref[len(lprefix):]
 	}
 
