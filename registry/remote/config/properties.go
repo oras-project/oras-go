@@ -47,6 +47,8 @@ func NewRegistryProperties(ref string, regConf *RegistriesConfig) (*properties.R
 	var origReg *Registry
 	var sourceRef string
 	if regConf != nil {
+		ref = trimURIScheme(ref)
+
 		// Step 1: Resolve aliases. A tag or digest is not part of a short
 		// name's alias; it is kept and appended to the resolved reference.
 		name, suffix := ref, ""

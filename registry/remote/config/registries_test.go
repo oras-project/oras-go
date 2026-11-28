@@ -474,6 +474,16 @@ func TestRegistriesConfig_IsBlocked(t *testing.T) {
 			ref:  "Sub.Blocked.Example.COM/image:tag",
 			want: true,
 		},
+		{
+			name: "blocked registry with oci scheme",
+			ref:  "oci://blocked.registry.com/image:tag",
+			want: true,
+		},
+		{
+			name: "wildcard blocked with https scheme",
+			ref:  "https://sub.blocked.example.com/image:tag",
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -511,6 +521,11 @@ func TestRegistriesConfig_GetMirrors(t *testing.T) {
 		{
 			name:    "registry with mirrors",
 			ref:     "docker.io/nginx:latest",
+			wantLen: 2,
+		},
+		{
+			name:    "registry with mirrors and oci scheme",
+			ref:     "oci://docker.io/nginx:latest",
 			wantLen: 2,
 		},
 		{
@@ -585,6 +600,21 @@ func TestRegistriesConfig_RewriteReference(t *testing.T) {
 			name: "rewrite digest under a repository prefix",
 			ref:  "example.com/team/app@sha256:abc123",
 			want: "mirror.example.com/team/app@sha256:abc123",
+		},
+		{
+			name: "rewrite with oci scheme",
+			ref:  "oci://docker.io/library/alpine:latest",
+			want: "library-mirror.example.com/alpine:latest",
+		},
+		{
+			name: "rewrite with https scheme",
+			ref:  "https://example.com/team/app@sha256:abc123",
+			want: "mirror.example.com/team/app@sha256:abc123",
+		},
+		{
+			name: "no location with oci scheme - unchanged",
+			ref:  "oci://quay.io/coreos/etcd:v3.4.0",
+			want: "oci://quay.io/coreos/etcd:v3.4.0",
 		},
 	}
 
